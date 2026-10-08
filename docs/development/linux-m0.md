@@ -54,7 +54,7 @@ libclang и заголовки PipeWire/SPA. Для Ubuntu:
 sudo apt install build-essential pkg-config libclang-dev libpipewire-0.3-dev pipewire-bin
 cargo build --release -p miceqd
 target/release/miceqd devices
-target/release/miceqd run --input 'alsa_input.<имя из devices>' --engine lite
+target/release/miceqd run --input 'alsa_input.<имя из devices>' --preset raw --engine lite
 ```
 
 Для реального времени используется release-сборка: debug-инференс и конкурирующая сборка
@@ -66,8 +66,8 @@ target/release/miceqd run --input 'alsa_input.<имя из devices>' --engine li
 Состояние RNNoise при восстановлении создаётся заново; краткий разрыв звука неизбежен.
 
 ```sh
-target/release/miceqd run --input 'alsa_input.<name>' --engine raw
-target/release/miceqd run --input 'alsa_input.<name>' --engine lite --intensity 70 --voice-threshold 50
+target/release/miceqd run --input 'alsa_input.<name>' --preset raw
+target/release/miceqd run --input 'alsa_input.<name>' --preset raw --engine lite --intensity 70 --voice-threshold 50
 target/release/miceqd run --input 'alsa_input.<name>' --mute
 target/release/miceqd route <playback-stream-id> <sink-node.name>
 ```
@@ -158,5 +158,6 @@ thread-local планировщиками/буферами. Подготовка
 - Поддержка графов 44,1/96 кГц через PipeWire adapter (DSP-006): сейчас несовпадение частоты
   приводит к тишине и диагностическому завершению, а не к обработке на неверной частоте.
 
-UI, восемь DSP-модулей, изменение параметров во время работы, IPC, конфиг/пресеты,
-калибровка/A-B, трей, автозапуск и упаковка относятся к следующему этапу M1.
+Цепочка из восьми модулей и пресеты M1 описаны в [microphone-chain.md](microphone-chain.md);
+замеры задержки выше сделаны с `--preset raw`. UI, IPC, конфиг, калибровка/A-B, трей,
+автозапуск и упаковка относятся к M1 и ещё не сделаны.

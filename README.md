@@ -19,11 +19,16 @@ target/release/miceqd run --input '<physical node.name>' --engine lite
 
 Select **micEQ Microphone** in the consuming app. The prototype does not change system
 defaults. Omit `--engine lite` for the raw path; use `--mute` for digital silence.
+The daemon waits for PipeWire and recreates the microphone after server restarts.
 Stop with Ctrl+C. The M0 graph must run at 48 kHz; other graph rates are reported as unsupported.
 
 Measured in a private headless PipeWire 1.6.2 graph at quantum 128: **2.67 ms raw**,
 **22.67 ms Lite** (intensity 0, aligned dry path). The Lite latency target in the PRD
 is not met; this remains an M0 investigation.
+
+`miceqd route <playback-stream-id> <sink-node.name>` confirms actual WirePlumber
+links and restores the previous target on timeout. Streams with `node.dont-reconnect`
+or `node.dont-move` are rejected; moving every application remains an M0 investigation.
 
 Local checks:
 
@@ -32,6 +37,7 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 python3 tools/tests/pipewire-smoke.py
+python3 tools/tests/wireplumber-routing.py
 ```
 
 See [Linux M0 development and limitations](docs/development/linux-m0.md) (RU).

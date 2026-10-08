@@ -2,7 +2,7 @@
 
 Состояние на 2026-10-09: начат M0 из PRD §5/§19. Это технический прототип без UI,
 а не готовый MVP M1. Окончательный выбор схемы и ADR откладываются до завершения
-проверок задержки, DeepFilterNet и WirePlumber.
+проверок задержки, DeepFilterNet и совместимости версий PipeWire/WirePlumber.
 
 ## Что реализовано
 
@@ -23,8 +23,20 @@
   после возвращения того же имени линк создаётся снова (основа MIC-005).
 - CLI-список устройств/потоков с `node.description`. Собственные узлы и `.monitor`
   исключаются (основа MIC-001/MIC-003; иконок и UI пока нет).
-- `route` проверяет типы потока/приёмника и записывает `target.object` в `default`
-  metadata по `object.serial` приёмника — эксперимент для APP-004.
+- `route` проверяет типы потока/приёмника, записывает `target.object` в `default`
+  metadata по `object.serial` приёмника и подтверждает перенос по реальным линкам
+  WirePlumber (основа APP-004). При таймауте восстанавливает прежний target, если другой
+  клиент не успел его изменить. `node.dont-reconnect`/`node.dont-move` проверяются
+  через полный NodeInfo: короткие registry properties этих флагов не содержат.
+- После потери PipeWire демон ждёт сервер и пересоздаёт фильтр/линки/DSP вне RT,
+  сохраняя выбранный вход и параметры CLI (основа NFR-S8). В ожидании работают
+  SIGINT/SIGTERM; два последовательных перезапуска проверены интеграционно.
+- Фиксированные DSP-порты сопровождаются node `EnumFormat` mono F32P/48 кГц
+  и публикацией согласованного `Format`/`Props` на control loop.
+  `pw_filter` не имеет node `PortConfig`; WirePlumber завершает согласование
+  уже существующих портов после уведомления `Props` с mono channelMap. Это позволяет
+  WirePlumber обнаружить источник и подключить обычного потребителя (MIC-010/MIC-011),
+  не меняя порты или DSP-состояние в RT.
 - Алгоритмическая задержка передаётся через SPA `ProcessLatency` (NFR-L4).
   SIGINT/SIGTERM обрабатываются до запуска data-loop threads; выход освобождает узел.
 
@@ -50,6 +62,8 @@ target/release/miceqd run --input 'alsa_input.<имя из devices>' --engine li
 В приложении-потребителе нужно выбрать `micEQ Microphone`. Ctrl+C завершает прототип.
 Без `--input` вход остаётся несвязанным; для экспериментов его можно соединить `pw-link`.
 Если указанное устройство отсутствует, прототип ждёт появления этого имени.
+Если сервер ещё не запущен или перезапущен, повторяет подключение раз в 500 мс.
+Состояние RNNoise при восстановлении создаётся заново; краткий разрыв звука неизбежен.
 
 ```sh
 target/release/miceqd run --input 'alsa_input.<name>' --engine raw
@@ -59,9 +73,12 @@ target/release/miceqd route <playback-stream-id> <sink-node.name>
 ```
 
 `devices` выводит ID, media.class, node.name, человекочитаемое описание.
-`route` подтверждает запись metadata, а не фактическое переподключение WirePlumber:
-его нужно проверить через `pw-link -l`. Команда предназначена для M0-эксперимента;
-автоматического перехвата приложений и persistence пока нет.
+`route` ждёт до трёх секунд подтверждения фактического переноса по активным/готовым
+линкам. Ошибка политики не считается успехом записи metadata. WirePlumber должен
+разрешать `linking.allow-moving-streams`; потоки с `node.dont-reconnect=true` или
+`node.dont-move=true` команда отклоняет, не меняя их target. Это подтверждённое
+ограничение подхода APP-004, а не закрытое требование «переносить любые приложения».
+Автоматического перехвата приложений и persistence пока нет.
 
 ## Локальная проверка
 
@@ -71,6 +88,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo build --release -p miceqd
 python3 tools/tests/pipewire-smoke.py
+python3 tools/tests/wireplumber-routing.py
 cargo bench -p miceq-dsp --bench microphone -- --sample-size 10 --measurement-time 1 --warm-up-time 1
 ```
 
@@ -81,9 +99,19 @@ Smoke-тест использует отдельный PipeWire с приват�
 Снимки синтетического сигнала остаются в `.artifacts/latency/`, исключённой из git.
 
 Проверяются прохождение сигнала, mute, тишина после исчезновения входа, переподключение
-по имени, удаление источника при SIGTERM, ошибка при потере сервера и запись routing
-metadata. DSP-тест отдельно запускает первый блок на новом потоке под `assert_no_alloc`,
+по имени, удаление источника при SIGTERM, два восстановления после потери сервера
+с сохранением Lite/задержки и прохождением сигнала, ожидание отсутствующего сервера
+с выходом по SIGINT, ошибка роутинга без policy manager и откат metadata.
+DSP-тест отдельно запускает первый блок на новом потоке под `assert_no_alloc`,
 проверяет произвольный размер блоков, выравнивание dry-пути, NaN/Inf и bit-exact raw.
+
+Отдельный `wireplumber-routing.py` требует WirePlumber, `wpctl` и `dbus-run-session`.
+Он создаёт приватные D-Bus/runtime/config/state, запускает только policy-профиль
+без аппаратных мониторов и не затрагивает пользовательский WirePlumber. Проверяет
+Main → Voice → Main → Voice без пересоздания потока, отказ при выключенном
+`linking.allow-moving-streams` с восстановлением прежнего target, явный отказ
+для `node.dont-reconnect=true`/`node.dont-move=true`, а также подключение
+потребителя к виртуальному микрофону через WirePlumber и прохождение аудио.
 
 `tools/latency-probe/analyze.py` сравнивает синхронные каналы stereo float32 LE raw:
 FL — прямой путь синтетического импульса, FR — через micEQ. Нестабильная задержка
@@ -120,8 +148,12 @@ thread-local планировщиками/буферами. Подготовка
 Остаются до завершения M0:
 
 - DeepFilterNet/Studio: модель, проверка RT-безопасности и бюджета CPU/задержки (NS-002).
-- WirePlumber 0.5 и несколько версий PipeWire; настоящее перемещение native/Flatpak/Electron
-  потоков, `node.dont-reconnect`, восстановление после перезапуска сервера.
+- Матрица версий PipeWire/WirePlumber и реальные native/Flatpak/Electron приложения.
+  На PipeWire 1.6.2 / WirePlumber 0.5.13 обычный native-поток переносится;
+  `node.dont-reconnect=true` блокирует перенос. Нужен дальнейший выбор подхода
+  для таких потоков без нарушения политики/настроек пользователя.
+- Suspend/resume и физическое переподключение устройств (NFR-S8/MIC-005):
+  синтетический hotplug и перезапуск сервера проверены, аппаратные сценарии — ещё нет.
 - Физический loopback и часовой soak с учётом xruns, проверка CPU/RAM на эталонном ПК.
 - Поддержка графов 44,1/96 кГц через PipeWire adapter (DSP-006): сейчас несовпадение частоты
   приводит к тишине и диагностическому завершению, а не к обработке на неверной частоте.

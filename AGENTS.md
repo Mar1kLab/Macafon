@@ -125,13 +125,16 @@ micEQ — лёгкое open-source приложение на Rust: обрабо�
 
 ## 9. Команды
 
-Заполняется по мере появления скаффолда. Ожидаемые:
-
 ```sh
 cargo fmt
 cargo clippy -p <crate> -- -D warnings
 cargo test -p <crate> [filter]
-cargo run -p miceqd                    # демон
-pnpm -C apps/miceq-ui dev              # UI в браузере с mock-демоном
-pnpm -C apps/miceq-ui tauri dev        # UI в Tauri с реальным демоном
+cargo build --release -p miceqd -p miceq-cli
+target/release/miceqd run --input '<node.name>'   # демон (PipeWire + сокет управления)
+target/release/miceq ctl status                   # управление демоном
+python3 tools/tests/pipewire-smoke.py             # приватный PipeWire: задержка, mute, рестарты
+python3 tools/tests/wireplumber-routing.py        # приватный WirePlumber: роутинг
+python3 tools/tests/control-smoke.py              # управление на лету, конфиг, протокол
+pnpm -C apps/miceq-ui dev              # (ещё нет) UI в браузере с mock-демоном
+pnpm -C apps/miceq-ui tauri dev        # (ещё нет) UI в Tauri с реальным демоном
 ```

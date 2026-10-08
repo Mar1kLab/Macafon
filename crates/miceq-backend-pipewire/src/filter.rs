@@ -1,0 +1,228 @@
+use crate::{Connection, Error};
+use miceq_dsp::MicrophoneProcessor;
+use pipewire::{self as pw, properties::properties};
+use std::{
+    ffi::c_void,
+    ptr::{self, NonNull},
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
+};
+
+struct RtState {
+    input: *mut c_void,
+    output: *mut c_void,
+    processor: MicrophoneProcessor,
+    graph_rate_hz: Arc<AtomicU32>,
+}
+
+pub(crate) struct Filter {
+    pointer: NonNull<pw::sys::pw_filter>,
+    state: Box<RtState>,
+    _events: Box<pw::sys::pw_filter_events>,
+    hook: Box<pw::spa::sys::spa_hook>,
+    pub graph_rate_hz: Arc<AtomicU32>,
+}
+
+impl Filter {
+    pub fn new(connection: &Connection, processor: MicrophoneProcessor) -> Result<Self, Error> {
+        let graph_rate_hz = Arc::new(AtomicU32::new(0));
+        let state = Box::new(RtState {
+            input: ptr::null_mut(),
+            output: ptr::null_mut(),
+            processor,
+            graph_rate_hz: graph_rate_hz.clone(),
+        });
+        // SAFETY: pw_filter_events is a C struct of integers and optional function pointers;
+        // zero is a valid value for each field.
+        let mut events: Box<pw::sys::pw_filter_events> = Box::new(unsafe { std::mem::zeroed() });
+        events.version = pw::sys::PW_VERSION_FILTER_EVENTS;
+        events.process = Some(process);
+        let props = properties! {
+            "node.name" => "miceq_mic",
+            "node.description" => "micEQ Microphone",
+            "media.type" => "Audio",
+            "media.category" => "Filter",
+            "media.role" => "Communication",
+            "media.class" => "Audio/Source/Virtual",
+            "node.virtual" => "true",
+            "node.autoconnect" => "false",
+            "node.want-driver" => "true",
+            "node.pause-on-idle" => "false",
+            "node.rate" => "1/48000",
+            "node.latency" => "128/48000",
+            "audio.rate" => "48000",
+            "audio.channels" => "1",
+            "audio.position" => "[ MONO ]",
+        };
+        // SAFETY: core is alive; properties ownership is transferred to PipeWire.
+        let pointer = unsafe {
+            pw::sys::pw_filter_new(
+                connection.core.as_raw_ptr(),
+                c"micEQ Microphone".as_ptr(),
+                props.into_raw(),
+            )
+        };
+        let pointer = NonNull::new(pointer)
+            .ok_or_else(|| Error::Message("Cannot create pw_filter".into()))?;
+        // SAFETY: a zeroed spa_hook is the documented initial state for listener registration.
+        let hook = Box::new(unsafe { std::mem::zeroed() });
+        let mut filter = Self {
+            pointer,
+            state,
+            _events: events,
+            hook,
+            graph_rate_hz,
+        };
+        // SAFETY: callback state/events have stable addresses and outlive the filter;
+        // destroying the filter joins processing before their memory is freed.
+        unsafe {
+            pw::sys::pw_filter_add_listener(
+                filter.pointer(),
+                &mut *filter.hook,
+                &*filter._events,
+                (&mut *filter.state as *mut RtState).cast(),
+            );
+        }
+        filter.state.input = filter.add_port(pw::sys::PW_DIRECTION_INPUT, "input_MONO")?;
+        filter.state.output = filter.add_port(pw::sys::PW_DIRECTION_OUTPUT, "output_MONO")?;
+        filter.connect()?;
+        Ok(filter)
+    }
+
+    pub fn pointer(&self) -> *mut pw::sys::pw_filter {
+        self.pointer.as_ptr()
+    }
+
+    fn add_port(&self, direction: u32, name: &str) -> Result<*mut c_void, Error> {
+        let props = properties! {
+            "format.dsp" => "32 bit float mono audio",
+            "port.name" => name,
+            "audio.channel" => "MONO",
+        };
+        // SAFETY: filter is alive; properties ownership is transferred; no format pods.
+        let port = unsafe {
+            pw::sys::pw_filter_add_port(
+                self.pointer(),
+                direction,
+                pw::sys::pw_filter_port_flags_PW_FILTER_PORT_FLAG_MAP_BUFFERS,
+                1,
+                props.into_raw(),
+                ptr::null_mut(),
+                0,
+            )
+        };
+        if port.is_null() {
+            Err(Error::Message("Cannot create filter port".into()))
+        } else {
+            Ok(port)
+        }
+    }
+
+    fn connect(&self) -> Result<(), Error> {
+        use pw::spa::{
+            pod::{Object, Pod, Property, PropertyFlags, Value, serialize::PodSerializer},
+            sys,
+        };
+        let latency = Value::Object(Object {
+            type_: sys::SPA_TYPE_OBJECT_ParamProcessLatency,
+            id: sys::SPA_PARAM_ProcessLatency,
+            properties: vec![Property {
+                key: sys::SPA_PARAM_PROCESS_LATENCY_rate,
+                flags: PropertyFlags::empty(),
+                value: Value::Int(self.state.processor.latency_samples() as i32),
+            }],
+        });
+        let bytes = PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &latency)
+            .map_err(|error| {
+                Error::Message(format!("Cannot serialize process latency: {error:?}"))
+            })?
+            .0
+            .into_inner();
+        let pod = Pod::from_bytes(&bytes)
+            .ok_or_else(|| Error::Message("Invalid process latency pod".into()))?;
+        let mut params = [pod.as_raw_ptr().cast_const()];
+        // SAFETY: all ports and callback storage are prepared before enabling RT processing.
+        let result = unsafe {
+            pw::sys::pw_filter_connect(
+                self.pointer(),
+                pw::sys::pw_filter_flags_PW_FILTER_FLAG_RT_PROCESS,
+                params.as_mut_ptr(),
+                1,
+            )
+        };
+        if result < 0 {
+            Err(Error::Message(format!(
+                "Cannot connect pw_filter: {result}"
+            )))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl Drop for Filter {
+    fn drop(&mut self) {
+        // SAFETY: uniquely owned filter; destruction stops callbacks before dropping state.
+        unsafe {
+            pw::sys::pw_filter_destroy(self.pointer());
+        }
+    }
+}
+
+unsafe extern "C" fn process(data: *mut c_void, position: *mut pw::spa::sys::spa_io_position) {
+    assert_no_alloc::assert_no_alloc(|| {
+        // SAFETY: PipeWire supplies callback arguments as described by process_inner.
+        unsafe {
+            process_inner(data, position);
+        }
+    });
+}
+
+unsafe fn process_inner(data: *mut c_void, position: *mut pw::spa::sys::spa_io_position) {
+    if data.is_null() || position.is_null() {
+        return;
+    }
+    // SAFETY: PipeWire serializes this callback on its data loop; data points to the
+    // prepared RtState and position is valid for the duration of this invocation.
+    let (state, position) = unsafe { (&mut *data.cast::<RtState>(), &*position) };
+    state
+        .graph_rate_hz
+        .store(position.clock.rate.denom, Ordering::Relaxed);
+    let Ok(count) = u32::try_from(position.clock.duration) else {
+        return;
+    };
+    if count == 0 {
+        return;
+    }
+    // SAFETY: ports are alive, and get_dsp_buffer is RT-safe. PipeWire checks capacity.
+    let (input, output) = unsafe {
+        (
+            pw::sys::pw_filter_get_dsp_buffer(state.input, count).cast::<f32>(),
+            pw::sys::pw_filter_get_dsp_buffer(state.output, count).cast::<f32>(),
+        )
+    };
+    if output.is_null() {
+        return;
+    }
+    // SAFETY: PipeWire provides count writable f32 samples; input can be absent or alias
+    // output, so copy with ptr::copy before creating the mutable output slice.
+    let output = unsafe {
+        if input.is_null() {
+            ptr::write_bytes(output, 0, count as usize);
+        } else {
+            ptr::copy(input, output, count as usize);
+        }
+        std::slice::from_raw_parts_mut(output, count as usize)
+    };
+    if position.clock.rate.num != 1 || position.clock.rate.denom != miceq_dsp::SAMPLE_RATE_HZ {
+        output.fill(0.0);
+        return;
+    }
+    state.processor.process(output);
+    if input.is_null() {
+        // A disconnected physical microphone must immediately produce digital silence.
+        output.fill(0.0);
+    }
+}

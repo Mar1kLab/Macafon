@@ -132,8 +132,10 @@ def main():
                 source.byteswap()
             source_file.write_bytes(source.tobytes())
 
-            for engine in ("raw", "lite", "mute"):
+            for engine in ("raw", "lite", "mute", "natural"):
                 command = [args.daemon, "run", "--input", "test_microphone"]
+                if engine != "natural":
+                    command += ["--preset", "raw"]
                 if engine == "lite":
                     command += ["--engine", "lite", "--intensity", "0"]
                 if engine == "mute":
@@ -177,6 +179,12 @@ def main():
                     assert any(abs(value) > 0.2 for value in samples[0::2]), "no reference signal"
                     assert all(value == 0.0 for value in samples[1::2]), "mute leaked audio"
                     print("mute: digital silence with active input")
+                elif engine == "natural":
+                    processed = samples[1::2]
+                    ceiling = 10 ** (-1 / 20)
+                    assert any(abs(value) > 1e-3 for value in processed), "Natural chain produced no audio"
+                    assert all(abs(value) <= ceiling for value in processed), "Natural exceeded the limiter ceiling"
+                    print(f"natural: full chain passes audio, peak {max(map(abs, processed)):.3f} <= {ceiling:.3f}")
                 else:
                     artifacts = ROOT / ".artifacts/latency"
                     artifacts.mkdir(parents=True, exist_ok=True)
@@ -205,7 +213,7 @@ def main():
             print("routing: missing policy detected; failed move restores empty target metadata")
             stop(playback)
             # Rebuild the whole graph after server loss, preserving the selected chain.
-            daemon = spawn([args.daemon, "run", "--input", "test_microphone",
+            daemon = spawn([args.daemon, "run", "--input", "test_microphone", "--preset", "raw",
                             "--engine", "lite", "--intensity", "0"])
             wait_for(lambda: ports("miceq_mic", "out"), "virtual microphone before server exit")
             for _ in range(2):

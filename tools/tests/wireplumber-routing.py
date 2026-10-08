@@ -154,7 +154,7 @@ def main():
                 smoke.wait_for(lambda: "test_app" not in nodes(), "stream cleanup")
                 print("routing: Main → Voice → Main → Voice without stream restart")
                 print("routing: disabled stream moving detected; previous Voice target restored")
-            microphone = spawn([args.daemon, "run", "--input", "test_microphone"])
+            microphone = spawn([args.daemon, "run", "--input", "test_microphone", "--preset", "raw"])
             virtual = smoke.wait_for(lambda: nodes().get("miceq_mic"), "virtual microphone with WirePlumber")
             source = spawn(["pw-cat", "--playback", "--raw", "--format", "f32", "--channels", "1",
                             "--channel-map", "MONO", "--target", "0", "--latency", "128",

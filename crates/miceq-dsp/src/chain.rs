@@ -12,7 +12,7 @@ use crate::settings::{ChainSettings, NoiseEngine};
 use crate::util::{Ramp, SmoothedGain, lin_to_db};
 use crate::{SAMPLE_RATE_HZ, sanitize};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 const METER_RMS_MS: f32 = 300.0;
 
@@ -28,9 +28,11 @@ pub enum RetuneError {
 
 /// Lock-free meters written by the RT thread once per block (MTR-001…003, DSP-004).
 ///
-/// Peaks and gain reductions hold the maximum since the previous `take`.
+/// Peaks and gain reductions hold the maximum since the previous `take`. Nothing is measured
+/// until `set_enabled(true)`: meters cost nothing while no UI is watching (NFR-R7).
 #[derive(Debug, Default)]
 pub struct Telemetry {
+    enabled: AtomicBool,
     raw_peak: AtomicU32,
     input_peak: AtomicU32,
     input_rms: AtomicU32,
@@ -45,6 +47,7 @@ pub struct Telemetry {
 
 /// One meter reading. Levels in dBFS, reductions in dB (≤ 0), NS activity 0…1.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Meters {
     /// Physical microphone before Gain; ≥ 0 dBFS means it clipped before micEQ (MIC-G1).
     pub raw_peak_dbfs: f32,
@@ -64,6 +67,12 @@ fn raise(slot: &AtomicU32, value: f32) {
     slot.fetch_max(value.to_bits(), Ordering::Relaxed);
 }
 
+fn record(enabled: bool, slot: &AtomicU32, value: f32) {
+    if enabled {
+        raise(slot, value);
+    }
+}
+
 fn take(slot: &AtomicU32) -> f32 {
     f32::from_bits(slot.swap(0, Ordering::Relaxed))
 }
@@ -73,6 +82,10 @@ fn load(slot: &AtomicU32) -> f32 {
 }
 
 impl Telemetry {
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
+    }
+
     pub fn take(&self) -> Meters {
         Meters {
             raw_peak_dbfs: lin_to_db(take(&self.raw_peak)),
@@ -130,13 +143,21 @@ pub struct MicrophoneProcessor {
 
 impl MicrophoneProcessor {
     pub fn new(settings: &ChainSettings) -> Result<Self, ParameterError> {
+        Self::with_telemetry(settings, Arc::default())
+    }
+
+    /// Successive processors of one microphone share meters across swaps.
+    pub fn with_telemetry(
+        settings: &ChainSettings,
+        telemetry: Arc<Telemetry>,
+    ) -> Result<Self, ParameterError> {
         settings.validate()?;
         let active = !settings.bypass;
         let build = |enabled: bool| active && enabled;
         let s = settings;
         Ok(Self {
             settings: *settings,
-            gain: build(s.gain.enabled).then(|| SmoothedGain::new(s.gain.params)),
+            gain: build(s.gain.enabled).then(|| SmoothedGain::new(s.gain.params.gain_db)),
             high_pass: build(s.high_pass.enabled).then(|| HighPass::new(&s.high_pass.params)),
             noise: build(s.noise_suppression.enabled)
                 .then(|| LiteNoiseSuppression::new(&s.noise_suppression.params)),
@@ -149,7 +170,7 @@ impl MicrophoneProcessor {
             mute: Ramp::new([if s.muted { 0.0 } else { 1.0 }]),
             input_meter: LevelMeter { mean_square: 0.0 },
             output_meter: LevelMeter { mean_square: 0.0 },
-            telemetry: Arc::default(),
+            telemetry,
         })
     }
 
@@ -177,25 +198,13 @@ impl MicrophoneProcessor {
     /// Apply continuous parameters and mute with smoothing. RT-safe: no allocation or locks.
     pub fn retune(&mut self, settings: &ChainSettings) -> Result<(), RetuneError> {
         settings.validate()?;
-        let (old, new) = (&self.settings, settings);
-        if old.bypass != new.bypass
-            || old.gain.enabled != new.gain.enabled
-            || old.high_pass.enabled != new.high_pass.enabled
-            || old.noise_suppression.enabled != new.noise_suppression.enabled
-            || old.noise_suppression.params.engine != new.noise_suppression.params.engine
-            || old.expander.enabled != new.expander.enabled
-            || old.eq.enabled != new.eq.enabled
-            || old.compressor.enabled != new.compressor.enabled
-            || old.de_esser.enabled != new.de_esser.enabled
-            || old.limiter.enabled != new.limiter.enabled
-            || old.limiter.params.lookahead_ms != new.limiter.params.lookahead_ms
-        {
+        if self.settings.requires_rebuild(settings) {
             return Err(RetuneError::RebuildRequired);
         }
         self.settings = *settings;
         let s = settings;
         if let Some(gain) = &mut self.gain {
-            gain.set_db(s.gain.params);
+            gain.set_db(s.gain.params.gain_db);
         }
         if let Some(module) = &mut self.high_pass {
             module.set(&s.high_pass.params);
@@ -239,36 +248,39 @@ impl MicrophoneProcessor {
             raw_peak = raw_peak.max(sample.abs());
         }
         let t = &*self.telemetry;
-        raise(&t.raw_peak, raw_peak);
+        let metering = t.enabled.load(Ordering::Relaxed);
+        record(metering, &t.raw_peak, raw_peak);
         if let Some(gain) = &mut self.gain {
             gain.process(io);
         }
-        self.input_meter.measure(io, &t.input_peak, &t.input_rms);
+        if metering {
+            self.input_meter.measure(io, &t.input_peak, &t.input_rms);
+        }
         if let Some(module) = &mut self.high_pass {
             module.process(io);
         }
         if let Some(module) = &mut self.noise {
             module.process(io);
-            raise(&t.noise_activity, module.activity());
+            record(metering, &t.noise_activity, module.activity());
         }
         if let Some(module) = &mut self.expander {
             module.process(io);
-            raise(&t.expander_reduction, -module.reduction_db());
+            record(metering, &t.expander_reduction, -module.reduction_db());
         }
         if let Some(module) = &mut self.eq {
             module.process(io);
         }
         if let Some(module) = &mut self.compressor {
             module.process(io);
-            raise(&t.compressor_reduction, -module.reduction_db());
+            record(metering, &t.compressor_reduction, -module.reduction_db());
         }
         if let Some(module) = &mut self.de_esser {
             module.process(io);
-            raise(&t.de_esser_reduction, -module.reduction_db());
+            record(metering, &t.de_esser_reduction, -module.reduction_db());
         }
         if let Some(module) = &mut self.limiter {
             module.process(io);
-            raise(&t.limiter_reduction, -module.reduction_db());
+            record(metering, &t.limiter_reduction, -module.reduction_db());
         }
         self.output.process(io);
         if self.mute.is_ramping() || self.mute.value()[0] != 1.0 {
@@ -284,7 +296,9 @@ impl MicrophoneProcessor {
             self.reset();
         }
         let t = &*self.telemetry;
-        self.output_meter.measure(io, &t.output_peak, &t.output_rms);
+        if metering {
+            self.output_meter.measure(io, &t.output_peak, &t.output_rms);
+        }
     }
 
     /// Clear filter and envelope state after invalid output (NFR-S4). RNNoise keeps its state:

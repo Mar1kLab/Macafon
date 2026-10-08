@@ -33,6 +33,22 @@ impl Preset {
         }
     }
 
+    /// Stable identifier for CLI, IPC and config.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Natural => "natural",
+            Self::DiscordClear => "discord-clear",
+            Self::NoisyRoom => "noisy-room",
+            Self::Broadcast => "broadcast",
+            Self::WarmPodcast => "warm-podcast",
+            Self::Raw => "raw",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|preset| preset.id() == id)
+    }
+
     pub fn settings(self) -> ChainSettings {
         use EqCharacter::*;
         use NoiseEngine::*;

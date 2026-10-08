@@ -1,7 +1,7 @@
 //! Feed-forward compressor without look-ahead (PRD §6.3.6): soft-knee gain computer,
 //! peak or RMS detector, branching attack/release on the gain reduction.
 
-use crate::settings::{CompressorDetector, CompressorParams, Makeup, SPEECH_REFERENCE_DBFS};
+use crate::settings::{CompressorDetector, CompressorParams, SPEECH_REFERENCE_DBFS};
 use crate::util::{
     Ramp, SNAP_DB, SNAP_POWER, db_to_lin, follow, lin_to_db, power_to_db, time_coefficient,
 };
@@ -33,9 +33,9 @@ pub fn static_curve_db(level_db: f32, threshold_db: f32, ratio: f32, knee_db: f3
 }
 
 fn makeup_db(params: &CompressorParams) -> f32 {
-    match params.makeup {
-        Makeup::Manual { gain_db } => gain_db,
-        Makeup::Auto => {
+    match params.makeup_db {
+        Some(gain_db) => gain_db,
+        None => {
             SPEECH_REFERENCE_DBFS
                 - static_curve_db(
                     SPEECH_REFERENCE_DBFS,
@@ -137,7 +137,7 @@ mod tests {
             ratio: 4.0,
             knee_db: 0.0,
             detector: CompressorDetector::Peak,
-            makeup: Makeup::Manual { gain_db: 0.0 },
+            makeup_db: Some(0.0),
             ..CompressorParams::default()
         };
         let mut compressor = Compressor::new(&params);
@@ -148,7 +148,7 @@ mod tests {
         assert!((compressor.envelope_db - -7.5).abs() < 0.05);
 
         let auto = Compressor::new(&CompressorParams {
-            makeup: Makeup::Auto,
+            makeup_db: None,
             ..params
         });
         // Reference −18 dBFS is 12 dB over: −9 dB reduction restored by +9 dB makeup.

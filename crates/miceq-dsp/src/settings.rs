@@ -11,8 +11,10 @@ pub const DEFAULT_NOISE_FLOOR_DBFS: f32 = -56.0;
 pub const SPEECH_REFERENCE_DBFS: f32 = -18.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Module<T> {
     pub enabled: bool,
+    #[cfg_attr(feature = "serde", serde(flatten))]
     pub params: T,
 }
 
@@ -33,6 +35,23 @@ impl<T> Module<T> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
+pub struct GainParams {
+    pub gain_db: f32,
+}
+
+impl Default for GainParams {
+    fn default() -> Self {
+        Self {
+            gain_db: GAIN_DB.default,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct HighPassParams {
     pub freq_hz: f32,
     pub slope_db_oct: u8,
@@ -70,6 +89,8 @@ impl HighPassParams {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum NoiseEngine {
     /// RNNoise (`nnnoiseless`).
     Lite,
@@ -78,6 +99,8 @@ pub enum NoiseEngine {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct NoiseSuppressionParams {
     pub engine: NoiseEngine,
     pub intensity_pct: f32,
@@ -113,9 +136,12 @@ impl NoiseSuppressionParams {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct ExpanderParams {
     pub threshold_db: f32,
     /// Expansion ratio 1:x; `f32::INFINITY` turns the expander into a gate.
+    #[cfg_attr(feature = "serde", serde(with = "gate_ratio"))]
     pub ratio: f32,
     pub range_db: f32,
     pub attack_ms: f32,
@@ -169,6 +195,8 @@ impl ExpanderParams {
 
 /// EQ band types of PRD §6.3.5.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum EqFilter {
     Bell,
     LowShelf,
@@ -179,6 +207,7 @@ pub enum EqFilter {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EqBand {
     pub filter: EqFilter,
     pub freq_hz: f32,
@@ -215,6 +244,8 @@ pub const EQ_DEFAULT_LAYOUT: [EqBand; EQ_DEFAULT_BANDS] = [
 
 /// Simple-mode EQ characters (EQ-002).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum EqCharacter {
     Flat,
     Clarity,
@@ -259,6 +290,11 @@ impl EqCharacter {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(into = "EqRepr", try_from = "EqRepr")
+)]
 pub struct EqParams {
     pub bands: [EqBand; EQ_MAX_BANDS],
     pub band_count: usize,
@@ -310,28 +346,24 @@ impl EqParams {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum CompressorDetector {
     Peak,
     Rms,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Makeup {
-    /// Restores the static gain lost at the speech reference level.
-    Auto,
-    Manual {
-        gain_db: f32,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct CompressorParams {
     pub threshold_db: f32,
     pub ratio: f32,
     pub attack_ms: f32,
     pub release_ms: f32,
     pub knee_db: f32,
-    pub makeup: Makeup,
+    /// `None` = auto: restores the static gain lost at the speech reference level.
+    pub makeup_db: Option<f32>,
     pub detector: CompressorDetector,
 }
 
@@ -343,7 +375,7 @@ impl Default for CompressorParams {
             attack_ms: COMPRESSOR_ATTACK_MS.default,
             release_ms: COMPRESSOR_RELEASE_MS.default,
             knee_db: COMPRESSOR_KNEE_DB.default,
-            makeup: Makeup::Auto,
+            makeup_db: None,
             detector: CompressorDetector::Rms,
         }
     }
@@ -366,7 +398,7 @@ impl CompressorParams {
         COMPRESSOR_ATTACK_MS.check(self.attack_ms)?;
         COMPRESSOR_RELEASE_MS.check(self.release_ms)?;
         COMPRESSOR_KNEE_DB.check(self.knee_db)?;
-        if let Makeup::Manual { gain_db } = self.makeup {
+        if let Some(gain_db) = self.makeup_db {
             COMPRESSOR_MAKEUP_DB.check(gain_db)?;
         }
         Ok(())
@@ -374,12 +406,16 @@ impl CompressorParams {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum DeEsserMode {
     SplitBand,
     Wideband,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct DeEsserParams {
     pub freq_hz: f32,
     pub threshold_db: f32,
@@ -416,6 +452,8 @@ impl DeEsserParams {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct LimiterParams {
     pub ceiling_db: f32,
     pub release_ms: f32,
@@ -458,11 +496,13 @@ impl LimiterParams {
 /// The fixed-order chain of PRD §6.3: Gain → HPF → NS → Expander → EQ → Compressor →
 /// De-esser → Limiter → Output gain.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct ChainSettings {
     pub muted: bool,
     /// Global bypass (MIC-014): the chain passes the input at 0 dB.
     pub bypass: bool,
-    pub gain: Module<f32>,
+    pub gain: Module<GainParams>,
     pub high_pass: Module<HighPassParams>,
     pub noise_suppression: Module<NoiseSuppressionParams>,
     pub expander: Module<ExpanderParams>,
@@ -485,7 +525,7 @@ impl ChainSettings {
         Self {
             muted: false,
             bypass: false,
-            gain: Module::on(GAIN_DB.default),
+            gain: Module::on(GainParams::default()),
             high_pass: Module::off(HighPassParams::default()),
             noise_suppression: Module::off(NoiseSuppressionParams::default()),
             expander: Module::off(ExpanderParams::default()),
@@ -497,8 +537,42 @@ impl ChainSettings {
         }
     }
 
+    /// Module on/off, bypass, the NS engine and look-ahead change topology or latency and
+    /// need a new processor; everything else can be retuned in place.
+    pub fn requires_rebuild(&self, new: &Self) -> bool {
+        self.bypass != new.bypass
+            || self.gain.enabled != new.gain.enabled
+            || self.high_pass.enabled != new.high_pass.enabled
+            || self.noise_suppression.enabled != new.noise_suppression.enabled
+            || self.noise_suppression.params.engine != new.noise_suppression.params.engine
+            || self.expander.enabled != new.expander.enabled
+            || self.eq.enabled != new.eq.enabled
+            || self.compressor.enabled != new.compressor.enabled
+            || self.de_esser.enabled != new.de_esser.enabled
+            || self.limiter.enabled != new.limiter.enabled
+            || self.limiter.params.lookahead_ms != new.limiter.params.lookahead_ms
+    }
+
+    /// Algorithmic latency of a processor built from these settings.
+    pub fn latency_samples(&self) -> u32 {
+        if self.bypass {
+            return 0;
+        }
+        let noise = if self.noise_suppression.enabled {
+            crate::LITE_LATENCY_SAMPLES
+        } else {
+            0
+        };
+        let limiter = if self.limiter.enabled {
+            u32::from(self.limiter.params.lookahead_ms) * crate::SAMPLE_RATE_HZ / 1000
+        } else {
+            0
+        };
+        noise + limiter
+    }
+
     pub fn validate(&self) -> Result<(), ParameterError> {
-        GAIN_DB.check(self.gain.params)?;
+        GAIN_DB.check(self.gain.params.gain_db)?;
         self.high_pass.params.validate()?;
         self.noise_suppression.params.validate()?;
         self.expander.params.validate()?;
@@ -535,6 +609,106 @@ mod tests {
                 settings.eq.params = EqParams::from_character(character, percent);
                 assert_eq!(settings.validate(), Ok(()), "{percent}% {character:?}");
             }
+        }
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn settings_round_trip_through_json_and_toml() {
+        for preset in crate::Preset::ALL {
+            let mut settings = preset.settings();
+            settings.expander.params.ratio = f32::INFINITY;
+            settings.compressor.params.makeup_db = Some(3.5);
+            let json = serde_json::to_string(&settings).expect("serialize JSON");
+            assert!(json.contains(r#""ratio":"gate""#), "{json}");
+            let back: ChainSettings = serde_json::from_str(&json).expect("parse JSON");
+            assert_eq!(back, settings);
+            let text = toml::to_string(&settings).expect("serialize TOML");
+            assert_eq!(
+                toml::from_str::<ChainSettings>(&text),
+                Ok(settings),
+                "{text}"
+            );
+        }
+        // Missing fields fall back to defaults; unknown values are rejected.
+        let partial: ChainSettings =
+            toml::from_str("muted = true\n[compressor]\nenabled = false\n").expect("partial");
+        assert!(partial.muted && !partial.compressor.enabled);
+        assert_eq!(partial.limiter, ChainSettings::default().limiter);
+        assert!(serde_json::from_str::<ExpanderParams>(r#"{"ratio":"soft"}"#).is_err());
+    }
+}
+
+/// Serialized EQ: only the active bands.
+#[cfg(feature = "serde")]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct EqRepr {
+    bands: Vec<EqBand>,
+    output_gain_db: f32,
+}
+
+#[cfg(feature = "serde")]
+impl Default for EqRepr {
+    fn default() -> Self {
+        EqParams::default().into()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl From<EqParams> for EqRepr {
+    fn from(params: EqParams) -> Self {
+        Self {
+            bands: params.active_bands().to_vec(),
+            output_gain_db: params.output_gain_db,
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<EqRepr> for EqParams {
+    type Error = String;
+
+    fn try_from(repr: EqRepr) -> Result<Self, String> {
+        if repr.bands.len() > EQ_MAX_BANDS {
+            return Err(format!("at most {EQ_MAX_BANDS} EQ bands are supported"));
+        }
+        let mut bands = [EQ_DEFAULT_LAYOUT[0]; EQ_MAX_BANDS];
+        bands[..repr.bands.len()].copy_from_slice(&repr.bands);
+        Ok(Self {
+            bands,
+            band_count: repr.bands.len(),
+            output_gain_db: repr.output_gain_db,
+        })
+    }
+}
+
+/// JSON has no infinity: a gate ratio is written as the string `"gate"`.
+#[cfg(feature = "serde")]
+mod gate_ratio {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(ratio: &f32, serializer: S) -> Result<S::Ok, S::Error> {
+        if *ratio == f32::INFINITY {
+            serializer.serialize_str("gate")
+        } else {
+            serializer.serialize_f32(*ratio)
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f32, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Ratio {
+            Number(f32),
+            Name(String),
+        }
+        match Ratio::deserialize(deserializer)? {
+            Ratio::Number(ratio) => Ok(ratio),
+            Ratio::Name(name) if name == "gate" => Ok(f32::INFINITY),
+            Ratio::Name(name) => Err(serde::de::Error::custom(format!(
+                "expander ratio must be a number or \"gate\", got {name:?}"
+            ))),
         }
     }
 }

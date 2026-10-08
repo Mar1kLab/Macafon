@@ -100,7 +100,7 @@ impl RunArgs {
             ns.params.voice_threshold_pct = threshold;
         }
         if let Some(gain) = self.gain {
-            settings.gain.params = gain;
+            settings.gain.params.gain_db = gain;
         }
         settings.muted = self.mute;
         settings.bypass = self.bypass;

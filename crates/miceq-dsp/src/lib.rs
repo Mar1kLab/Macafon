@@ -133,6 +133,7 @@ mod tests {
             let mut whole = processor(preset.settings());
             let mut split = processor(preset.settings());
             let telemetry = split.telemetry();
+            telemetry.set_enabled(true);
             let (a, b) = std::thread::spawn({
                 let (mut a, mut b) = (input.clone(), input.clone());
                 move || {
@@ -163,7 +164,7 @@ mod tests {
     fn retune_ramps_parameters_and_mute_without_clicks() {
         let mut chain = processor(ChainSettings::raw());
         let mut louder = ChainSettings::raw();
-        louder.gain.params = 12.0;
+        louder.gain.params.gain_db = 12.0;
         chain.retune(&louder).expect("continuous change");
         let mut block = [0.25f32; 960];
         assert_no_alloc(|| chain.process(&mut block));
@@ -184,7 +185,7 @@ mod tests {
         let mut structural = louder;
         structural.limiter.enabled = true;
         assert_eq!(chain.retune(&structural), Err(RetuneError::RebuildRequired));
-        structural.gain.params = 30.0;
+        structural.gain.params.gain_db = 30.0;
         assert!(matches!(
             chain.retune(&structural),
             Err(RetuneError::Invalid(_))
@@ -195,6 +196,14 @@ mod tests {
     fn latency_is_the_sum_of_enabled_modules() {
         let mut settings = Preset::Natural.settings();
         assert_eq!(processor(settings).latency_samples(), LITE_LATENCY_SAMPLES);
+        for preset in Preset::ALL {
+            let mut settings = preset.settings();
+            settings.limiter.params.lookahead_ms = 5;
+            assert_eq!(
+                processor(settings).latency_samples(),
+                settings.latency_samples()
+            );
+        }
         settings.limiter.params = LimiterParams {
             lookahead_ms: 2,
             ..settings.limiter.params

@@ -6,6 +6,7 @@ members = [
     "crates/miceq-ipc",
     "crates/miceq-backend-pipewire",
     "apps/miceqd",
+    "apps/miceq-cli",
 ]
 resolver = "3"
 

@@ -1,5 +1,5 @@
 use crate::{Connection, Error};
-use miceq_dsp::MicrophoneProcessor;
+use miceq_engine::MicRt;
 use pipewire::{self as pw, properties::properties};
 use std::{
     ffi::c_void,
@@ -13,7 +13,7 @@ use std::{
 struct RtState {
     input: *mut c_void,
     output: *mut c_void,
-    processor: MicrophoneProcessor,
+    processor: MicRt,
     graph_rate_hz: Arc<AtomicU32>,
 }
 
@@ -28,7 +28,7 @@ pub(crate) struct Filter {
 }
 
 impl Filter {
-    pub fn new(connection: &Connection, processor: MicrophoneProcessor) -> Result<Self, Error> {
+    pub fn new(connection: &Connection, processor: MicRt) -> Result<Self, Error> {
         let graph_rate_hz = Arc::new(AtomicU32::new(0));
         let state = Box::new(RtState {
             input: ptr::null_mut(),
@@ -141,26 +141,35 @@ impl Filter {
         }
     }
 
+    /// Report a new algorithmic latency to the graph (NFR-L4). Control loop only.
+    pub fn set_latency(&self, samples: u32) -> Result<(), Error> {
+        let bytes = latency_pod(samples)?;
+        let pod = pw::spa::pod::Pod::from_bytes(&bytes)
+            .ok_or_else(|| Error::Message("Invalid process latency pod".into()))?;
+        let mut params = [pod.as_raw_ptr().cast_const()];
+        // SAFETY: the filter is alive and this runs on the control loop; the pod outlives
+        // the synchronous call.
+        let result = unsafe {
+            pw::sys::pw_filter_update_params(
+                self.pointer(),
+                ptr::null_mut(),
+                params.as_mut_ptr(),
+                params.len() as u32,
+            )
+        };
+        if result < 0 {
+            Err(Error::Message(format!("Cannot update latency: {result}")))
+        } else {
+            Ok(())
+        }
+    }
+
     fn connect(&self) -> Result<(), Error> {
         use pw::spa::{
             pod::{Object, Pod, Property, PropertyFlags, Value, serialize::PodSerializer},
             sys,
         };
-        let latency = Value::Object(Object {
-            type_: sys::SPA_TYPE_OBJECT_ParamProcessLatency,
-            id: sys::SPA_PARAM_ProcessLatency,
-            properties: vec![Property {
-                key: sys::SPA_PARAM_PROCESS_LATENCY_rate,
-                flags: PropertyFlags::empty(),
-                value: Value::Int(self.state.processor.latency_samples() as i32),
-            }],
-        });
-        let bytes = PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &latency)
-            .map_err(|error| {
-                Error::Message(format!("Cannot serialize process latency: {error:?}"))
-            })?
-            .0
-            .into_inner();
+        let bytes = latency_pod(self.state.processor.latency_samples())?;
         let pod = Pod::from_bytes(&bytes)
             .ok_or_else(|| Error::Message("Invalid process latency pod".into()))?;
         // WirePlumber discovers devices through node EnumFormat, while our ports
@@ -230,6 +239,30 @@ impl Filter {
             Ok(())
         }
     }
+}
+
+fn latency_pod(samples: u32) -> Result<Vec<u8>, Error> {
+    use pw::spa::{
+        pod::{Object, Property, PropertyFlags, Value, serialize::PodSerializer},
+        sys,
+    };
+    let latency = Value::Object(Object {
+        type_: sys::SPA_TYPE_OBJECT_ParamProcessLatency,
+        id: sys::SPA_PARAM_ProcessLatency,
+        properties: vec![Property {
+            key: sys::SPA_PARAM_PROCESS_LATENCY_rate,
+            flags: PropertyFlags::empty(),
+            value: Value::Int(samples as i32),
+        }],
+    });
+    Ok(
+        PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &latency)
+            .map_err(|error| {
+                Error::Message(format!("Cannot serialize process latency: {error:?}"))
+            })?
+            .0
+            .into_inner(),
+    )
 }
 
 impl Drop for Filter {

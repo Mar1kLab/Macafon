@@ -86,7 +86,8 @@ def main():
         directory = Path(directory)
         runtime = directory / "runtime"
         runtime.mkdir(mode=0o700)
-        env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime), PIPEWIRE_RUNTIME_DIR=str(runtime))
+        env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime), PIPEWIRE_RUNTIME_DIR=str(runtime),
+                   XDG_CONFIG_HOME=str(directory / "config"))
         config = directory / "test.conf"
         config.write_text(CONFIG)
         logs = []

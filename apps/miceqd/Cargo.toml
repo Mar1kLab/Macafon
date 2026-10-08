@@ -8,7 +8,11 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap = { version = "4", features = ["derive"] }
+miceq-config.workspace = true
 miceq-dsp.workspace = true
+miceq-engine.workspace = true
+miceq-ipc.workspace = true
+serde_json.workspace = true
 miceq-backend-pipewire.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

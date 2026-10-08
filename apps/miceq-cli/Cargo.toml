@@ -1,0 +1,19 @@
+[package]
+name = "miceq-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "miceq"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap = { version = "4", features = ["derive"] }
+miceq-ipc.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

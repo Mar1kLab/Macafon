@@ -1,13 +1,21 @@
+mod host;
+mod server;
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
+use host::DaemonHost;
+use miceq_config::{Config, MicConfig, Store};
 use miceq_dsp::settings::NoiseEngine;
-use miceq_dsp::{ChainSettings, MicrophoneProcessor, Preset, SAMPLE_RATE_HZ};
+use miceq_dsp::{Preset, SAMPLE_RATE_HZ};
+use std::cell::RefCell;
+use std::path::PathBuf;
+use std::rc::Rc;
 
 #[global_allocator]
 static ALLOCATOR: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisabler;
 
 #[derive(Parser)]
-#[command(version, about = "micEQ Linux audio daemon prototype")]
+#[command(version, about = "micEQ audio daemon")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -15,7 +23,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Run the virtual microphone without changing system defaults.
+    /// Run the daemon: virtual microphone and control socket. System defaults are untouched.
     Run(RunArgs),
     /// List physical inputs, sinks and playback streams (read-only).
     Devices,
@@ -25,13 +33,16 @@ enum Command {
 
 #[derive(clap::Args, Default)]
 struct RunArgs {
-    /// Physical PipeWire node.name (see `devices`). Omit for manual pw-link wiring.
+    /// Config file [default: $XDG_CONFIG_HOME/miceq/config.toml].
+    #[arg(long)]
+    config: Option<PathBuf>,
+    /// Physical PipeWire node.name (see `devices`); overrides the config.
     #[arg(long)]
     input: Option<String>,
-    /// Built-in microphone preset.
-    #[arg(long, value_enum, default_value_t = PresetArg::Natural)]
-    preset: PresetArg,
-    /// Override the preset's noise suppression: `raw` disables it.
+    /// Built-in preset: natural, discord-clear, noisy-room, broadcast, warm-podcast, raw.
+    #[arg(long, value_parser = parse_preset)]
+    preset: Option<Preset>,
+    /// Override noise suppression: `raw` disables it.
     #[arg(long, value_enum)]
     engine: Option<Engine>,
     /// Noise suppression intensity override, percent.
@@ -50,28 +61,11 @@ struct RunArgs {
     bypass: bool,
 }
 
-#[derive(Clone, Copy, Default, ValueEnum)]
-enum PresetArg {
-    #[default]
-    Natural,
-    DiscordClear,
-    NoisyRoom,
-    Broadcast,
-    WarmPodcast,
-    Raw,
-}
-
-impl From<PresetArg> for Preset {
-    fn from(preset: PresetArg) -> Self {
-        match preset {
-            PresetArg::Natural => Self::Natural,
-            PresetArg::DiscordClear => Self::DiscordClear,
-            PresetArg::NoisyRoom => Self::NoisyRoom,
-            PresetArg::Broadcast => Self::Broadcast,
-            PresetArg::WarmPodcast => Self::WarmPodcast,
-            PresetArg::Raw => Self::Raw,
-        }
-    }
+fn parse_preset(id: &str) -> Result<Preset, String> {
+    Preset::from_id(id).ok_or_else(|| {
+        let ids: Vec<_> = Preset::ALL.iter().map(|preset| preset.id()).collect();
+        format!("expected one of: {}", ids.join(", "))
+    })
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -81,10 +75,16 @@ enum Engine {
 }
 
 impl RunArgs {
-    fn settings(&self) -> ChainSettings {
-        let preset = Preset::from(self.preset);
-        let mut settings = preset.settings();
-        let ns = &mut settings.noise_suppression;
+    /// Command-line options override the loaded config for this run.
+    fn apply(&self, mic: &mut MicConfig) {
+        if let Some(input) = &self.input {
+            mic.device = Some(input.clone());
+        }
+        if let Some(preset) = self.preset {
+            mic.chain = preset.settings();
+            mic.preset = Some(preset.id().to_owned());
+        }
+        let ns = &mut mic.chain.noise_suppression;
         match self.engine {
             Some(Engine::Raw) => ns.enabled = false,
             Some(Engine::Lite) => {
@@ -100,12 +100,60 @@ impl RunArgs {
             ns.params.voice_threshold_pct = threshold;
         }
         if let Some(gain) = self.gain {
-            settings.gain.params.gain_db = gain;
+            mic.chain.gain.params.gain_db = gain;
         }
-        settings.muted = self.mute;
-        settings.bypass = self.bypass;
-        settings
+        mic.chain.muted |= self.mute;
+        mic.chain.bypass |= self.bypass;
     }
+}
+
+fn run(args: RunArgs) -> Result<()> {
+    let store = match &args.config {
+        Some(path) => Some(Store::new(path)),
+        None => Store::default_location()
+            .inspect_err(|error| tracing::warn!(%error, "Settings will not be saved"))
+            .ok(),
+    };
+    let mut config = match &store {
+        Some(store) => {
+            let loaded = store.load()?;
+            if let Some(recovered) = loaded.recovered {
+                tracing::warn!(
+                    reason = recovered.reason,
+                    backup = %recovered.backup.display(),
+                    "Config was invalid; using defaults"
+                );
+            }
+            loaded.config
+        }
+        None => Config::default(),
+    };
+    args.apply(&mut config.mic);
+    let settings = &config.mic.chain;
+    settings.validate()?;
+    if settings.noise_suppression.enabled
+        && !settings.bypass
+        && settings.noise_suppression.params.engine == NoiseEngine::Studio
+    {
+        tracing::warn!("Studio noise suppression is not implemented yet; using Lite");
+    }
+    tracing::info!(
+        preset = config.mic.preset.as_deref().unwrap_or("custom"),
+        input = config.mic.device.as_deref().unwrap_or("none"),
+        bypass = settings.bypass,
+        muted = settings.muted,
+        latency_ms = settings.latency_samples() as f32 * 1000.0 / SAMPLE_RATE_HZ as f32,
+        "Starting microphone chain"
+    );
+    let (control, receiver) = miceq_backend_pipewire::control_channel();
+    let socket = miceq_ipc::socket_path().context("XDG_RUNTIME_DIR is not set")?;
+    let host = Rc::new(RefCell::new(DaemonHost::new(
+        config, store, socket, control,
+    )));
+    let result = miceq_backend_pipewire::run_microphone(host.clone(), receiver)
+        .context("Cannot run microphone; check PipeWire and WirePlumber");
+    host.borrow_mut().flush();
+    result
 }
 
 fn main() -> Result<()> {
@@ -117,30 +165,7 @@ fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match cli.command.unwrap_or(Command::Run(RunArgs::default())) {
-        Command::Run(args) => {
-            let settings = args.settings();
-            let processor = MicrophoneProcessor::new(&settings)?;
-            if settings.noise_suppression.enabled
-                && !settings.bypass
-                && settings.noise_suppression.params.engine == NoiseEngine::Studio
-            {
-                tracing::warn!("Studio noise suppression is not implemented yet; using Lite");
-            }
-            tracing::info!(
-                preset = Preset::from(args.preset).name(),
-                bypass = settings.bypass,
-                muted = settings.muted,
-                latency_samples = processor.latency_samples(),
-                latency_ms = processor.latency_samples() as f32 * 1000.0 / SAMPLE_RATE_HZ as f32,
-                "Starting microphone chain"
-            );
-            drop(processor);
-            miceq_backend_pipewire::run_microphone(
-                || MicrophoneProcessor::new(&settings),
-                args.input,
-            )
-            .context("Cannot run microphone; check PipeWire and WirePlumber")?;
-        }
+        Command::Run(args) => run(args)?,
         Command::Devices => {
             for node in miceq_backend_pipewire::list_nodes()? {
                 if matches!(

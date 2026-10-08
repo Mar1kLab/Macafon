@@ -1,16 +1,19 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use miceq_dsp::MicrophoneProcessor;
+use miceq_dsp::{ChainSettings, MicrophoneProcessor, Preset};
 use std::hint::black_box;
 
 fn microphone(c: &mut Criterion) {
-    for lite in [false, true] {
-        let mut processor = if lite {
-            MicrophoneProcessor::lite(70.0, 50.0, false).expect("valid benchmark parameters")
-        } else {
-            MicrophoneProcessor::raw(false)
-        };
+    let mut without_ns = Preset::Broadcast.settings();
+    without_ns.noise_suppression.enabled = false;
+    for (name, settings) in [
+        ("raw/128", ChainSettings::raw()),
+        ("chain-without-ns/128", without_ns),
+        ("natural/128", Preset::Natural.settings()),
+    ] {
+        let mut processor =
+            MicrophoneProcessor::new(&settings).expect("valid benchmark parameters");
         let mut block = [0.0; 128];
-        c.bench_function(if lite { "lite/128" } else { "raw/128" }, |b| {
+        c.bench_function(name, |b| {
             b.iter(|| {
                 for (i, sample) in block.iter_mut().enumerate() {
                     *sample = (i as f32 * 0.1).sin() * 0.2;

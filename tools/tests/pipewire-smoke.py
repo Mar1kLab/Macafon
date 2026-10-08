@@ -197,18 +197,55 @@ def main():
             wait_for(lambda: ports("test_app", "out"), "playback stream")
             nodes = {item["info"]["props"].get("node.name"): item for item in objects()
                      if item["type"] == "PipeWire:Interface:Node"}
-            run(args.daemon, "route", str(nodes["test_app"]["id"]), "test_sink")
+            attempted = subprocess.run([str(args.daemon), "route", str(nodes["test_app"]["id"]), "test_sink"],
+                                       env=env, capture_output=True, text=True, timeout=8)
+            assert attempted.returncode != 0 and "did not move" in attempted.stderr, attempted
             metadata = run("pw-metadata", "-n", "default")
-            assert "target.object" in metadata and str(nodes["test_sink"]["info"]["props"]["object.serial"]) in metadata, metadata
-            print("routing: target.object stored for playback stream (WirePlumber rewire requires desktop validation)")
+            assert "target.object" not in metadata, "failed move left stale routing metadata"
+            print("routing: missing policy detected; failed move restores empty target metadata")
             stop(playback)
-            # Validate diagnostic behavior when the private server disappears.
-            daemon = spawn([args.daemon])
+            # Rebuild the whole graph after server loss, preserving the selected chain.
+            daemon = spawn([args.daemon, "run", "--input", "test_microphone",
+                            "--engine", "lite", "--intensity", "0"])
             wait_for(lambda: ports("miceq_mic", "out"), "virtual microphone before server exit")
+            for _ in range(2):
+                stop(server)
+                time.sleep(0.7)
+                assert daemon.poll() is None, "daemon exited instead of waiting for PipeWire"
+                server = spawn(["pipewire", "-c", config])
+                wait_for(lambda: (runtime / "pipewire-0").exists(), "restarted server")
+                wait_for(lambda: ports("miceq_mic", "out"), "restored virtual microphone")
+                restored = [item for item in objects() if item["type"] == "PipeWire:Interface:Node"
+                            and item["info"]["props"].get("node.name") == "miceq_mic"]
+                assert len(restored) == 1, "duplicate virtual microphone after reconnect"
+                assert restored[0]["info"]["params"]["ProcessLatency"][0]["rate"] == 960, "processing settings lost"
+            capture = directory / "recovery.raw"
+            recorder = spawn(["pw-cat", "--record", "--raw", "--format", "f32", "--channels", "1",
+                              "--channel-map", "MONO", "--target", "0", "--latency", "128",
+                              "--properties", "node.name=test_capture adapter.auto-port-config={ mode=dsp position=preserve }", capture])
+            capture_ports = wait_for(lambda: ports("test_capture", "in"), "recovery capture")
+            source_process = spawn(source_command)
+            wait_for(lambda: ports("test_microphone", "out"), "source after server restart")
+            run("pw-link", str(ports("miceq_mic", "out")["MONO"]), str(capture_ports["MONO"]))
+            time.sleep(1.2)
+            stop(source_process)
+            stop(recorder)
+            samples = array.array("f")
+            samples.frombytes(capture.read_bytes())
+            if sys.byteorder != "little":
+                samples.byteswap()
+            assert any(abs(value) > 0.2 for value in samples), "restored graph produced no audio"
+            stop(daemon)
+            assert daemon.returncode == 0, "restored daemon did not shut down cleanly"
+            wait_for(lambda: not ports("miceq_mic", "out"), "restored node cleanup")
             stop(server)
+            daemon = spawn([args.daemon])
+            time.sleep(0.7)
+            assert daemon.poll() is None, "startup without PipeWire should wait"
+            daemon.send_signal(signal.SIGINT)
             daemon.wait(timeout=5)
-            assert daemon.returncode != 0, "lost server was not reported"
-            print("lifecycle: node removed on exit; lost server reported")
+            assert daemon.returncode == 0, "cannot interrupt reconnect wait"
+            print("lifecycle: two server restarts preserve Lite settings and audio; startup wait remains interruptible")
         except Exception:
             if server is not None and server.poll() is None:
                 print(run("pw-link", "-l"), file=sys.stderr)

@@ -1,6 +1,9 @@
 //! Linux M0 backend. The only unsafe code bridges the unwrapped pw_filter API.
 
 mod filter;
+mod routing;
+
+pub use routing::route_stream;
 
 use miceq_dsp::MicrophoneProcessor;
 use pipewire::{self as pw, properties::properties, types::ObjectType};
@@ -14,6 +17,10 @@ use std::{
 pub enum Error {
     #[error("PipeWire: {0}")]
     PipeWire(#[from] pw::Error),
+    #[error("PipeWire connection lost: {0}")]
+    Disconnected(String),
+    #[error(transparent)]
+    Parameter(#[from] miceq_dsp::ParameterError),
     #[error("{0}")]
     Message(String),
 }
@@ -21,7 +28,7 @@ pub enum Error {
 pub(crate) struct Connection {
     pub mainloop: pw::main_loop::MainLoopRc,
     pub core: pw::core::CoreRc,
-    failure: Rc<RefCell<Option<String>>>,
+    failure: Rc<RefCell<Option<Error>>>,
     _errors: pw::core::Listener,
 }
 
@@ -39,14 +46,22 @@ impl Connection {
                 "cpu.zero.denormals" => "true",
             }),
         )?;
-        let core = context.connect_rc(None)?;
+        let core = context
+            .connect_rc(None)
+            .map_err(|error| Error::Disconnected(error.to_string()))?;
         let failure = Rc::new(RefCell::new(None));
         let errors = failure.clone();
         let loop_ = mainloop.clone();
         let listener = core
             .add_listener_local()
-            .error(move |_, _, _, message| {
-                *errors.borrow_mut() = Some(message.to_owned());
+            .error(move |id, _, result, message| {
+                // EPIPE/ECONNRESET/ENOTCONN can be reported on an object before the core.
+                let error = if id == pw::core::PW_ID_CORE || matches!(result, -32 | -104 | -107) {
+                    Error::Disconnected(message.to_owned())
+                } else {
+                    Error::Message(message.to_owned())
+                };
+                *errors.borrow_mut() = Some(error);
                 loop_.quit();
             })
             .register();
@@ -59,8 +74,8 @@ impl Connection {
     }
 
     pub fn check(&self) -> Result<(), Error> {
-        if let Some(message) = self.failure.borrow_mut().take() {
-            Err(Error::Message(message))
+        if let Some(error) = self.failure.borrow_mut().take() {
+            Err(error)
         } else {
             Ok(())
         }
@@ -143,57 +158,6 @@ pub fn list_nodes() -> Result<Vec<Node>, Error> {
     Ok(result)
 }
 
-/// Explicit M0 routing experiment. Does not change a system default or persist a rule.
-pub fn route_stream(stream_id: u32, sink_name: &str) -> Result<(), Error> {
-    let connection = Connection::new()?;
-    let registry = connection.core.get_registry_rc()?;
-    let nodes = Rc::new(RefCell::new(Vec::new()));
-    let metadata = Rc::new(RefCell::new(None));
-    let collected = nodes.clone();
-    let found_metadata = metadata.clone();
-    let bind_registry = registry.clone();
-    let _listener = registry
-        .add_listener_local()
-        .global(move |global| {
-            if let Some(node) = node(global) {
-                collected.borrow_mut().push(node);
-            }
-            if global.type_ == ObjectType::Metadata
-                && global
-                    .props
-                    .is_some_and(|p| p.get("metadata.name") == Some("default"))
-            {
-                *found_metadata.borrow_mut() =
-                    Some(bind_registry.bind::<pw::metadata::Metadata, _>(global));
-            }
-        })
-        .register();
-    connection.roundtrip()?;
-    let nodes = nodes.borrow();
-    if !nodes
-        .iter()
-        .any(|n| n.id == stream_id && n.media_class == "Stream/Output/Audio")
-    {
-        return Err(Error::Message(
-            "stream ID is not an audio playback stream".into(),
-        ));
-    }
-    let sink = nodes
-        .iter()
-        .find(|n| n.name == sink_name && n.media_class == "Audio/Sink")
-        .ok_or_else(|| Error::Message("target is not an audio sink".into()))?;
-    let metadata = metadata.borrow_mut().take().ok_or_else(|| {
-        Error::Message("default metadata unavailable; is WirePlumber running?".into())
-    })??;
-    metadata.set_property(
-        stream_id,
-        "target.object",
-        Some("Spa:Id"),
-        Some(&sink.serial),
-    );
-    connection.roundtrip()
-}
-
 #[derive(Clone)]
 struct Port {
     id: u32,
@@ -261,22 +225,64 @@ impl Graph {
 }
 
 pub fn run_microphone(
-    processor: MicrophoneProcessor,
+    prepare: impl Fn() -> Result<MicrophoneProcessor, miceq_dsp::ParameterError>,
     input_name: Option<String>,
 ) -> Result<(), Error> {
     pw::init();
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
+    let stopping = Rc::new(Cell::new(false));
     // Block termination signals before creating data-loop threads, so they inherit
     // the signal mask and only the control loop handles shutdown.
     let loop_ = mainloop.clone();
+    let stop = stopping.clone();
     let _interrupt = mainloop
         .loop_()
-        .add_signal_local(pw::loop_::Signal::INT, move || loop_.quit());
+        .add_signal_local(pw::loop_::Signal::INT, move || {
+            stop.set(true);
+            loop_.quit();
+        });
     let loop_ = mainloop.clone();
+    let stop = stopping.clone();
     let _terminate = mainloop
         .loop_()
-        .add_signal_local(pw::loop_::Signal::TERM, move || loop_.quit());
+        .add_signal_local(pw::loop_::Signal::TERM, move || {
+            stop.set(true);
+            loop_.quit();
+        });
+    let waiting = Rc::new(Cell::new(false));
+    while !stopping.get() {
+        // Rebuild all DSP and graph storage on the control thread. run_session drops
+        // its filter (and joins RT processing) before returning to the retry loop.
+        match run_session(&mainloop, &prepare, input_name.clone(), waiting.clone()) {
+            Ok(()) => return Ok(()),
+            Err(_) if stopping.get() => return Ok(()),
+            Err(Error::Disconnected(message)) => {
+                if !waiting.replace(true) {
+                    tracing::warn!(error = %message, "PipeWire unavailable; waiting for reconnect");
+                }
+                let loop_ = mainloop.clone();
+                let retry = mainloop.loop_().add_timer(move |_| loop_.quit());
+                retry
+                    .update_timer(Some(Duration::from_millis(500)), None)
+                    .into_result()
+                    .map_err(|error| Error::Message(error.to_string()))?;
+                // Keep handling SIGINT/SIGTERM while the server is absent.
+                mainloop.run();
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+fn run_session(
+    mainloop: &pw::main_loop::MainLoopRc,
+    prepare: &impl Fn() -> Result<MicrophoneProcessor, miceq_dsp::ParameterError>,
+    input_name: Option<String>,
+    waiting: Rc<Cell<bool>>,
+) -> Result<(), Error> {
     let connection = Connection::with_mainloop(mainloop.clone())?;
+    let processor = prepare()?;
     let filter = filter::Filter::new(&connection, processor)?;
     let registry = connection.core.get_registry()?;
     let graph = Rc::new(RefCell::new(Graph::default()));
@@ -320,25 +326,42 @@ pub fn run_microphone(
     let pointer = filter.pointer();
     let graph_rate_hz = filter.graph_rate_hz.clone();
     let failure = connection.failure.clone();
+    let ready = Cell::new(false);
     let timer = connection.mainloop.loop_().add_timer(move |_| {
         let rate_hz = graph_rate_hz.load(std::sync::atomic::Ordering::Relaxed);
         if rate_hz != 0 && rate_hz != miceq_dsp::SAMPLE_RATE_HZ {
-            *failure.borrow_mut() = Some(format!("M0 requires a 48000 Hz graph, got {rate_hz} Hz"));
+            *failure.borrow_mut() = Some(Error::Message(format!(
+                "M0 requires a 48000 Hz graph, got {rate_hz} Hz"
+            )));
             loop_.quit();
             return;
         }
         // SAFETY: the timer runs on the control loop and is dropped before the filter.
         let state = unsafe { pw::sys::pw_filter_get_state(pointer, std::ptr::null_mut()) };
         if state == pw::sys::pw_filter_state_PW_FILTER_STATE_ERROR {
-            *failure.borrow_mut() = Some("Virtual microphone entered an error state".into());
+            *failure.borrow_mut() = Some(Error::Message(
+                "Virtual microphone entered an error state".into(),
+            ));
             loop_.quit();
             return;
+        }
+        if matches!(
+            state,
+            pw::sys::pw_filter_state_PW_FILTER_STATE_PAUSED
+                | pw::sys::pw_filter_state_PW_FILTER_STATE_STREAMING
+        ) && !ready.replace(true)
+        {
+            if waiting.replace(false) {
+                tracing::info!("PipeWire reconnected; virtual microphone restored");
+            } else {
+                tracing::info!("micEQ Microphone running; Ctrl+C to stop");
+            }
         }
         if let Some(input_name) = &input_name {
             // SAFETY: the filter remains alive until after the timer is dropped.
             let id = unsafe { pw::sys::pw_filter_get_node_id(pointer) };
             if let Err(error) = graph.borrow_mut().connect_input(&core, input_name, id) {
-                *failure.borrow_mut() = Some(error.to_string());
+                *failure.borrow_mut() = Some(error);
                 loop_.quit();
             }
         }
@@ -350,7 +373,6 @@ pub fn run_microphone(
         )
         .into_result()
         .map_err(|error| Error::Message(error.to_string()))?;
-    tracing::info!("micEQ Microphone running; Ctrl+C to stop");
     connection.mainloop.run();
     connection.check()
 }

@@ -62,16 +62,18 @@ fn main() -> Result<()> {
             voice_threshold,
             mute,
         } => {
-            let processor = match engine {
-                Engine::Raw => MicrophoneProcessor::raw(mute),
-                Engine::Lite => MicrophoneProcessor::lite(intensity, voice_threshold, mute)?,
+            let prepare = || match engine {
+                Engine::Raw => Ok(MicrophoneProcessor::raw(mute)),
+                Engine::Lite => MicrophoneProcessor::lite(intensity, voice_threshold, mute),
             };
+            let processor = prepare()?;
             tracing::info!(
                 latency_samples = processor.latency_samples(),
                 latency_ms = processor.latency_samples() as f32 * 1000.0 / SAMPLE_RATE_HZ as f32,
                 "Starting M0 processing path"
             );
-            miceq_backend_pipewire::run_microphone(processor, input)
+            drop(processor);
+            miceq_backend_pipewire::run_microphone(prepare, input)
                 .context("Cannot run microphone; check PipeWire and WirePlumber")?;
         }
         Command::Devices => {
@@ -94,7 +96,7 @@ fn main() -> Result<()> {
             sink_name,
         } => {
             miceq_backend_pipewire::route_stream(stream_id, &sink_name)?;
-            tracing::info!(stream_id, sink = %sink_name, "Routing metadata updated; verify the link in pw-link");
+            tracing::info!(stream_id, sink = %sink_name, "Stream moved; PipeWire links confirmed");
         }
     }
     Ok(())

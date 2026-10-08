@@ -22,6 +22,8 @@ pub(crate) struct Filter {
     state: Box<RtState>,
     _events: Box<pw::sys::pw_filter_events>,
     hook: Box<pw::spa::sys::spa_hook>,
+    _control_events: Box<pw::sys::pw_filter_events>,
+    control_hook: Box<pw::spa::sys::spa_hook>,
     pub graph_rate_hz: Arc<AtomicU32>,
 }
 
@@ -68,12 +70,21 @@ impl Filter {
             .ok_or_else(|| Error::Message("Cannot create pw_filter".into()))?;
         // SAFETY: a zeroed spa_hook is the documented initial state for listener registration.
         let hook = Box::new(unsafe { std::mem::zeroed() });
+        // SAFETY: the listener structs contain only integers and nullable pointers.
+        let mut control_events: Box<pw::sys::pw_filter_events> =
+            Box::new(unsafe { std::mem::zeroed() });
+        control_events.version = pw::sys::PW_VERSION_FILTER_EVENTS;
+        control_events.param_changed = Some(param_changed);
+        // SAFETY: a zeroed hook is the documented initial listener state.
+        let control_hook = Box::new(unsafe { std::mem::zeroed() });
         let mut filter = Self {
             pointer,
             state,
             _events: events,
             hook,
             graph_rate_hz,
+            _control_events: control_events,
+            control_hook,
         };
         // SAFETY: callback state/events have stable addresses and outlive the filter;
         // destroying the filter joins processing before their memory is freed.
@@ -83,6 +94,16 @@ impl Filter {
                 &mut *filter.hook,
                 &*filter._events,
                 (&mut *filter.state as *mut RtState).cast(),
+            );
+        }
+        // SAFETY: this separate control listener accesses only the filter pointer;
+        // it never aliases the mutable DSP state used by the RT callback.
+        unsafe {
+            pw::sys::pw_filter_add_listener(
+                filter.pointer(),
+                &mut *filter.control_hook,
+                &*filter._control_events,
+                filter.pointer().cast(),
             );
         }
         filter.state.input = filter.add_port(pw::sys::PW_DIRECTION_INPUT, "input_MONO")?;
@@ -142,14 +163,63 @@ impl Filter {
             .into_inner();
         let pod = Pod::from_bytes(&bytes)
             .ok_or_else(|| Error::Message("Invalid process latency pod".into()))?;
-        let mut params = [pod.as_raw_ptr().cast_const()];
+        // WirePlumber discovers devices through node EnumFormat, while our ports
+        // retain their fixed DSP format. Advertise the actual mono graph format.
+        let format = Value::Object(Object {
+            type_: sys::SPA_TYPE_OBJECT_Format,
+            id: sys::SPA_PARAM_EnumFormat,
+            properties: [
+                (
+                    sys::SPA_FORMAT_mediaType,
+                    Value::Id(pw::spa::utils::Id(sys::SPA_MEDIA_TYPE_audio)),
+                ),
+                (
+                    sys::SPA_FORMAT_mediaSubtype,
+                    Value::Id(pw::spa::utils::Id(sys::SPA_MEDIA_SUBTYPE_raw)),
+                ),
+                (
+                    sys::SPA_FORMAT_AUDIO_format,
+                    Value::Id(pw::spa::utils::Id(sys::SPA_AUDIO_FORMAT_F32P)),
+                ),
+                (
+                    sys::SPA_FORMAT_AUDIO_rate,
+                    Value::Int(miceq_dsp::SAMPLE_RATE_HZ as i32),
+                ),
+                (sys::SPA_FORMAT_AUDIO_channels, Value::Int(1)),
+                (
+                    sys::SPA_FORMAT_AUDIO_position,
+                    Value::ValueArray(pw::spa::pod::ValueArray::Id(vec![pw::spa::utils::Id(
+                        sys::SPA_AUDIO_CHANNEL_MONO,
+                    )])),
+                ),
+            ]
+            .into_iter()
+            .map(|(key, value)| Property {
+                key,
+                value,
+                flags: PropertyFlags::empty(),
+            })
+            .collect(),
+        });
+        let format_bytes = PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &format)
+            .map_err(|error| {
+                Error::Message(format!("Cannot serialize microphone format: {error:?}"))
+            })?
+            .0
+            .into_inner();
+        let format_pod = Pod::from_bytes(&format_bytes)
+            .ok_or_else(|| Error::Message("Invalid microphone format pod".into()))?;
+        let mut params = [
+            pod.as_raw_ptr().cast_const(),
+            format_pod.as_raw_ptr().cast_const(),
+        ];
         // SAFETY: all ports and callback storage are prepared before enabling RT processing.
         let result = unsafe {
             pw::sys::pw_filter_connect(
                 self.pointer(),
                 pw::sys::pw_filter_flags_PW_FILTER_FLAG_RT_PROCESS,
                 params.as_mut_ptr(),
-                1,
+                params.len() as u32,
             )
         };
         if result < 0 {
@@ -224,5 +294,52 @@ unsafe fn process_inner(data: *mut c_void, position: *mut pw::spa::sys::spa_io_p
     if input.is_null() {
         // A disconnected physical microphone must immediately produce digital silence.
         output.fill(0.0);
+    }
+}
+
+// PipeWire invokes parameter notifications on the control loop, never in process().
+unsafe extern "C" fn param_changed(
+    data: *mut c_void,
+    port: *mut c_void,
+    id: u32,
+    param: *const pw::spa::sys::spa_pod,
+) {
+    if !port.is_null() || id != pw::spa::sys::SPA_PARAM_Format {
+        return;
+    }
+    use pw::spa::pod::{
+        Object, Pod, Property, PropertyFlags, Value, ValueArray, serialize::PodSerializer,
+    };
+    // pw_filter has fixed DSP ports and no node PortConfig parameter. Record
+    // the negotiated Format and notify Props after it, allowing WirePlumber
+    // to finish its adapter activation using the ports already present.
+    let props = Value::Object(Object {
+        type_: pw::spa::sys::SPA_TYPE_OBJECT_Props,
+        id: pw::spa::sys::SPA_PARAM_Props,
+        properties: vec![Property {
+            key: pw::spa::sys::SPA_PROP_channelMap,
+            flags: PropertyFlags::empty(),
+            value: Value::ValueArray(ValueArray::Id(vec![pw::spa::utils::Id(
+                pw::spa::sys::SPA_AUDIO_CHANNEL_MONO,
+            )])),
+        }],
+    });
+    let Ok((bytes, _)) = PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &props) else {
+        return;
+    };
+    let bytes = bytes.into_inner();
+    let Some(pod) = Pod::from_bytes(&bytes) else {
+        return;
+    };
+    let mut params = [param, pod.as_raw_ptr().cast_const()];
+    // SAFETY: the listener's data is its live filter pointer, and the pod remains
+    // valid during this synchronous control-loop call. No DSP state is accessed.
+    unsafe {
+        pw::sys::pw_filter_update_params(
+            data.cast(),
+            ptr::null_mut(),
+            params.as_mut_ptr(),
+            params.len() as u32,
+        );
     }
 }

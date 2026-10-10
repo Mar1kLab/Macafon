@@ -8,6 +8,10 @@
 //! While armed, `MicRt` also copies the raw input (before the chain) into a third queue for
 //! calibration and the A/B recorder (PRD §6.4, §6.5).
 
+mod ab;
+
+pub use ab::{AbControl, AbRt, SWITCH_FADE_SAMPLES, ab_player};
+
 use miceq_dsp::{ChainSettings, MicrophoneProcessor, ParameterError, Telemetry};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

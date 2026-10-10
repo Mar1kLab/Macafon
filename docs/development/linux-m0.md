@@ -7,14 +7,14 @@
 ## Что реализовано
 
 - Cargo workspace, Rust stable, edition 2024. Созданы только используемые сейчас
-  `miceq-dsp`, `miceq-backend-pipewire`, `miceqd`; остальные крейты появятся вместе с кодом.
-- Один собственный `pw_filter`, `Audio/Source/Virtual`, `miceq_mic`, описание
-  `micEQ Microphone` — основа MIC-010/MIC-011. Вход/выход mono float32, граф 48 кГц.
+  `macafon-dsp`, `macafon-backend-pipewire`, `macafond`; остальные крейты появятся вместе с кодом.
+- Один собственный `pw_filter`, `Audio/Source/Virtual`, `macafon_mic`, описание
+  `Macafon Microphone` — основа MIC-010/MIC-011. Вход/выход mono float32, граф 48 кГц.
 - Raw-путь с нулевой алгоритмической задержкой, цифровой mute (MIC-013),
   санитизация NaN/Inf/денормалов на границе цепочки (NFR-S4).
 - RNNoise Lite через `nnnoiseless`, адаптер кадров 480 сэмплов к любому quantum,
   выравнивание dry/wet и сглаживание VAD-ослабления за 10 мс (основа NS-001/DSP-003).
-  Диапазоны intensity/VAD и значения по умолчанию централизованы в `miceq-dsp`.
+  Диапазоны intensity/VAD и значения по умолчанию централизованы в `macafon-dsp`.
 - Память выделяется до подключения фильтра. Callback целиком проверяется через
   `assert_no_alloc`, включая release-сборку. FTZ/DAZ включает PipeWire через
   свойство контекста `cpu.zero.denormals` (NFR-S1/NFR-S4).
@@ -40,7 +40,7 @@
 - Алгоритмическая задержка передаётся через SPA `ProcessLatency` (NFR-L4).
   SIGINT/SIGTERM обрабатываются до запуска data-loop threads; выход освобождает узел.
 
-`miceqd run` ничего не устанавливает в systemd и не меняет системные default-устройства.
+`macafond run` ничего не устанавливает в systemd и не меняет системные default-устройства.
 Роутинг изменяется только явной командой `route`; сохранения правил пока нет.
 Один экземпляр фильтра соответствует одному микрофону; DSP-состояние не глобальное,
 поэтому будущие независимые экземпляры цепочки не потребуют переделки DSP.
@@ -52,24 +52,24 @@ libclang и заголовки PipeWire/SPA. Для Ubuntu:
 
 ```sh
 sudo apt install build-essential pkg-config libclang-dev libpipewire-0.3-dev pipewire-bin
-cargo build --release -p miceqd
-target/release/miceqd devices
-target/release/miceqd run --input 'alsa_input.<имя из devices>' --preset raw --engine lite
+cargo build --release -p macafond
+target/release/macafond devices
+target/release/macafond run --input 'alsa_input.<имя из devices>' --preset raw --engine lite
 ```
 
 Для реального времени используется release-сборка: debug-инференс и конкурирующая сборка
 могут приводить к пропускам циклов и нестабильным замерам на headless-машине.
-В приложении-потребителе нужно выбрать `micEQ Microphone`. Ctrl+C завершает прототип.
+В приложении-потребителе нужно выбрать `Macafon Microphone`. Ctrl+C завершает прототип.
 Без `--input` вход остаётся несвязанным; для экспериментов его можно соединить `pw-link`.
 Если указанное устройство отсутствует, прототип ждёт появления этого имени.
 Если сервер ещё не запущен или перезапущен, повторяет подключение раз в 500 мс.
 Состояние RNNoise при восстановлении создаётся заново; краткий разрыв звука неизбежен.
 
 ```sh
-target/release/miceqd run --input 'alsa_input.<name>' --preset raw
-target/release/miceqd run --input 'alsa_input.<name>' --preset raw --engine lite --intensity 70 --voice-threshold 50
-target/release/miceqd run --input 'alsa_input.<name>' --mute
-target/release/miceqd route <playback-stream-id> <sink-node.name>
+target/release/macafond run --input 'alsa_input.<name>' --preset raw
+target/release/macafond run --input 'alsa_input.<name>' --preset raw --engine lite --intensity 70 --voice-threshold 50
+target/release/macafond run --input 'alsa_input.<name>' --mute
+target/release/macafond route <playback-stream-id> <sink-node.name>
 ```
 
 `devices` выводит ID, media.class, node.name, человекочитаемое описание.
@@ -86,10 +86,10 @@ target/release/miceqd route <playback-stream-id> <sink-node.name>
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo build --release -p miceqd -p miceq-cli
+cargo build --release -p macafond -p macafon-cli
 python3 tools/tests/pipewire-smoke.py
 python3 tools/tests/wireplumber-routing.py
-cargo bench -p miceq-dsp --bench microphone -- --sample-size 10 --measurement-time 1 --warm-up-time 1
+cargo bench -p macafon-dsp --bench microphone -- --sample-size 10 --measurement-time 1 --warm-up-time 1
 ```
 
 Smoke-тест использует отдельный PipeWire с приватным runtime-каталогом и синтетическим
@@ -115,7 +115,7 @@ Main → Voice → Main → Voice без пересоздания потока, 
 подключение потока A/B к выбранному и к выходу по умолчанию.
 
 `tools/latency-probe/analyze.py` сравнивает синхронные каналы stereo float32 LE raw:
-FL — прямой путь синтетического импульса, FR — через micEQ. Нестабильная задержка
+FL — прямой путь синтетического импульса, FR — через Macafon. Нестабильная задержка
 считается ошибкой, а не усредняется. Пример:
 
 ```sh

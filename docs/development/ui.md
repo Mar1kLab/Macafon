@@ -6,32 +6,32 @@
 ## Запуск
 
 ```sh
-pnpm -C apps/miceq-ui install
-pnpm -C apps/miceq-ui dev            # браузер, mock-демон: http://127.0.0.1:1420
-pnpm -C apps/miceq-ui tauri dev      # окно Tauri с настоящим демоном
-pnpm -C apps/miceq-ui tauri build --no-bundle   # target/release/miceq-ui
+pnpm -C apps/macafon-ui install
+pnpm -C apps/macafon-ui dev            # браузер, mock-демон: http://127.0.0.1:1420
+pnpm -C apps/macafon-ui tauri dev      # окно Tauri с настоящим демоном
+pnpm -C apps/macafon-ui tauri build --no-bundle   # target/release/macafon-ui
 ```
 
-`miceq` без аргументов запускает `miceq-ui` (рядом с бинарём или из `PATH`) — так его открывают
+`macafon` без аргументов запускает `macafon-ui` (рядом с бинарём или из `PATH`) — так его открывают
 трей (BG-004) и ярлык. Второй запуск фокусирует уже открытое окно (BG-006, `tauri-plugin-single-instance`).
 Закрытие окна завершает процесс UI, звук остаётся в демоне (BG-001).
 
 На этой машине нет системных WebKitGTK/GTK: заголовки и `.so` лежат в том же user-local sysroot,
-что и PipeWire (`. ~/.cache/miceq-sysroot/env.sh`). Сборка и тесты работают; запустить окно здесь
+что и PipeWire (`. ~/.cache/macafon-sysroot/env.sh`). Сборка и тесты работают; запустить окно здесь
 нельзя — WebKit ищет свои процессы по зашитому пути `/usr/lib/.../webkit2gtk-4.1`, а user namespaces
 для подмены пути запрещены. UI проверяется в браузере на mock-демоне, мост — тестами (ниже).
 
 ## Устройство
 
 ```
-Svelte (runes) ──DaemonClient──► Transport ─┬─ TauriTransport ─invoke/event─► src-tauri/bridge.rs ─► miceqd.sock
+Svelte (runes) ──DaemonClient──► Transport ─┬─ TauriTransport ─invoke/event─► src-tauri/bridge.rs ─► macafond.sock
                                             └─ MockTransport (браузер, ?daemon=down — демон недоступен)
 ```
 
 - `src/lib/ipc/protocol.ts` и `dsp.ts` **генерируются** из Rust (`ts-rs` за фичей `ts`, по умолчанию
   выключена — демон её не тянет): типы протокола, диапазоны и значения по умолчанию из `params.rs`,
   кривые макросов, характеры EQ и встроенные пресеты. Руками не править:
-  `pnpm -C apps/miceq-ui gen:ipc`. `cargo test -p miceq-ipc --features ts` падает, если файлы устарели.
+  `pnpm -C apps/macafon-ui gen:ipc`. `cargo test -p macafon-ipc --features ts` падает, если файлы устарели.
 - `client.ts`: типизированный `call(method, params)`; таблица результатов проверяется на полноту
   против сгенерированного `Request` — новый метод протокола не скомпилируется, пока его не добавят.
 - `state/daemon.svelte.ts`: зеркало состояния демона. Правка цепочки — оптимистично локально, затем
@@ -43,15 +43,15 @@ Svelte (runes) ──DaemonClient──► Transport ─┬─ TauriTransport �
   Баллистика из дизайн-системы: peak-hold 1 с, спад 20 дБ/с, клип «залипает» на 2 с.
 - `bridge.rs`: один поток владеет соединением — handshake `hello`, ответы сопоставляются по `id`,
   события и статус уходят в WebView (`daemon://event`, `daemon://status`). Если сокета нет —
-  один раз запускает `miceqd run` (рядом с бинарём или из `PATH`, отдельная группа процессов, чтобы
+  один раз запускает `macafond run` (рядом с бинарём или из `PATH`, отдельная группа процессов, чтобы
   демон пережил UI) и ждёт 4 с (§9.7). Потерянное соединение не перезапускает демон (после Quit
   из трея он должен остаться выключенным; упавший поднимет systemd) — через 4 с экран «offline»
-  с Retry. `Quit micEQ` в Settings останавливает демон и закрывает UI (BG-005).
+  с Retry. `Quit Macafon` в Settings останавливает демон и закрывает UI (BG-005).
 
 ## Макросы и CUSTOM (DSP-002)
 
 В `ChainSettings` нет положения главного слайдера — UI выводит его из параметров, обращая кривые
-`miceq_dsp::settings::macros` (они экспортируются в `dsp.ts`). Если параметры не совпадают ни с
+`macafon_dsp::settings::macros` (они экспортируются в `dsp.ts`). Если параметры не совпадают ни с
 одним положением слайдера — модуль `CUSTOM`, слайдер заблокирован, есть «Reset to simple».
 
 | Модуль | Главный слайдер | Как определяется |
@@ -68,11 +68,11 @@ Svelte (runes) ──DaemonClient──► Transport ─┬─ TauriTransport �
 ## Отклонения и пробелы
 
 - MIC-002: живой мини-метр есть только у активного микрофона — демон метрит лишь подключённый вход.
-  Для метров всех устройств в списке нужен захват каждого входа в `miceqd` на время открытого списка.
+  Для метров всех устройств в списке нужен захват каждого входа в `macafond` на время открытого списка.
 - MIC-001: тип устройства (USB/гарнитура/Bluetooth/встроенный) угадывается по `node.name`;
   `devices.list` не отдаёт `device.bus`/`device.form-factor`.
 - Импорт/экспорт пресетов (P1) в UI нет — нужен файловый диалог (`tauri-plugin-dialog`); в CLI есть.
-- BG-001: тост «micEQ keeps running in the tray» при первом закрытии не сделан (процесс UI к этому
+- BG-001: тост «Macafon keeps running in the tray» при первом закрытии не сделан (процесс UI к этому
   моменту завершается — нужен показ до закрытия или уведомление от демона).
 - MIC-015: подсказка про двойную обработку — пока только в диалоге калибровки.
 - NS Studio выбирается, но демон работает на Lite (DeepFilterNet ещё не встроен) — UI это пишет.
@@ -80,14 +80,14 @@ Svelte (runes) ──DaemonClient──► Transport ─┬─ TauriTransport �
 ## Проверка
 
 ```sh
-pnpm -C apps/miceq-ui check                       # svelte-check + TypeScript strict
-pnpm -C apps/miceq-ui test                        # Vitest: макросы против пресетов, АЧХ EQ
-cargo test -p miceq-ipc --features ts             # TS-файлы актуальны
-cargo test -p miceq-ui                            # мост против фейкового демона
-pnpm -C apps/miceq-ui screenshots ../../.artifacts/screenshots [сценарий…]   # при запущенном dev
+pnpm -C apps/macafon-ui check                       # svelte-check + TypeScript strict
+pnpm -C apps/macafon-ui test                        # Vitest: макросы против пресетов, АЧХ EQ
+cargo test -p macafon-ipc --features ts             # TS-файлы актуальны
+cargo test -p macafon-ui                            # мост против фейкового демона
+pnpm -C apps/macafon-ui screenshots ../../.artifacts/screenshots [сценарий…]   # при запущенном dev
 ```
 
 Тест моста поднимает фейковый демон на Unix-сокете: ответы в другом порядке, событие между ними,
 ошибка демона, пропажа демона с незавершённым вызовом, переход в `unavailable` без запуска второго
-демона. Разово мост проверен и против настоящего `miceqd` в приватном PipeWire: handshake, вызовы,
+демона. Разово мост проверен и против настоящего `macafond` в приватном PipeWire: handshake, вызовы,
 60 кадров метров за 2 с при 30 Гц, маппинг ошибок, `daemon.quit` → `unavailable`.

@@ -35,8 +35,8 @@ def png(width, height, argb):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--daemon", type=Path, default=ROOT / "target/release/miceqd")
-    parser.add_argument("--ctl", type=Path, default=ROOT / "target/release/miceq")
+    parser.add_argument("--daemon", type=Path, default=ROOT / "target/release/macafond")
+    parser.add_argument("--ctl", type=Path, default=ROOT / "target/release/macafon")
     parser.add_argument("--icons", type=Path, help="save the 48 px icon of each state as PNG here")
     parser.add_argument("--private-session", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -44,14 +44,14 @@ def main():
         if not shutil.which(command):
             parser.error(f"{command} missing")
     if not args.daemon.is_file() or not args.ctl.is_file():
-        parser.error("build first: cargo build --release -p miceqd -p miceq-cli")
+        parser.error("build first: cargo build --release -p macafond -p macafon-cli")
     if not args.private_session:
         extra = ["--icons", str(args.icons.resolve())] if args.icons else []
         return subprocess.call(["dbus-run-session", "--", sys.executable, str(Path(__file__).resolve()),
                                 "--private-session", "--daemon", str(args.daemon.resolve()),
                                 "--ctl", str(args.ctl.resolve()), *extra])
     processes, logs = [], []
-    with tempfile.TemporaryDirectory(prefix="miceq-tray-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="macafon-tray-") as temporary:
         directory = Path(temporary)
         runtime = directory / "runtime"
         runtime.mkdir(mode=0o700)
@@ -156,9 +156,9 @@ def main():
             print("tray: tooltip, icon states, mute/bypass/preset menu, middle-click mute, "
                   "user presets listed")
 
-            click(name, "Quit micEQ")
+            click(name, "Quit Macafon")
             assert daemon.wait(timeout=5) == 0, f"daemon exit code {daemon.returncode}"
-            assert not (runtime / "miceq" / "miceqd.sock").exists(), "socket left behind"
+            assert not (runtime / "macafon" / "macafond.sock").exists(), "socket left behind"
             print("tray: Quit stops the daemon cleanly")
         except Exception:
             for log in logs:

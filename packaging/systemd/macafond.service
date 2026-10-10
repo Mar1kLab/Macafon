@@ -1,0 +1,15 @@
+[Unit]
+Description=Macafon audio daemon (virtual microphone)
+Documentation=https://github.com/Mar1kLab/Macafon
+# The tray needs the desktop session; audio needs PipeWire (the daemon also waits for it).
+PartOf=graphical-session.target
+After=graphical-session.target pipewire.service wireplumber.service
+
+[Service]
+ExecStart=/usr/bin/macafond run
+# A crash restarts within 2 s (NFR-S6); Quit from the tray exits cleanly and stays stopped.
+Restart=on-failure
+RestartSec=1
+
+[Install]
+WantedBy=graphical-session.target

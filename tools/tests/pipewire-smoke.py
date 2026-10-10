@@ -74,15 +74,15 @@ def wait_for(predicate, description):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--daemon", type=Path, default=ROOT / "target/release/miceqd")
+    parser.add_argument("--daemon", type=Path, default=ROOT / "target/release/macafond")
     args = parser.parse_args()
     for command in ("pipewire", "pw-cat", "pw-link", "pw-dump", "pw-metadata"):
         if not shutil.which(command):
             parser.error(f"{command} missing; install PipeWire tools")
     if not args.daemon.is_file():
-        parser.error("build the daemon first: cargo build --release -p miceqd")
+        parser.error("build the daemon first: cargo build --release -p macafond")
     processes = []
-    with tempfile.TemporaryDirectory(prefix="miceq-pw-") as directory:
+    with tempfile.TemporaryDirectory(prefix="macafon-pw-") as directory:
         directory = Path(directory)
         runtime = directory / "runtime"
         runtime.mkdir(mode=0o700)
@@ -142,7 +142,7 @@ def main():
                 if engine == "mute":
                     command += ["--mute"]
                 daemon = spawn(command)
-                wait_for(lambda: ports("miceq_mic", "out"), "virtual microphone")
+                wait_for(lambda: ports("macafon_mic", "out"), "virtual microphone")
                 capture = directory / f"{engine}.raw"
                 recorder = spawn(["pw-cat", "--record", "--raw", "--format", "f32",
                                   "--channels", "2", "--channel-map", "FL,FR", "--target", "0",
@@ -154,7 +154,7 @@ def main():
                                         "node.name=test_microphone media.class=Audio/Source adapter.auto-port-config={ mode=dsp position=preserve }", source_file]
                 source_process = spawn(source_command)
                 source_ports = wait_for(lambda: ports("test_microphone", "out"), "source ports")
-                virtual_ports = ports("miceq_mic", "out")
+                virtual_ports = ports("macafon_mic", "out")
                 run("pw-link", str(source_ports["MONO"]), str(capture_ports["FL"]))
                 run("pw-link", str(virtual_ports["MONO"]), str(capture_ports["FR"]))
                 # The daemon links the named input itself, including after reconnection.
@@ -199,7 +199,7 @@ def main():
                 assert all(value == 0.0 for value in samples[1::2][-2048:]), "disconnected input leaked audio"
                 stop(daemon)
                 assert daemon.returncode == 0, f"unclean shutdown: {daemon.returncode}"
-                wait_for(lambda: not ports("miceq_mic", "out"), "virtual microphone cleanup")
+                wait_for(lambda: not ports("macafon_mic", "out"), "virtual microphone cleanup")
             playback = spawn(["pw-cat", "--playback", "--raw", "--format", "f32",
                               "--channels", "1", "--channel-map", "MONO", "--target", "0",
                               "--properties", "node.name=test_app adapter.auto-port-config={ mode=dsp position=preserve }", source_file])
@@ -216,16 +216,16 @@ def main():
             # Rebuild the whole graph after server loss, preserving the selected chain.
             daemon = spawn([args.daemon, "run", "--no-tray", "--input", "test_microphone", "--preset", "raw",
                             "--engine", "lite", "--intensity", "0"])
-            wait_for(lambda: ports("miceq_mic", "out"), "virtual microphone before server exit")
+            wait_for(lambda: ports("macafon_mic", "out"), "virtual microphone before server exit")
             for _ in range(2):
                 stop(server)
                 time.sleep(0.7)
                 assert daemon.poll() is None, "daemon exited instead of waiting for PipeWire"
                 server = spawn(["pipewire", "-c", config])
                 wait_for(lambda: (runtime / "pipewire-0").exists(), "restarted server")
-                wait_for(lambda: ports("miceq_mic", "out"), "restored virtual microphone")
+                wait_for(lambda: ports("macafon_mic", "out"), "restored virtual microphone")
                 restored = [item for item in objects() if item["type"] == "PipeWire:Interface:Node"
-                            and item["info"]["props"].get("node.name") == "miceq_mic"]
+                            and item["info"]["props"].get("node.name") == "macafon_mic"]
                 assert len(restored) == 1, "duplicate virtual microphone after reconnect"
                 assert restored[0]["info"]["params"]["ProcessLatency"][0]["rate"] == 960, "processing settings lost"
             capture = directory / "recovery.raw"
@@ -235,7 +235,7 @@ def main():
             capture_ports = wait_for(lambda: ports("test_capture", "in"), "recovery capture")
             source_process = spawn(source_command)
             wait_for(lambda: ports("test_microphone", "out"), "source after server restart")
-            run("pw-link", str(ports("miceq_mic", "out")["MONO"]), str(capture_ports["MONO"]))
+            run("pw-link", str(ports("macafon_mic", "out")["MONO"]), str(capture_ports["MONO"]))
             time.sleep(1.2)
             stop(source_process)
             stop(recorder)
@@ -246,7 +246,7 @@ def main():
             assert any(abs(value) > 0.2 for value in samples), "restored graph produced no audio"
             stop(daemon)
             assert daemon.returncode == 0, "restored daemon did not shut down cleanly"
-            wait_for(lambda: not ports("miceq_mic", "out"), "restored node cleanup")
+            wait_for(lambda: not ports("macafon_mic", "out"), "restored node cleanup")
             stop(server)
             daemon = spawn([args.daemon])
             time.sleep(0.7)

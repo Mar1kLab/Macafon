@@ -1,13 +1,13 @@
 [workspace]
 members = [
-    "crates/miceq-dsp",
-    "crates/miceq-engine",
-    "crates/miceq-config",
-    "crates/miceq-ipc",
-    "crates/miceq-backend-pipewire",
-    "apps/miceqd",
-    "apps/miceq-cli",
-    "apps/miceq-ui/src-tauri",
+    "crates/macafon-dsp",
+    "crates/macafon-engine",
+    "crates/macafon-config",
+    "crates/macafon-ipc",
+    "crates/macafon-backend-pipewire",
+    "apps/macafond",
+    "apps/macafon-cli",
+    "apps/macafon-ui/src-tauri",
 ]
 resolver = "3"
 
@@ -28,11 +28,11 @@ pipewire = { version = "0.10.1", features = ["v1_0_0"] }
 tracing = "0.1"
 ts-rs = { version = "12", default-features = false, features = ["serde-compat", "no-serde-warnings"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-miceq-dsp = { path = "crates/miceq-dsp" }
-miceq-engine = { path = "crates/miceq-engine" }
-miceq-config = { path = "crates/miceq-config" }
-miceq-ipc = { path = "crates/miceq-ipc" }
-miceq-backend-pipewire = { path = "crates/miceq-backend-pipewire" }
+macafon-dsp = { path = "crates/macafon-dsp" }
+macafon-engine = { path = "crates/macafon-engine" }
+macafon-config = { path = "crates/macafon-config" }
+macafon-ipc = { path = "crates/macafon-ipc" }
+macafon-backend-pipewire = { path = "crates/macafon-backend-pipewire" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

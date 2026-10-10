@@ -1,6 +1,6 @@
 # M1: цепочка обработки микрофона
 
-Состояние на 2026-10-09. Реализована DSP-часть M1 в `miceq-dsp` и подключена к демону
+Состояние на 2026-10-09. Реализована DSP-часть M1 в `macafon-dsp` и подключена к демону
 через пресеты. UI, IPC, конфиг, калибровка и A/B ещё не сделаны.
 
 ## Что есть
@@ -8,7 +8,7 @@
 - Восемь модулей в фиксированном порядке PRD §6.3: Gain → High-pass → NS Lite → Expander/Gate →
   EQ → Compressor → De-esser → Limiter → Output gain. Выключенный модуль не создаётся
   (0 CPU, 0 задержки, DSP-005). Global bypass (MIC-014) и mute (MIC-013).
-- Диапазоны и значения по умолчанию — `miceq_dsp::params`, единый источник для CLI/UI/конфига.
+- Диапазоны и значения по умолчанию — `macafon_dsp::params`, единый источник для CLI/UI/конфига.
 - Фильтры — TPT SVF (Simper), отклики совпадают с прототипами RBJ после билинейного
   преобразования (тест ±0,1 dB, EQ-003). HPF — Butterworth 12/24 dB/oct.
 - `MicrophoneProcessor::retune` меняет непрерывные параметры и mute без аллокаций,
@@ -18,7 +18,7 @@
 - Метры без блокировок (`Telemetry`): пик до Gain (клип на входе, MIC-G1), пик/RMS входа и
   выхода, gain reduction экспандера/компрессора/де-эссера/лимитера, активность NS
   (MTR-001…003, DSP-004).
-- Шесть встроенных пресетов §6.3.10; в демоне `miceqd run --preset <name>`, по умолчанию Natural.
+- Шесть встроенных пресетов §6.3.10; в демоне `macafond run --preset <name>`, по умолчанию Natural.
 
 ## Решения, которых нет в PRD
 
@@ -36,7 +36,7 @@
 | Studio NS | DeepFilterNet ещё нет: пресет Noisy Room работает на Lite, демон пишет предупреждение |
 
 Проценты макро хранятся в диапазоне 0–100, как в таблицах PRD; пример конфига в PRD §13
-использует доли 0–1 — пересчёт будет в `miceq-config`.
+использует доли 0–1 — пересчёт будет в `macafon-config`.
 
 ## Замечания к PRD
 
@@ -49,7 +49,7 @@
 
 ## Производительность
 
-`cargo bench -p miceq-dsp --bench microphone`, release, блок 128 сэмплов (с генерацией синуса
+`cargo bench -p macafon-dsp --bench microphone`, release, блок 128 сэмплов (с генерацией синуса
 ~0,85 мкс):
 
 | Цепочка | Время на блок | Доля одного ядра при 48 кГц |
@@ -65,7 +65,7 @@ PipeWire.
 ## Проверка
 
 ```sh
-cargo test -p miceq-dsp
-cargo bench -p miceq-dsp --bench microphone -- --sample-size 10 --measurement-time 1 --warm-up-time 1
+cargo test -p macafon-dsp
+cargo bench -p macafon-dsp --bench microphone -- --sample-size 10 --measurement-time 1 --warm-up-time 1
 python3 tools/tests/pipewire-smoke.py   # включает прогон пресета Natural через граф
 ```

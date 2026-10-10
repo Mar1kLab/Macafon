@@ -1,11 +1,11 @@
-# AGENTS.md — гайдлайны для агентов и разработчиков micEQ
+# AGENTS.md — гайдлайны для агентов и разработчиков Macafon
 
 Этот файл обязателен к прочтению перед любой работой в репозитории. По вопросам процесса он важнее
 PRD: если PRD упоминает что-то, что здесь запрещено (например, CI на GitHub Actions), действует этот файл.
 
 ## 1. Контекст проекта
 
-micEQ — лёгкое open-source приложение на Rust: обработка микрофона (цепочка DSP + виртуальный микрофон)
+Macafon — лёгкое open-source приложение на Rust: обработка микрофона (цепочка DSP + виртуальный микрофон)
 и микшер звука по каналам с drag & drop приложений. Linux (PipeWire) первым, Windows вторым.
 
 | Документ | Зачем читать |
@@ -40,14 +40,14 @@ micEQ — лёгкое open-source приложение на Rust: обрабо�
 
 **По умолчанию (локальные изменения):**
 - `cargo fmt` и `cargo clippy -p <затронутый крейт> -- -D warnings`.
-- `cargo test -p <затронутый крейт>` или конкретный тест (`cargo test -p miceq-dsp compressor`).
-- Фронтенд: `pnpm -C apps/miceq-ui check` (svelte-check/TS) и только релевантные Vitest-файлы.
+- `cargo test -p <затронутый крейт>` или конкретный тест (`cargo test -p macafon-dsp compressor`).
+- Фронтенд: `pnpm -C apps/macafon-ui check` (svelte-check/TS) и только релевантные Vitest-файлы.
 - Новая DSP-математика и исправленный баг → **один целевой тест**, который проверяет именно это
   (АЧХ фильтра против формулы, статическая кривая компрессора, регресс бага).
 
 **Только когда это оправдано:**
-- `cargo test --workspace` — при изменениях в общих крейтах (`miceq-engine`, `miceq-ipc`, `miceq-config`,
-  `miceq-backend`) или API между крейтами.
+- `cargo test --workspace` — при изменениях в общих крейтах (`macafon-engine`, `macafon-ipc`, `macafon-config`,
+  `macafon-backend`) или API между крейтами.
 - e2e (tauri-driver), soak-тесты, интеграция с headless PipeWire, latency-probe — при изменениях в
   соответствующей подсистеме (бэкенд PipeWire, RT-путь, роутинг) или когда владелец просит. Не пиши e2e на
   каждую UI-правку.
@@ -62,9 +62,9 @@ micEQ — лёгкое open-source приложение на Rust: обрабо�
   только для настоящих инвариантов.
 - Логи — `tracing`. `unsafe` — только для FFI/COM/PipeWire с комментарием `// SAFETY:`.
 - Зависимости — минимально. Перед добавлением крейта: нужен ли он, поддерживается ли, совместима ли
-  лицензия с open-source проектом (без проприетарных и сетевых SDK). `miceq-dsp` — без тяжёлых зависимостей.
+  лицензия с open-source проектом (без проприетарных и сетевых SDK). `macafon-dsp` — без тяжёлых зависимостей.
 - Единицы измерения в именах: `threshold_db`, `freq_hz`, `attack_ms`, `gain_lin`. Диапазоны и значения по
-  умолчанию — строго из таблиц PRD §6.3; держи их в одном месте (описание параметров в `miceq-dsp`), UI и
+  умолчанию — строго из таблиц PRD §6.3; держи их в одном месте (описание параметров в `macafon-dsp`), UI и
   конфиг берут их оттуда.
 
 ### 4.1 Real-time аудио — жёсткие правила
@@ -87,9 +87,9 @@ micEQ — лёгкое open-source приложение на Rust: обрабо�
   радиусов, теней, шрифтов. Только тёмная тема. `border-radius: 0`.
 - Шрифты бандлятся локально, никаких запросов в сеть (CDN, Google Fonts, аналитика).
 - Строки UI — через i18n-слой (сейчас только `en`), не хардкодом в разметке.
-- UI ничего не знает об аудио напрямую — только IPC к демону. Типы протокола — из `miceq-ipc`
+- UI ничего не знает об аудио напрямую — только IPC к демону. Типы протокола — из `macafon-ipc`
   (генерация TS-типов), не дублировать руками.
-- **Mock-режим демона** обязателен: UI должен запускаться в обычном браузере (`pnpm -C apps/miceq-ui dev`
+- **Mock-режим демона** обязателен: UI должен запускаться в обычном браузере (`pnpm -C apps/macafon-ui dev`
   с мок-бэкендом, отдающим правдоподобные устройства, приложения и живые метры). Это нужно для разработки
   и скриншотов.
 - Доступность из PRD §9.8 (клавиатура, ARIA для слайдеров) — сразу, а не «потом».
@@ -129,15 +129,15 @@ micEQ — лёгкое open-source приложение на Rust: обрабо�
 cargo fmt
 cargo clippy -p <crate> -- -D warnings
 cargo test -p <crate> [filter]
-cargo build --release -p miceqd -p miceq-cli
-target/release/miceqd run --input '<node.name>'   # демон (PipeWire + сокет управления)
-target/release/miceq ctl status                   # управление демоном
+cargo build --release -p macafond -p macafon-cli
+target/release/macafond run --input '<node.name>'   # демон (PipeWire + сокет управления)
+target/release/macafon ctl status                   # управление демоном
 python3 tools/tests/pipewire-smoke.py             # приватный PipeWire: задержка, mute, рестарты
 python3 tools/tests/wireplumber-routing.py        # приватный WirePlumber: роутинг
 python3 tools/tests/control-smoke.py              # управление на лету, конфиг, протокол
 python3 tools/tests/tray-smoke.py                 # трей через приватную D-Bus-сессию
-pnpm -C apps/miceq-ui dev              # UI в браузере с mock-демоном
-pnpm -C apps/miceq-ui tauri dev        # UI в Tauri с реальным демоном
-pnpm -C apps/miceq-ui check            # svelte-check / TypeScript
-pnpm -C apps/miceq-ui gen:ipc          # перегенерировать TS-типы из miceq-ipc/miceq-dsp
+pnpm -C apps/macafon-ui dev              # UI в браузере с mock-демоном
+pnpm -C apps/macafon-ui tauri dev        # UI в Tauri с реальным демоном
+pnpm -C apps/macafon-ui check            # svelte-check / TypeScript
+pnpm -C apps/macafon-ui gen:ipc          # перегенерировать TS-типы из macafon-ipc/macafon-dsp
 ```

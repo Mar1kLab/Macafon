@@ -1,0 +1,20 @@
+[package]
+name = "macafon-ipc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+macafon-dsp = { workspace = true, features = ["serde"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+ts-rs = { workspace = true, optional = true, features = ["serde-json-impl"] }
+
+[features]
+# Generates apps/macafon-ui/src/lib/ipc/*.ts: `MACAFON_UPDATE_TS=1 cargo test -p macafon-ipc --features ts`.
+ts = ["dep:ts-rs", "macafon-dsp/ts"]
+
+[lints]
+workspace = true

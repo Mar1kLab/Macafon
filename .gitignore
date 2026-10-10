@@ -5,4 +5,4 @@ dist/
 *.log
 .DS_Store
 __pycache__/
-/apps/miceq-ui/src-tauri/gen/
+/apps/macafon-ui/src-tauri/gen/

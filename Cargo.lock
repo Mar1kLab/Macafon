@@ -2203,6 +2203,106 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
+name = "macafon-backend-pipewire"
+version = "0.1.0"
+dependencies = [
+ "assert_no_alloc",
+ "macafon-dsp",
+ "macafon-engine",
+ "pipewire",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
+name = "macafon-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "macafon-ipc",
+ "serde_json",
+]
+
+[[package]]
+name = "macafon-config"
+version = "0.1.0"
+dependencies = [
+ "macafon-dsp",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "toml 1.1.7+spec-1.1.0",
+]
+
+[[package]]
+name = "macafon-dsp"
+version = "0.1.0"
+dependencies = [
+ "assert_no_alloc",
+ "criterion",
+ "nnnoiseless",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "toml 1.1.7+spec-1.1.0",
+ "ts-rs",
+]
+
+[[package]]
+name = "macafon-engine"
+version = "0.1.0"
+dependencies = [
+ "assert_no_alloc",
+ "macafon-dsp",
+ "rtrb",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "macafon-ipc"
+version = "0.1.0"
+dependencies = [
+ "macafon-dsp",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "ts-rs",
+]
+
+[[package]]
+name = "macafon-ui"
+version = "0.1.0"
+dependencies = [
+ "macafon-ipc",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-single-instance",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "macafond"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_no_alloc",
+ "clap",
+ "ksni",
+ "macafon-backend-pipewire",
+ "macafon-config",
+ "macafon-dsp",
+ "macafon-engine",
+ "macafon-ipc",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "markup5ever"
 version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2235,106 +2335,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "miceq-backend-pipewire"
-version = "0.1.0"
-dependencies = [
- "assert_no_alloc",
- "miceq-dsp",
- "miceq-engine",
- "pipewire",
- "thiserror 2.0.21",
- "tracing",
-]
-
-[[package]]
-name = "miceq-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "miceq-ipc",
- "serde_json",
-]
-
-[[package]]
-name = "miceq-config"
-version = "0.1.0"
-dependencies = [
- "miceq-dsp",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "toml 1.1.7+spec-1.1.0",
-]
-
-[[package]]
-name = "miceq-dsp"
-version = "0.1.0"
-dependencies = [
- "assert_no_alloc",
- "criterion",
- "nnnoiseless",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "toml 1.1.7+spec-1.1.0",
- "ts-rs",
-]
-
-[[package]]
-name = "miceq-engine"
-version = "0.1.0"
-dependencies = [
- "assert_no_alloc",
- "miceq-dsp",
- "rtrb",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "miceq-ipc"
-version = "0.1.0"
-dependencies = [
- "miceq-dsp",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "ts-rs",
-]
-
-[[package]]
-name = "miceq-ui"
-version = "0.1.0"
-dependencies = [
- "miceq-ipc",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-single-instance",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "miceqd"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assert_no_alloc",
- "clap",
- "ksni",
- "miceq-backend-pipewire",
- "miceq-config",
- "miceq-dsp",
- "miceq-engine",
- "miceq-ipc",
- "serde_json",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

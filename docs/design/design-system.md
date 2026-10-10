@@ -1,6 +1,6 @@
-# micEQ — дизайн-система
+# Macafon — дизайн-система
 
-> Часть [PRD micEQ](../PRD.md). Основа — визуальный язык [getartcraft.com/apps](https://getartcraft.com/apps)
+> Часть [PRD Macafon](../PRD.md). Основа — визуальный язык [getartcraft.com/apps](https://getartcraft.com/apps)
 > (токены сняты с production CSS сайта), адаптированный под аудио-утилиту. **Только тёмная тема.**
 
 ## 1. Принципы

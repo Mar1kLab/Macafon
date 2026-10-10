@@ -1,7 +1,7 @@
 # M1: демон, управление на лету, конфиг и IPC
 
-Состояние на 2026-10-10. Демон `miceqd` работает постоянно, им можно управлять во время работы
-через Unix-сокет; настройки сохраняются. UI — [ui.md](ui.md), скрипты и хоткеи — `miceq ctl`.
+Состояние на 2026-10-10. Демон `macafond` работает постоянно, им можно управлять во время работы
+через Unix-сокет; настройки сохраняются. UI — [ui.md](ui.md), скрипты и хоткеи — `macafon ctl`.
 
 ## Устройство
 
@@ -12,7 +12,7 @@ IPC-потоки (по 2 на клиента) ──pipewire::channel──► c
                                                      MicRt в RT-колбэке pw_filter
 ```
 
-- `miceq-engine`: `MicControl` (control loop) и `MicRt` (RT). Непрерывные изменения идут
+- `macafon-engine`: `MicControl` (control loop) и `MicRt` (RT). Непрерывные изменения идут
   в очередь `rtrb` и применяются `retune` со сглаживанием 10 мс. Структурные изменения
   (вкл/выкл модуля, bypass, look-ahead) собирают новый процессор вне RT; `MicRt` делает
   кроссфейд 10 мс, старый процессор возвращается второй очередью и освобождается на control
@@ -20,16 +20,16 @@ IPC-потоки (по 2 на клиента) ──pipewire::channel──► c
 - Задержка цепочки после изменений сообщается графу обновлением `ProcessLatency` (NFR-L4).
 - Смена микрофона применяется без перезапуска: линк пересоздаётся на следующем тике (100 мс).
   Отключение/подключение входа рассылается событием `mic.changed` (основа тоста MIC-005).
-- Резервный микрофон (MIC-006) задаётся через `miceq ctl fallback-device '<node.name>'`
+- Резервный микрофон (MIC-006) задаётся через `macafon ctl fallback-device '<node.name>'`
   (`none` отключает резерв). Основной всегда имеет приоритет; при его отключении выбирается
   доступный резервный, при возвращении основного демон переключается обратно. Если оба
   отключены, виртуальный микрофон остаётся и выдаёт тишину (MIC-005, MIC-010).
-  `miceq ctl device none` отключает вход целиком, включая резерв.
+  `macafon ctl device none` отключает вход целиком, включая резерв.
   `MicState.device` — сохранённый основной, `fallback_device` — резервный,
   `active_device` — текущий подключённый вход. Смена активного микрофона прерывает
   калибровку и запись A/B, чтобы не смешивать данные разных устройств; измеренный шумовой
   пол сбрасывается. Цепочка остаётся общей — профили на устройство (MIC-007) ещё не сделаны.
-- Stereo-режим виртуального микрофона (MIC-011): `miceqd run --stereo` или `stereo = true`
+- Stereo-режим виртуального микрофона (MIC-011): `macafond run --stereo` или `stereo = true`
   в `[mic]` конфига. Вместо порта MONO создаются FL и FR; DSP обрабатывает моносигнал
   один раз и копирует результат в оба канала. Дополнительной задержки нет. Работает и
   потребитель, подключённый только к одному из каналов. Вход и запись A/B остаются моно.
@@ -50,9 +50,9 @@ IPC-потоки (по 2 на клиента) ──pipewire::channel──► c
 - Потоки IPC стартуют после блокировки SIGINT/SIGTERM, поэтому сигналы обрабатывает
   только control loop и демон корректно завершается.
 
-## Протокол (`miceq-ipc`, версия 1)
+## Протокол (`macafon-ipc`, версия 1)
 
-JSON по строкам, сокет `$XDG_RUNTIME_DIR/miceq/miceqd.sock` (каталог 0700, сокет 0600).
+JSON по строкам, сокет `$XDG_RUNTIME_DIR/macafon/macafond.sock` (каталог 0700, сокет 0600).
 Первым запросом должен быть `hello` с номером протокола; при несовпадении — `protocol_mismatch`.
 
 | Метод | Параметры | Ответ |
@@ -71,7 +71,7 @@ JSON по строкам, сокет `$XDG_RUNTIME_DIR/miceq/miceqd.sock` (ка�
 | `presets.save` | `name` | `PresetInfo`; текущая цепочка — новый пресет, он становится выбранным |
 | `presets.update` | `id` | `PresetInfo`; перезаписать пользовательский пресет текущей цепочкой |
 | `presets.rename` / `presets.duplicate` / `presets.delete` | `id` (+ `name`) / `id` / `id` | `PresetInfo` / `PresetInfo` / `null` |
-| `presets.export` / `presets.import` | `id` / `document` | документ `.miceq-preset.json` / `PresetInfo` |
+| `presets.export` / `presets.import` | `id` / `document` | документ `.macafon-preset.json` / `PresetInfo` |
 | `meters.subscribe` / `meters.unsubscribe` | `hz` (1–60) / — | `null`, затем события `meters` |
 | `calibration.start` / `calibration.cancel` / `calibration.get` | — | `CalibrationState` |
 | `ab.record` | `max_seconds` (3–30, по умолчанию 10) | `AbState` |
@@ -86,18 +86,18 @@ JSON по строкам, сокет `$XDG_RUNTIME_DIR/miceq/miceqd.sock` (ка�
 `presets.changed` (новый список пресетов). Ошибка `already_exists` — имя пресета занято. Ошибки: `bad_request`, `protocol_mismatch`,
 `invalid_params`, `not_found`, `busy`, `internal`.
 
-TS-типы для UI генерируются из `miceq-ipc` (см. [ui.md](ui.md)).
+TS-типы для UI генерируются из `macafon-ipc` (см. [ui.md](ui.md)).
 
-## Конфиг (`miceq-config`)
+## Конфиг (`macafon-config`)
 
-`$XDG_CONFIG_HOME/miceq/config.toml`, `schema_version = 1`. Секция `[mic]`: `stereo` (по умолчанию `false`), `device`, `fallback_device`, `preset`,
+`$XDG_CONFIG_HOME/macafon/config.toml`, `schema_version = 1`. Секция `[mic]`: `stereo` (по умолчанию `false`), `device`, `fallback_device`, `preset`,
 `muted`, `bypass`, `output_gain_db` и таблицы модулей `[mic.compressor]` и т.д. Отсутствующие
 поля берутся из значений по умолчанию. Пишется атомарно (temp + fsync + rename) через 500 мс
 после последнего изменения и при выходе (CFG-001). Повреждённый, невалидный или более новый
 по схеме файл переименовывается в `config.toml.broken-<unix time>`, демон стартует с
 дефолтами (CFG-002; тоста пока нет — только предупреждение в логе).
 
-Флаги `miceqd run` (`--input`, `--fallback-input`, `--stereo`, `--preset`, `--engine`, …) перекрывают конфиг на этот запуск;
+Флаги `macafond run` (`--input`, `--fallback-input`, `--stereo`, `--preset`, `--engine`, …) перекрывают конфиг на этот запуск;
 последующие изменения через IPC сохраняются вместе с ними. `--config <path>` — другой файл.
 
 Отличия от примера в PRD §13: модули лежат в `[mic.<module>]`, а не в `[mic.modules.<module>]`;
@@ -105,7 +105,7 @@ TS-типы для UI генерируются из `miceq-ipc` (см. [ui.md](u
 
 ## Калибровка (§6.5)
 
-`calibration.start` (или `miceq ctl calibrate`) включает копирование сырого сигнала микрофона
+`calibration.start` (или `macafon ctl calibrate`) включает копирование сырого сигнала микрофона
 (до Gain) из RT-колбэка в очередь `rtrb` на 1 с; control loop забирает его каждые 100 мс.
 Шаги считаются по сэмплам: 4 с тишины (CAL-001), затем 6 с речи (CAL-002). Состояние:
 `idle` → `measuring {step, progress, step_duration_ms}` → `done {report}` или
@@ -119,7 +119,7 @@ TS-типы для UI генерируются из `miceq-ipc` (см. [ui.md](u
 калибровки резерва не переносится на основной после перезапуска. Для старых конфигов без
 этого поля результат относится к сохранённому основному микрофону.
 
-Анализ — `miceq_dsp::calibration::calibrate`, правила CAL-003 и решения, которых нет в PRD:
+Анализ — `macafon_dsp::calibration::calibrate`, правила CAL-003 и решения, которых нет в PRD:
 
 | Что | Решение |
 |---|---|
@@ -140,10 +140,10 @@ TS-типы для UI генерируются из `miceq-ipc` (см. [ui.md](u
   взаимоисключающие — `busy`). 3–30 с, раньше 3 с остановить нельзя. Края клипа сглаживаются
   на 10 мс, чтобы шов цикла не щёлкал. Клип хранится только в памяти демона. Если микрофон
   пропал, запись не короче 3 с сохраняется, иначе отбрасывается.
-- **Воспроизведение (AB-002, AB-003, AB-008).** Отдельный `pw_stream` `miceq_ab`
-  («micEQ A/B test»), моно 48 кГц, создаётся только на время воспроизведения. Цель — `target.object`
+- **Воспроизведение (AB-002, AB-003, AB-008).** Отдельный `pw_stream` `macafon_ab`
+  («Macafon A/B test»), моно 48 кГц, создаётся только на время воспроизведения. Цель — `target.object`
   или выход по умолчанию (подключает WirePlumber). B — собственный экземпляр цепочки
-  (`miceq_engine::ab_player`) со своими метрами; каждое изменение живой цепочки уходит и в него.
+  (`macafon_engine::ab_player`) со своими метрами; каждое изменение живой цепочки уходит и в него.
   Mute к тесту не применяется. Основной виртуальный микрофон работает как обычно.
 - **A ⇄ B (AB-004).** Обе стороны считаются всегда; переключение — линейный кроссфейд 20 мс.
   A задерживается на задержку цепочки B, поэтому позиция общая и переключение не «прыгает».
@@ -157,7 +157,7 @@ TS-типы для UI генерируются из `miceq-ipc` (см. [ui.md](u
 ## Пользовательские пресеты (§6.3.10, §13)
 
 - Файлы `<каталог конфига>/presets/mic/<slug>.json` (рядом с `config.toml`, то есть
-  `$XDG_CONFIG_HOME/miceq/presets/mic`), формат совпадает с экспортным `.miceq-preset.json`:
+  `$XDG_CONFIG_HOME/macafon/presets/mic`), формат совпадает с экспортным `.macafon-preset.json`:
   `{schema_version: 1, name, settings}`. Запись атомарная. Загружаются при старте; битые файлы
   пропускаются с предупреждением в логе и не удаляются. Правки файлов вручную видны после
   перезапуска демона.
@@ -171,7 +171,7 @@ TS-типы для UI генерируются из `miceq-ipc` (см. [ui.md](u
   выбранного пресета (UI: бейдж «modified», кнопка Save). Удалённый текущий пресет сбрасывает
   `preset` в `null`.
 - Импорт/экспорт по IPC передаёт сам документ, а не путь: файлы читает и пишет клиент
-  (UI — через диалог, `miceq ctl presets import|export`).
+  (UI — через диалог, `macafon ctl presets import|export`).
 
 ## Трей (§8.1)
 
@@ -182,9 +182,9 @@ StatusNotifierItem по D-Bus через `ksni` (без GTK и tokio), отде�
 - Иконка рисуется в коде (векторно, со сглаживанием, 16/22/32/48 px), ассетов нет:
   микрофон `--accent`; bypass — контурный; mute — перечёркнут `--danger`; микрофон не
   подключён — точка `--danger` (BG-002). Состояния различаются формой, не только цветом.
-- Меню (BG-003): `Open micEQ`, `Mute microphone` ✓, `Bypass processing` ✓, `Preset ▸`
-  (встроенные и пользовательские), `Quit micEQ`. `Output device ▸` появится с микшером (M2).
-- Левый клик — открыть UI, средний — mute (BG-004). UI ищется как `miceq` рядом с демоном,
+- Меню (BG-003): `Open Macafon`, `Mute microphone` ✓, `Bypass processing` ✓, `Preset ▸`
+  (встроенные и пользовательские), `Quit Macafon`. `Output device ▸` появится с микшером (M2).
+- Левый клик — открыть UI, средний — mute (BG-004). UI ищется как `macafon` рядом с демоном,
   затем в `PATH`.
 - Нет хоста трея (панель стартует позже, GNOME без расширения AppIndicator) — демон
   работает дальше и показывает иконку, когда хост появится. Подсказка BG-007 — задача UI.
@@ -192,14 +192,14 @@ StatusNotifierItem по D-Bus через `ksni` (без GTK и tokio), отде�
 
 ## Автозапуск (§8.2)
 
-- `packaging/systemd/miceqd.service`: `WantedBy`/`PartOf=graphical-session.target` (трею нужна
+- `packaging/systemd/macafond.service`: `WantedBy`/`PartOf=graphical-session.target` (трею нужна
   сессия рабочего стола), `After=pipewire.service wireplumber.service`, `Restart=on-failure`,
   `RestartSec=1` (NFR-S6). Quit из трея завершает демон с кодом 0 — systemd его не поднимает.
 - `autostart.set` включает unit (`systemctl --user enable`), если он установлен и сессия
-  достигает `graphical-session.target`; иначе пишет `$XDG_CONFIG_HOME/autostart/miceqd.desktop`
-  с путём к текущему бинарю. Активен только один способ. `MICEQ_NO_SYSTEMD=1` заставляет
+  достигает `graphical-session.target`; иначе пишет `$XDG_CONFIG_HOME/autostart/macafond.desktop`
+  с путём к текущему бинарю. Активен только один способ. `MACAFON_NO_SYSTEMD=1` заставляет
   использовать XDG (тесты, системы без systemd).
-- AS-003: в приватном PipeWire `micEQ Microphone` появляется через 18–31 мс после старта.
+- AS-003: в приватном PipeWire `Macafon Microphone` появляется через 18–31 мс после старта.
   RSS демона с треем — 13 МБ (NFR-R4).
 
 ## Не сделано
@@ -211,8 +211,8 @@ StatusNotifierItem по D-Bus через `ksni` (без GTK и tokio), отде�
 ## Проверка
 
 ```sh
-cargo test -p miceq-engine -p miceq-config -p miceq-ipc
-cargo build --release -p miceqd -p miceq-cli
+cargo test -p macafon-engine -p macafon-config -p macafon-ipc
+cargo build --release -p macafond -p macafon-cli
 python3 tools/tests/control-smoke.py
 python3 tools/tests/tray-smoke.py --icons .artifacts/screenshots/tray
 ```
@@ -233,5 +233,5 @@ modified, повторное имя, экспорт → импорт, дубли
 Stereo проверяется по записанным сэмплам: равенство обработанных FL/FR, работа с одним
 подключённым каналом, mute, метры без потребителя, отключение/возврат физического входа,
 сохранение формата в конфиге, восстановление после перезапуска PipeWire и возврат к mono
-через флаг. Тест `miceq-backend-pipewire` под `assert_no_alloc` проверяет дублирование без
+через флаг. Тест `macafon-backend-pipewire` под `assert_no_alloc` проверяет дублирование без
 повторного DSP, частичные подключения, тишину и scratch-обработку без потребителей.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live control of a running daemon through `miceq ctl` in a private PipeWire graph."""
+"""Live control of a running daemon through `macafon ctl` in a private PipeWire graph."""
 
 import argparse
 import array
@@ -24,22 +24,22 @@ spec.loader.exec_module(smoke)
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--daemon", type=Path, default=ROOT / "target/release/miceqd")
-    parser.add_argument("--ctl", type=Path, default=ROOT / "target/release/miceq")
+    parser.add_argument("--daemon", type=Path, default=ROOT / "target/release/macafond")
+    parser.add_argument("--ctl", type=Path, default=ROOT / "target/release/macafon")
     args = parser.parse_args()
     for command in ("pipewire", "pw-cat", "pw-link", "pw-dump"):
         if not shutil.which(command):
             parser.error(f"{command} missing; install PipeWire tools")
     if not args.daemon.is_file() or not args.ctl.is_file():
-        parser.error("build first: cargo build --release -p miceqd -p miceq-cli")
+        parser.error("build first: cargo build --release -p macafond -p macafon-cli")
     processes, logs = [], []
-    with tempfile.TemporaryDirectory(prefix="miceq-control-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="macafon-control-") as temporary:
         directory = Path(temporary)
         runtime = directory / "runtime"
         runtime.mkdir(mode=0o700)
         config_home = directory / "config"
         env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime), PIPEWIRE_RUNTIME_DIR=str(runtime),
-                   XDG_CONFIG_HOME=str(config_home), MICEQ_NO_SYSTEMD="1")
+                   XDG_CONFIG_HOME=str(config_home), MACAFON_NO_SYSTEMD="1")
         config = directory / "test.conf"
         config.write_text(smoke.CONFIG)
 
@@ -63,7 +63,7 @@ def main():
         def request(method, params=None):
             with socket.socket(socket.AF_UNIX) as connection:
                 connection.settimeout(8)
-                connection.connect(str(runtime / "miceq" / "miceqd.sock"))
+                connection.connect(str(runtime / "macafon" / "macafond.sock"))
                 stream = connection.makefile("rw")
                 for identifier, name, arguments in [(1, "hello", {"protocol": 1, "client": "smoke"}),
                                                      (2, method, params)]:
@@ -93,7 +93,7 @@ def main():
                 process.send_signal(signal.SIGTERM)
                 process.wait(timeout=5)
 
-        def capture_samples(seconds=0.6, source="miceq_mic", channels=("MONO",), linked=None):
+        def capture_samples(seconds=0.6, source="macafon_mic", channels=("MONO",), linked=None):
             """Capture a node's output; drop the first 100 ms of ramps and linking."""
             capture = directory / "capture.raw"
             recorder = spawn(["pw-cat", "--record", "--raw", "--format", "f32", "--channels", str(len(channels)),
@@ -118,13 +118,13 @@ def main():
             assert all(math.isfinite(value) for value in samples), "non-finite audio"
             return samples
 
-        def record(seconds=0.6, source="miceq_mic"):
+        def record(seconds=0.6, source="macafon_mic"):
             return max(map(abs, capture_samples(seconds, source)))
 
         def start_daemon(*extra):
             daemon = spawn([args.daemon, "run", "--no-tray", *extra])
-            smoke.wait_for(lambda: (runtime / "miceq" / "miceqd.sock").exists(), "control socket")
-            smoke.wait_for(lambda: ports("miceq_mic", "out"), "virtual microphone")
+            smoke.wait_for(lambda: (runtime / "macafon" / "macafond.sock").exists(), "control socket")
+            smoke.wait_for(lambda: ports("macafon_mic", "out"), "virtual microphone")
             smoke.wait_for(lambda: status()["input_connected"], "microphone linked")
             return daemon
 
@@ -168,22 +168,22 @@ def main():
             # Without WirePlumber nobody configures the stream's ports; do what it would.
             ab_node = smoke.wait_for(lambda: next(
                 (item["id"] for item in json.loads(run("pw-dump"))
-                 if item.get("info", {}).get("props", {}).get("node.name") == "miceq_ab"), None),
+                 if item.get("info", {}).get("props", {}).get("node.name") == "macafon_ab"), None),
                 "A/B stream node")
             run("pw-cli", "set-param", str(ab_node), "PortConfig",
                 "{ direction: Output, mode: dsp, format: { mediaType: audio, mediaSubtype: raw, "
                 "format: F32P, rate: 48000, channels: 1, position: [ MONO ] } }")
-            smoke.wait_for(lambda: ports("miceq_ab", "out"), "A/B stream ports")
-            b_peak = record(1.0, "miceq_ab")
+            smoke.wait_for(lambda: ports("macafon_ab", "out"), "A/B stream ports")
+            b_peak = record(1.0, "macafon_ab")
             ctl("gain", "-12")  # AB-003: B follows the live chain
-            b_live_peak = record(1.0, "miceq_ab")
+            b_live_peak = record(1.0, "macafon_ab")
             assert 0.11 < b_live_peak < 0.14, f"B after a live change {b_live_peak}"
             ctl("gain", "-6")
             ctl("ab", "select", "a")
             # The match follows B's level over a 2 s window; give it time after the −12 dB step.
-            matched_peak = record(6.0, "miceq_ab")
+            matched_peak = record(6.0, "macafon_ab")
             ctl("ab", "match", "off")
-            a_peak = record(1.0, "miceq_ab")
+            a_peak = record(1.0, "macafon_ab")
             assert 0.23 < b_peak < 0.27, f"B peak {b_peak}"
             assert 0.23 < matched_peak < 0.27, f"loudness-matched A peak {matched_peak}"
             assert 0.47 < a_peak < 0.53, f"A peak {a_peak}"
@@ -192,7 +192,7 @@ def main():
             assert 0.2 < max(waveform["b"]) < 0.27, waveform
             state = json.loads(ctl("ab", "stop", "--json"))
             assert not state["playing"], state
-            smoke.wait_for(lambda: not ports("miceq_ab", "out"), "A/B stream removed")
+            smoke.wait_for(lambda: not ports("macafon_ab", "out"), "A/B stream removed")
             print(f"ab: B {b_peak:.3f} (live −12 dB: {b_live_peak:.3f}), A {a_peak:.3f}, "
                   f"A matched to B {matched_peak:.3f}; waveform and stop")
 
@@ -201,7 +201,7 @@ def main():
             assert state["preset"] == "broadcast" and state["latency_samples"] == 960, state
             def reported_latency():
                 for item in json.loads(run("pw-dump")):
-                    if item.get("info", {}).get("props", {}).get("node.name") == "miceq_mic":
+                    if item.get("info", {}).get("props", {}).get("node.name") == "macafon_mic":
                         return item["info"].get("params", {}).get("ProcessLatency", [{}])[0].get("rate")
             smoke.wait_for(lambda: reported_latency() == 960, "ProcessLatency update in the graph")
             peak = record(1.0)
@@ -214,7 +214,7 @@ def main():
                   f"meters raw {meters[-1]['raw_peak_dbfs']:.1f} dBFS")
 
             with socket.socket(socket.AF_UNIX) as raw:
-                raw.connect(str(runtime / "miceq" / "miceqd.sock"))
+                raw.connect(str(runtime / "macafon" / "macafond.sock"))
                 stream = raw.makefile("rw")
                 stream.write('{"id":1,"method":"mic.get"}\nnot json\n')
                 stream.flush()
@@ -230,9 +230,9 @@ def main():
 
             stop(daemon)
             assert daemon.returncode == 0, f"daemon did not stop cleanly: {daemon.returncode}"
-            saved = (config_home / "miceq" / "config.toml").read_text()
+            saved = (config_home / "macafon" / "config.toml").read_text()
             assert 'preset = "broadcast"' in saved and 'device = "test_microphone"' in saved, saved
-            assert not (runtime / "miceq" / "miceqd.sock").exists(), "socket left behind"
+            assert not (runtime / "macafon" / "macafond.sock").exists(), "socket left behind"
             daemon = start_daemon()
             state = status()
             assert state["preset"] == "broadcast" and state["device"] == "test_microphone", state
@@ -278,7 +278,7 @@ def main():
             assert status()["preset"] == "broadcast" and status()["preset_modified"]
             saved = json.loads(ctl("presets", "save", "Smoke voice", "--json"))
             assert saved == {"id": "user:smoke-voice", "name": "Smoke voice", "builtin": False}, saved
-            preset_file = config_home / "miceq" / "presets" / "mic" / "smoke-voice.json"
+            preset_file = config_home / "macafon" / "presets" / "mic" / "smoke-voice.json"
             assert json.loads(preset_file.read_text())["name"] == "Smoke voice"
             state = status()
             assert state["preset"] == "user:smoke-voice" and not state["preset_modified"], state
@@ -292,7 +292,7 @@ def main():
             refused = subprocess.run([str(args.ctl), "ctl", "presets", "save", "natural"], env=env,
                                      capture_output=True, text=True, timeout=8)
             assert refused.returncode != 0 and "AlreadyExists" in refused.stderr, refused
-            exported = directory / "shared.miceq-preset.json"
+            exported = directory / "shared.macafon-preset.json"
             ctl("presets", "export", "user:smoke-voice", exported)
             imported = json.loads(ctl("presets", "import", exported, "--json"))
             assert imported["name"] == "Smoke voice (2)", imported
@@ -348,7 +348,7 @@ def main():
             assert request("ab.get")["recording"] is None, "recording mixed two microphones"
             stop(fallback)
             smoke.wait_for(lambda: active(None), "both microphones disconnected")
-            assert ports("miceq_mic", "out"), "virtual microphone disappeared"
+            assert ports("macafon_mic", "out"), "virtual microphone disappeared"
             assert record() == 0.0, "disconnected microphone leaked audio"
             fallback = microphone("test_fallback", 0.2)
             smoke.wait_for(lambda: active("test_fallback"), "fallback reconnected")
@@ -368,7 +368,7 @@ def main():
                   "explicit disable and config restored after restart")
 
             # Autostart through XDG (the user's systemd session is left alone).
-            entry = config_home / "autostart" / "miceqd.desktop"
+            entry = config_home / "autostart" / "macafond.desktop"
             assert json.loads(ctl("autostart", "--json")) == {"enabled": False, "method": "xdg_autostart"}
             assert json.loads(ctl("autostart", "on", "--json"))["enabled"]
             assert f"Exec={args.daemon.resolve()} run" in entry.read_text(), entry.read_text()
@@ -380,9 +380,9 @@ def main():
             # Stereo duplicates the processed mono, including when only one side is linked.
             stereo_input = microphone("test_stereo", 0.5)
             daemon = start_daemon("--input", "test_stereo", "--preset", "raw", "--stereo")
-            assert status()["stereo"] and set(ports("miceq_mic", "out")) == {"FL", "FR"}
+            assert status()["stereo"] and set(ports("macafon_mic", "out")) == {"FL", "FR"}
             mic_node = next(item for item in json.loads(run("pw-dump"))
-                            if item.get("info", {}).get("props", {}).get("node.name") == "miceq_mic")
+                            if item.get("info", {}).get("props", {}).get("node.name") == "macafon_mic")
             assert str(mic_node["info"]["props"]["audio.channels"]) == "2", mic_node
             formats = mic_node["info"]["params"]["EnumFormat"]
             assert any(fmt.get("channels") == 2 and fmt.get("position") == ["FL", "FR"]
@@ -412,21 +412,21 @@ def main():
                 sum(left != right for left, right in zip(stereo[0::2], stereo[1::2])))
             stop(daemon)
             daemon = start_daemon()
-            assert status()["stereo"] and set(ports("miceq_mic", "out")) == {"FL", "FR"}, "stereo config lost"
+            assert status()["stereo"] and set(ports("macafon_mic", "out")) == {"FL", "FR"}, "stereo config lost"
             stop(stereo_input)
             stop(server)
             time.sleep(0.7)
             assert daemon.poll() is None, "stereo daemon stopped after server loss"
             server = spawn(["pipewire", "-c", config])
-            smoke.wait_for(lambda: ports("miceq_mic", "out"), "stereo graph restored")
+            smoke.wait_for(lambda: ports("macafon_mic", "out"), "stereo graph restored")
             stereo_input = microphone("test_stereo", 0.5)
             smoke.wait_for(lambda: active("test_stereo"), "stereo linked after server restart")
-            assert status()["stereo"] and set(ports("miceq_mic", "out")) == {"FL", "FR"}
+            assert status()["stereo"] and set(ports("macafon_mic", "out")) == {"FL", "FR"}
             stereo = capture_samples(channels=("FL", "FR"))
             assert stereo[0::2] == stereo[1::2] and max(map(abs, stereo)) > 0.23, "stereo graph lost audio"
             stop(daemon)
             daemon = start_daemon("--stereo=false")
-            assert not status()["stereo"] and set(ports("miceq_mic", "out")) == {"MONO"}, "mono override failed"
+            assert not status()["stereo"] and set(ports("macafon_mic", "out")) == {"MONO"}, "mono override failed"
             stop(daemon)
             print("stereo: identical processed FL/FR, either side alone, mute, idle meters, "
                   "hot-plug, saved config, server recovery and mono override")

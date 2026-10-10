@@ -7,6 +7,7 @@ use miceq_ipc::{
     MicState, PresetInfo, Request,
 };
 use std::io::Write;
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(version, about = "Control the micEQ daemon")]
@@ -31,9 +32,12 @@ enum Top {
 enum Ctl {
     /// Show the microphone state.
     Status,
-    /// List built-in presets.
-    Presets,
-    /// Load a built-in preset (keeps mute and bypass).
+    /// List presets, or manage user presets.
+    Presets {
+        #[command(subcommand)]
+        command: Option<PresetsCommand>,
+    },
+    /// Load a preset by id (keeps mute and bypass).
     Preset { id: String },
     /// Mute the virtual microphone (digital silence).
     Mute {
@@ -68,6 +72,38 @@ enum Ctl {
         /// Stop after this many frames.
         #[arg(long)]
         count: Option<usize>,
+    },
+}
+
+#[derive(Subcommand)]
+enum PresetsCommand {
+    List,
+    /// Save the current chain as a new preset.
+    Save {
+        name: String,
+    },
+    /// Overwrite a user preset with the current chain.
+    Update {
+        id: String,
+    },
+    Rename {
+        id: String,
+        name: String,
+    },
+    Duplicate {
+        id: String,
+    },
+    Delete {
+        id: String,
+    },
+    /// Write a .miceq-preset.json document (stdout without a file).
+    Export {
+        id: String,
+        file: Option<PathBuf>,
+    },
+    /// Add a preset from a .miceq-preset.json file.
+    Import {
+        file: PathBuf,
     },
 }
 
@@ -127,13 +163,7 @@ fn main() -> Result<()> {
         .with_context(|| format!("is miceqd running? ({})", path.display()))?;
     let request = match command {
         Ctl::Status => Request::MicGet,
-        Ctl::Presets => {
-            let presets: Vec<PresetInfo> = client.call_as(Request::PresetsList)?;
-            for preset in presets {
-                println!("{}\t{}", preset.id, preset.name);
-            }
-            return Ok(());
-        }
+        Ctl::Presets { command } => return presets(&mut client, command, json),
         Ctl::Devices => {
             let devices: Vec<Device> = client.call_as(Request::DevicesList)?;
             for device in devices {
@@ -244,6 +274,56 @@ fn calibrate(client: &mut Client, json: bool) -> Result<()> {
     }
 }
 
+fn presets(client: &mut Client, command: Option<PresetsCommand>, json: bool) -> Result<()> {
+    let request = match command.unwrap_or(PresetsCommand::List) {
+        PresetsCommand::List => {
+            let presets: Vec<PresetInfo> = client.call_as(Request::PresetsList)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&presets)?);
+                return Ok(());
+            }
+            for preset in presets {
+                let kind = if preset.builtin { "built-in" } else { "user" };
+                println!("{}\t{}\t{kind}", preset.id, preset.name);
+            }
+            return Ok(());
+        }
+        PresetsCommand::Save { name } => Request::PresetsSave { name },
+        PresetsCommand::Update { id } => Request::PresetsUpdate { id },
+        PresetsCommand::Rename { id, name } => Request::PresetsRename { id, name },
+        PresetsCommand::Duplicate { id } => Request::PresetsDuplicate { id },
+        PresetsCommand::Delete { id } => {
+            client.call(Request::PresetsDelete { id })?;
+            return Ok(());
+        }
+        PresetsCommand::Export { id, file } => {
+            let document = client.call(Request::PresetsExport { id })?;
+            let mut text = serde_json::to_string_pretty(&document)?;
+            text.push('\n');
+            match file {
+                Some(file) => std::fs::write(&file, text)
+                    .with_context(|| format!("cannot write {}", file.display()))?,
+                None => print!("{text}"),
+            }
+            return Ok(());
+        }
+        PresetsCommand::Import { file } => {
+            let text = std::fs::read_to_string(&file)
+                .with_context(|| format!("cannot read {}", file.display()))?;
+            let document = serde_json::from_str(&text)
+                .with_context(|| format!("{} is not JSON", file.display()))?;
+            Request::PresetsImport { document }
+        }
+    };
+    let preset: PresetInfo = client.call_as(request)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&preset)?);
+    } else {
+        println!("{}\t{}", preset.id, preset.name);
+    }
+    Ok(())
+}
+
 fn ab(client: &mut Client, command: AbCommand, json: bool) -> Result<()> {
     let request = match command {
         AbCommand::Status => Request::AbGet,
@@ -350,7 +430,15 @@ fn print_state(state: &MicState) {
         (true, true) => " (connected)",
         (true, false) => " (disconnected)",
     };
-    println!("preset:   {}", state.preset.as_deref().unwrap_or("custom"));
+    let modified = if state.preset_modified {
+        " (modified)"
+    } else {
+        ""
+    };
+    println!(
+        "preset:   {}{modified}",
+        state.preset.as_deref().unwrap_or("custom")
+    );
     println!("input:    {device}{input}");
     println!("muted:    {}", state.settings.muted);
     println!("bypass:   {}", state.settings.bypass);

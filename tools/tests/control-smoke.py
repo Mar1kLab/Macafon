@@ -246,6 +246,38 @@ def main():
             print(f"calibration: floor {report['noise_floor_dbfs']:.1f} dBFS, speech "
                   f"{report['speech_rms_dbfs']:.1f} dBFS, SNR {report['snr_db']:.1f} → "
                   f"{report['snr_after_db']:.1f} dB, gain {report['gain_db']:+.1f} dB applied")
+
+            # User presets: calibration modified Broadcast; save it, edit, reload, share.
+            assert status()["preset"] == "broadcast" and status()["preset_modified"]
+            saved = json.loads(ctl("presets", "save", "Smoke voice", "--json"))
+            assert saved == {"id": "user:smoke-voice", "name": "Smoke voice", "builtin": False}, saved
+            preset_file = config_home / "miceq" / "presets" / "mic" / "smoke-voice.json"
+            assert json.loads(preset_file.read_text())["name"] == "Smoke voice"
+            state = status()
+            assert state["preset"] == "user:smoke-voice" and not state["preset_modified"], state
+            ctl("gain", "-3")
+            assert status()["preset_modified"]
+            ctl("presets", "update", "user:smoke-voice")
+            assert not status()["preset_modified"]
+            ctl("preset", "natural")
+            ctl("preset", "user:smoke-voice")
+            assert status()["settings"]["gain"]["gain_db"] == -3.0
+            refused = subprocess.run([str(args.ctl), "ctl", "presets", "save", "natural"], env=env,
+                                     capture_output=True, text=True, timeout=8)
+            assert refused.returncode != 0 and "AlreadyExists" in refused.stderr, refused
+            exported = directory / "shared.miceq-preset.json"
+            ctl("presets", "export", "user:smoke-voice", exported)
+            imported = json.loads(ctl("presets", "import", exported, "--json"))
+            assert imported["name"] == "Smoke voice (2)", imported
+            copy = json.loads(ctl("presets", "duplicate", "broadcast", "--json"))
+            assert copy["name"] == "Broadcast (2)" and not copy["builtin"], copy
+            ctl("presets", "rename", copy["id"], "Loud")
+            ctl("presets", "delete", "user:smoke-voice")
+            assert not preset_file.exists() and status()["preset"] is None
+            names = [preset["name"] for preset in json.loads(ctl("presets", "--json"))]
+            assert names[-2:] == ["Smoke voice (2)", "Loud"], names
+            print("presets: save/update/select, duplicate name refused, export → import, "
+                  "duplicate, rename, delete")
             stop(daemon)
             stop(server)
             print("config: saved on change, restored on restart; socket removed on exit")

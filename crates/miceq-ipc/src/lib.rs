@@ -42,6 +42,25 @@ pub enum Request {
     MicSetDevice { device: Option<String> },
     #[serde(rename = "presets.list")]
     PresetsList,
+    /// Save the current chain as a new user preset and select it.
+    #[serde(rename = "presets.save")]
+    PresetsSave { name: String },
+    /// Overwrite a user preset with the current chain and select it.
+    #[serde(rename = "presets.update")]
+    PresetsUpdate { id: String },
+    #[serde(rename = "presets.rename")]
+    PresetsRename { id: String, name: String },
+    /// Copy any preset (built-in or user) under a free name.
+    #[serde(rename = "presets.duplicate")]
+    PresetsDuplicate { id: String },
+    #[serde(rename = "presets.delete")]
+    PresetsDelete { id: String },
+    /// The `.miceq-preset.json` document of a preset.
+    #[serde(rename = "presets.export")]
+    PresetsExport { id: String },
+    /// Add a preset from a `.miceq-preset.json` document; a taken name gets a suffix.
+    #[serde(rename = "presets.import")]
+    PresetsImport { document: serde_json::Value },
     #[serde(rename = "devices.list")]
     DevicesList,
     /// Stream `meters` events at up to 60 Hz until unsubscribed (MTR-004, NFR-R7).
@@ -107,6 +126,8 @@ pub enum ErrorCode {
     ProtocolMismatch,
     InvalidParams,
     NotFound,
+    /// A preset with this name already exists.
+    AlreadyExists,
     Busy,
     Internal,
 }
@@ -157,6 +178,9 @@ pub enum Event {
     /// A/B test state; about 10 Hz while recording or playing.
     #[serde(rename = "ab.changed")]
     AbChanged(AbState),
+    /// The preset list changed (saved, renamed, deleted, imported).
+    #[serde(rename = "presets.changed")]
+    PresetsChanged(Vec<PresetInfo>),
 }
 
 /// One line from the daemon.
@@ -177,8 +201,10 @@ pub struct Hello {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MicState {
     pub settings: ChainSettings,
-    /// Preset the chain was last loaded from.
+    /// Preset the chain was last loaded from or saved to.
     pub preset: Option<String>,
+    /// The chain differs from that preset (UI: "modified", enables Save).
+    pub preset_modified: bool,
     pub device: Option<String>,
     /// The selected microphone is present and linked (MIC-005).
     pub input_connected: bool,
@@ -267,8 +293,11 @@ pub enum CalibrationState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresetInfo {
+    /// Built-in: `natural`, …; user: `user:<slug>`.
     pub id: String,
     pub name: String,
+    /// Built-in presets are read-only.
+    pub builtin: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -357,6 +386,7 @@ mod tests {
             ServerMessage::Event(Event::MicChanged(MicState {
                 settings,
                 preset: Some("natural".into()),
+                preset_modified: false,
                 device: None,
                 input_connected: false,
                 latency_samples: 960,

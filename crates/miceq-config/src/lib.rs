@@ -1,5 +1,7 @@
 //! Daemon configuration: `$XDG_CONFIG_HOME/miceq/config.toml` (PRD §13).
 
+pub mod presets;
+
 use miceq_dsp::ChainSettings;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
@@ -89,12 +91,7 @@ impl Store {
 
     /// `$XDG_CONFIG_HOME/miceq/config.toml`, falling back to `~/.config`.
     pub fn default_location() -> Result<Self, Error> {
-        let base = std::env::var_os("XDG_CONFIG_HOME")
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".config")))
-            .ok_or(Error::NoConfigDir)?;
-        Ok(Self::new(base.join("miceq").join("config.toml")))
+        Ok(Self::new(config_dir()?.join("config.toml")))
     }
 
     pub fn path(&self) -> &Path {
@@ -148,25 +145,41 @@ impl Store {
         })
     }
 
-    /// Atomic replace: write a temporary file in the same directory, fsync, rename (CFG-001).
+    /// Atomic replace (CFG-001).
     pub fn save(&self, config: &Config) -> Result<(), Error> {
         let text = toml::to_string_pretty(config)?;
-        let io = |source| Error::Io {
-            path: self.path.clone(),
-            source,
-        };
-        let directory = self.path.parent().unwrap_or(Path::new("."));
-        std::fs::create_dir_all(directory).map_err(io)?;
-        let mut name = self.path.file_name().unwrap_or_default().to_owned();
-        name.push(".tmp");
-        let temporary = self.path.with_file_name(name);
-        let mut file = std::fs::File::create(&temporary).map_err(io)?;
-        file.write_all(HEADER.as_bytes()).map_err(io)?;
-        file.write_all(text.as_bytes()).map_err(io)?;
-        file.sync_all().map_err(io)?;
-        drop(file);
-        std::fs::rename(&temporary, &self.path).map_err(io)
+        write_atomically(&self.path, &[HEADER.as_bytes(), text.as_bytes()])
     }
+}
+
+/// `$XDG_CONFIG_HOME/miceq`, falling back to `~/.config/miceq`.
+pub fn config_dir() -> Result<PathBuf, Error> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".config")))
+        .ok_or(Error::NoConfigDir)?;
+    Ok(base.join("miceq"))
+}
+
+/// Write a temporary file in the same directory, fsync, rename over `path`.
+pub(crate) fn write_atomically(path: &Path, parts: &[&[u8]]) -> Result<(), Error> {
+    let io = |source| Error::Io {
+        path: path.to_owned(),
+        source,
+    };
+    let directory = path.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(directory).map_err(io)?;
+    let mut name = path.file_name().unwrap_or_default().to_owned();
+    name.push(".tmp");
+    let temporary = path.with_file_name(name);
+    let mut file = std::fs::File::create(&temporary).map_err(io)?;
+    for part in parts {
+        file.write_all(part).map_err(io)?;
+    }
+    file.sync_all().map_err(io)?;
+    drop(file);
+    std::fs::rename(&temporary, path).map_err(io)
 }
 
 const HEADER: &str = "# micEQ configuration. Written by miceqd; edits are picked up on restart.\n\

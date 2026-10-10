@@ -41,11 +41,15 @@ JSON по строкам, сокет `$XDG_RUNTIME_DIR/miceq/miceqd.sock` (ка�
 | `hello` | `protocol`, `client` | `protocol`, `daemon_version` |
 | `mic.get` | — | `MicState` |
 | `mic.set` | `settings` (вся цепочка) | `MicState` |
-| `mic.set_preset` | `preset` (`natural`, `discord-clear`, …) | `MicState`; mute и bypass сохраняются |
+| `mic.set_preset` | `preset` (`natural`, …, `user:<slug>`) | `MicState`; mute и bypass сохраняются |
 | `mic.set_muted` / `mic.toggle_mute` | `muted` / — | `MicState` |
 | `mic.set_bypass` | `bypass` | `MicState` |
 | `mic.set_device` | `device` (`node.name` или `null`) | `MicState` |
-| `presets.list`, `devices.list` | — | списки |
+| `presets.list`, `devices.list` | — | списки; у пресета `id`, `name`, `builtin` |
+| `presets.save` | `name` | `PresetInfo`; текущая цепочка — новый пресет, он становится выбранным |
+| `presets.update` | `id` | `PresetInfo`; перезаписать пользовательский пресет текущей цепочкой |
+| `presets.rename` / `presets.duplicate` / `presets.delete` | `id` (+ `name`) / `id` / `id` | `PresetInfo` / `PresetInfo` / `null` |
+| `presets.export` / `presets.import` | `id` / `document` | документ `.miceq-preset.json` / `PresetInfo` |
 | `meters.subscribe` / `meters.unsubscribe` | `hz` (1–60) / — | `null`, затем события `meters` |
 | `calibration.start` / `calibration.cancel` / `calibration.get` | — | `CalibrationState` |
 | `ab.record` | `max_seconds` (3–30, по умолчанию 10) | `AbState` |
@@ -56,7 +60,8 @@ JSON по строкам, сокет `$XDG_RUNTIME_DIR/miceq/miceqd.sock` (ка�
 
 События: `meters` (уровни в dBFS, gain reduction в dB, активность NS), `mic.changed` (любое
 изменение состояния от любого клиента), `calibration.changed` (~10 Гц во время замера и итог)
-и `ab.changed` (~10 Гц во время записи и воспроизведения, плюс каждое изменение). Ошибки: `bad_request`, `protocol_mismatch`,
+`ab.changed` (~10 Гц во время записи и воспроизведения, плюс каждое изменение) и
+`presets.changed` (новый список пресетов). Ошибка `already_exists` — имя пресета занято. Ошибки: `bad_request`, `protocol_mismatch`,
 `invalid_params`, `not_found`, `busy`, `internal`.
 
 Генерация TS-типов для UI из `miceq-ipc` ещё не сделана — появится вместе с UI.
@@ -123,9 +128,26 @@ JSON по строкам, сокет `$XDG_RUNTIME_DIR/miceq/miceqd.sock` (ка�
 - **Waveform (AB-006).** Пики A и B по запросу; B считается офлайн через текущую цепочку
   с компенсацией задержки (~0,15 с на 10 с клипа с NS).
 
-## Не сделано
+## Пользовательские пресеты (§6.3.10, §13)
 
-- Пользовательские пресеты, импорт/экспорт — дальше по M1.
+- Файлы `<каталог конфига>/presets/mic/<slug>.json` (рядом с `config.toml`, то есть
+  `$XDG_CONFIG_HOME/miceq/presets/mic`), формат совпадает с экспортным `.miceq-preset.json`:
+  `{schema_version: 1, name, settings}`. Запись атомарная. Загружаются при старте; битые файлы
+  пропускаются с предупреждением в логе и не удаляются. Правки файлов вручную видны после
+  перезапуска демона.
+- Id — `user:<slug>`, slug берётся из имени при создании и не меняется при переименовании.
+- Имена уникальны без учёта регистра среди пользовательских и встроенных пресетов, 1–64
+  символа. Сохранение с занятым именем — ошибка `already_exists`; дублирование и импорт
+  добавляют суффикс « (2)», « (3)»…
+- Встроенные пресеты только для чтения (`update`/`rename`/`delete` → `invalid_params`), их можно
+  дублировать и экспортировать.
+- Mute и bypass в пресет не входят. `MicState.preset_modified` — цепочка отличается от
+  выбранного пресета (UI: бейдж «modified», кнопка Save). Удалённый текущий пресет сбрасывает
+  `preset` в `null`.
+- Импорт/экспорт по IPC передаёт сам документ, а не путь: файлы читает и пишет клиент
+  (UI — через диалог, `miceq ctl presets import|export`).
+
+## Не сделано
 - A/B: предупреждение «выход — колонки» (AB-002) требует списка выходов с типом устройства —
   появится вместе с выбором выхода; экспорт WAV (AB-007, P2).
 - systemd user unit и автозапуск, трей — дальше по M1 (§8, §15).
@@ -143,5 +165,6 @@ python3 tools/tests/control-smoke.py
 на лету, смену пресета с кроссфейдом и обновлением `ProcessLatency` в графе, метры без
 приложения-потребителя, ошибки протокола, калибровку по синтетической записи (шум −60 dBFS,
 «речь» −24 dBFS) без потребителя, запись и A/B (уровни A, B, B после изменения цепочки на лету,
-выравнивание громкости, waveform, удаление потока), сохранение конфига и его загрузку после перезапуска,
+выравнивание громкости, waveform, удаление потока), пользовательские пресеты (сохранение, флаг
+modified, повторное имя, экспорт → импорт, дублирование, переименование, удаление), сохранение конфига и его загрузку после перезапуска,
 удаление сокета при выходе.

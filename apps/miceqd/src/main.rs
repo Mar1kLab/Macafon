@@ -6,6 +6,7 @@ mod server;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use host::DaemonHost;
+use miceq_config::presets::PresetStore;
 use miceq_config::{Config, MicConfig, Store};
 use miceq_dsp::settings::NoiseEngine;
 use miceq_dsp::{Preset, SAMPLE_RATE_HZ};
@@ -147,10 +148,25 @@ fn run(args: RunArgs) -> Result<()> {
         latency_ms = settings.latency_samples() as f32 * 1000.0 / SAMPLE_RATE_HZ as f32,
         "Starting microphone chain"
     );
+    // User presets live next to the config file: `<config dir>/presets/mic`.
+    let presets = match store
+        .as_ref()
+        .and_then(|store| store.path().parent())
+        .map(|directory| directory.join("presets").join("mic"))
+    {
+        Some(directory) => {
+            let (presets, skipped) = PresetStore::open(directory);
+            for (path, reason) in skipped {
+                tracing::warn!(path = %path.display(), %reason, "Skipping preset");
+            }
+            presets
+        }
+        None => PresetStore::in_memory(),
+    };
     let (control, receiver) = miceq_backend_pipewire::control_channel();
     let socket = miceq_ipc::socket_path().context("XDG_RUNTIME_DIR is not set")?;
     let host = Rc::new(RefCell::new(DaemonHost::new(
-        config, store, socket, control,
+        config, store, presets, socket, control,
     )));
     let result = miceq_backend_pipewire::run_microphone(host.clone(), receiver)
         .context("Cannot run microphone; check PipeWire and WirePlumber");

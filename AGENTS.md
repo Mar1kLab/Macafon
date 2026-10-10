@@ -136,6 +136,8 @@ python3 tools/tests/pipewire-smoke.py             # приватный PipeWire:
 python3 tools/tests/wireplumber-routing.py        # приватный WirePlumber: роутинг
 python3 tools/tests/control-smoke.py              # управление на лету, конфиг, протокол
 python3 tools/tests/tray-smoke.py                 # трей через приватную D-Bus-сессию
-pnpm -C apps/miceq-ui dev              # (ещё нет) UI в браузере с mock-демоном
-pnpm -C apps/miceq-ui tauri dev        # (ещё нет) UI в Tauri с реальным демоном
+pnpm -C apps/miceq-ui dev              # UI в браузере с mock-демоном
+pnpm -C apps/miceq-ui tauri dev        # UI в Tauri с реальным демоном
+pnpm -C apps/miceq-ui check            # svelte-check / TypeScript
+pnpm -C apps/miceq-ui gen:ipc          # перегенерировать TS-типы из miceq-ipc/miceq-dsp
 ```

@@ -1,7 +1,7 @@
 # M1: демон, управление на лету, конфиг и IPC
 
 Состояние на 2026-10-10. Демон `miceqd` работает постоянно, им можно управлять во время работы
-через Unix-сокет; настройки сохраняются. UI ещё нет — его роль пока выполняет `miceq ctl`.
+через Unix-сокет; настройки сохраняются. UI — [ui.md](ui.md), скрипты и хоткеи — `miceq ctl`.
 
 ## Устройство
 
@@ -86,7 +86,7 @@ JSON по строкам, сокет `$XDG_RUNTIME_DIR/miceq/miceqd.sock` (ка�
 `presets.changed` (новый список пресетов). Ошибка `already_exists` — имя пресета занято. Ошибки: `bad_request`, `protocol_mismatch`,
 `invalid_params`, `not_found`, `busy`, `internal`.
 
-Генерация TS-типов для UI из `miceq-ipc` ещё не сделана — появится вместе с UI.
+TS-типы для UI генерируются из `miceq-ipc` (см. [ui.md](ui.md)).
 
 ## Конфиг (`miceq-config`)
 

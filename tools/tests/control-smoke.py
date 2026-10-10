@@ -39,7 +39,7 @@ def main():
         runtime.mkdir(mode=0o700)
         config_home = directory / "config"
         env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime), PIPEWIRE_RUNTIME_DIR=str(runtime),
-                   XDG_CONFIG_HOME=str(config_home))
+                   XDG_CONFIG_HOME=str(config_home), MICEQ_NO_SYSTEMD="1")
         config = directory / "test.conf"
         config.write_text(smoke.CONFIG)
 
@@ -95,7 +95,7 @@ def main():
             return max(abs(value) for value in samples)
 
         def start_daemon(*extra):
-            daemon = spawn([args.daemon, "run", *extra])
+            daemon = spawn([args.daemon, "run", "--no-tray", *extra])
             smoke.wait_for(lambda: (runtime / "miceq" / "miceqd.sock").exists(), "control socket")
             smoke.wait_for(lambda: ports("miceq_mic", "out"), "virtual microphone")
             smoke.wait_for(lambda: status()["input_connected"], "microphone linked")
@@ -117,7 +117,7 @@ def main():
             smoke.wait_for(lambda: ports("test_microphone", "out"), "source ports")
 
             daemon = start_daemon("--input", "test_microphone", "--preset", "raw")
-            second = subprocess.run([str(args.daemon), "run"], env=env, capture_output=True,
+            second = subprocess.run([str(args.daemon), "run", "--no-tray"], env=env, capture_output=True,
                                     text=True, timeout=8)
             assert second.returncode != 0 and "already running" in second.stderr, second
             print("socket: second daemon refused while the first runs")
@@ -278,6 +278,15 @@ def main():
             assert names[-2:] == ["Smoke voice (2)", "Loud"], names
             print("presets: save/update/select, duplicate name refused, export → import, "
                   "duplicate, rename, delete")
+
+            # Autostart through XDG (the user's systemd session is left alone).
+            entry = config_home / "autostart" / "miceqd.desktop"
+            assert json.loads(ctl("autostart", "--json")) == {"enabled": False, "method": "xdg_autostart"}
+            assert json.loads(ctl("autostart", "on", "--json"))["enabled"]
+            assert f"Exec={args.daemon.resolve()} run" in entry.read_text(), entry.read_text()
+            assert not json.loads(ctl("autostart", "off", "--json"))["enabled"]
+            assert not entry.exists()
+            print("autostart: XDG entry written and removed")
             stop(daemon)
             stop(server)
             print("config: saved on change, restored on restart; socket removed on exit")

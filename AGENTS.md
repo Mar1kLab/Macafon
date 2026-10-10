@@ -135,6 +135,7 @@ target/release/miceq ctl status                   # управление дем�
 python3 tools/tests/pipewire-smoke.py             # приватный PipeWire: задержка, mute, рестарты
 python3 tools/tests/wireplumber-routing.py        # приватный WirePlumber: роутинг
 python3 tools/tests/control-smoke.py              # управление на лету, конфиг, протокол
+python3 tools/tests/tray-smoke.py                 # трей через приватную D-Bus-сессию
 pnpm -C apps/miceq-ui dev              # (ещё нет) UI в браузере с mock-демоном
 pnpm -C apps/miceq-ui tauri dev        # (ещё нет) UI в Tauri с реальным демоном
 ```

@@ -1,7 +1,9 @@
 mod ab;
+mod autostart;
 mod calibration;
 mod host;
 mod server;
+mod tray;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -62,6 +64,9 @@ struct RunArgs {
     /// Pass the microphone through unprocessed (global bypass).
     #[arg(long)]
     bypass: bool,
+    /// Do not show the tray icon (tests, headless sessions).
+    #[arg(long)]
+    no_tray: bool,
 }
 
 fn parse_preset(id: &str) -> Result<Preset, String> {
@@ -166,7 +171,12 @@ fn run(args: RunArgs) -> Result<()> {
     let (control, receiver) = miceq_backend_pipewire::control_channel();
     let socket = miceq_ipc::socket_path().context("XDG_RUNTIME_DIR is not set")?;
     let host = Rc::new(RefCell::new(DaemonHost::new(
-        config, store, presets, socket, control,
+        config,
+        store,
+        presets,
+        socket,
+        control,
+        !args.no_tray,
     )));
     let result = miceq_backend_pipewire::run_microphone(host.clone(), receiver)
         .context("Cannot run microphone; check PipeWire and WirePlumber");

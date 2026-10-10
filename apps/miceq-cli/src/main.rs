@@ -3,8 +3,8 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use miceq_ipc::{
-    AbSide, AbState, CalibrationReport, CalibrationState, CalibrationStep, Client, Device, Event,
-    MicState, PresetInfo, Request,
+    AbSide, AbState, AutostartState, CalibrationReport, CalibrationState, CalibrationStep, Client,
+    Device, Event, MicState, PresetInfo, Request,
 };
 use std::io::Write;
 use std::path::PathBuf;
@@ -32,6 +32,13 @@ enum Top {
 enum Ctl {
     /// Show the microphone state.
     Status,
+    /// Stop the daemon; the virtual microphone disappears.
+    Quit,
+    /// Start the daemon with the desktop session; shows the state without an argument.
+    Autostart {
+        #[arg(value_enum)]
+        state: Option<Switch>,
+    },
     /// List presets, or manage user presets.
     Presets {
         #[command(subcommand)]
@@ -163,6 +170,35 @@ fn main() -> Result<()> {
         .with_context(|| format!("is miceqd running? ({})", path.display()))?;
     let request = match command {
         Ctl::Status => Request::MicGet,
+        Ctl::Autostart { state } => {
+            let request = match state {
+                None => Request::AutostartGet,
+                Some(Switch::On) => Request::AutostartSet { enabled: true },
+                Some(Switch::Off) => Request::AutostartSet { enabled: false },
+                Some(Switch::Toggle) => {
+                    let current: AutostartState = client.call_as(Request::AutostartGet)?;
+                    Request::AutostartSet {
+                        enabled: !current.enabled,
+                    }
+                }
+            };
+            let state: AutostartState = client.call_as(request)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&state)?);
+            } else {
+                println!("autostart: {} ({:?})", state.enabled, state.method);
+            }
+            return Ok(());
+        }
+        Ctl::Quit => {
+            return match client.call(Request::DaemonQuit) {
+                // The daemon may exit before its reply is written.
+                Ok(_) | Err(miceq_ipc::ClientError::Closed | miceq_ipc::ClientError::Io(_)) => {
+                    Ok(())
+                }
+                Err(error) => Err(error.into()),
+            };
+        }
         Ctl::Presets { command } => return presets(&mut client, command, json),
         Ctl::Devices => {
             let devices: Vec<Device> = client.call_as(Request::DevicesList)?;

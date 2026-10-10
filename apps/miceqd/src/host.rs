@@ -4,6 +4,7 @@
 use crate::ab::Ab;
 use crate::calibration::{Poll, Recording};
 use crate::server::{self, Hub, SocketGuard};
+use crate::tray::{Tray, TrayState};
 use miceq_backend_pipewire::ControlSender;
 use miceq_backend_pipewire::{Error, MicRt, MicrophoneHost, Node, PlayerRequest};
 use miceq_config::presets::{self, PresetError, PresetStore};
@@ -40,6 +41,9 @@ pub struct DaemonHost {
     calibration: CalibrationState,
     ab: Ab,
     hub: Arc<Hub>,
+    tray: Option<Tray>,
+    tray_wanted: bool,
+    quit: bool,
     server: Option<(PathBuf, ControlSender<ControlMessage>)>,
     _socket: Option<SocketGuard>,
 }
@@ -51,6 +55,7 @@ impl DaemonHost {
         presets: PresetStore,
         socket: PathBuf,
         control: ControlSender<ControlMessage>,
+        tray: bool,
     ) -> Self {
         let hub = Hub::new();
         Self {
@@ -66,6 +71,9 @@ impl DaemonHost {
             calibration: CalibrationState::Idle,
             ab: Ab::default(),
             hub,
+            tray: None,
+            tray_wanted: tray,
+            quit: false,
             server: Some((socket, control)),
             _socket: None,
         }
@@ -270,7 +278,21 @@ impl DaemonHost {
     }
 
     fn changed(&mut self) {
-        self.hub.broadcast(&Event::MicChanged(self.state()));
+        let state = self.state();
+        if self.tray.is_some() {
+            let tray_state = TrayState {
+                muted: state.settings.muted,
+                bypass: state.settings.bypass,
+                connected: state.input_connected,
+                preset: state.preset.clone(),
+                preset_modified: state.preset_modified,
+                presets: self.preset_list(),
+            };
+            if let Some(tray) = &mut self.tray {
+                tray.update(tray_state);
+            }
+        }
+        self.hub.broadcast(&Event::MicChanged(state));
     }
 
     /// Apply a new configuration to the running engine first; keep it only if accepted.
@@ -471,6 +493,18 @@ impl DaemonHost {
             | Request::AbSetLoudnessMatch { .. }
             | Request::AbGet
             | Request::AbWaveform { .. }) => return self.respond_ab(request),
+            Request::AutostartGet => return Ok(serde_json::json!(crate::autostart::state())),
+            Request::AutostartSet { enabled } => {
+                let state = crate::autostart::set(enabled)
+                    .map_err(|message| ErrorBody::new(ErrorCode::Internal, message))?;
+                tracing::info!(?state, "Autostart changed");
+                return Ok(serde_json::json!(state));
+            }
+            Request::DaemonQuit => {
+                tracing::info!("Quit requested");
+                self.quit = true;
+                return Ok(serde_json::Value::Null);
+            }
             Request::Hello { .. }
             | Request::MetersSubscribe { .. }
             | Request::MetersUnsubscribe => {
@@ -517,6 +551,11 @@ impl MicrophoneHost for DaemonHost {
 
     fn started(&mut self) -> Result<(), Error> {
         if let Some((path, control)) = self.server.take() {
+            if self.tray_wanted {
+                // Spawned after signals are blocked, like the IPC threads.
+                self.tray = Tray::spawn(TrayState::default(), control.clone());
+                self.changed();
+            }
             let socket = server::start(&path, self.hub.clone(), control)
                 .map_err(|error| Error::Message(format!("{error:#}")))?;
             self._socket = Some(socket);
@@ -606,6 +645,10 @@ impl MicrophoneHost for DaemonHost {
         };
         // The client may have disconnected meanwhile; nothing to do then.
         let _ = message.reply.send(outcome);
+    }
+
+    fn quit_requested(&self) -> bool {
+        self.quit
     }
 
     fn tick(&mut self) {

@@ -283,6 +283,10 @@ pub trait MicrophoneHost {
     /// Physical inputs (`Audio/Source`, not ours, not monitors) changed.
     fn inputs_changed(&mut self, _inputs: &[Node]) {}
     fn handle(&mut self, message: Self::Message);
+    /// Checked after every message: stop the daemon like SIGTERM does (BG-005).
+    fn quit_requested(&self) -> bool {
+        false
+    }
     /// Periodic control-loop housekeeping, every 100 ms.
     fn tick(&mut self) {}
 }
@@ -344,8 +348,15 @@ pub fn run_microphone<H: MicrophoneHost + 'static>(
         });
     host.borrow_mut().started()?;
     let handler = host.clone();
+    let loop_ = mainloop.clone();
+    let stop = stopping.clone();
     let _control = control.0.attach(mainloop.loop_(), move |message| {
-        handler.borrow_mut().handle(message)
+        let mut host = handler.borrow_mut();
+        host.handle(message);
+        if host.quit_requested() {
+            stop.set(true);
+            loop_.quit();
+        }
     });
     let waiting = Rc::new(Cell::new(false));
     while !stopping.get() {

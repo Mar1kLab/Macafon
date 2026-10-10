@@ -24,6 +24,14 @@ pub const MAX_METER_HZ: u32 = 60;
 pub enum Request {
     #[serde(rename = "hello")]
     Hello { protocol: u32, client: String },
+    /// Stop the daemon: the virtual microphone disappears (BG-005).
+    #[serde(rename = "daemon.quit")]
+    DaemonQuit,
+    /// "Start with system" (AS-001).
+    #[serde(rename = "autostart.get")]
+    AutostartGet,
+    #[serde(rename = "autostart.set")]
+    AutostartSet { enabled: bool },
     #[serde(rename = "mic.get")]
     MicGet,
     /// Replace the whole chain; continuous changes are smoothed, structural ones crossfaded.
@@ -211,6 +219,22 @@ pub struct MicState {
     pub latency_samples: u32,
     /// Measured by the last calibration; the Expander Sensitivity macro is relative to it.
     pub noise_floor_dbfs: Option<f32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutostartMethod {
+    /// `systemctl --user enable miceqd.service`.
+    Systemd,
+    /// `$XDG_CONFIG_HOME/autostart/miceqd.desktop`.
+    XdgAutostart,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AutostartState {
+    pub enabled: bool,
+    /// What enabling uses on this system.
+    pub method: AutostartMethod,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

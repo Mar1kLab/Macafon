@@ -134,7 +134,7 @@ def main():
             source_file.write_bytes(source.tobytes())
 
             for engine in ("raw", "lite", "mute", "natural"):
-                command = [args.daemon, "run", "--input", "test_microphone"]
+                command = [args.daemon, "run", "--no-tray", "--input", "test_microphone"]
                 if engine != "natural":
                     command += ["--preset", "raw"]
                 if engine == "lite":
@@ -214,7 +214,7 @@ def main():
             print("routing: missing policy detected; failed move restores empty target metadata")
             stop(playback)
             # Rebuild the whole graph after server loss, preserving the selected chain.
-            daemon = spawn([args.daemon, "run", "--input", "test_microphone", "--preset", "raw",
+            daemon = spawn([args.daemon, "run", "--no-tray", "--input", "test_microphone", "--preset", "raw",
                             "--engine", "lite", "--intensity", "0"])
             wait_for(lambda: ports("miceq_mic", "out"), "virtual microphone before server exit")
             for _ in range(2):

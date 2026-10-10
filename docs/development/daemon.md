@@ -39,6 +39,8 @@ JSON по строкам, сокет `$XDG_RUNTIME_DIR/miceq/miceqd.sock` (ка�
 | Метод | Параметры | Ответ |
 |---|---|---|
 | `hello` | `protocol`, `client` | `protocol`, `daemon_version` |
+| `daemon.quit` | — | `null`; демон завершается как по SIGTERM (BG-005) |
+| `autostart.get` / `autostart.set` | — / `enabled` | `{enabled, method}`, `method` = `systemd` или `xdg_autostart` |
 | `mic.get` | — | `MicState` |
 | `mic.set` | `settings` (вся цепочка) | `MicState` |
 | `mic.set_preset` | `preset` (`natural`, …, `user:<slug>`) | `MicState`; mute и bypass сохраняются |
@@ -147,10 +149,39 @@ JSON по строкам, сокет `$XDG_RUNTIME_DIR/miceq/miceqd.sock` (ка�
 - Импорт/экспорт по IPC передаёт сам документ, а не путь: файлы читает и пишет клиент
   (UI — через диалог, `miceq ctl presets import|export`).
 
+## Трей (§8.1)
+
+StatusNotifierItem по D-Bus через `ksni` (без GTK и tokio), отдельный поток; `--no-tray`
+отключает. Пункты меню превращаются в обычные запросы к control loop, состояние возвращается
+в трей при каждом `mic.changed`.
+
+- Иконка рисуется в коде (векторно, со сглаживанием, 16/22/32/48 px), ассетов нет:
+  микрофон `--accent`; bypass — контурный; mute — перечёркнут `--danger`; микрофон не
+  подключён — точка `--danger` (BG-002). Состояния различаются формой, не только цветом.
+- Меню (BG-003): `Open micEQ`, `Mute microphone` ✓, `Bypass processing` ✓, `Preset ▸`
+  (встроенные и пользовательские), `Quit micEQ`. `Output device ▸` появится с микшером (M2).
+- Левый клик — открыть UI, средний — mute (BG-004). UI ищется как `miceq` рядом с демоном,
+  затем в `PATH`.
+- Нет хоста трея (панель стартует позже, GNOME без расширения AppIndicator) — демон
+  работает дальше и показывает иконку, когда хост появится. Подсказка BG-007 — задача UI.
+- Подсказка в трее: пресет (и «modified»), mute, bypass, отключённый микрофон.
+
+## Автозапуск (§8.2)
+
+- `packaging/systemd/miceqd.service`: `WantedBy`/`PartOf=graphical-session.target` (трею нужна
+  сессия рабочего стола), `After=pipewire.service wireplumber.service`, `Restart=on-failure`,
+  `RestartSec=1` (NFR-S6). Quit из трея завершает демон с кодом 0 — systemd его не поднимает.
+- `autostart.set` включает unit (`systemctl --user enable`), если он установлен и сессия
+  достигает `graphical-session.target`; иначе пишет `$XDG_CONFIG_HOME/autostart/miceqd.desktop`
+  с путём к текущему бинарю. Активен только один способ. `MICEQ_NO_SYSTEMD=1` заставляет
+  использовать XDG (тесты, системы без systemd).
+- AS-003: в приватном PipeWire `micEQ Microphone` появляется через 18–31 мс после старта.
+  RSS демона с треем — 13 МБ (NFR-R4).
+
 ## Не сделано
 - A/B: предупреждение «выход — колонки» (AB-002) требует списка выходов с типом устройства —
   появится вместе с выбором выхода; экспорт WAV (AB-007, P2).
-- systemd user unit и автозапуск, трей — дальше по M1 (§8, §15).
+- Восстановление системного микрофона по умолчанию при Quit (BG-005) — вместе с MIC-012.
 - Сохранение конфига, пока PipeWire недоступен, происходит только при выходе.
 
 ## Проверка
@@ -159,7 +190,11 @@ JSON по строкам, сокет `$XDG_RUNTIME_DIR/miceq/miceqd.sock` (ка�
 cargo test -p miceq-engine -p miceq-config -p miceq-ipc
 cargo build --release -p miceqd -p miceq-cli
 python3 tools/tests/control-smoke.py
+python3 tools/tests/tray-smoke.py --icons .artifacts/screenshots/tray
 ```
+
+`tray-smoke.py` в приватной D-Bus-сессии через `gdbus` читает свойства SNI, нажимает пункты
+меню (mute, bypass, пресет, средний клик, Quit) и сохраняет иконки состояний в PNG.
 
 `control-smoke.py` в приватном PipeWire проверяет: отказ второго демона, mute/unmute и gain
 на лету, смену пресета с кроссфейдом и обновлением `ProcessLatency` в графе, метры без

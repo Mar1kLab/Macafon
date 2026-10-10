@@ -12,6 +12,7 @@ pub const SPEECH_REFERENCE_DBFS: f32 = -18.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Module<T> {
     pub enabled: bool,
     #[cfg_attr(feature = "serde", serde(flatten))]
@@ -36,6 +37,7 @@ impl<T> Module<T> {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct GainParams {
     pub gain_db: f32,
@@ -51,6 +53,7 @@ impl Default for GainParams {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct HighPassParams {
     pub freq_hz: f32,
@@ -90,6 +93,7 @@ impl HighPassParams {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum NoiseEngine {
     /// RNNoise (`nnnoiseless`).
@@ -100,6 +104,7 @@ pub enum NoiseEngine {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct NoiseSuppressionParams {
     pub engine: NoiseEngine,
@@ -137,11 +142,13 @@ impl NoiseSuppressionParams {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct ExpanderParams {
     pub threshold_db: f32,
     /// Expansion ratio 1:x; `f32::INFINITY` turns the expander into a gate.
     #[cfg_attr(feature = "serde", serde(with = "gate_ratio"))]
+    #[cfg_attr(feature = "ts", ts(type = r#"number | "gate""#))]
     pub ratio: f32,
     pub range_db: f32,
     pub attack_ms: f32,
@@ -164,17 +171,30 @@ impl Default for ExpanderParams {
     }
 }
 
+/// Macro curves (DSP-002): `(slider 0…1, value)` points, linearly interpolated. Exported to
+/// the UI, which inverts them to place the main slider.
+pub mod macros {
+    /// Expander threshold above the noise floor: floor + 30 dB (0%), + 6 dB (50%), floor (100%).
+    pub const EXPANDER_THRESHOLD_OFFSET_DB: [(f32, f32); 3] = [(0.0, 30.0), (0.5, 6.0), (1.0, 0.0)];
+    pub const EXPANDER_RATIO: [(f32, f32); 3] = [(0.0, 1.5), (0.5, 3.0), (1.0, 6.0)];
+    pub const EXPANDER_RANGE_DB: [(f32, f32); 3] = [(0.0, -15.0), (0.5, -30.0), (1.0, -50.0)];
+    pub const COMPRESSOR_THRESHOLD_DBFS: [(f32, f32); 2] = [(0.0, -10.0), (1.0, -35.0)];
+    /// 3:1 at the 40% default.
+    pub const COMPRESSOR_RATIO: [(f32, f32); 3] = [(0.0, 2.0), (0.4, 3.0), (1.0, 6.0)];
+    pub const DE_ESSER_THRESHOLD_DBFS: [(f32, f32); 2] = [(0.0, -10.0), (1.0, -50.0)];
+}
+
 impl ExpanderParams {
-    /// Sensitivity macro: the threshold descends from floor + 30 dB (0%) through floor + 6 dB
-    /// (50%) to the floor itself (100%); ratio and range grow with the slider.
+    /// Sensitivity macro: the threshold descends towards the noise floor while ratio and
+    /// range grow with the slider.
     pub fn from_sensitivity(sensitivity_pct: f32, noise_floor_dbfs: f32) -> Self {
         let s = sensitivity_pct * 0.01;
         Self {
             threshold_db: (noise_floor_dbfs
-                + interpolate(s, &[(0.0, 30.0), (0.5, 6.0), (1.0, 0.0)]))
+                + interpolate(s, &macros::EXPANDER_THRESHOLD_OFFSET_DB))
             .clamp(EXPANDER_THRESHOLD_DBFS.min, EXPANDER_THRESHOLD_DBFS.max),
-            ratio: interpolate(s, &[(0.0, 1.5), (0.5, 3.0), (1.0, 6.0)]),
-            range_db: interpolate(s, &[(0.0, -15.0), (0.5, -30.0), (1.0, -50.0)]),
+            ratio: interpolate(s, &macros::EXPANDER_RATIO),
+            range_db: interpolate(s, &macros::EXPANDER_RANGE_DB),
             ..Self::default()
         }
     }
@@ -196,6 +216,7 @@ impl ExpanderParams {
 /// EQ band types of PRD §6.3.5.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum EqFilter {
     Bell,
@@ -208,6 +229,7 @@ pub enum EqFilter {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct EqBand {
     pub filter: EqFilter,
     pub freq_hz: f32,
@@ -245,6 +267,7 @@ pub const EQ_DEFAULT_LAYOUT: [EqBand; EQ_DEFAULT_BANDS] = [
 /// Simple-mode EQ characters (EQ-002).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum EqCharacter {
     Flat,
@@ -294,6 +317,11 @@ impl EqCharacter {
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
     serde(into = "EqRepr", try_from = "EqRepr")
+)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(type = "{ bands: Array<EqBand>, output_gain_db: number }")
 )]
 pub struct EqParams {
     pub bands: [EqBand; EQ_MAX_BANDS],
@@ -347,6 +375,7 @@ impl EqParams {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum CompressorDetector {
     Peak,
@@ -355,6 +384,7 @@ pub enum CompressorDetector {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct CompressorParams {
     pub threshold_db: f32,
@@ -386,8 +416,8 @@ impl CompressorParams {
     pub fn from_amount(amount_pct: f32) -> Self {
         let a = amount_pct * 0.01;
         Self {
-            threshold_db: -10.0 - 25.0 * a,
-            ratio: interpolate(a, &[(0.0, 2.0), (0.4, 3.0), (1.0, 6.0)]),
+            threshold_db: interpolate(a, &macros::COMPRESSOR_THRESHOLD_DBFS),
+            ratio: interpolate(a, &macros::COMPRESSOR_RATIO),
             ..Self::default()
         }
     }
@@ -407,6 +437,7 @@ impl CompressorParams {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum DeEsserMode {
     SplitBand,
@@ -415,6 +446,7 @@ pub enum DeEsserMode {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct DeEsserParams {
     pub freq_hz: f32,
@@ -436,7 +468,7 @@ impl DeEsserParams {
     pub fn from_intensity(intensity_pct: f32) -> Self {
         Self {
             freq_hz: DE_ESSER_FREQ_HZ.default,
-            threshold_db: -10.0 - 0.4 * intensity_pct,
+            threshold_db: interpolate(intensity_pct * 0.01, &macros::DE_ESSER_THRESHOLD_DBFS),
             max_reduction_db: DE_ESSER_MAX_REDUCTION_DB.default,
             mode: DeEsserMode::SplitBand,
             listen: false,
@@ -453,6 +485,7 @@ impl DeEsserParams {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct LimiterParams {
     pub ceiling_db: f32,
@@ -497,6 +530,7 @@ impl LimiterParams {
 /// De-esser → Limiter → Output gain.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct ChainSettings {
     pub muted: bool,

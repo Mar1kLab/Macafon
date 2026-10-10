@@ -25,6 +25,7 @@ toml = "1"
 thiserror = "2"
 pipewire = { version = "0.10.1", features = ["v1_0_0"] }
 tracing = "0.1"
+ts-rs = { version = "12", default-features = false, features = ["serde-compat", "no-serde-warnings"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 miceq-dsp = { path = "crates/miceq-dsp" }
 miceq-engine = { path = "crates/miceq-engine" }

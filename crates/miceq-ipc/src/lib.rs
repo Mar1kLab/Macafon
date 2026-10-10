@@ -5,6 +5,8 @@
 //! Events: `{"event":"meters","data":…}`. The first request must be `hello`.
 
 mod client;
+#[cfg(all(test, feature = "ts"))]
+mod typescript;
 
 pub use client::{Client, ClientError};
 pub use miceq_dsp::calibration::CalibrationReport;
@@ -19,6 +21,7 @@ pub const MAX_LINE_BYTES: usize = 1 << 20;
 pub const MAX_METER_HZ: u32 = 60;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(tag = "method", content = "params")]
 #[allow(clippy::large_enum_variant)] // transient messages; boxing buys nothing
 pub enum Request {
@@ -123,6 +126,7 @@ pub enum Request {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RequestEnvelope {
     pub id: u64,
     #[serde(flatten)]
@@ -130,6 +134,7 @@ pub struct RequestEnvelope {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
     /// Malformed JSON, unknown method or missing `hello`.
@@ -144,6 +149,7 @@ pub enum ErrorCode {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, thiserror::Error)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[error("{code:?}: {message}")]
 pub struct ErrorBody {
     pub code: ErrorCode,
@@ -160,6 +166,7 @@ impl ErrorBody {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Response {
     /// `None` only when the request id could not be parsed.
     pub id: Option<u64>,
@@ -168,6 +175,7 @@ pub struct Response {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
     Result(serde_json::Value),
@@ -175,6 +183,7 @@ pub enum Outcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(tag = "event", content = "data")]
 #[allow(clippy::large_enum_variant)] // transient messages; boxing buys nothing
 pub enum Event {
@@ -196,6 +205,7 @@ pub enum Event {
 
 /// One line from the daemon.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(untagged)]
 #[allow(clippy::large_enum_variant)] // transient messages; boxing buys nothing
 pub enum ServerMessage {
@@ -204,12 +214,14 @@ pub enum ServerMessage {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Hello {
     pub protocol: u32,
     pub daemon_version: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct MicState {
     /// Virtual microphone output uses identical FL/FR channels instead of MONO.
     #[serde(default)]
@@ -233,6 +245,7 @@ pub struct MicState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum AutostartMethod {
     /// `systemctl --user enable miceqd.service`.
@@ -242,6 +255,7 @@ pub enum AutostartMethod {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct AutostartState {
     pub enabled: bool,
     /// What enabling uses on this system.
@@ -249,6 +263,7 @@ pub struct AutostartState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum AbSide {
     /// Raw microphone.
@@ -258,12 +273,14 @@ pub enum AbSide {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct AbRecording {
     pub elapsed_ms: u32,
     pub max_ms: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct AbState {
     /// A recording in progress.
     pub recording: Option<AbRecording>,
@@ -279,12 +296,14 @@ pub struct AbState {
 
 /// Peak envelopes, 0…1 (linear), aligned in time.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct AbWaveform {
     pub a: Vec<f32>,
     pub b: Vec<f32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum CalibrationStep {
     /// CAL-001: "Stay silent", 4 s.
@@ -294,6 +313,7 @@ pub enum CalibrationStep {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum CalibrationFailure {
     /// CAL-005: the input clipped; lower the system or interface level and retry.
@@ -307,6 +327,7 @@ pub enum CalibrationFailure {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum CalibrationState {
     Idle,
@@ -327,6 +348,7 @@ pub enum CalibrationState {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PresetInfo {
     /// Built-in: `natural`, …; user: `user:<slug>`.
     pub id: String,
@@ -336,6 +358,7 @@ pub struct PresetInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Device {
     /// PipeWire `node.name`, stable across reconnects.
     pub name: String,

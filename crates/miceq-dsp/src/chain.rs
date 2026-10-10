@@ -48,6 +48,7 @@ pub struct Telemetry {
 /// One meter reading. Levels in dBFS, reductions in dB (≤ 0), NS activity 0…1.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Meters {
     /// Physical microphone before Gain; ≥ 0 dBFS means it clipped before micEQ (MIC-G1).
     pub raw_peak_dbfs: f32,

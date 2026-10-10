@@ -40,6 +40,7 @@ const SETTLE_SAMPLES: usize = SAMPLE_RATE_HZ as usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum NoiseLevel {
     Low,
@@ -50,6 +51,7 @@ pub enum NoiseLevel {
 /// What calibration measured and changed (CAL-004).
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CalibrationReport {
     /// Levels of the physical microphone, before Gain.
     pub noise_floor_dbfs: f32,

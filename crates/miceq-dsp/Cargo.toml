@@ -10,9 +10,12 @@ publish.workspace = true
 nnnoiseless = { version = "=0.5.1", default-features = false }
 serde = { workspace = true, optional = true }
 thiserror.workspace = true
+ts-rs = { workspace = true, optional = true }
 
 [features]
 serde = ["dep:serde"]
+# TypeScript declarations for the UI (miceq-ipc `ts` feature).
+ts = ["serde", "dep:ts-rs"]
 
 [dev-dependencies]
 assert_no_alloc = { version = "1.1.2", default-features = false }

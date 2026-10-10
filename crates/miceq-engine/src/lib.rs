@@ -4,15 +4,21 @@
 //! changes travel through an SPSC queue and are retuned in place; structural changes build a
 //! new processor off the RT thread, which `MicRt` crossfades in. Replaced processors return
 //! through a second queue so they are freed outside the RT thread.
+//!
+//! While armed, `MicRt` also copies the raw input (before the chain) into a third queue for
+//! calibration and the A/B recorder (PRD §6.4, §6.5).
 
 use miceq_dsp::{ChainSettings, MicrophoneProcessor, ParameterError, Telemetry};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Crossfade between an old and a rebuilt chain: 10 ms (DSP-003).
 pub const SWAP_FADE_SAMPLES: u32 = miceq_dsp::SAMPLE_RATE_HZ / 100;
 const QUEUE_CAPACITY: usize = 64;
 const GARBAGE_CAPACITY: usize = 8;
 const SCRATCH_SAMPLES: usize = 1024;
+/// Raw capture buffer: one second, drained by the control loop every 100 ms.
+const CAPTURE_SAMPLES: usize = miceq_dsp::SAMPLE_RATE_HZ as usize;
 
 // Settings travel inline: popping a slot must not free memory on the RT thread.
 #[allow(clippy::large_enum_variant)]
@@ -29,6 +35,17 @@ pub enum EngineError {
     Busy,
 }
 
+/// The control loop did not drain the raw capture in time; samples were lost.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("raw capture overflowed")]
+pub struct CaptureOverrun;
+
+#[derive(Default)]
+struct CaptureFlags {
+    armed: AtomicBool,
+    overrun: AtomicBool,
+}
+
 /// Create a connected control/RT pair for one microphone chain. Pass the same telemetry to
 /// successive pairs (e.g. after a PipeWire restart) so meter readers keep working.
 pub fn microphone(
@@ -38,12 +55,16 @@ pub fn microphone(
     let processor = MicrophoneProcessor::with_telemetry(settings, telemetry.clone())?;
     let (commands, command_queue) = rtrb::RingBuffer::new(QUEUE_CAPACITY);
     let (garbage, garbage_queue) = rtrb::RingBuffer::new(GARBAGE_CAPACITY);
+    let (capture, capture_queue) = rtrb::RingBuffer::new(CAPTURE_SAMPLES);
+    let capture_flags = Arc::new(CaptureFlags::default());
     Ok((
         MicControl {
             settings: *settings,
             commands,
             garbage: garbage_queue,
             telemetry,
+            capture: capture_queue,
+            capture_flags: capture_flags.clone(),
         },
         MicRt {
             current: Box::new(processor),
@@ -53,6 +74,8 @@ pub fn microphone(
             scratch: vec![0.0; SCRATCH_SAMPLES].into_boxed_slice(),
             commands: command_queue,
             garbage,
+            capture,
+            capture_flags,
         },
     ))
 }
@@ -62,6 +85,8 @@ pub struct MicControl {
     commands: rtrb::Producer<Command>,
     garbage: rtrb::Consumer<Box<MicrophoneProcessor>>,
     telemetry: Arc<Telemetry>,
+    capture: rtrb::Consumer<f32>,
+    capture_flags: Arc<CaptureFlags>,
 }
 
 impl MicControl {
@@ -98,6 +123,37 @@ impl MicControl {
         Ok(())
     }
 
+    /// Start copying the raw input; anything left from an earlier capture is discarded.
+    pub fn start_capture(&mut self) {
+        self.stop_capture();
+        let stale = self.capture.slots();
+        if let Ok(chunk) = self.capture.read_chunk(stale) {
+            chunk.commit_all();
+        }
+        self.capture_flags.overrun.store(false, Ordering::Relaxed);
+        self.capture_flags.armed.store(true, Ordering::Release);
+    }
+
+    pub fn stop_capture(&mut self) {
+        self.capture_flags.armed.store(false, Ordering::Release);
+    }
+
+    /// Append captured raw samples to `samples`. Call at least every few hundred ms.
+    pub fn read_capture(&mut self, samples: &mut Vec<f32>) -> Result<(), CaptureOverrun> {
+        let available = self.capture.slots();
+        if let Ok(chunk) = self.capture.read_chunk(available) {
+            let (first, second) = chunk.as_slices();
+            samples.extend_from_slice(first);
+            samples.extend_from_slice(second);
+            chunk.commit_all();
+        }
+        if self.capture_flags.overrun.load(Ordering::Relaxed) {
+            Err(CaptureOverrun)
+        } else {
+            Ok(())
+        }
+    }
+
     /// Free processors the audio thread has swapped out.
     pub fn collect_garbage(&mut self) {
         while let Ok(processor) = self.garbage.pop() {
@@ -114,6 +170,8 @@ pub struct MicRt {
     scratch: Box<[f32]>,
     commands: rtrb::Consumer<Command>,
     garbage: rtrb::Producer<Box<MicrophoneProcessor>>,
+    capture: rtrb::Producer<f32>,
+    capture_flags: Arc<CaptureFlags>,
 }
 
 impl MicRt {
@@ -124,6 +182,9 @@ impl MicRt {
     /// RT-safe: no allocation, locks or deallocation.
     pub fn process(&mut self, io: &mut [f32]) {
         self.drain();
+        if self.capture_flags.armed.load(Ordering::Acquire) {
+            self.capture(io);
+        }
         if self.outgoing.is_none() {
             self.current.process(io);
             return;
@@ -146,6 +207,16 @@ impl MicRt {
                 self.retired = self.outgoing.take();
                 self.release_retired();
             }
+        }
+    }
+
+    fn capture(&mut self, io: &[f32]) {
+        let count = io.len().min(self.capture.slots());
+        if count < io.len() {
+            self.capture_flags.overrun.store(true, Ordering::Relaxed);
+        }
+        if let Ok(chunk) = self.capture.write_chunk_uninit(count) {
+            chunk.fill_from_iter(io.iter().copied());
         }
     }
 
@@ -248,6 +319,28 @@ mod tests {
             Err(EngineError::Invalid(_))
         ));
         assert_eq!(control.settings(), &Preset::Natural.settings());
+    }
+
+    #[test]
+    fn raw_capture_copies_the_input_before_the_chain_only_while_armed() {
+        let (mut control, mut rt) =
+            microphone(&Preset::Broadcast.settings(), Arc::default()).expect("valid settings");
+        let mut samples = Vec::new();
+        run(&mut rt, 2, 0.25);
+        control.start_capture();
+        run(&mut rt, 3, 0.25);
+        control.stop_capture();
+        run(&mut rt, 2, 0.25);
+        assert_eq!(control.read_capture(&mut samples), Ok(()));
+        assert_eq!(samples, vec![0.25; 3 * 128]);
+        // An undrained capture reports the loss instead of blocking the audio thread.
+        control.start_capture();
+        run(&mut rt, CAPTURE_SAMPLES / 128 + 2, 0.5);
+        samples.clear();
+        assert_eq!(control.read_capture(&mut samples), Err(CaptureOverrun));
+        assert_eq!(samples.len(), CAPTURE_SAMPLES);
+        control.start_capture();
+        assert_eq!(control.read_capture(&mut samples), Ok(()));
     }
 
     #[test]

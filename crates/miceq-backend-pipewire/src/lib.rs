@@ -530,12 +530,14 @@ fn run_session<H: MicrophoneHost + 'static>(
             }
         }
         let now_connected = graph.link.is_some();
-        if connected.replace(Some(now_connected)) != Some(now_connected) {
-            if !now_connected && input.is_some() && ready.get() {
-                tracing::warn!("Microphone disconnected; producing silence");
-            }
-            host.input_connected(now_connected);
+        if connected.replace(Some(now_connected)) != Some(now_connected)
+            && !now_connected
+            && input.is_some()
+            && ready.get()
+        {
+            tracing::warn!("Microphone disconnected; producing silence");
         }
+        host.input_connected(now_connected);
     });
     timer
         .update_timer(

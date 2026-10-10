@@ -44,6 +44,9 @@ struct RunArgs {
     /// Physical PipeWire node.name (see `devices`); overrides the config.
     #[arg(long)]
     input: Option<String>,
+    /// Second-priority physical PipeWire node.name; overrides the config.
+    #[arg(long)]
+    fallback_input: Option<String>,
     /// Built-in preset: natural, discord-clear, noisy-room, broadcast, warm-podcast, raw.
     #[arg(long, value_parser = parse_preset)]
     preset: Option<Preset>,
@@ -86,7 +89,14 @@ impl RunArgs {
     /// Command-line options override the loaded config for this run.
     fn apply(&self, mic: &mut MicConfig) {
         if let Some(input) = &self.input {
+            if mic.device.as_ref() != Some(input) {
+                mic.noise_floor_dbfs = None;
+                mic.noise_floor_device = None;
+            }
             mic.device = Some(input.clone());
+        }
+        if let Some(input) = &self.fallback_input {
+            mic.fallback_device = Some(input.clone());
         }
         if let Some(preset) = self.preset {
             mic.chain = preset.settings();

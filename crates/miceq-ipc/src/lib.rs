@@ -48,6 +48,9 @@ pub enum Request {
     /// Physical microphone by PipeWire `node.name`; `null` disconnects.
     #[serde(rename = "mic.set_device")]
     MicSetDevice { device: Option<String> },
+    /// Optional second-priority microphone; `null` disables fallback.
+    #[serde(rename = "mic.set_fallback_device")]
+    MicSetFallbackDevice { device: Option<String> },
     #[serde(rename = "presets.list")]
     PresetsList,
     /// Save the current chain as a new user preset and select it.
@@ -214,6 +217,11 @@ pub struct MicState {
     /// The chain differs from that preset (UI: "modified", enables Save).
     pub preset_modified: bool,
     pub device: Option<String>,
+    #[serde(default)]
+    pub fallback_device: Option<String>,
+    /// Microphone currently linked; `null` while disconnected.
+    #[serde(default)]
+    pub active_device: Option<String>,
     /// The selected microphone is present and linked (MIC-005).
     pub input_connected: bool,
     pub latency_samples: u32,
@@ -412,6 +420,8 @@ mod tests {
                 preset: Some("natural".into()),
                 preset_modified: false,
                 device: None,
+                fallback_device: None,
+                active_device: None,
                 input_connected: false,
                 latency_samples: 960,
                 noise_floor_dbfs: Some(-62.5),

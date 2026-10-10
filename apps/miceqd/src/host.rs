@@ -37,6 +37,8 @@ pub struct DaemonHost {
     telemetry: Arc<Telemetry>,
     inputs: Vec<Device>,
     input_connected: bool,
+    selected_device: Option<String>,
+    active_device: Option<String>,
     recording: Option<Recording>,
     calibration: CalibrationState,
     ab: Ab,
@@ -50,7 +52,7 @@ pub struct DaemonHost {
 
 impl DaemonHost {
     pub fn new(
-        config: Config,
+        mut config: Config,
         store: Option<Store>,
         presets: PresetStore,
         socket: PathBuf,
@@ -58,7 +60,14 @@ impl DaemonHost {
         tray: bool,
     ) -> Self {
         let hub = Hub::new();
+        if config.mic.noise_floor_dbfs.is_some() && config.mic.noise_floor_device.is_none() {
+            // Older configurations only supported calibration of the primary input.
+            config.mic.noise_floor_device = config.mic.device.clone();
+        }
+        let selected_device = config.mic.device.clone();
         Self {
+            selected_device,
+            active_device: None,
             config,
             store,
             presets,
@@ -135,9 +144,41 @@ impl DaemonHost {
             preset: self.config.mic.preset.clone(),
             preset_modified,
             device: self.config.mic.device.clone(),
+            fallback_device: self.config.mic.fallback_device.clone(),
+            active_device: self.active_device.clone(),
             input_connected: self.input_connected,
             latency_samples: self.config.mic.chain.latency_samples(),
             noise_floor_dbfs: self.config.mic.noise_floor_dbfs,
+        }
+    }
+
+    fn refresh_input(&mut self) {
+        let selected = select_input(&self.config.mic, &self.inputs).map(str::to_owned);
+        let selection_changed = self.selected_device != selected;
+        let floor_invalid = self.config.mic.noise_floor_dbfs.is_some()
+            && self.config.mic.noise_floor_device != selected;
+        if floor_invalid {
+            self.config.mic.noise_floor_dbfs = None;
+            self.config.mic.noise_floor_device = None;
+            self.changed_at = Some(Instant::now());
+        }
+        if selection_changed {
+            self.selected_device = selected;
+            self.active_device = None;
+            self.input_connected = false;
+            if self.recording.is_some() {
+                self.fail_calibration(
+                    CalibrationFailure::Disconnected,
+                    "the microphone changed during calibration",
+                );
+            }
+            if self.ab.is_recording() {
+                self.ab.abort_recording(self.control.as_mut());
+                self.ab_changed();
+            }
+        }
+        if selection_changed || floor_invalid {
+            self.changed();
         }
     }
 
@@ -257,9 +298,11 @@ impl DaemonHost {
                     return self.fail_calibration(reason, error.to_string());
                 }
             };
+        let measured_device = self.active_device.clone();
         let applied = self.update(|config| {
             config.mic.chain = settings;
             config.mic.noise_floor_dbfs = Some(report.noise_floor_dbfs);
+            config.mic.noise_floor_device = measured_device;
         });
         match applied {
             Ok(_) => {
@@ -440,25 +483,20 @@ impl DaemonHost {
                 self.update(|config| config.mic.chain.bypass = bypass)?
             }
             Request::MicSetDevice { device } => {
-                if device != self.config.mic.device {
-                    if self.recording.is_some() {
-                        self.fail_calibration(
-                            CalibrationFailure::Disconnected,
-                            "the microphone changed during calibration",
-                        );
-                    }
-                    if self.ab.is_recording() {
-                        self.ab.abort_recording(self.control.as_mut());
-                        self.ab_changed();
-                    }
-                }
                 self.update(|config| {
-                    // The measured floor belongs to the previous microphone.
                     if config.mic.device != device {
                         config.mic.noise_floor_dbfs = None;
+                        config.mic.noise_floor_device = None;
                     }
                     config.mic.device = device;
-                })?
+                })?;
+                self.refresh_input();
+                self.state()
+            }
+            Request::MicSetFallbackDevice { device } => {
+                self.update(|config| config.mic.fallback_device = device)?;
+                self.refresh_input();
+                self.state()
             }
             Request::PresetsList => return Ok(serde_json::json!(self.preset_list())),
             request @ (Request::PresetsSave { .. }
@@ -585,12 +623,13 @@ impl MicrophoneHost for DaemonHost {
         self.control = None;
         if self.input_connected {
             self.input_connected = false;
+            self.active_device = None;
             self.changed();
         }
     }
 
     fn input(&self) -> Option<String> {
-        self.config.mic.device.clone()
+        self.selected_device.clone()
     }
 
     fn latency_samples(&self) -> u32 {
@@ -614,6 +653,7 @@ impl MicrophoneHost for DaemonHost {
     fn input_connected(&mut self, connected: bool) {
         if connected != self.input_connected {
             self.input_connected = connected;
+            self.active_device = connected.then(|| self.selected_device.clone()).flatten();
             self.changed();
             if !connected && self.recording.is_some() {
                 self.fail_calibration(
@@ -636,6 +676,7 @@ impl MicrophoneHost for DaemonHost {
                 description: node.description.clone(),
             })
             .collect();
+        self.refresh_input();
     }
 
     fn handle(&mut self, message: ControlMessage) {
@@ -668,5 +709,138 @@ impl MicrophoneHost for DaemonHost {
             self.changed_at = None;
             self.save();
         }
+    }
+}
+
+/// A missing primary selection explicitly disables both inputs.
+fn select_input<'a>(mic: &'a miceq_config::MicConfig, inputs: &[Device]) -> Option<&'a str> {
+    let primary = mic.device.as_deref()?;
+    let present = |name: &str| inputs.iter().any(|input| input.name == name);
+    if present(primary) {
+        Some(primary)
+    } else {
+        mic.fallback_device.as_deref().filter(|name| present(name))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_switch_invalidates_measurement_and_tracks_actual_connection() {
+        let (sender, _receiver) = miceq_backend_pipewire::control_channel();
+        let mut config = Config::default();
+        config.mic.device = Some("primary".into());
+        config.mic.fallback_device = Some("fallback".into());
+        config.mic.noise_floor_dbfs = Some(-60.0);
+        let mut host = DaemonHost::new(
+            config,
+            None,
+            PresetStore::in_memory(),
+            PathBuf::from("unused"),
+            sender,
+            false,
+        );
+        host.inputs = vec![
+            Device {
+                name: "primary".into(),
+                description: "Main".into(),
+            },
+            Device {
+                name: "fallback".into(),
+                description: "Backup".into(),
+            },
+        ];
+        host.refresh_input();
+        host.input_connected(true);
+        assert_eq!(host.state().active_device.as_deref(), Some("primary"));
+        assert_eq!(host.state().noise_floor_dbfs, Some(-60.0));
+        host.inputs.remove(0);
+        host.refresh_input();
+        assert_eq!(host.input().as_deref(), Some("fallback"));
+        assert_eq!(host.state().active_device, None);
+        assert!(!host.state().input_connected);
+        assert_eq!(host.state().noise_floor_dbfs, None);
+        host.input_connected(true);
+        assert_eq!(host.state().active_device.as_deref(), Some("fallback"));
+        host.inputs.push(Device {
+            name: "primary".into(),
+            description: "Main".into(),
+        });
+        host.refresh_input();
+        host.input_connected(true);
+        assert_eq!(host.state().active_device.as_deref(), Some("primary"));
+        assert_eq!(host.config.mic.device.as_deref(), Some("primary"));
+    }
+
+    #[test]
+    fn startup_floor_belongs_to_measured_device_and_legacy_defaults_to_primary() {
+        for measured in [None, Some("primary"), Some("fallback")] {
+            let (sender, _receiver) = miceq_backend_pipewire::control_channel();
+            let config = Config {
+                mic: miceq_config::MicConfig {
+                    device: Some("primary".into()),
+                    fallback_device: Some("fallback".into()),
+                    noise_floor_dbfs: Some(-60.0),
+                    noise_floor_device: measured.map(str::to_owned),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut host = DaemonHost::new(
+                config,
+                None,
+                PresetStore::in_memory(),
+                PathBuf::from("unused"),
+                sender,
+                false,
+            );
+            host.inputs = vec![Device {
+                name: "primary".into(),
+                description: "Main".into(),
+            }];
+            host.refresh_input();
+            if measured == Some("fallback") {
+                assert_eq!(host.state().noise_floor_dbfs, None);
+                assert_eq!(host.config.mic.noise_floor_device, None);
+                assert!(host.changed_at.is_some());
+            } else {
+                assert_eq!(host.state().noise_floor_dbfs, Some(-60.0));
+                assert_eq!(
+                    host.config.mic.noise_floor_device.as_deref(),
+                    Some("primary")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn microphone_priority_restores_primary_and_none_disables_fallback() {
+        let mut mic = miceq_config::MicConfig {
+            device: Some("primary".into()),
+            fallback_device: Some("fallback".into()),
+            ..Default::default()
+        };
+        let fallback = Device {
+            name: "fallback".into(),
+            description: "Backup".into(),
+        };
+        let primary = Device {
+            name: "primary".into(),
+            description: "Main".into(),
+        };
+        assert_eq!(select_input(&mic, &[]), None);
+        assert_eq!(
+            select_input(&mic, std::slice::from_ref(&fallback)),
+            Some("fallback")
+        );
+        assert_eq!(
+            select_input(&mic, &[fallback.clone(), primary]),
+            Some("primary")
+        );
+        assert_eq!(mic.device.as_deref(), Some("primary"));
+        mic.device = None;
+        assert_eq!(select_input(&mic, &[fallback]), None);
     }
 }

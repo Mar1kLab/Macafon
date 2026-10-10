@@ -60,6 +60,25 @@ def main():
         def status():
             return json.loads(ctl("status", "--json"))
 
+        def request(method, params=None):
+            with socket.socket(socket.AF_UNIX) as connection:
+                connection.settimeout(8)
+                connection.connect(str(runtime / "miceq" / "miceqd.sock"))
+                stream = connection.makefile("rw")
+                for identifier, name, arguments in [(1, "hello", {"protocol": 1, "client": "smoke"}),
+                                                     (2, method, params)]:
+                    message = {"id": identifier, "method": name}
+                    if arguments is not None:
+                        message["params"] = arguments
+                    stream.write(json.dumps(message) + "\n")
+                    stream.flush()
+                    while True:
+                        reply = json.loads(stream.readline())
+                        if reply.get("id") == identifier:
+                            assert "result" in reply, reply
+                            break
+                return reply["result"]
+
         def ports(name, direction):
             data = json.loads(run("pw-dump"))
             node_ids = {item["id"] for item in data
@@ -278,6 +297,67 @@ def main():
             assert names[-2:] == ["Smoke voice (2)", "Loud"], names
             print("presets: save/update/select, duplicate name refused, export → import, "
                   "duplicate, rename, delete")
+
+            # Fallback: distinct levels prove that the actual audio link follows priority.
+            def microphone(name, amplitude):
+                samples = array.array("f", [amplitude * math.sin(2 * math.pi * 440 * n / 48000)
+                                            for n in range(48000 * 30)])
+                if sys.byteorder != "little":
+                    samples.byteswap()
+                path = directory / f"{name}.raw"
+                path.write_bytes(samples.tobytes())
+                process = spawn(["pw-cat", "--playback", "--raw", "--format", "f32", "--channels", "1",
+                                 "--channel-map", "MONO", "--target", "0", "--latency", "128",
+                                 "--properties", f"node.name={name} media.class=Audio/Source "
+                                 "adapter.auto-port-config={ mode=dsp position=preserve }", path])
+                smoke.wait_for(lambda: ports(name, "out"), f"{name} ports")
+                return process
+
+            def active(name):
+                state = status()
+                return state["active_device"] == name and state["input_connected"] == (name is not None)
+
+            primary = microphone("test_primary", 0.5)
+            fallback = microphone("test_fallback", 0.2)
+            ctl("preset", "raw")
+            ctl("device", "test_primary")
+            ctl("fallback-device", "test_fallback")
+            smoke.wait_for(lambda: active("test_primary"), "primary selected")
+            assert 0.45 < record() < 0.55, "primary priority failed"
+            stop(primary)
+            smoke.wait_for(lambda: active("test_fallback"), "fallback selected")
+            assert status()["device"] == "test_primary", "fallback replaced the primary preference"
+            assert 0.18 < record() < 0.22, "fallback audio missing"
+            assert request("calibration.start")["state"] == "measuring"
+            primary = microphone("test_primary", 0.5)
+            smoke.wait_for(lambda: active("test_primary"), "primary restored")
+            calibration = request("calibration.get")
+            assert calibration["state"] == "failed" and calibration["reason"] == "disconnected", calibration
+            assert 0.45 < record() < 0.55, "primary audio not restored"
+            assert request("ab.record", {"max_seconds": 10})["recording"] is not None
+            stop(primary)
+            smoke.wait_for(lambda: active("test_fallback"), "fallback selected during recording")
+            assert request("ab.get")["recording"] is None, "recording mixed two microphones"
+            stop(fallback)
+            smoke.wait_for(lambda: active(None), "both microphones disconnected")
+            assert ports("miceq_mic", "out"), "virtual microphone disappeared"
+            assert record() == 0.0, "disconnected microphone leaked audio"
+            fallback = microphone("test_fallback", 0.2)
+            smoke.wait_for(lambda: active("test_fallback"), "fallback reconnected")
+            ctl("device", "none")
+            smoke.wait_for(lambda: active(None), "explicit input disable")
+            assert record() == 0.0, "fallback ignored explicit disable"
+            ctl("device", "test_primary")
+            smoke.wait_for(lambda: active("test_fallback"), "fallback reselected")
+            stop(daemon)
+            daemon = start_daemon()
+            state = status()
+            assert state["fallback_device"] == "test_fallback" and active("test_fallback"), state
+            assert 0.18 < record() < 0.22, "saved fallback not restored"
+            ctl("fallback-device", "none")
+            smoke.wait_for(lambda: active(None), "fallback disabled")
+            print("fallback: primary priority, failover audio, automatic return, silence, "
+                  "explicit disable and config restored after restart")
 
             # Autostart through XDG (the user's systemd session is left alone).
             entry = config_home / "autostart" / "miceqd.desktop"

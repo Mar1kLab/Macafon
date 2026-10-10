@@ -60,6 +60,8 @@ enum Ctl {
     Devices,
     /// Select the physical microphone by node.name; `none` disconnects.
     Device { name: String },
+    /// Select the fallback microphone by node.name; `none` disables fallback.
+    FallbackDevice { name: String },
     /// Set the input gain in dB.
     Gain {
         #[arg(allow_hyphen_values = true)]
@@ -225,6 +227,9 @@ fn main() -> Result<()> {
             Request::MicSetBypass { bypass }
         }
         Ctl::Device { name } => Request::MicSetDevice {
+            device: (name != "none").then_some(name),
+        },
+        Ctl::FallbackDevice { name } => Request::MicSetFallbackDevice {
             device: (name != "none").then_some(name),
         },
         Ctl::Gain { gain_db } => {
@@ -461,7 +466,10 @@ fn print_report(report: &CalibrationReport) {
 fn print_state(state: &MicState) {
     let latency_ms = state.latency_samples as f32 * 1000.0 / 48_000.0;
     let device = state.device.as_deref().unwrap_or("none");
-    let input = match (state.device.is_some(), state.input_connected) {
+    let input = match (
+        state.device.is_some(),
+        state.input_connected && state.active_device == state.device,
+    ) {
         (false, _) => "",
         (true, true) => " (connected)",
         (true, false) => " (disconnected)",
@@ -476,6 +484,14 @@ fn print_state(state: &MicState) {
         state.preset.as_deref().unwrap_or("custom")
     );
     println!("input:    {device}{input}");
+    println!(
+        "fallback: {}",
+        state.fallback_device.as_deref().unwrap_or("none")
+    );
+    println!(
+        "active:   {}",
+        state.active_device.as_deref().unwrap_or("none")
+    );
     println!("muted:    {}", state.settings.muted);
     println!("bypass:   {}", state.settings.bypass);
     println!("gain:     {:+.1} dB", state.settings.gain.params.gain_db);

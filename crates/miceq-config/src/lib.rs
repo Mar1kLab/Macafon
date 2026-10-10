@@ -32,12 +32,18 @@ pub struct MicConfig {
     /// PipeWire `node.name` of the physical microphone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device: Option<String>,
+    /// Optional second-priority physical microphone by PipeWire `node.name`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_device: Option<String>,
     /// Preset the chain was last loaded from (`miceq_dsp::Preset::id`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,
     /// Noise floor of the physical microphone measured by the last calibration (CAL-001).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub noise_floor_dbfs: Option<f32>,
+    /// Physical microphone that the persisted noise floor was measured on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub noise_floor_device: Option<String>,
     #[serde(flatten)]
     pub chain: ChainSettings,
 }
@@ -47,8 +53,10 @@ impl Default for MicConfig {
         let preset = miceq_dsp::Preset::Natural;
         Self {
             device: None,
+            fallback_device: None,
             preset: Some(preset.id().to_owned()),
             noise_floor_dbfs: None,
+            noise_floor_device: None,
             chain: preset.settings(),
         }
     }
@@ -226,8 +234,10 @@ mod tests {
             schema_version: SCHEMA_VERSION,
             mic: MicConfig {
                 device: Some("alsa_input.usb-Yeti".into()),
+                fallback_device: Some("alsa_input.internal".into()),
                 preset: Some("broadcast".into()),
                 noise_floor_dbfs: Some(-61.5),
+                noise_floor_device: Some("alsa_input.usb-Yeti".into()),
                 chain,
             },
         };

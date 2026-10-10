@@ -13,10 +13,11 @@
     /** Separate key for the clip latch (the raw input clips before Gain, MIC-G1). */
     clipKey?: MeterKey;
     color?: string;
+    hint?: string;
     onclip?: (clipped: boolean) => void;
   }
 
-  let { label, peakKey, rmsKey, clipKey, color = 'blue', onclip }: Props = $props();
+  let { label, peakKey, rmsKey, clipKey, color = 'blue', hint, onclip }: Props = $props();
 
   const MIN_DB = -60;
   let canvas: HTMLCanvasElement | undefined = $state();
@@ -87,10 +88,11 @@
   });
 </script>
 
-<div class="meter">
+<div class="meter" title={hint}>
   <span class="hud-label">{label}</span>
   <canvas bind:this={canvas} aria-hidden="true"></canvas>
-  <span class="clip" class:on={clipped} title="Clip">CLIP</span>
+  <!-- Hidden unless clipping, but keeps its width so the readout does not jump. -->
+  <span class="clip" class:on={clipped} aria-hidden={!clipped}>CLIP</span>
   <span class="value level" bind:this={readout}></span>
   <span class="unit hud-label">dB</span>
 </div>
@@ -123,11 +125,12 @@
     font-size: 9px;
     letter-spacing: 0.1em;
     padding: 0 4px;
-    border: 1px solid var(--line);
-    color: var(--faint);
+    border: 1px solid transparent;
+    visibility: hidden;
   }
 
   .clip.on {
+    visibility: visible;
     color: var(--invert-fg);
     background: var(--danger);
     border-color: var(--danger);

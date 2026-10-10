@@ -26,9 +26,9 @@
   />
   <div class="row">
     <div class="raw">
-      <LevelMeter label="RAW" peakKey="raw_peak_dbfs" clipKey="raw_peak_dbfs" color={info.color} onclip={(c) => (clipped = c)} />
+      <LevelMeter label={t('mic.mic')} hint={t('mic.micHint')} peakKey="raw_peak_dbfs" clipKey="raw_peak_dbfs" color={info.color} onclip={(c) => (clipped = c)} />
     </div>
-    <button class="btn small" onclick={oncalibrate} title={t('mic.calibrate')}>
+    <button class="btn small" onclick={oncalibrate} title={t('params.autoHint')}>
       <Wand size={12} strokeWidth={1.5} />{t('params.auto')}
     </button>
   </div>

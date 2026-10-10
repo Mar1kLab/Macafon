@@ -47,7 +47,7 @@
     label={t('mic.preset')}
     {options}
     value={mic.preset}
-    width="164px"
+    width="180px"
     onchange={(id) => id && daemon.selectPreset(id)}
   >
     {#snippet button()}
@@ -72,12 +72,13 @@
       {/if}
     {/snippet}
   </Dropdown>
-  {#if mic.preset_modified}
-    <span class="badge modified">{t('mic.modified')}</span>
+  <!-- Save appears only when there is something to save. -->
+  {#if mic.preset_modified || !current}
+    {#if mic.preset_modified}<span class="badge modified">{t('mic.modified')}</span>{/if}
+    <button class="btn" onclick={save}>
+      {current && !current.builtin ? t('mic.save') : t('mic.saveAs')}
+    </button>
   {/if}
-  <button class="btn" onclick={save} disabled={!mic.preset_modified && !!current}>
-    {current && !current.builtin ? t('mic.save') : t('mic.saveAs')}
-  </button>
 </div>
 
 <PromptDialog

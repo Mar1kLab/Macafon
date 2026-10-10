@@ -49,8 +49,8 @@
       const text = activity
         ? `${Math.round(shown * 100)}%`
         : shown * RANGE_DB < 0.05
-          ? '0.0'
-          : `−${(shown * RANGE_DB).toFixed(1)}`;
+          ? '0.0 dB'
+          : `−${(shown * RANGE_DB).toFixed(1)} dB`;
       if (readout && text !== lastText) {
         readout.textContent = text;
         lastText = text;
@@ -59,7 +59,7 @@
   });
 </script>
 
-<div class="gr" class:inactive={!active}>
+<div class="gr" class:inactive={!active} title={activity ? t('module.activityHint') : t('module.reductionHint')}>
   <span class="hud-label">{activity ? t('module.activity') : t('module.reduction')}</span>
   <canvas bind:this={canvas} aria-hidden="true"></canvas>
   <span class="value" bind:this={readout}></span>
@@ -68,7 +68,7 @@
 <style>
   .gr {
     display: grid;
-    grid-template-columns: 22px 1fr 40px;
+    grid-template-columns: 44px 1fr 56px;
     align-items: center;
     gap: 8px;
   }

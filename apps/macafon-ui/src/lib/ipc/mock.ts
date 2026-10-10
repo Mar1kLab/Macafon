@@ -1,6 +1,7 @@
 // In-browser stand-in for macafond (AGENTS.md §5): the same protocol with plausible devices,
 // presets, live meters, calibration and A/B, so the UI runs without Tauri or PipeWire.
-// `?daemon=down` simulates a daemon that cannot be started.
+// `?daemon=down` simulates a daemon that cannot be started, `?mic=disconnected` an unplugged
+// microphone.
 
 import { DaemonError, type DaemonStatus, type Transport } from './client';
 import { BUILTIN_PRESETS, LITE_LATENCY_SAMPLES, SAMPLE_RATE_HZ } from './dsp';
@@ -76,7 +77,7 @@ export class MockTransport implements Transport {
   private preset: string | null = BUILTIN_PRESETS[1]!.id;
   private device: string | null = DEVICES[0]!.name;
   private fallbackDevice: string | null = DEVICES[2]!.name;
-  private connected = true;
+  private connected = new URLSearchParams(location.search).get('mic') !== 'disconnected';
   private noiseFloor: number | null = null;
   private userPresets = new Map<string, { name: string; settings: ChainSettings }>();
   private autostart: AutostartState = { enabled: true, method: 'systemd' };
@@ -388,6 +389,7 @@ export class MockTransport implements Transport {
       limiter_reduction_db: 0,
       noise_activity: 0,
     };
+    if (raw <= SILENT) return zero;
     if (s.bypass) {
       return { ...zero, output_peak_dbfs: s.muted ? SILENT : input + 6, output_rms_dbfs: s.muted ? SILENT : input };
     }

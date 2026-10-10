@@ -4,6 +4,7 @@
   // Hotkeys and Doctor arrive with M2.
   import Toggle from '../lib/components/Toggle.svelte';
   import Dropdown from '../lib/components/Dropdown.svelte';
+  import Dialog from '../lib/components/Dialog.svelte';
   import { daemon } from '../lib/state';
   import { t } from '../lib/i18n';
 
@@ -15,6 +16,7 @@
       .filter((device) => device.name !== mic?.device)
       .map((device) => ({ value: device.name as string | null, label: device.description })),
   ]);
+  let confirmQuit = $state(false);
   const version = $derived(daemon.status.state === 'connected' ? daemon.status.version : '—');
 
   async function setAutostart(enabled: boolean) {
@@ -46,7 +48,7 @@
           <p class="name">{t('settings.quit')}</p>
           <p class="hint">{t('settings.quitHint')}</p>
         </div>
-        <button class="btn" onclick={() => daemon.run(daemon.client.call('daemon.quit'))}>{t('settings.quit')}</button>
+        <button class="btn" onclick={() => (confirmQuit = true)}>{t('settings.quit')}</button>
       </div>
     </section>
 
@@ -90,6 +92,20 @@
     </section>
   </div>
 </div>
+
+<Dialog open={confirmQuit} title={t('settings.quitConfirmTitle')} onclose={() => (confirmQuit = false)}>
+  <p class="confirm">{t('settings.quitConfirm')}</p>
+  {#snippet actions()}
+    <button class="btn" onclick={() => (confirmQuit = false)}>{t('common.cancel')}</button>
+    <button
+      class="btn danger on"
+      onclick={() => {
+        confirmQuit = false;
+        void daemon.run(daemon.client.call('daemon.quit'));
+      }}>{t('settings.quit')}</button
+    >
+  {/snippet}
+</Dialog>
 
 <style>
   .screen {
@@ -149,6 +165,10 @@
   .hint {
     font-size: 13px;
     color: var(--muted);
+  }
+
+  .confirm {
+    color: var(--ink);
   }
 
   .licenses {

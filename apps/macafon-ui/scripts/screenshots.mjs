@@ -64,6 +64,23 @@ const scenarios = {
     await page.getByRole('button', { name: 'Loop' }).click();
     await page.waitForTimeout(1600);
   },
+  disconnected: async (page) => {
+    await page.goto(`${base}?mic=disconnected`);
+    await page.waitForSelector('.chain');
+    await page.waitForTimeout(800);
+  },
+  bypass: async (page) => {
+    await page.goto(base);
+    await page.waitForSelector('.chain');
+    await page.getByRole('button', { name: 'Bypass', exact: true }).click();
+    await page.waitForTimeout(800);
+  },
+  'quit-confirm': async (page) => {
+    await page.goto(`${base}?screen=settings`);
+    await page.waitForSelector('section');
+    await page.getByRole('button', { name: 'Quit Macafon' }).click();
+    await page.waitForTimeout(500);
+  },
   muted: async (page) => {
     await page.goto(base);
     await page.waitForSelector('.chain');

@@ -15,6 +15,7 @@
   import LimiterCard from '../lib/mic/cards/LimiterCard.svelte';
   import TestPanel from '../lib/mic/TestPanel.svelte';
   import CalibrationDialog from '../lib/mic/CalibrationDialog.svelte';
+  import GettingStarted from '../lib/mic/GettingStarted.svelte';
   import { daemon } from '../lib/state';
   import { SAMPLE_RATE_HZ } from '../lib/ipc/dsp';
   import { samplesToMs } from '../lib/dsp/format';
@@ -25,11 +26,13 @@
   let eqExpanded = $state(false);
   let inputClipped = $state(false);
 
+  /** Calibration done → record a clip right away so before/after can be compared. */
   function listen() {
     calibrating = false;
-    // Hand over to the TEST panel: record a fresh clip with the calibrated chain.
-    document.querySelector<HTMLButtonElement>('.test .rec')?.focus();
+    daemon.recordRequest++;
   }
+
+  const setBypass = (bypass: boolean) => daemon.setMic(daemon.client.call('mic.set_bypass', { bypass }));
 
   function onkeydown(event: KeyboardEvent) {
     const target = event.target as HTMLElement;
@@ -59,12 +62,16 @@
           <Redo2 size={15} strokeWidth={1.5} />
         </button>
       </div>
-      <button class="btn" onclick={() => (calibrating = true)}>{t('mic.calibrate')}</button>
+      <!-- Until the first calibration it is the most useful next step: make it the CTA. -->
+      <button class="btn" class:invert={mic.noise_floor_dbfs === null} title={t('mic.calibrateHint')} onclick={() => (calibrating = true)}>
+        {t('mic.calibrate')}
+      </button>
       <button
         class="btn"
         class:on={mic.settings.bypass}
         aria-pressed={mic.settings.bypass}
-        onclick={() => daemon.setMic(daemon.client.call('mic.set_bypass', { bypass: !mic.settings.bypass }))}
+        title={t('mic.bypassHint')}
+        onclick={() => setBypass(!mic.settings.bypass)}
       >
         {t('mic.bypass')}
       </button>
@@ -72,6 +79,7 @@
         class="btn danger"
         class:on={mic.settings.muted}
         aria-pressed={mic.settings.muted}
+        title={t('mic.muteHint')}
         onclick={() => daemon.setMic(daemon.client.call('mic.set_muted', { muted: !mic.settings.muted }))}
       >
         {#if mic.settings.muted}<MicOff size={13} strokeWidth={1.5} />{t('mic.muted')}{:else}<Mic size={13} strokeWidth={1.5} />{t('mic.mute')}{/if}
@@ -79,18 +87,30 @@
     </header>
 
     <div class="meters">
-      <LevelMeter label={t('mic.input')} peakKey="input_peak_dbfs" rmsKey="input_rms_dbfs" clipKey="raw_peak_dbfs" onclip={(c) => (inputClipped = c)} />
-      <span class="latency" title="NFR-L5">
+      <LevelMeter label={t('mic.input')} hint={t('mic.inputHint')} peakKey="input_peak_dbfs" rmsKey="input_rms_dbfs" clipKey="raw_peak_dbfs" onclip={(c) => (inputClipped = c)} />
+      <span class="latency" title={t('mic.latencyHint')}>
         <span class="hud-label">{t('mic.latency')}</span>
         <span class="value">{samplesToMs(mic.latency_samples, SAMPLE_RATE_HZ).toFixed(1)} ms</span>
       </span>
-      <LevelMeter label={t('mic.output')} peakKey="output_peak_dbfs" rmsKey="output_rms_dbfs" color="teal" />
+      <LevelMeter label={t('mic.output')} hint={t('mic.outputHint')} peakKey="output_peak_dbfs" rmsKey="output_rms_dbfs" color="teal" />
     </div>
+    {#if !mic.device}
+      <p class="banner" role="status">{t('mic.bannerNoDevice')}</p>
+    {:else if !mic.input_connected}
+      <p class="banner danger" role="status">{t('mic.bannerDisconnected')}</p>
+    {/if}
+    {#if mic.settings.bypass}
+      <p class="banner" role="status">
+        {t('mic.bannerBypass')}
+        <button class="btn small" onclick={() => setBypass(false)}>{t('mic.bannerBypassAction')}</button>
+      </p>
+    {/if}
     {#if inputClipped}
-      <p class="clip-hint" role="alert">{t('mic.clipHint')}</p>
+      <p class="banner danger" role="alert">{t('mic.clipHint')}</p>
     {/if}
 
     <div class="scroll">
+      <GettingStarted oncalibrate={() => (calibrating = true)} calibrated={mic.noise_floor_dbfs !== null} />
       <div class="chain" class:bypassed={mic.settings.bypass} class:eq-expanded={eqExpanded}>
         <GainCard settings={mic.settings} oncalibrate={() => (calibrating = true)} />
         <HighPassCard settings={mic.settings} />
@@ -106,6 +126,10 @@
     <TestPanel />
   </div>
   <CalibrationDialog open={calibrating} onclose={() => (calibrating = false)} onlisten={listen} />
+{:else}
+  <div class="loading" role="status">
+    <span class="hud-label">{t('daemon.loading')}</span>
+  </div>
 {/if}
 
 <style>
@@ -153,11 +177,28 @@
     align-items: baseline;
   }
 
-  .clip-hint {
-    padding: 6px 24px;
-    font-size: 12px;
-    color: var(--danger);
+  .banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 24px;
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--bg-raised);
     border-bottom: 1px solid var(--line);
+    border-left: 2px solid var(--accent);
+  }
+
+  .banner.danger {
+    color: var(--danger);
+    border-left-color: var(--danger);
+  }
+
+  .loading {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .scroll {

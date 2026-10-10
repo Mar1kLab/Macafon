@@ -25,7 +25,8 @@ pnpm -C apps/macafon-ui tauri build --no-bundle   # target/release/macafon-ui
 
 ```
 Svelte (runes) ──DaemonClient──► Transport ─┬─ TauriTransport ─invoke/event─► src-tauri/bridge.rs ─► macafond.sock
-                                            └─ MockTransport (браузер, ?daemon=down — демон недоступен)
+                                            └─ MockTransport (браузер; ?daemon=down — демон недоступен,
+                                                              ?mic=disconnected — микрофон отключён)
 ```
 
 - `src/lib/ipc/protocol.ts` и `dsp.ts` **генерируются** из Rust (`ts-rs` за фичей `ts`, по умолчанию
@@ -47,6 +48,21 @@ Svelte (runes) ──DaemonClient──► Transport ─┬─ TauriTransport �
   демон пережил UI) и ждёт 4 с (§9.7). Потерянное соединение не перезапускает демон (после Quit
   из трея он должен остаться выключенным; упавший поднимет systemd) — через 4 с экран «offline»
   с Retry. `Quit Macafon` в Settings останавливает демон и закрывает UI (BG-005).
+
+## Понятность для новичка
+
+- Блок «Getting started» на экране Microphone: калибровка (отмечается выполненной), запись и
+  сравнение, выбор «Macafon Microphone» в приложениях + отключить их шумодав (US-2/3/5, MIC-015).
+  Скрывается кнопкой «Got it» (флаг в `localStorage` WebView).
+- Пока калибровки не было, кнопка Calibrate — главная (инвертированная). «Listen A/B» в итоге
+  калибровки сразу запускает запись в панели TEST.
+- Баннеры состояния: микрофон не выбран, отключён (MIC-005), обработка выключена (Bypass) с
+  кнопкой «Turn on», клип на входе.
+- Видимые подписи без жаргона: Before/After вместо Raw/Processed, Match volume, Cut и Noise вместо
+  GR/NS, Mic вместо RAW; у метров, Bypass, Mute, Latency — однострочные подсказки при наведении.
+  Индикатор CLIP появляется только при клипе.
+- Save в шапке виден только когда пресет изменён. Mixer скрыт из навигации до M2.
+- Quit в Settings — с подтверждением.
 
 ## Макросы и CUSTOM (DSP-002)
 
@@ -74,7 +90,6 @@ Svelte (runes) ──DaemonClient──► Transport ─┬─ TauriTransport �
 - Импорт/экспорт пресетов (P1) в UI нет — нужен файловый диалог (`tauri-plugin-dialog`); в CLI есть.
 - BG-001: тост «Macafon keeps running in the tray» при первом закрытии не сделан (процесс UI к этому
   моменту завершается — нужен показ до закрытия или уведомление от демона).
-- MIC-015: подсказка про двойную обработку — пока только в диалоге калибровки.
 - NS Studio выбирается, но демон работает на Lite (DeepFilterNet ещё не встроен) — UI это пишет.
 
 ## Проверка

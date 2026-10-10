@@ -55,7 +55,7 @@
     label={t('mic.device')}
     {options}
     value={mic.device}
-    width="220px"
+    width="260px"
     onopen={() => daemon.refreshDevices()}
     onchange={(device) => daemon.setMic(daemon.client.call('mic.set_device', { device }))}
   >

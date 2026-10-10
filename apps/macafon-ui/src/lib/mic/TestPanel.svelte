@@ -51,6 +51,15 @@
     if (result) waveform = result;
   }
 
+  // Calibration's "Listen A/B" asks for a fresh clip through the calibrated chain.
+  let handledRequest = daemon.recordRequest;
+  $effect(() => {
+    if (daemon.recordRequest !== handledRequest) {
+      handledRequest = daemon.recordRequest;
+      if (!recording && countdown === null) void record();
+    }
+  });
+
   // New clip → new waveform; chain changes reshape B (debounced).
   $effect(() => {
     const clip = ab?.clip_ms ?? null;
@@ -167,7 +176,7 @@
   <button class="btn" class:on={ab?.playing} onclick={loop} disabled={!hasClip || recording !== null}>
     {#if ab?.playing}<Square size={10} fill="currentColor" strokeWidth={0} />{t('test.stop')}{:else}<Play size={11} fill="currentColor" strokeWidth={0} />{t('test.loop')}{/if}
   </button>
-  <div class="ab" role="radiogroup" aria-label="A / B" title={t('test.toggleHint')}>
+  <div class="ab" role="radiogroup" aria-label="A / B" title={t('test.switchHint')}>
     <button role="radio" aria-checked={side === 'a'} class:selected={side === 'a'} disabled={!hasClip} onclick={() => daemon.run(daemon.client.call('ab.select', { side: 'a' }))}>
       <b>A</b> {t('test.a')}
     </button>
@@ -182,9 +191,11 @@
       <span class="overlay hud-label">{countdown !== null ? `${t('test.countdown')} · ${countdown}` : t('test.prompt')}</span>
     {:else if !hasClip}
       <span class="overlay hint">{t('test.empty')}</span>
+    {:else if !ab?.playing}
+      <span class="overlay hint">{t('test.switchHint')}</span>
     {/if}
   </div>
-  <label class="match" title={t('test.loudnessMatch')}>
+  <label class="match" title={t('test.loudnessMatchHint')}>
     <span class="hud-label">{t('test.loudnessMatch')}</span>
     <Toggle
       checked={ab?.loudness_match ?? true}

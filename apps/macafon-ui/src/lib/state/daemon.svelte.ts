@@ -38,6 +38,8 @@ export class DaemonStore {
   autostart = $state.raw<AutostartState | null>(null);
   toasts = $state<Toast[]>([]);
   canUndo = $state(false);
+  /** Bumped to ask the TEST panel to record a clip (calibration → "Listen A/B"). */
+  recordRequest = $state(0);
   canRedo = $state(false);
 
   private nextToast = 1;

@@ -7,6 +7,7 @@
 mod client;
 
 pub use client::{Client, ClientError};
+pub use miceq_dsp::calibration::CalibrationReport;
 pub use miceq_dsp::{ChainSettings, Meters};
 
 use serde::{Deserialize, Serialize};
@@ -48,6 +49,14 @@ pub enum Request {
     MetersSubscribe { hz: u32 },
     #[serde(rename = "meters.unsubscribe")]
     MetersUnsubscribe,
+    /// Record silence, then speech, and calibrate the chain (PRD §6.5). Progress and the
+    /// result arrive as `calibration.changed` events.
+    #[serde(rename = "calibration.start")]
+    CalibrationStart,
+    #[serde(rename = "calibration.cancel")]
+    CalibrationCancel,
+    #[serde(rename = "calibration.get")]
+    CalibrationGet,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -109,6 +118,9 @@ pub enum Event {
     /// Any change of microphone state, from any client or the daemon itself.
     #[serde(rename = "mic.changed")]
     MicChanged(MicState),
+    /// Calibration progress (about 10 Hz while measuring) and its outcome.
+    #[serde(rename = "calibration.changed")]
+    CalibrationChanged(CalibrationState),
 }
 
 /// One line from the daemon.
@@ -135,6 +147,50 @@ pub struct MicState {
     /// The selected microphone is present and linked (MIC-005).
     pub input_connected: bool,
     pub latency_samples: u32,
+    /// Measured by the last calibration; the Expander Sensitivity macro is relative to it.
+    pub noise_floor_dbfs: Option<f32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CalibrationStep {
+    /// CAL-001: "Stay silent", 4 s.
+    Silence,
+    /// CAL-002: "Read this sentence", 6 s.
+    Speech,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CalibrationFailure {
+    /// CAL-005: the input clipped; lower the system or interface level and retry.
+    Clipped,
+    NoSpeech,
+    /// The microphone disconnected or PipeWire restarted.
+    Disconnected,
+    /// No audio arrived from the microphone.
+    Stalled,
+    Internal,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum CalibrationState {
+    Idle,
+    Measuring {
+        step: CalibrationStep,
+        /// 0…1 within the step.
+        progress: f32,
+        step_duration_ms: u32,
+    },
+    /// The calibrated settings are already applied (see `mic.changed`).
+    Done {
+        report: CalibrationReport,
+    },
+    Failed {
+        reason: CalibrationFailure,
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -232,6 +288,12 @@ mod tests {
                 device: None,
                 input_connected: false,
                 latency_samples: 960,
+                noise_floor_dbfs: Some(-62.5),
+            })),
+            ServerMessage::Event(Event::CalibrationChanged(CalibrationState::Measuring {
+                step: CalibrationStep::Speech,
+                progress: 0.5,
+                step_duration_ms: 6000,
             })),
         ];
         for message in messages {

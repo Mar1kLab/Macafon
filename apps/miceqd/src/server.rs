@@ -67,6 +67,14 @@ impl Hub {
         }
     }
 
+    /// Some client is subscribed to meters.
+    pub fn metering(&self) -> bool {
+        self.clients()
+            .registered
+            .values()
+            .any(|(_, hz)| hz.is_some())
+    }
+
     fn set_meter_rate(&self, client: u64, hz: Option<u32>) {
         if let Some(entry) = self.clients().registered.get_mut(&client) {
             entry.1 = hz;

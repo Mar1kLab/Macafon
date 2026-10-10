@@ -143,16 +143,9 @@ def main():
             smoke.wait_for(lambda: reported_latency() == 960, "ProcessLatency update in the graph")
             peak = record(1.0)
             assert 0.01 < peak <= 10 ** (-1 / 20), f"broadcast peak {peak}"
-            # Meters only move while a consumer keeps the virtual microphone scheduled.
-            consumer = spawn(["pw-cat", "--record", "--raw", "--format", "f32", "--channels", "1",
-                              "--channel-map", "MONO", "--target", "0", "--latency", "128",
-                              "--properties", "node.name=test_consumer adapter.auto-port-config={ mode=dsp position=preserve }",
-                              directory / "consumer.raw"])
-            consumer_ports = smoke.wait_for(lambda: ports("test_consumer", "in"), "consumer ports")
-            run("pw-link", str(ports("miceq_mic", "out")["MONO"]), str(consumer_ports["MONO"]))
+            # Nothing records the virtual microphone here: meters must run anyway.
             meters = [json.loads(line) for line in
                       ctl("meters", "--hz", "30", "--count", "5").splitlines()]
-            stop(consumer)
             assert len(meters) == 5 and meters[-1]["raw_peak_dbfs"] > -7, meters[-1]
             print(f"control: preset switched with crossfade, graph latency 960, peak {peak:.3f}; "
                   f"meters raw {meters[-1]['raw_peak_dbfs']:.1f} dBFS")
@@ -181,6 +174,42 @@ def main():
             state = status()
             assert state["preset"] == "broadcast" and state["device"] == "test_microphone", state
             assert record() > 0.01, "restored config produced no audio"
+
+            # Calibration: 6.5 s of −60 dBFS noise, then gated "speech" at −24 dBFS RMS.
+            # The capture starts within ~2.5 s of linking, so the silence step sees only noise.
+            noise_gain, voice_gain = 10 ** (-60 / 20) * math.sqrt(3), 10 ** (-24 / 20)
+            seed, samples = 12345, array.array("f")
+            for n in range(int(48000 * 16.5)):
+                seed = (seed * 1664525 + 1013904223) % 2 ** 32
+                value = (seed / 2 ** 31 - 1) * noise_gain
+                t = n / 48000
+                if t >= 6.5 and (t * 3) % 1 < 0.5:
+                    value += voice_gain * (math.sin(2 * math.pi * 200 * t)
+                                           + math.sin(2 * math.pi * 400 * t))
+                samples.append(value)
+            if sys.byteorder != "little":
+                samples.byteswap()
+            (directory / "speech.raw").write_bytes(samples.tobytes())
+            spawn(["pw-cat", "--playback", "--raw", "--format", "f32", "--channels", "1",
+                   "--channel-map", "MONO", "--target", "0", "--latency", "128", "--properties",
+                   "node.name=test_speaker media.class=Audio/Source adapter.auto-port-config={ mode=dsp position=preserve }",
+                   directory / "speech.raw"])
+            smoke.wait_for(lambda: ports("test_speaker", "out"), "speaker ports")
+            ctl("device", "test_speaker")
+            smoke.wait_for(lambda: status()["input_connected"], "speaker linked")
+            # Nothing consumes the virtual microphone: calibration must still run.
+            output = subprocess.check_output([str(args.ctl), "ctl", "calibrate", "--json"],
+                                             env=env, text=True, timeout=20)
+            report = json.loads(output)["report"]
+            assert abs(report["noise_floor_dbfs"] + 60) < 1.5, report
+            assert abs(report["speech_rms_dbfs"] + 24) < 1.5, report
+            assert 5 <= report["gain_db"] <= 7, report
+            state = status()
+            assert state["settings"]["gain"]["gain_db"] == report["gain_db"], state
+            assert abs(state["noise_floor_dbfs"] - report["noise_floor_dbfs"]) < 1e-3, state
+            print(f"calibration: floor {report['noise_floor_dbfs']:.1f} dBFS, speech "
+                  f"{report['speech_rms_dbfs']:.1f} dBFS, SNR {report['snr_db']:.1f} → "
+                  f"{report['snr_after_db']:.1f} dB, gain {report['gain_db']:+.1f} dB applied")
             stop(daemon)
             stop(server)
             print("config: saved on change, restored on restart; socket removed on exit")

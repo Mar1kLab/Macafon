@@ -2,7 +2,11 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use miceq_ipc::{Client, Device, Event, MicState, PresetInfo, Request};
+use miceq_ipc::{
+    CalibrationReport, CalibrationState, CalibrationStep, Client, Device, Event, MicState,
+    PresetInfo, Request,
+};
+use std::io::Write;
 
 #[derive(Parser)]
 #[command(version, about = "Control the micEQ daemon")]
@@ -50,6 +54,8 @@ enum Ctl {
         #[arg(allow_hyphen_values = true)]
         gain_db: f32,
     },
+    /// Measure silence, then speech, and tune Gain, High-pass, NS and Expander.
+    Calibrate,
     /// Print meter frames (dBFS) as JSON lines.
     Meters {
         #[arg(long, default_value_t = 30)]
@@ -116,6 +122,7 @@ fn main() -> Result<()> {
                 settings: state.settings,
             }
         }
+        Ctl::Calibrate => return calibrate(&mut client, json),
         Ctl::Meters { hz, count } => {
             client.call(Request::MetersSubscribe { hz })?;
             let mut printed = 0;
@@ -136,6 +143,84 @@ fn main() -> Result<()> {
     let state: MicState = serde_json::from_value(reply)?;
     print_state(&state);
     Ok(())
+}
+
+fn calibrate(client: &mut Client, json: bool) -> Result<()> {
+    let mut state: CalibrationState = client.call_as(Request::CalibrationStart)?;
+    let mut step = None;
+    loop {
+        match &state {
+            CalibrationState::Measuring {
+                step: current,
+                progress,
+                ..
+            } => {
+                if !json && step != Some(*current) {
+                    step = Some(*current);
+                    match current {
+                        CalibrationStep::Silence => println!("Stay silent for 4 seconds…"),
+                        CalibrationStep::Speech => println!(
+                            "\nRead aloud for 6 seconds: \"The quick brown fox jumps over the \
+                             lazy dog, then naps in the warm afternoon sun.\""
+                        ),
+                    }
+                }
+                if !json {
+                    print!("\r[{:<30}]", "#".repeat((progress * 30.0) as usize));
+                    std::io::stdout().flush()?;
+                }
+            }
+            CalibrationState::Done { report } => {
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&state)?);
+                } else {
+                    println!("\r[{}]\n", "#".repeat(30));
+                    print_report(report);
+                }
+                return Ok(());
+            }
+            CalibrationState::Failed { message, .. } => {
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&state)?);
+                }
+                anyhow::bail!("calibration failed: {message}");
+            }
+            CalibrationState::Idle => anyhow::bail!("calibration was cancelled"),
+        }
+        loop {
+            if let Event::CalibrationChanged(next) = client.next_event()? {
+                state = next;
+                break;
+            }
+        }
+    }
+}
+
+fn print_report(report: &CalibrationReport) {
+    println!("noise floor:  {:.1} dBFS", report.noise_floor_dbfs);
+    println!(
+        "speech:       {:.1} dBFS RMS, peak {:.1} dBFS",
+        report.speech_rms_dbfs, report.speech_peak_dbfs
+    );
+    println!(
+        "SNR:          {:.1} dB → {:.1} dB ({:?} noise)",
+        report.snr_db, report.snr_after_db, report.noise_level
+    );
+    println!("gain:         {:+.1} dB", report.gain_db);
+    let hum = if report.low_frequency_noise {
+        " (low-frequency noise)"
+    } else {
+        ""
+    };
+    println!("high-pass:    {:.0} Hz{hum}", report.high_pass_freq_hz);
+    println!("noise supp.:  {:.0}%", report.noise_intensity_pct);
+    println!(
+        "expander:     {:.0} dBFS threshold",
+        report.expander_threshold_db
+    );
+    if report.suggest_studio {
+        println!("tip:          the room is noisy; try Studio noise suppression");
+    }
 }
 
 fn print_state(state: &MicState) {

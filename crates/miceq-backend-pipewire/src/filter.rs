@@ -6,15 +6,20 @@ use std::{
     ptr::{self, NonNull},
     sync::{
         Arc,
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
 };
+
+/// Unlinked output ports have no buffer; the chain then runs on this scratch space.
+const SCRATCH_SAMPLES: usize = 8192;
 
 struct RtState {
     input: *mut c_void,
     output: *mut c_void,
     processor: MicRt,
     graph_rate_hz: Arc<AtomicU32>,
+    keep_processing: Arc<AtomicBool>,
+    scratch: Box<[f32]>,
 }
 
 pub(crate) struct Filter {
@@ -25,16 +30,20 @@ pub(crate) struct Filter {
     _control_events: Box<pw::sys::pw_filter_events>,
     control_hook: Box<pw::spa::sys::spa_hook>,
     pub graph_rate_hz: Arc<AtomicU32>,
+    keep_processing: Arc<AtomicBool>,
 }
 
 impl Filter {
     pub fn new(connection: &Connection, processor: MicRt) -> Result<Self, Error> {
         let graph_rate_hz = Arc::new(AtomicU32::new(0));
+        let keep_processing = Arc::new(AtomicBool::new(false));
         let state = Box::new(RtState {
             input: ptr::null_mut(),
             output: ptr::null_mut(),
             processor,
             graph_rate_hz: graph_rate_hz.clone(),
+            keep_processing: keep_processing.clone(),
+            scratch: vec![0.0; SCRATCH_SAMPLES].into_boxed_slice(),
         });
         // SAFETY: pw_filter_events is a C struct of integers and optional function pointers;
         // zero is a valid value for each field.
@@ -83,6 +92,7 @@ impl Filter {
             _events: events,
             hook,
             graph_rate_hz,
+            keep_processing,
             _control_events: control_events,
             control_hook,
         };
@@ -139,6 +149,13 @@ impl Filter {
         } else {
             Ok(port)
         }
+    }
+
+    /// Run the chain even when no application records the virtual microphone: for
+    /// calibration, recording and meters. Off otherwise, so an unused microphone costs
+    /// nothing (NFR-R7).
+    pub fn set_keep_processing(&self, keep: bool) {
+        self.keep_processing.store(keep, Ordering::Relaxed);
     }
 
     /// Report a new algorithmic latency to the graph (NFR-L4). Control loop only.
@@ -307,6 +324,16 @@ unsafe fn process_inner(data: *mut c_void, position: *mut pw::spa::sys::spa_io_p
         )
     };
     if output.is_null() {
+        // Nothing records the virtual microphone, so the graph gives us no output buffer.
+        if !input.is_null() && state.keep_processing.load(Ordering::Relaxed) {
+            // SAFETY: PipeWire provides count readable f32 samples on the linked input.
+            let input = unsafe { std::slice::from_raw_parts(input, count as usize) };
+            for chunk in input.chunks(SCRATCH_SAMPLES) {
+                let scratch = &mut state.scratch[..chunk.len()];
+                scratch.copy_from_slice(chunk);
+                state.processor.process(scratch);
+            }
+        }
         return;
     }
     // SAFETY: PipeWire provides count writable f32 samples; input can be absent or alias

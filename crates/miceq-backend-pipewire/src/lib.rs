@@ -257,6 +257,10 @@ pub trait MicrophoneHost {
     fn input(&self) -> Option<String>;
     /// Current algorithmic latency to report to the graph; polled every 100 ms.
     fn latency_samples(&self) -> u32;
+    /// Run the chain even if nothing records the virtual microphone; polled every 100 ms.
+    fn keep_processing(&self) -> bool {
+        false
+    }
     fn input_connected(&mut self, _connected: bool) {}
     /// Physical inputs (`Audio/Source`, not ours, not monitors) changed.
     fn inputs_changed(&mut self, _inputs: &[Node]) {}
@@ -410,6 +414,7 @@ fn run_session<H: MicrophoneHost + 'static>(
     let host = host.clone();
     let ready = Cell::new(false);
     let reported_latency = Cell::new(host.borrow().latency_samples());
+
     let connected = Cell::new(None);
     let timer = connection.mainloop.loop_().add_timer(move |_| {
         let filter = &session_filter;
@@ -451,6 +456,7 @@ fn run_session<H: MicrophoneHost + 'static>(
                 Err(error) => tracing::warn!(%error, "Cannot report latency"),
             }
         }
+        filter.set_keep_processing(host.keep_processing());
         let mut graph = graph.borrow_mut();
         if std::mem::take(&mut graph.inputs_changed) {
             let inputs: Vec<Node> = graph

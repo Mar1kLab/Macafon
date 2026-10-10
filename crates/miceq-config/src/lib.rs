@@ -33,6 +33,9 @@ pub struct MicConfig {
     /// Preset the chain was last loaded from (`miceq_dsp::Preset::id`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,
+    /// Noise floor of the physical microphone measured by the last calibration (CAL-001).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub noise_floor_dbfs: Option<f32>,
     #[serde(flatten)]
     pub chain: ChainSettings,
 }
@@ -43,6 +46,7 @@ impl Default for MicConfig {
         Self {
             device: None,
             preset: Some(preset.id().to_owned()),
+            noise_floor_dbfs: None,
             chain: preset.settings(),
         }
     }
@@ -210,6 +214,7 @@ mod tests {
             mic: MicConfig {
                 device: Some("alsa_input.usb-Yeti".into()),
                 preset: Some("broadcast".into()),
+                noise_floor_dbfs: Some(-61.5),
                 chain,
             },
         };

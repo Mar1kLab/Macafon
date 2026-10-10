@@ -44,16 +44,18 @@ wireplumber.profiles = {
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--daemon", type=Path, default=ROOT / "target/release/miceqd")
+    parser.add_argument("--ctl", type=Path, default=ROOT / "target/release/miceq")
     parser.add_argument("--private-session", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     for command in ("dbus-run-session", "pipewire", "wireplumber", "wpctl", "pw-cat", "pw-dump"):
         if not shutil.which(command):
             parser.error(f"{command} missing")
-    if not args.daemon.is_file():
-        parser.error("build the daemon first: cargo build --release -p miceqd")
+    if not args.daemon.is_file() or not args.ctl.is_file():
+        parser.error("build first: cargo build --release -p miceqd -p miceq-cli")
     if not args.private_session:
         return subprocess.call(["dbus-run-session", "--", sys.executable, str(Path(__file__).resolve()),
-                                "--private-session", "--daemon", str(args.daemon.resolve())])
+                                "--private-session", "--daemon", str(args.daemon.resolve()),
+                                "--ctl", str(args.ctl.resolve())])
     locations = os.environ.get("WIREPLUMBER_CONFIG_DIR", "/usr/share/wireplumber").split(":")
     default_config = next((Path(location) / "wireplumber.conf" for location in locations
                            if (Path(location) / "wireplumber.conf").is_file()), None)
@@ -172,10 +174,21 @@ def main():
             if sys.byteorder != "little":
                 captured.byteswap()
             assert any(abs(value) > 0.2 for value in captured), "microphone consumer received no signal"
+            print("microphone: WirePlumber links a consumer to micEQ Microphone and delivers audio")
+
+            run(args.ctl, "ctl", "ab", "record", "--seconds", "3")
+            for device, sink in (("test_voice", "test_voice"), (None, None)):
+                run(args.ctl, "ctl", "ab", "play", *(["--device", device] if device else []))
+                player = smoke.wait_for(lambda: nodes().get("miceq_ab"), "A/B stream")
+                sink_ids = [sinks[sink]["id"]] if sink else [sinks[n]["id"] for n in ("test_main", "test_voice")]
+                smoke.wait_for(lambda: any(linked_to(player["id"], target) for target in sink_ids),
+                               f"A/B stream linked to {sink or 'the default output'}")
+                run(args.ctl, "ctl", "ab", "stop")
+                smoke.wait_for(lambda: "miceq_ab" not in nodes(), "A/B stream removed")
+            print("ab: WirePlumber links the A/B stream to the chosen and the default output")
             stop(source)
             stop(microphone)
             assert microphone.returncode == 0, "microphone shutdown failed"
-            print("microphone: WirePlumber links a consumer to micEQ Microphone and delivers audio")
         except Exception:
             artifact = ROOT / ".artifacts/wireplumber-routing-failure.json"
             artifact.parent.mkdir(parents=True, exist_ok=True)

@@ -74,15 +74,15 @@ def main():
                 process.send_signal(signal.SIGTERM)
                 process.wait(timeout=5)
 
-        def record(seconds=0.6):
-            """Capture the virtual microphone; drop the first 100 ms of ramps and linking."""
+        def record(seconds=0.6, source="miceq_mic"):
+            """Capture a node's output; drop the first 100 ms of ramps and linking."""
             capture = directory / "capture.raw"
             recorder = spawn(["pw-cat", "--record", "--raw", "--format", "f32", "--channels", "1",
                               "--channel-map", "MONO", "--target", "0", "--latency", "128",
                               "--properties", "node.name=test_capture adapter.auto-port-config={ mode=dsp position=preserve }",
                               capture])
             capture_ports = smoke.wait_for(lambda: ports("test_capture", "in"), "capture ports")
-            run("pw-link", str(ports("miceq_mic", "out")["MONO"]), str(capture_ports["MONO"]))
+            run("pw-link", str(ports(source, "out")["MONO"]), str(capture_ports["MONO"]))
             time.sleep(seconds)
             stop(recorder)
             samples = array.array("f")
@@ -132,6 +132,42 @@ def main():
             peak = record()
             assert 0.23 < peak < 0.27, f"−6 dB peak {peak}"
             print(f"control: mute/unmute and gain applied live (−6 dB peak {peak:.3f})")
+
+            # A/B: record 3 s of the raw 0.5 tone; B is the −6 dB chain.
+            clip = json.loads(ctl("ab", "record", "--seconds", "3", "--json"))
+            assert clip["clip_ms"] == 3000 and not clip["playing"], clip
+            state = json.loads(ctl("ab", "play", "--json"))
+            assert state["playing"] and state["side"] == "b" and state["loudness_match"], state
+            # Without WirePlumber nobody configures the stream's ports; do what it would.
+            ab_node = smoke.wait_for(lambda: next(
+                (item["id"] for item in json.loads(run("pw-dump"))
+                 if item.get("info", {}).get("props", {}).get("node.name") == "miceq_ab"), None),
+                "A/B stream node")
+            run("pw-cli", "set-param", str(ab_node), "PortConfig",
+                "{ direction: Output, mode: dsp, format: { mediaType: audio, mediaSubtype: raw, "
+                "format: F32P, rate: 48000, channels: 1, position: [ MONO ] } }")
+            smoke.wait_for(lambda: ports("miceq_ab", "out"), "A/B stream ports")
+            b_peak = record(1.0, "miceq_ab")
+            ctl("gain", "-12")  # AB-003: B follows the live chain
+            b_live_peak = record(1.0, "miceq_ab")
+            assert 0.11 < b_live_peak < 0.14, f"B after a live change {b_live_peak}"
+            ctl("gain", "-6")
+            ctl("ab", "select", "a")
+            # The match follows B's level over a 2 s window; give it time after the −12 dB step.
+            matched_peak = record(6.0, "miceq_ab")
+            ctl("ab", "match", "off")
+            a_peak = record(1.0, "miceq_ab")
+            assert 0.23 < b_peak < 0.27, f"B peak {b_peak}"
+            assert 0.23 < matched_peak < 0.27, f"loudness-matched A peak {matched_peak}"
+            assert 0.47 < a_peak < 0.53, f"A peak {a_peak}"
+            waveform = json.loads(ctl("ab", "waveform", "--points", "64"))
+            assert len(waveform["a"]) == 64 and 0.45 < max(waveform["a"]) <= 0.5, waveform
+            assert 0.2 < max(waveform["b"]) < 0.27, waveform
+            state = json.loads(ctl("ab", "stop", "--json"))
+            assert not state["playing"], state
+            smoke.wait_for(lambda: not ports("miceq_ab", "out"), "A/B stream removed")
+            print(f"ab: B {b_peak:.3f} (live −12 dB: {b_live_peak:.3f}), A {a_peak:.3f}, "
+                  f"A matched to B {matched_peak:.3f}; waveform and stop")
 
             ctl("preset", "broadcast")
             state = status()

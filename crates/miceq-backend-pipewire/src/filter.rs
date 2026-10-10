@@ -182,57 +182,13 @@ impl Filter {
     }
 
     fn connect(&self) -> Result<(), Error> {
-        use pw::spa::{
-            pod::{Object, Pod, Property, PropertyFlags, Value, serialize::PodSerializer},
-            sys,
-        };
+        use pw::spa::{pod::Pod, sys};
         let bytes = latency_pod(self.state.processor.latency_samples())?;
         let pod = Pod::from_bytes(&bytes)
             .ok_or_else(|| Error::Message("Invalid process latency pod".into()))?;
         // WirePlumber discovers devices through node EnumFormat, while our ports
         // retain their fixed DSP format. Advertise the actual mono graph format.
-        let format = Value::Object(Object {
-            type_: sys::SPA_TYPE_OBJECT_Format,
-            id: sys::SPA_PARAM_EnumFormat,
-            properties: [
-                (
-                    sys::SPA_FORMAT_mediaType,
-                    Value::Id(pw::spa::utils::Id(sys::SPA_MEDIA_TYPE_audio)),
-                ),
-                (
-                    sys::SPA_FORMAT_mediaSubtype,
-                    Value::Id(pw::spa::utils::Id(sys::SPA_MEDIA_SUBTYPE_raw)),
-                ),
-                (
-                    sys::SPA_FORMAT_AUDIO_format,
-                    Value::Id(pw::spa::utils::Id(sys::SPA_AUDIO_FORMAT_F32P)),
-                ),
-                (
-                    sys::SPA_FORMAT_AUDIO_rate,
-                    Value::Int(miceq_dsp::SAMPLE_RATE_HZ as i32),
-                ),
-                (sys::SPA_FORMAT_AUDIO_channels, Value::Int(1)),
-                (
-                    sys::SPA_FORMAT_AUDIO_position,
-                    Value::ValueArray(pw::spa::pod::ValueArray::Id(vec![pw::spa::utils::Id(
-                        sys::SPA_AUDIO_CHANNEL_MONO,
-                    )])),
-                ),
-            ]
-            .into_iter()
-            .map(|(key, value)| Property {
-                key,
-                value,
-                flags: PropertyFlags::empty(),
-            })
-            .collect(),
-        });
-        let format_bytes = PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &format)
-            .map_err(|error| {
-                Error::Message(format!("Cannot serialize microphone format: {error:?}"))
-            })?
-            .0
-            .into_inner();
+        let format_bytes = mono_format(sys::SPA_AUDIO_FORMAT_F32P)?;
         let format_pod = Pod::from_bytes(&format_bytes)
             .ok_or_else(|| Error::Message("Invalid microphone format pod".into()))?;
         let mut params = [
@@ -256,6 +212,56 @@ impl Filter {
             Ok(())
         }
     }
+}
+
+/// `EnumFormat` for mono 48 kHz audio in the given SPA sample format.
+pub(crate) fn mono_format(sample_format: u32) -> Result<Vec<u8>, Error> {
+    use pw::spa::{
+        pod::{Object, Property, PropertyFlags, Value, serialize::PodSerializer},
+        sys,
+    };
+    let format = Value::Object(Object {
+        type_: sys::SPA_TYPE_OBJECT_Format,
+        id: sys::SPA_PARAM_EnumFormat,
+        properties: [
+            (
+                sys::SPA_FORMAT_mediaType,
+                Value::Id(pw::spa::utils::Id(sys::SPA_MEDIA_TYPE_audio)),
+            ),
+            (
+                sys::SPA_FORMAT_mediaSubtype,
+                Value::Id(pw::spa::utils::Id(sys::SPA_MEDIA_SUBTYPE_raw)),
+            ),
+            (
+                sys::SPA_FORMAT_AUDIO_format,
+                Value::Id(pw::spa::utils::Id(sample_format)),
+            ),
+            (
+                sys::SPA_FORMAT_AUDIO_rate,
+                Value::Int(miceq_dsp::SAMPLE_RATE_HZ as i32),
+            ),
+            (sys::SPA_FORMAT_AUDIO_channels, Value::Int(1)),
+            (
+                sys::SPA_FORMAT_AUDIO_position,
+                Value::ValueArray(pw::spa::pod::ValueArray::Id(vec![pw::spa::utils::Id(
+                    sys::SPA_AUDIO_CHANNEL_MONO,
+                )])),
+            ),
+        ]
+        .into_iter()
+        .map(|(key, value)| Property {
+            key,
+            value,
+            flags: PropertyFlags::empty(),
+        })
+        .collect(),
+    });
+    Ok(
+        PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &format)
+            .map_err(|error| Error::Message(format!("Cannot serialize audio format: {error:?}")))?
+            .0
+            .into_inner(),
+    )
 }
 
 fn latency_pod(samples: u32) -> Result<Vec<u8>, Error> {

@@ -57,6 +57,39 @@ pub enum Request {
     CalibrationCancel,
     #[serde(rename = "calibration.get")]
     CalibrationGet,
+    /// AB-001: record the raw microphone (before the chain) for up to `max_seconds`
+    /// (3–30, default 10). Stops playback; the new clip replaces the old one.
+    #[serde(rename = "ab.record")]
+    AbRecord {
+        #[serde(default)]
+        max_seconds: Option<u32>,
+    },
+    /// Finish the recording early (after at least 3 s).
+    #[serde(rename = "ab.stop_recording")]
+    AbStopRecording,
+    /// AB-002: loop the clip into a sink `node.name`, or the default output.
+    #[serde(rename = "ab.play")]
+    AbPlay {
+        #[serde(default)]
+        device: Option<String>,
+    },
+    #[serde(rename = "ab.stop")]
+    AbStop,
+    /// AB-004: A = raw, B = processed by the current chain.
+    #[serde(rename = "ab.select")]
+    AbSelect { side: AbSide },
+    #[serde(rename = "ab.toggle")]
+    AbToggle,
+    #[serde(rename = "ab.seek")]
+    AbSeek { position_ms: u32 },
+    /// AB-005: level A to B's loudness.
+    #[serde(rename = "ab.set_loudness_match")]
+    AbSetLoudnessMatch { enabled: bool },
+    #[serde(rename = "ab.get")]
+    AbGet,
+    /// AB-006: peak envelopes of A and B with `points` values each (16–4096).
+    #[serde(rename = "ab.waveform")]
+    AbWaveform { points: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -121,6 +154,9 @@ pub enum Event {
     /// Calibration progress (about 10 Hz while measuring) and its outcome.
     #[serde(rename = "calibration.changed")]
     CalibrationChanged(CalibrationState),
+    /// A/B test state; about 10 Hz while recording or playing.
+    #[serde(rename = "ab.changed")]
+    AbChanged(AbState),
 }
 
 /// One line from the daemon.
@@ -149,6 +185,42 @@ pub struct MicState {
     pub latency_samples: u32,
     /// Measured by the last calibration; the Expander Sensitivity macro is relative to it.
     pub noise_floor_dbfs: Option<f32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AbSide {
+    /// Raw microphone.
+    A,
+    /// Through the current chain.
+    B,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AbRecording {
+    pub elapsed_ms: u32,
+    pub max_ms: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AbState {
+    /// A recording in progress.
+    pub recording: Option<AbRecording>,
+    /// Length of the recorded clip, kept in memory only (AB-007).
+    pub clip_ms: Option<u32>,
+    pub playing: bool,
+    pub side: AbSide,
+    pub position_ms: u32,
+    pub loudness_match: bool,
+    /// Listening sink `node.name`; `None` is the default output.
+    pub device: Option<String>,
+}
+
+/// Peak envelopes, 0…1 (linear), aligned in time.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AbWaveform {
+    pub a: Vec<f32>,
+    pub b: Vec<f32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -289,6 +361,15 @@ mod tests {
                 input_connected: false,
                 latency_samples: 960,
                 noise_floor_dbfs: Some(-62.5),
+            })),
+            ServerMessage::Event(Event::AbChanged(AbState {
+                recording: None,
+                clip_ms: Some(10_000),
+                playing: true,
+                side: AbSide::B,
+                position_ms: 1234,
+                loudness_match: true,
+                device: None,
             })),
             ServerMessage::Event(Event::CalibrationChanged(CalibrationState::Measuring {
                 step: CalibrationStep::Speech,

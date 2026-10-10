@@ -3,8 +3,8 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use miceq_ipc::{
-    CalibrationReport, CalibrationState, CalibrationStep, Client, Device, Event, MicState,
-    PresetInfo, Request,
+    AbSide, AbState, CalibrationReport, CalibrationState, CalibrationStep, Client, Device, Event,
+    MicState, PresetInfo, Request,
 };
 use std::io::Write;
 
@@ -56,6 +56,11 @@ enum Ctl {
     },
     /// Measure silence, then speech, and tune Gain, High-pass, NS and Expander.
     Calibrate,
+    /// A/B test: record the raw microphone, loop it raw (A) or processed (B).
+    Ab {
+        #[command(subcommand)]
+        command: AbCommand,
+    },
     /// Print meter frames (dBFS) as JSON lines.
     Meters {
         #[arg(long, default_value_t = 30)]
@@ -64,6 +69,48 @@ enum Ctl {
         #[arg(long)]
         count: Option<usize>,
     },
+}
+
+#[derive(Subcommand)]
+enum AbCommand {
+    /// Show the A/B state.
+    Status,
+    /// Record the raw microphone and wait until done.
+    Record {
+        #[arg(long, default_value_t = 10)]
+        seconds: u32,
+    },
+    /// Loop the clip into a sink node.name, or the default output.
+    Play {
+        #[arg(long)]
+        device: Option<String>,
+    },
+    Stop,
+    /// Listen to A (raw) or B (processed); toggles without an argument.
+    Select {
+        #[arg(value_enum)]
+        side: Option<Side>,
+    },
+    /// Jump to a position in the clip.
+    Seek {
+        position_ms: u32,
+    },
+    /// Print peak envelopes of A and B as JSON.
+    Waveform {
+        #[arg(long, default_value_t = 100)]
+        points: u32,
+    },
+    /// Match A's loudness to B.
+    Match {
+        #[arg(value_enum)]
+        state: Switch,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Side {
+    A,
+    B,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -123,6 +170,7 @@ fn main() -> Result<()> {
             }
         }
         Ctl::Calibrate => return calibrate(&mut client, json),
+        Ctl::Ab { command } => return ab(&mut client, command, json),
         Ctl::Meters { hz, count } => {
             client.call(Request::MetersSubscribe { hz })?;
             let mut printed = 0;
@@ -194,6 +242,77 @@ fn calibrate(client: &mut Client, json: bool) -> Result<()> {
             }
         }
     }
+}
+
+fn ab(client: &mut Client, command: AbCommand, json: bool) -> Result<()> {
+    let request = match command {
+        AbCommand::Status => Request::AbGet,
+        AbCommand::Record { seconds } => {
+            let mut state: AbState = client.call_as(Request::AbRecord {
+                max_seconds: Some(seconds),
+            })?;
+            if !json {
+                println!("Recording {seconds} s: say something, then stay silent for 2 seconds…");
+            }
+            while state.recording.is_some() {
+                if let Event::AbChanged(next) = client.next_event()? {
+                    state = next;
+                }
+            }
+            if state.clip_ms.is_none() {
+                anyhow::bail!("the recording was interrupted");
+            }
+            return print_ab(&state, json);
+        }
+        AbCommand::Play { device } => Request::AbPlay { device },
+        AbCommand::Stop => Request::AbStop,
+        AbCommand::Select { side: None } => Request::AbToggle,
+        AbCommand::Select { side: Some(side) } => Request::AbSelect {
+            side: match side {
+                Side::A => AbSide::A,
+                Side::B => AbSide::B,
+            },
+        },
+        AbCommand::Seek { position_ms } => Request::AbSeek { position_ms },
+        AbCommand::Waveform { points } => {
+            let waveform = client.call(Request::AbWaveform { points })?;
+            println!("{}", serde_json::to_string(&waveform)?);
+            return Ok(());
+        }
+        AbCommand::Match { state } => {
+            let enabled = match state {
+                Switch::On => true,
+                Switch::Off => false,
+                Switch::Toggle => !client.call_as::<AbState>(Request::AbGet)?.loudness_match,
+            };
+            Request::AbSetLoudnessMatch { enabled }
+        }
+    };
+    let state: AbState = client.call_as(request)?;
+    print_ab(&state, json)
+}
+
+fn print_ab(state: &AbState, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(state)?);
+        return Ok(());
+    }
+    let clip = state.clip_ms.map_or("none".to_owned(), |ms| {
+        format!("{:.1} s", ms as f32 / 1000.0)
+    });
+    println!("clip:     {clip}");
+    println!(
+        "playing:  {}{}",
+        state.playing,
+        state
+            .device
+            .as_deref()
+            .map_or(String::new(), |device| format!(" → {device}"))
+    );
+    println!("side:     {:?}", state.side);
+    println!("position: {:.1} s", state.position_ms as f32 / 1000.0);
+    println!("match:    {}", state.loudness_match);
+    Ok(())
 }
 
 fn print_report(report: &CalibrationReport) {

@@ -1,10 +1,11 @@
 //! Daemon state on the PipeWire control loop: the desired microphone configuration, the live
 //! engine of the current graph session and config persistence.
 
+use crate::ab::Ab;
 use crate::calibration::{Poll, Recording};
 use crate::server::{self, Hub, SocketGuard};
 use miceq_backend_pipewire::ControlSender;
-use miceq_backend_pipewire::{Error, MicRt, MicrophoneHost, Node};
+use miceq_backend_pipewire::{Error, MicRt, MicrophoneHost, Node, PlayerRequest};
 use miceq_config::{Config, Store};
 use miceq_dsp::calibration::CalibrationError;
 use miceq_dsp::{Preset, Telemetry};
@@ -35,6 +36,7 @@ pub struct DaemonHost {
     input_connected: bool,
     recording: Option<Recording>,
     calibration: CalibrationState,
+    ab: Ab,
     hub: Arc<Hub>,
     server: Option<(PathBuf, ControlSender<ControlMessage>)>,
     _socket: Option<SocketGuard>,
@@ -58,6 +60,7 @@ impl DaemonHost {
             input_connected: false,
             recording: None,
             calibration: CalibrationState::Idle,
+            ab: Ab::default(),
             hub,
             server: Some((socket, control)),
             _socket: None,
@@ -97,23 +100,68 @@ impl DaemonHost {
             .broadcast(&Event::CalibrationChanged(self.calibration.clone()));
     }
 
+    fn ab_changed(&self) {
+        self.hub.broadcast(&Event::AbChanged(self.ab.state()));
+    }
+
+    /// Calibration and the A/B recorder share the raw capture.
+    fn capture_free(&self) -> Result<(), ErrorBody> {
+        if self.recording.is_some() {
+            Err(ErrorBody::new(ErrorCode::Busy, "calibration is running"))
+        } else if self.ab.is_recording() {
+            Err(ErrorBody::new(
+                ErrorCode::Busy,
+                "an A/B recording is running",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn respond_ab(&mut self, request: Request) -> Result<serde_json::Value, ErrorBody> {
+        match request {
+            Request::AbRecord { max_seconds } => {
+                self.capture_free()?;
+                let control = connected(&mut self.control, self.input_connected)?;
+                self.ab.record(control, max_seconds)?;
+            }
+            Request::AbStopRecording => {
+                let control = connected(&mut self.control, self.input_connected)?;
+                self.ab.stop_recording(control)?;
+            }
+            Request::AbPlay { device } => self.ab.play(&self.config.mic.chain, device)?,
+            Request::AbStop => self.ab.stop(),
+            Request::AbSelect { side } => self.ab.select(side),
+            Request::AbToggle => self.ab.toggle(),
+            Request::AbSeek { position_ms } => self.ab.seek(position_ms)?,
+            Request::AbSetLoudnessMatch { enabled } => self.ab.set_loudness_match(enabled),
+            Request::AbWaveform { points } => {
+                let waveform = self.ab.waveform(&self.config.mic.chain, points)?;
+                return serde_json::to_value(waveform)
+                    .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()));
+            }
+            _ => {}
+        }
+        let state = self.ab.state();
+        self.hub.broadcast(&Event::AbChanged(state.clone()));
+        serde_json::to_value(state)
+            .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))
+    }
+
     fn start_calibration(&mut self) -> Result<(), ErrorBody> {
+        if self.ab.is_recording() {
+            return Err(ErrorBody::new(
+                ErrorCode::Busy,
+                "an A/B recording is running",
+            ));
+        }
         if self.recording.is_some() {
             return Err(ErrorBody::new(
                 ErrorCode::Busy,
                 "calibration is already running",
             ));
         }
-        let control = self
-            .control
-            .as_mut()
-            .filter(|_| self.input_connected)
-            .ok_or_else(|| {
-                ErrorBody::new(
-                    ErrorCode::NotFound,
-                    "the selected microphone is not connected",
-                )
-            })?;
+        let control = connected(&mut self.control, self.input_connected)?;
         self.recording = Some(Recording::start(control));
         self.set_calibration(Recording::initial_state());
         Ok(())
@@ -206,6 +254,9 @@ impl DaemonHost {
                 })?;
         }
         if config != self.config {
+            if config.mic.chain != self.config.mic.chain {
+                self.ab.settings_changed(&config.mic.chain);
+            }
             self.config = config;
             self.changed_at = Some(Instant::now());
             self.changed();
@@ -240,11 +291,17 @@ impl DaemonHost {
                 self.update(|config| config.mic.chain.bypass = bypass)?
             }
             Request::MicSetDevice { device } => {
-                if device != self.config.mic.device && self.recording.is_some() {
-                    self.fail_calibration(
-                        CalibrationFailure::Disconnected,
-                        "the microphone changed during calibration",
-                    );
+                if device != self.config.mic.device {
+                    if self.recording.is_some() {
+                        self.fail_calibration(
+                            CalibrationFailure::Disconnected,
+                            "the microphone changed during calibration",
+                        );
+                    }
+                    if self.ab.is_recording() {
+                        self.ab.abort_recording(self.control.as_mut());
+                        self.ab_changed();
+                    }
                 }
                 self.update(|config| {
                     // The measured floor belongs to the previous microphone.
@@ -279,6 +336,16 @@ impl DaemonHost {
                 return self.calibration_value();
             }
             Request::CalibrationGet => return self.calibration_value(),
+            request @ (Request::AbRecord { .. }
+            | Request::AbStopRecording
+            | Request::AbPlay { .. }
+            | Request::AbStop
+            | Request::AbSelect { .. }
+            | Request::AbToggle
+            | Request::AbSeek { .. }
+            | Request::AbSetLoudnessMatch { .. }
+            | Request::AbGet
+            | Request::AbWaveform { .. }) => return self.respond_ab(request),
             Request::Hello { .. }
             | Request::MetersSubscribe { .. }
             | Request::MetersUnsubscribe => {
@@ -291,6 +358,19 @@ impl DaemonHost {
         serde_json::to_value(state)
             .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))
     }
+}
+
+/// The live microphone engine, if the selected microphone is connected.
+fn connected(
+    control: &mut Option<MicControl>,
+    input_connected: bool,
+) -> Result<&mut MicControl, ErrorBody> {
+    control.as_mut().filter(|_| input_connected).ok_or_else(|| {
+        ErrorBody::new(
+            ErrorCode::NotFound,
+            "the selected microphone is not connected",
+        )
+    })
 }
 
 impl MicrophoneHost for DaemonHost {
@@ -319,6 +399,11 @@ impl MicrophoneHost for DaemonHost {
                 "PipeWire restarted during calibration",
             );
         }
+        if self.ab.is_active() {
+            self.ab.abort_recording(None);
+            self.ab.player_lost();
+            self.ab_changed();
+        }
         self.control = None;
         if self.input_connected {
             self.input_connected = false;
@@ -335,7 +420,17 @@ impl MicrophoneHost for DaemonHost {
     }
 
     fn keep_processing(&self) -> bool {
-        self.recording.is_some() || self.hub.metering()
+        self.recording.is_some() || self.ab.is_recording() || self.hub.metering()
+    }
+
+    fn player_request(&mut self) -> Option<PlayerRequest> {
+        self.ab.take_request()
+    }
+
+    fn player_failed(&mut self, error: Error) {
+        tracing::warn!(%error, "Cannot start A/B playback");
+        self.ab.player_lost();
+        self.ab_changed();
     }
 
     fn input_connected(&mut self, connected: bool) {
@@ -347,6 +442,10 @@ impl MicrophoneHost for DaemonHost {
                     CalibrationFailure::Disconnected,
                     "the microphone disconnected during calibration",
                 );
+            }
+            if !connected && self.ab.is_recording() {
+                self.ab.abort_recording(self.control.as_mut());
+                self.ab_changed();
             }
         }
     }
@@ -375,6 +474,11 @@ impl MicrophoneHost for DaemonHost {
             control.collect_garbage();
         }
         self.poll_calibration();
+        if let Some(control) = &mut self.control {
+            if self.ab.poll(control) || self.ab.is_active() {
+                self.ab_changed();
+            }
+        }
         if self
             .changed_at
             .is_some_and(|changed| changed.elapsed() >= SAVE_DEBOUNCE)

@@ -1,11 +1,12 @@
 //! Linux M0 backend. The only unsafe code bridges the unwrapped pw_filter API.
 
 mod filter;
+mod player;
 mod routing;
 
 pub use routing::route_stream;
 
-pub use miceq_engine::MicRt;
+pub use miceq_engine::{AbRt, MicRt};
 use pipewire::{self as pw, properties::properties, types::ObjectType};
 use std::{
     cell::{Cell, RefCell},
@@ -238,6 +239,17 @@ impl Graph {
     }
 }
 
+/// Start or stop the A/B playback stream (PRD §6.4).
+#[allow(clippy::large_enum_variant)] // one transient value per request
+pub enum PlayerRequest {
+    /// Replace any running player; `target` is a sink `node.name`, `None` for the default.
+    Start {
+        player: AbRt,
+        target: Option<String>,
+    },
+    Stop,
+}
+
 /// The daemon side of the microphone, driven on the PipeWire control loop.
 pub trait MicrophoneHost {
     /// Message type delivered from other threads through [`ControlSender`].
@@ -262,6 +274,12 @@ pub trait MicrophoneHost {
         false
     }
     fn input_connected(&mut self, _connected: bool) {}
+    /// Pending A/B playback change; polled every 100 ms.
+    fn player_request(&mut self) -> Option<PlayerRequest> {
+        None
+    }
+    /// The A/B stream could not be created.
+    fn player_failed(&mut self, _error: Error) {}
     /// Physical inputs (`Audio/Source`, not ours, not monitors) changed.
     fn inputs_changed(&mut self, _inputs: &[Node]) {}
     fn handle(&mut self, message: Self::Message);
@@ -416,6 +434,8 @@ fn run_session<H: MicrophoneHost + 'static>(
     let reported_latency = Cell::new(host.borrow().latency_samples());
 
     let connected = Cell::new(None);
+    // Dropped with the timer, before the connection.
+    let player = RefCell::new(None);
     let timer = connection.mainloop.loop_().add_timer(move |_| {
         let filter = &session_filter;
         let rate_hz = graph_rate_hz.load(std::sync::atomic::Ordering::Relaxed);
@@ -449,6 +469,21 @@ fn run_session<H: MicrophoneHost + 'static>(
         }
         let mut host = host.borrow_mut();
         host.tick();
+        match host.player_request() {
+            Some(PlayerRequest::Start { player: rt, target }) => {
+                player.replace(None);
+                match player::Player::new(&core, rt, target.as_deref()) {
+                    Ok(started) => {
+                        player.replace(Some(started));
+                    }
+                    Err(error) => host.player_failed(error),
+                }
+            }
+            Some(PlayerRequest::Stop) => {
+                player.replace(None);
+            }
+            None => {}
+        }
         let latency = host.latency_samples();
         if latency != reported_latency.get() {
             match filter.set_latency(latency) {

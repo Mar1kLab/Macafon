@@ -86,7 +86,7 @@ target/release/miceqd route <playback-stream-id> <sink-node.name>
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo build --release -p miceqd
+cargo build --release -p miceqd -p miceq-cli
 python3 tools/tests/pipewire-smoke.py
 python3 tools/tests/wireplumber-routing.py
 cargo bench -p miceq-dsp --bench microphone -- --sample-size 10 --measurement-time 1 --warm-up-time 1
@@ -111,7 +111,8 @@ DSP-тест отдельно запускает первый блок на но
 Main → Voice → Main → Voice без пересоздания потока, отказ при выключенном
 `linking.allow-moving-streams` с восстановлением прежнего target, явный отказ
 для `node.dont-reconnect=true`/`node.dont-move=true`, а также подключение
-потребителя к виртуальному микрофону через WirePlumber и прохождение аудио.
+потребителя к виртуальному микрофону через WirePlumber и прохождение аудио, автоматическое
+подключение потока A/B к выбранному и к выходу по умолчанию.
 
 `tools/latency-probe/analyze.py` сравнивает синхронные каналы stereo float32 LE raw:
 FL — прямой путь синтетического импульса, FR — через micEQ. Нестабильная задержка

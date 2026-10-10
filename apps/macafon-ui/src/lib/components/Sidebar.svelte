@@ -8,6 +8,7 @@
   import { Mic, Settings } from '@lucide/svelte';
   import { daemon } from '../state';
   import { t } from '../i18n';
+  import Logo from './Logo.svelte';
 
   let { screen, onnavigate }: { screen: Screen; onnavigate: (screen: Screen) => void } = $props();
 
@@ -27,12 +28,20 @@
         : t('daemon.unavailable'),
   );
   const muted = $derived(daemon.mic?.settings.muted ?? false);
+  const bypass = $derived(daemon.mic?.settings.bypass ?? false);
+  const error = $derived(status.state === 'unavailable' || daemon.mic?.input_connected === false);
+  const logoLabel = $derived([
+    t('app.name'),
+    ...(muted ? [t('mic.muted')] : []),
+    ...(bypass ? [t('mic.bypass')] : []),
+    ...(error ? [t('mic.disconnected')] : []),
+    ...(!muted && !bypass && !error ? [status.state === 'connecting' ? t('daemon.loading') : t('mic.active')] : []),
+  ].join(' · '));
 </script>
 
 <nav aria-label="Macafon">
-  <div class="logo" title={t('app.name')}>
-    <span class="mark" aria-hidden="true">M</span>
-    <span class="visually-hidden">{t('app.name')}</span>
+  <div class="logo" title={logoLabel}>
+    <Logo inactive={muted || bypass || error} {bypass} {error} label={logoLabel} />
   </div>
   <ul>
     {#each items as item (item.id)}
@@ -79,23 +88,6 @@
     border-bottom: 1px solid var(--line);
     width: 100%;
     justify-content: center;
-  }
-
-  /* Monogram: the full name does not fit 64px; the accent bar echoes a level meter. */
-  .mark {
-    position: relative;
-    font-size: 22px;
-    padding-bottom: 3px;
-  }
-
-  .mark::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 2px;
-    background: var(--accent);
   }
 
   ul {

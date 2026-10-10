@@ -20,6 +20,7 @@ export const en = {
     mock: 'Mock daemon',
   },
   mic: {
+    active: 'Microphone active',
     section: 'Microphone',
     device: 'Microphone',
     noDevice: 'No microphone',

@@ -100,6 +100,15 @@ def main():
             return {label: int(item) for item, label in
                     re.findall(r"\((\d+), \{[^}]*'label': <'([^']*)'>", layout)}
 
+        def settled_icon(name, rgb):
+            """Wait for the transition's final colour before comparing or saving."""
+            def ready():
+                result = icon(name)
+                data = result[2]
+                pixels = [data[i:i + 4] for i in range(0, len(data), 4) if data[i]]
+                return result if pixels and all(pixel[1:] == rgb for pixel in pixels) else None
+            return smoke.wait_for(ready, "settled tray animation")
+
         def click(name, label):
             ids = menu_ids(name)
             assert label in ids, f"{label!r} not in tray menu {sorted(ids)}"
@@ -127,21 +136,24 @@ def main():
             smoke.wait_for(lambda: "Preset: Natural" in prop(name, "ToolTip")
                            and "disconnected" not in prop(name, "ToolTip"), "tooltip")
             assert "'Hardware'" in prop(name, "Category")
-            normal = icon(name)
+            normal = settled_icon(name, [255, 255, 255])
             assert normal[0] == 48 and any(normal[2][0::4]), "empty icon"
             save_icon(name, "normal")
 
             click(name, "Mute microphone")
             smoke.wait_for(lambda: status()["settings"]["muted"], "mute from the tray")
             smoke.wait_for(lambda: "Microphone muted" in prop(name, "ToolTip"), "muted tooltip")
-            assert icon(name) != normal, "muted icon looks normal"
+            muted = settled_icon(name, [255, 98, 89])
+            assert muted != normal, "muted icon looks normal"
             save_icon(name, "muted")
             call(name, "/StatusNotifierItem", "org.kde.StatusNotifierItem.SecondaryActivate", "0", "0")
             smoke.wait_for(lambda: not status()["settings"]["muted"], "middle click unmutes")
+            assert settled_icon(name, [255, 255, 255]) == normal, "unmute did not restore the upright logo"
 
             click(name, "Bypass processing")
             smoke.wait_for(lambda: status()["settings"]["bypass"], "bypass from the tray")
-            smoke.wait_for(lambda: icon(name) not in (normal,), "bypass icon")
+            bypass = settled_icon(name, [255, 98, 89])
+            assert bypass != muted, "bypass needs its own pause badge"
             save_icon(name, "bypass")
             click(name, "Bypass processing")
 
@@ -152,15 +164,24 @@ def main():
 
             run(args.ctl, "ctl", "device", "missing_microphone")
             smoke.wait_for(lambda: "disconnected" in prop(name, "ToolTip"), "disconnected tooltip")
+            assert settled_icon(name, [255, 98, 89]) != muted, "error needs its own dot"
             save_icon(name, "disconnected")
             print("tray: tooltip, icon states, mute/bypass/preset menu, middle-click mute, "
                   "user presets listed")
 
-            click(name, "Quit Macafon")
+            try:
+                click(name, "Quit Macafon")
+            except subprocess.CalledProcessError as error:
+                # Quit can close SNI before dbusmenu sends its reply. Only accept
+                # that race; the clean exit and socket cleanup remain mandatory.
+                if "org.freedesktop.DBus.Error.NoReply" not in error.stderr:
+                    raise
             assert daemon.wait(timeout=5) == 0, f"daemon exit code {daemon.returncode}"
             assert not (runtime / "macafon" / "macafond.sock").exists(), "socket left behind"
             print("tray: Quit stops the daemon cleanly")
-        except Exception:
+        except Exception as error:
+            if isinstance(error, subprocess.CalledProcessError):
+                print(error.stderr, file=sys.stderr)
             for log in logs:
                 log.flush()
                 log.seek(0)

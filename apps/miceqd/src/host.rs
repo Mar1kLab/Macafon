@@ -140,6 +140,7 @@ impl DaemonHost {
                 .is_none_or(|preset| !presets::same_sound(&self.config.mic.chain, &preset))
         });
         MicState {
+            stereo: self.config.mic.stereo,
             settings: self.config.mic.chain,
             preset: self.config.mic.preset.clone(),
             preset_modified,
@@ -630,6 +631,10 @@ impl MicrophoneHost for DaemonHost {
 
     fn input(&self) -> Option<String> {
         self.selected_device.clone()
+    }
+
+    fn stereo(&self) -> bool {
+        self.config.mic.stereo
     }
 
     fn latency_samples(&self) -> u32 {

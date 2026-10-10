@@ -38,6 +38,9 @@ enum Command {
 
 #[derive(clap::Args, Default)]
 struct RunArgs {
+    /// Duplicate mono into left/right output channels; use --stereo=false for mono.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    stereo: Option<bool>,
     /// Config file [default: $XDG_CONFIG_HOME/miceq/config.toml].
     #[arg(long)]
     config: Option<PathBuf>,
@@ -88,6 +91,9 @@ enum Engine {
 impl RunArgs {
     /// Command-line options override the loaded config for this run.
     fn apply(&self, mic: &mut MicConfig) {
+        if let Some(stereo) = self.stereo {
+            mic.stereo = stereo;
+        }
         if let Some(input) = &self.input {
             if mic.device.as_ref() != Some(input) {
                 mic.noise_floor_dbfs = None;

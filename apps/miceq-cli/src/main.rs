@@ -493,6 +493,7 @@ fn print_state(state: &MicState) {
         state.active_device.as_deref().unwrap_or("none")
     );
     println!("muted:    {}", state.settings.muted);
+    println!("format:   {}", if state.stereo { "stereo" } else { "mono" });
     println!("bypass:   {}", state.settings.bypass);
     println!("gain:     {:+.1} dB", state.settings.gain.params.gain_db);
     println!("latency:  {latency_ms:.2} ms");

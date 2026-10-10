@@ -29,6 +29,8 @@ impl Default for Config {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MicConfig {
+    /// Duplicate processed mono audio into FL and FR; applied on daemon startup.
+    pub stereo: bool,
     /// PipeWire `node.name` of the physical microphone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device: Option<String>,
@@ -52,6 +54,7 @@ impl Default for MicConfig {
     fn default() -> Self {
         let preset = miceq_dsp::Preset::Natural;
         Self {
+            stereo: false,
             device: None,
             fallback_device: None,
             preset: Some(preset.id().to_owned()),
@@ -233,6 +236,7 @@ mod tests {
         let config = Config {
             schema_version: SCHEMA_VERSION,
             mic: MicConfig {
+                stereo: true,
                 device: Some("alsa_input.usb-Yeti".into()),
                 fallback_device: Some("alsa_input.internal".into()),
                 preset: Some("broadcast".into()),

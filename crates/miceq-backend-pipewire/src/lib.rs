@@ -267,6 +267,10 @@ pub trait MicrophoneHost {
     fn end_session(&mut self) {}
     /// Physical microphone `node.name` to link; polled every 100 ms.
     fn input(&self) -> Option<String>;
+    /// Duplicate the processed mono signal into FL/FR outputs for this graph session.
+    fn stereo(&self) -> bool {
+        false
+    }
     /// Current algorithmic latency to report to the graph; polled every 100 ms.
     fn latency_samples(&self) -> u32;
     /// Run the chain even if nothing records the virtual microphone; polled every 100 ms.
@@ -393,7 +397,11 @@ fn run_session<H: MicrophoneHost + 'static>(
 ) -> Result<(), Error> {
     let connection = Connection::with_mainloop(mainloop.clone())?;
     let processor = host.borrow_mut().start_session()?;
-    let filter = Rc::new(filter::Filter::new(&connection, processor)?);
+    let filter = Rc::new(filter::Filter::new(
+        &connection,
+        processor,
+        host.borrow().stereo(),
+    )?);
     let registry = connection.core.get_registry()?;
     let graph = Rc::new(RefCell::new(Graph::default()));
     let graph_add = graph.clone();

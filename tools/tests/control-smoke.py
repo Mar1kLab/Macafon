@@ -93,25 +93,33 @@ def main():
                 process.send_signal(signal.SIGTERM)
                 process.wait(timeout=5)
 
-        def record(seconds=0.6, source="miceq_mic"):
+        def capture_samples(seconds=0.6, source="miceq_mic", channels=("MONO",), linked=None):
             """Capture a node's output; drop the first 100 ms of ramps and linking."""
             capture = directory / "capture.raw"
-            recorder = spawn(["pw-cat", "--record", "--raw", "--format", "f32", "--channels", "1",
-                              "--channel-map", "MONO", "--target", "0", "--latency", "128",
+            recorder = spawn(["pw-cat", "--record", "--raw", "--format", "f32", "--channels", str(len(channels)),
+                              "--channel-map", ",".join(channels), "--target", "0", "--latency", "128",
                               "--properties", "node.name=test_capture adapter.auto-port-config={ mode=dsp position=preserve }",
                               capture])
             capture_ports = smoke.wait_for(lambda: ports("test_capture", "in"), "capture ports")
-            run("pw-link", str(ports(source, "out")["MONO"]), str(capture_ports["MONO"]))
+            source_ports = ports(source, "out")
+            # Activate the recorder only after all requested channels are linked.
+            requested = channels if linked is None else linked
+            for index, channel in enumerate(requested):
+                flags = ("-P",) if index + 1 < len(requested) else ()
+                run("pw-link", *flags, str(source_ports[channel]), str(capture_ports[channel]))
             time.sleep(seconds)
             stop(recorder)
             samples = array.array("f")
             samples.frombytes(capture.read_bytes())
             if sys.byteorder != "little":
                 samples.byteswap()
-            samples = samples[4800:]
-            assert len(samples) > 4800, "capture too short"
+            samples = samples[4800 * len(channels):]
+            assert len(samples) > 4800 * len(channels), "capture too short"
             assert all(math.isfinite(value) for value in samples), "non-finite audio"
-            return max(abs(value) for value in samples)
+            return samples
+
+        def record(seconds=0.6, source="miceq_mic"):
+            return max(map(abs, capture_samples(seconds, source)))
 
         def start_daemon(*extra):
             daemon = spawn([args.daemon, "run", "--no-tray", *extra])
@@ -368,6 +376,60 @@ def main():
             assert not entry.exists()
             print("autostart: XDG entry written and removed")
             stop(daemon)
+
+            # Stereo duplicates the processed mono, including when only one side is linked.
+            stereo_input = microphone("test_stereo", 0.5)
+            daemon = start_daemon("--input", "test_stereo", "--preset", "raw", "--stereo")
+            assert status()["stereo"] and set(ports("miceq_mic", "out")) == {"FL", "FR"}
+            mic_node = next(item for item in json.loads(run("pw-dump"))
+                            if item.get("info", {}).get("props", {}).get("node.name") == "miceq_mic")
+            assert str(mic_node["info"]["props"]["audio.channels"]) == "2", mic_node
+            formats = mic_node["info"]["params"]["EnumFormat"]
+            assert any(fmt.get("channels") == 2 and fmt.get("position") == ["FL", "FR"]
+                       and fmt.get("rate") == 48000 for fmt in formats), formats
+            ctl("gain", "-6")
+            stereo = capture_samples(channels=("FL", "FR"))
+            assert stereo[0::2] == stereo[1::2], "stereo channels differ"
+            assert 0.23 < max(map(abs, stereo)) < 0.27, "stereo processing gain wrong"
+            for channel, offset in [("FL", 0), ("FR", 1)]:
+                samples = capture_samples(channels=("FL", "FR"), linked=(channel,))
+                assert 0.23 < max(map(abs, samples[offset::2])) < 0.27, f"{channel} alone lost audio"
+                assert all(value == 0.0 for value in samples[1 - offset::2]), "unlinked side leaked audio"
+            ctl("mute", "on")
+            assert all(value == 0.0 for value in capture_samples(channels=("FL", "FR"))), "stereo mute leaked"
+            ctl("mute", "off")
+            # No consumer: scratch processing must still provide live meters.
+            meters = [json.loads(line) for line in ctl("meters", "--count", "3").splitlines()]
+            assert meters[-1]["raw_peak_dbfs"] > -7, "stereo idle meters missing"
+            stop(stereo_input)
+            smoke.wait_for(lambda: active(None), "stereo input disconnected")
+            assert all(value == 0.0 for value in capture_samples(channels=("FL", "FR"))), "stereo disconnect leaked"
+            stereo_input = microphone("test_stereo", 0.5)
+            smoke.wait_for(lambda: active("test_stereo"), "stereo input reconnected")
+            stereo = capture_samples(channels=("FL", "FR"))
+            assert stereo[0::2] == stereo[1::2] and max(map(abs, stereo)) > 0.23, (
+                "stereo did not reconnect", max(map(abs, stereo[0::2])), max(map(abs, stereo[1::2])),
+                sum(left != right for left, right in zip(stereo[0::2], stereo[1::2])))
+            stop(daemon)
+            daemon = start_daemon()
+            assert status()["stereo"] and set(ports("miceq_mic", "out")) == {"FL", "FR"}, "stereo config lost"
+            stop(stereo_input)
+            stop(server)
+            time.sleep(0.7)
+            assert daemon.poll() is None, "stereo daemon stopped after server loss"
+            server = spawn(["pipewire", "-c", config])
+            smoke.wait_for(lambda: ports("miceq_mic", "out"), "stereo graph restored")
+            stereo_input = microphone("test_stereo", 0.5)
+            smoke.wait_for(lambda: active("test_stereo"), "stereo linked after server restart")
+            assert status()["stereo"] and set(ports("miceq_mic", "out")) == {"FL", "FR"}
+            stereo = capture_samples(channels=("FL", "FR"))
+            assert stereo[0::2] == stereo[1::2] and max(map(abs, stereo)) > 0.23, "stereo graph lost audio"
+            stop(daemon)
+            daemon = start_daemon("--stereo=false")
+            assert not status()["stereo"] and set(ports("miceq_mic", "out")) == {"MONO"}, "mono override failed"
+            stop(daemon)
+            print("stereo: identical processed FL/FR, either side alone, mute, idle meters, "
+                  "hot-plug, saved config, server recovery and mono override")
             stop(server)
             print("config: saved on change, restored on restart; socket removed on exit")
         except Exception:

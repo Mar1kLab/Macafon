@@ -211,6 +211,9 @@ pub struct Hello {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MicState {
+    /// Virtual microphone output uses identical FL/FR channels instead of MONO.
+    #[serde(default)]
+    pub stereo: bool,
     pub settings: ChainSettings,
     /// Preset the chain was last loaded from or saved to.
     pub preset: Option<String>,
@@ -416,6 +419,7 @@ mod tests {
                 outcome: Outcome::Error(ErrorBody::new(ErrorCode::Busy, "later")),
             }),
             ServerMessage::Event(Event::MicChanged(MicState {
+                stereo: false,
                 settings,
                 preset: Some("natural".into()),
                 preset_modified: false,

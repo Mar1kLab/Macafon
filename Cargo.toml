@@ -7,6 +7,7 @@ members = [
     "crates/miceq-backend-pipewire",
     "apps/miceqd",
     "apps/miceq-cli",
+    "apps/miceq-ui/src-tauri",
 ]
 resolver = "3"
 

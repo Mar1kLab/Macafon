@@ -1,0 +1,57 @@
+/* Design tokens of docs/design/design-system.md — the only source of colours, fonts and motion. */
+
+:root {
+  color-scheme: dark;
+  /* Surfaces */
+  --bg: #121316;
+  --bg-raised: #101014;
+  --bg-sunken: #060607;
+  /* Text */
+  --ink: #f2f1ee;
+  --ink-strong: #ffffff;
+  --muted: #f2f1ee99;
+  --faint: #f2f1ee61;
+  /* Lines */
+  --line: #f2f1ee26;
+  --line-strong: #f2f1ee66;
+  /* Accent and states */
+  --accent: #2d81ff;
+  --accent-ink: #74aaff;
+  --danger: #ff6259;
+  --invert-bg: #ffffff;
+  --invert-fg: #0b0b0c;
+  --scanline: #ffffff06;
+
+  /* Module and channel palette (§2.1): --app-* fills, --app-*-ink text on dark. */
+  --app-blue: #2f7bf5;
+  --app-blue-ink: #7fb0ff;
+  --app-violet: #8b5cf6;
+  --app-violet-ink: #b69cff;
+  --app-pink: #e0368f;
+  --app-pink-ink: #ff7ab8;
+  --app-orange: #e8573f;
+  --app-orange-ink: #ff8a70;
+  --app-amber: #f2a516;
+  --app-amber-ink: #ffc14d;
+  --app-teal: #12a58a;
+  --app-teal-ink: #3fd6b8;
+  --app-lime: #7bb51c;
+  --app-lime-ink: #a6e04a;
+
+  /* Typography (§3) */
+  --font-display: 'Archivo Variable', sans-serif;
+  --font-body: 'Inter Variable', sans-serif;
+  --font-mono: 'Geist Mono Variable', monospace;
+  --font-serif: 'Instrument Serif', serif;
+
+  /* Spacing (§4): 4px base unit */
+  --spacing: 0.25rem;
+
+  /* Motion (§5) */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur: 150ms;
+  --dur-card: 300ms;
+
+  /* Sidebar (§4) */
+  --sidebar-width: 64px;
+}

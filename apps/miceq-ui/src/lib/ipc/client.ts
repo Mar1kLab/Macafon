@@ -1,0 +1,101 @@
+// Typed calls over a transport (Tauri bridge or the in-browser mock daemon).
+
+import type {
+  AbState,
+  AbWaveform,
+  AutostartState,
+  CalibrationState,
+  Device,
+  ErrorCode,
+  Event,
+  Hello,
+  MicState,
+  PresetInfo,
+  Request,
+} from './protocol';
+
+export type Method = Request['method'];
+
+type ParamsOf<M extends Method> =
+  Extract<Request, { method: M }> extends { params: infer P } ? P : undefined;
+
+/** Result of every method; a new protocol method fails type-checking until listed here. */
+interface Results {
+  hello: Hello;
+  'daemon.quit': null;
+  'autostart.get': AutostartState;
+  'autostart.set': AutostartState;
+  'mic.get': MicState;
+  'mic.set': MicState;
+  'mic.set_preset': MicState;
+  'mic.set_muted': MicState;
+  'mic.toggle_mute': MicState;
+  'mic.set_bypass': MicState;
+  'mic.set_device': MicState;
+  'mic.set_fallback_device': MicState;
+  'presets.list': PresetInfo[];
+  'presets.save': PresetInfo;
+  'presets.update': PresetInfo;
+  'presets.rename': PresetInfo;
+  'presets.duplicate': PresetInfo;
+  'presets.delete': null;
+  'presets.export': unknown;
+  'presets.import': PresetInfo;
+  'devices.list': Device[];
+  'meters.subscribe': null;
+  'meters.unsubscribe': null;
+  'calibration.start': CalibrationState;
+  'calibration.cancel': CalibrationState;
+  'calibration.get': CalibrationState;
+  'ab.record': AbState;
+  'ab.stop_recording': AbState;
+  'ab.play': AbState;
+  'ab.stop': AbState;
+  'ab.select': AbState;
+  'ab.toggle': AbState;
+  'ab.seek': AbState;
+  'ab.set_loudness_match': AbState;
+  'ab.get': AbState;
+  'ab.waveform': AbWaveform;
+}
+
+type ResultOf<M extends Method> = M extends keyof Results ? Results[M] : never;
+// Fails to compile when Results misses a method of the generated protocol.
+const _complete: Record<Method, true> = {} as Record<keyof Results, true>;
+void _complete;
+
+export type DaemonStatus =
+  | { state: 'connecting' }
+  | { state: 'connected'; version: string }
+  | { state: 'unavailable'; reason: string };
+
+/** Daemon error codes plus the bridge's own (daemon gone, no reply). */
+export type ClientErrorCode = ErrorCode | 'unavailable' | 'timeout';
+
+export class DaemonError extends Error {
+  constructor(
+    readonly code: ClientErrorCode,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export interface Transport {
+  call(method: string, params: unknown): Promise<unknown>;
+  onEvent(handler: (event: Event) => void): () => void;
+  onStatus(handler: (status: DaemonStatus) => void): () => void;
+  /** Try to reach (and start) the daemon again after it was unavailable. */
+  retry(): void;
+}
+
+export class DaemonClient {
+  constructor(readonly transport: Transport) {}
+
+  call<M extends Method>(
+    method: M,
+    ...params: ParamsOf<M> extends undefined ? [] : [ParamsOf<M>]
+  ): Promise<ResultOf<M>> {
+    return this.transport.call(method, params[0] ?? null) as Promise<ResultOf<M>>;
+  }
+}

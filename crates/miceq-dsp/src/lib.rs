@@ -2,6 +2,7 @@
 //!
 //! All storage is allocated when a processor is built; `process` never allocates or locks.
 
+pub mod calibration;
 mod chain;
 mod compressor;
 mod de_esser;

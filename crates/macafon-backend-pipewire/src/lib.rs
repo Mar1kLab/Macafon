@@ -362,6 +362,19 @@ pub fn run_microphone<H: MicrophoneHost + 'static>(
             loop_.quit();
         }
     });
+    // Housekeeping belongs to the daemon lifetime, including reconnect waits.
+    // This timer runs on the control loop, never on the audio data loop.
+    let handler = host.clone();
+    let housekeeping = mainloop
+        .loop_()
+        .add_timer(move |_| handler.borrow_mut().tick());
+    housekeeping
+        .update_timer(
+            Some(Duration::from_millis(50)),
+            Some(Duration::from_millis(100)),
+        )
+        .into_result()
+        .map_err(|error| Error::Message(error.to_string()))?;
     let waiting = Rc::new(Cell::new(false));
     while !stopping.get() {
         // Rebuild all DSP and graph storage on the control thread. run_session drops
@@ -487,7 +500,6 @@ fn run_session<H: MicrophoneHost + 'static>(
             }
         }
         let mut host = host.borrow_mut();
-        host.tick();
         match host.player_request() {
             Some(PlayerRequest::Start { player: rt, target }) => {
                 player.replace(None);

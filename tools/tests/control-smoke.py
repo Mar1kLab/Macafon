@@ -418,11 +418,25 @@ def main():
             stop(server)
             time.sleep(0.7)
             assert daemon.poll() is None, "stereo daemon stopped after server loss"
+            smoke.wait_for(lambda: not status()["input_connected"], "server disconnection reported")
+            config_path = config_home / "macafon" / "config.toml"
+            assert "muted = false" in config_path.read_text(), "unexpected saved mute state"
+            ctl("mute", "on")
+            # No PipeWire session and no shutdown: the control timer must still save.
+            saved_at = time.monotonic()
+            smoke.wait_for(lambda: "muted = true" in config_path.read_text(),
+                           "config saved while PipeWire is unavailable")
+            elapsed = time.monotonic() - saved_at
+            assert elapsed < 2, f"offline config save took {elapsed:.2f} s"
+            assert daemon.poll() is None, "config saved only because daemon exited"
             server = spawn(["pipewire", "-c", config])
             smoke.wait_for(lambda: ports("macafon_mic", "out"), "stereo graph restored")
             stereo_input = microphone("test_stereo", 0.5)
             smoke.wait_for(lambda: active("test_stereo"), "stereo linked after server restart")
             assert status()["stereo"] and set(ports("macafon_mic", "out")) == {"FL", "FR"}
+            assert status()["settings"]["muted"], "offline mute lost after server recovery"
+            assert all(value == 0.0 for value in capture_samples(channels=("FL", "FR"))), "offline mute leaked"
+            ctl("mute", "off")
             stereo = capture_samples(channels=("FL", "FR"))
             assert stereo[0::2] == stereo[1::2] and max(map(abs, stereo)) > 0.23, "stereo graph lost audio"
             stop(daemon)
@@ -431,6 +445,7 @@ def main():
             stop(daemon)
             print("stereo: identical processed FL/FR, either side alone, mute, idle meters, "
                   "hot-plug, saved config, server recovery and mono override")
+            print(f"config: saved without PipeWire in {elapsed:.2f} s; mute preserved on recovery")
             stop(server)
             print("config: saved on change, restored on restart; socket removed on exit")
         except Exception:

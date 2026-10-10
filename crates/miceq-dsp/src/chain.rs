@@ -238,7 +238,12 @@ impl MicrophoneProcessor {
         if io.is_empty() {
             return;
         }
-        if !self.mute.is_ramping() && self.mute.value()[0] == 0.0 {
+        let t = &*self.telemetry;
+        let metering = t.enabled.load(Ordering::Relaxed);
+        let silenced = !self.mute.is_ramping() && self.mute.value()[0] == 0.0;
+        // Muted costs nothing, unless someone watches the meters: the input stays visible
+        // while the output is digital silence (MIC-013, MTR-001).
+        if silenced && !metering {
             io.fill(0.0);
             return;
         }
@@ -247,8 +252,6 @@ impl MicrophoneProcessor {
             *sample = sanitize(*sample);
             raw_peak = raw_peak.max(sample.abs());
         }
-        let t = &*self.telemetry;
-        let metering = t.enabled.load(Ordering::Relaxed);
         record(metering, &t.raw_peak, raw_peak);
         if let Some(gain) = &mut self.gain {
             gain.process(io);
@@ -283,7 +286,9 @@ impl MicrophoneProcessor {
             record(metering, &t.limiter_reduction, -module.reduction_db());
         }
         self.output.process(io);
-        if self.mute.is_ramping() || self.mute.value()[0] != 1.0 {
+        if silenced {
+            io.fill(0.0);
+        } else if self.mute.is_ramping() || self.mute.value()[0] != 1.0 {
             io.iter_mut()
                 .for_each(|sample| *sample *= self.mute.next()[0]);
         }

@@ -94,6 +94,23 @@ mod tests {
     }
 
     #[test]
+    fn muted_chain_still_meters_the_input_while_watched() {
+        let mut chain = processor(ChainSettings {
+            muted: true,
+            ..ChainSettings::raw()
+        });
+        let telemetry = chain.telemetry();
+        telemetry.set_enabled(true);
+        let mut block = [0.5f32; 256];
+        assert_no_alloc(|| chain.process(&mut block));
+        assert_eq!(block.map(f32::to_bits), [0.0f32; 256].map(f32::to_bits));
+        let meters = telemetry.take();
+        assert!((meters.raw_peak_dbfs + 6.02).abs() < 0.01, "{meters:?}");
+        assert!((meters.input_peak_dbfs + 6.02).abs() < 0.01, "{meters:?}");
+        assert!(meters.output_peak_dbfs <= -119.0, "{meters:?}");
+    }
+
+    #[test]
     fn lite_handles_variable_quantum_and_aligns_dry_without_allocation() {
         let lite = |intensity_pct| ChainSettings {
             noise_suppression: Module::on(NoiseSuppressionParams {

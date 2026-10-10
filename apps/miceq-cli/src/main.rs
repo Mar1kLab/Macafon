@@ -10,10 +10,11 @@ use std::io::Write;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(version, about = "Control the micEQ daemon")]
+#[command(version, about = "Open micEQ, or control the daemon with `ctl`")]
 struct Cli {
+    /// Without a command, open the micEQ window.
     #[command(subcommand)]
-    command: Top,
+    command: Option<Top>,
 }
 
 #[derive(Subcommand)]
@@ -165,8 +166,23 @@ enum Switch {
     Toggle,
 }
 
+/// `miceq` without arguments opens the UI: `miceq-ui` next to this binary, else on PATH.
+/// The tray and desktop entries launch `miceq` (BG-004, BG-006).
+fn open_ui() -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    let sibling = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.parent()?.join("miceq-ui")))
+        .filter(|path| path.is_file());
+    let program = sibling.unwrap_or_else(|| "miceq-ui".into());
+    let error = std::process::Command::new(&program).exec();
+    Err(error).with_context(|| format!("cannot start {}", program.display()))
+}
+
 fn main() -> Result<()> {
-    let Top::Ctl { json, command } = Cli::parse().command;
+    let Some(Top::Ctl { json, command }) = Cli::parse().command else {
+        return open_ui();
+    };
     let path = miceq_ipc::socket_path().context("XDG_RUNTIME_DIR is not set")?;
     let (mut client, _) = Client::connect(&path, "miceq-cli")
         .with_context(|| format!("is miceqd running? ({})", path.display()))?;

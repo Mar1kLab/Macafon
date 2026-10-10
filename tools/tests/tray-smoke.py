@@ -56,7 +56,7 @@ def main():
         runtime = directory / "runtime"
         runtime.mkdir(mode=0o700)
         env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime), PIPEWIRE_RUNTIME_DIR=str(runtime),
-                   XDG_CONFIG_HOME=str(directory / "config"))
+                   XDG_CONFIG_HOME=str(directory / "config"), XDG_STATE_HOME=str(directory / "state"))
         config = directory / "test.conf"
         config.write_text(smoke.CONFIG)
 

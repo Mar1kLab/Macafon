@@ -2,6 +2,7 @@ mod ab;
 mod autostart;
 mod calibration;
 mod host;
+mod logging;
 mod server;
 mod tray;
 
@@ -201,13 +202,8 @@ fn run(args: RunArgs) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .with_target(false)
-        .init();
     let cli = Cli::parse();
+    logging::init();
     match cli.command.unwrap_or(Command::Run(RunArgs::default())) {
         Command::Run(args) => run(args)?,
         Command::Devices => {

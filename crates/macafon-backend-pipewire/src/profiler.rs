@@ -16,6 +16,17 @@ struct Data {
     last_finish_ns: u64,
     next_position: Option<(u32, u64)>,
     callback: Box<dyn FnMut(u64, u64)>,
+    /// Set for a load sampler: the driver info of cycles that ran `node_id`.
+    load: Option<Box<dyn FnMut(DriverLoad)>>,
+}
+
+/// `SPA_PROFILER_info` of the driver that runs a node (Doctor, §9.6).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DriverLoad {
+    /// DSP load of the driver's cycles, fast/medium/slow averages, 0…1.
+    pub cpu_load: [f32; 3],
+    /// Xruns of the driver since it started.
+    pub xrun_count: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -54,6 +65,48 @@ impl Profiler {
         node_id: u32,
         callback: impl FnMut(u64, u64) + 'static,
     ) -> Result<Self, Error> {
+        Self::bind(
+            registry,
+            id,
+            version,
+            Box::new(Data {
+                node_id,
+                last_finish_ns: 0,
+                next_position: None,
+                callback: Box::new(callback),
+                load: None,
+            }),
+        )
+    }
+
+    /// Report the driver load and xruns of every profiled cycle that ran `node_id`.
+    pub(crate) fn load(
+        registry: pw::registry::RegistryRc,
+        id: u32,
+        version: u32,
+        node_id: u32,
+        callback: impl FnMut(DriverLoad) + 'static,
+    ) -> Result<Self, Error> {
+        Self::bind(
+            registry,
+            id,
+            version,
+            Box::new(Data {
+                node_id,
+                last_finish_ns: 0,
+                next_position: None,
+                callback: Box::new(|_, _| {}),
+                load: Some(Box::new(callback)),
+            }),
+        )
+    }
+
+    fn bind(
+        registry: pw::registry::RegistryRc,
+        id: u32,
+        version: u32,
+        mut data: Box<Data>,
+    ) -> Result<Self, Error> {
         // SAFETY: the live registry exposes this interface; the proxy is owned below.
         let proxy = unsafe {
             pw::spa::spa_interface_call_method!(
@@ -73,12 +126,6 @@ impl Profiler {
         let events = Box::new(pw::sys::pw_profiler_events {
             version: pw::sys::PW_VERSION_PROFILER_EVENTS,
             profile: Some(profile),
-        });
-        let mut data = Box::new(Data {
-            node_id,
-            last_finish_ns: 0,
-            next_position: None,
-            callback: Box::new(callback),
         });
         // SAFETY: all callback storage remains at stable addresses until listener removal.
         unsafe {
@@ -113,6 +160,10 @@ unsafe extern "C" fn profile(data: *mut c_void, pod: *const pw::spa::sys::spa_po
     }
     // SAFETY: PipeWire serializes control-loop events and lends this valid pod for the callback.
     let (data, pod) = unsafe { (&mut *data.cast::<Data>(), Pod::from_raw(pod)) };
+    if let Some(load) = &mut data.load {
+        visit_load(pod.as_bytes(), data.node_id, load);
+        return;
+    }
     visit_cycles(pod.as_bytes(), data.node_id, &mut |cycle| {
         data.observe(cycle)
     });
@@ -168,9 +219,51 @@ impl<'a> BorrowedPod<'a> {
         Some(i32::from_ne_bytes(self.body.get(..4)?.try_into().ok()?))
     }
 
+    fn float(self) -> Option<f32> {
+        (self.type_ == pw::spa::sys::SPA_TYPE_Float).then_some(())?;
+        Some(f32::from_ne_bytes(self.body.get(..4)?.try_into().ok()?))
+    }
+
     fn long(self) -> Option<i64> {
         (self.type_ == pw::spa::sys::SPA_TYPE_Long).then_some(())?;
         Some(i64::from_ne_bytes(self.body.get(..8)?.try_into().ok()?))
+    }
+}
+
+fn visit_load(bytes: &[u8], node_id: u32, callback: &mut impl FnMut(DriverLoad)) {
+    let Some(root) = next_pod(&mut &*bytes) else {
+        return;
+    };
+    for cycle in root.fields() {
+        if cycle.type_ != pw::spa::sys::SPA_TYPE_Object
+            || word(cycle.body) != Some(pw::spa::sys::SPA_TYPE_OBJECT_Profiler)
+        {
+            continue;
+        }
+        let runs_node = cycle.properties().any(|(key, follower)| {
+            key == pw::spa::sys::SPA_PROFILER_followerBlock
+                && follower.fields().next().and_then(BorrowedPod::int) == Some(node_id as i32)
+        });
+        if !runs_node {
+            continue;
+        }
+        let Some((_, info)) = cycle
+            .properties()
+            .find(|(key, _)| *key == pw::spa::sys::SPA_PROFILER_info)
+        else {
+            continue;
+        };
+        let load = |n| info.fields().nth(n).and_then(BorrowedPod::float);
+        let (Some(fast), Some(medium), Some(slow)) = (load(1), load(2), load(3)) else {
+            continue;
+        };
+        let Some(xruns) = info.fields().nth(4).and_then(BorrowedPod::int) else {
+            continue;
+        };
+        callback(DriverLoad {
+            cpu_load: [fast, medium, slow],
+            xrun_count: xruns.max(0) as u32,
+        });
     }
 }
 
@@ -358,6 +451,7 @@ mod tests {
             node_id: 42,
             last_finish_ns: 0,
             next_position: None,
+            load: None,
             callback: Box::new(move |elapsed, _| {
                 if elapsed == 0 {
                     observed_resets.set(observed_resets.get() + 1);
@@ -373,6 +467,54 @@ mod tests {
         assert_eq!(resets.get(), 2);
         for length in 0..bytes.len() {
             visit_cycles(&bytes[..length], 42, &mut |_| {});
+        }
+    }
+
+    #[test]
+    fn reads_load_and_xruns_of_the_driver_running_the_node() {
+        let property = |key, value| Property {
+            key,
+            flags: PropertyFlags::empty(),
+            value,
+        };
+        let cycle = |follower, xruns| {
+            Value::Object(Object {
+                type_: pw::spa::sys::SPA_TYPE_OBJECT_Profiler,
+                id: 0,
+                properties: vec![
+                    property(
+                        pw::spa::sys::SPA_PROFILER_info,
+                        Value::Struct(vec![
+                            Value::Long(7),
+                            Value::Float(0.1),
+                            Value::Float(0.25),
+                            Value::Float(0.2),
+                            Value::Int(xruns),
+                        ]),
+                    ),
+                    property(
+                        pw::spa::sys::SPA_PROFILER_followerBlock,
+                        Value::Struct(vec![Value::Int(follower)]),
+                    ),
+                ],
+            })
+        };
+        let value = Value::Struct(vec![cycle(7, 9), cycle(42, 3)]);
+        let bytes = PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &value)
+            .expect("fixture pod")
+            .0
+            .into_inner();
+        let mut loads = Vec::new();
+        visit_load(&bytes, 42, &mut |load| loads.push(load));
+        assert_eq!(
+            loads,
+            [DriverLoad {
+                cpu_load: [0.1, 0.25, 0.2],
+                xrun_count: 3
+            }]
+        );
+        for length in 0..bytes.len() {
+            visit_load(&bytes[..length], 42, &mut |_| {});
         }
     }
 

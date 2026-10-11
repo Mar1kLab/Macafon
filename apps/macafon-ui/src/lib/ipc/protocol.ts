@@ -270,7 +270,7 @@ export type ChannelPatch = { name?: string | null, color?: string | null, icon?:
 
 export type DoctorStatus = "ok" | "info" | "warning" | "error";
 
-export type DoctorCheckId = "pipewire" | "session_manager" | "microphone_input" | "microphone_used" | "double_processing" | "mixer" | "default_output" | "unmovable_apps" | "processing" | "hotkeys";
+export type DoctorCheckId = "pipewire" | "session_manager" | "microphone_input" | "microphone_used" | "double_processing" | "mixer" | "default_output" | "unmovable_apps" | "processing" | "xruns" | "hotkeys";
 
 export type DoctorCheck = { id: DoctorCheckId, status: DoctorStatus,
 /**

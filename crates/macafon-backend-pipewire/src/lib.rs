@@ -23,6 +23,7 @@ pub const DEFAULT_QUANTUM_FRAMES: u32 = 128;
 pub const VIRTUAL_MIC_NAME: &str = "macafon_mic";
 
 pub use mixer::{ChannelRequest, MixerHost, PlaybackStream, Route};
+pub use profiler::DriverLoad;
 pub use routing::route_stream;
 
 pub use macafon_engine::{AbRt, ChannelRt, MicRt};

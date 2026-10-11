@@ -34,6 +34,8 @@ pub enum DoctorCheckId {
     UnmovableApps,
     /// Graph quantum and sample rate; overloads in the last 10 minutes.
     Processing,
+    /// DSP load and xruns of the audio device driving Macafon Microphone.
+    Xruns,
     /// Global shortcuts: portal or X11; otherwise CLI commands (HK-004).
     Hotkeys,
 }

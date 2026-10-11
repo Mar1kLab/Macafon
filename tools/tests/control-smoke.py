@@ -42,7 +42,10 @@ def main():
                    XDG_CONFIG_HOME=str(config_home), XDG_STATE_HOME=str(directory / "state"),
                    MACAFON_NO_SYSTEMD="1")
         config = directory / "test.conf"
-        config.write_text(smoke.CONFIG)
+        # As in the stock pipewire.conf: the Doctor samples driver load through the profiler.
+        config.write_text(smoke.CONFIG.replace(
+            "{ name = libpipewire-module-protocol-native }",
+            "{ name = libpipewire-module-protocol-native }\n    { name = libpipewire-module-profiler }"))
 
         def spawn(command):
             log = (directory / f"process-{len(logs)}.log").open("w+")
@@ -309,6 +312,11 @@ def main():
             assert names[-2:] == ["Smoke voice (2)", "Loud"], names
             print("presets: save/update/select, duplicate name refused, export → import, "
                   "duplicate, rename, delete")
+
+            # §9.6: a short profiler sample measures the driver of the running microphone.
+            xruns = next(check for check in request("doctor.run")["checks"] if check["id"] == "xruns")
+            assert xruns["status"] in ("ok", "warning") and 0 <= int(xruns["values"][1]) <= 100, xruns
+            print(f"doctor: driver xruns {xruns['values'][0]}, DSP load {xruns['values'][1]}%")
 
             # Fallback: distinct levels prove that the actual audio link follows priority.
             def microphone(name, amplitude):

@@ -182,6 +182,21 @@ pub fn report(facts: Facts) -> DoctorReport {
         },
         processing_values,
     ));
+    checks.push(match inspection.and_then(|graph| graph.load) {
+        Some(load) => check(
+            Id::Xruns,
+            if load.xrun_count > 0 {
+                S::Warning
+            } else {
+                S::Ok
+            },
+            vec![
+                load.xrun_count.to_string(),
+                format!("{:.0}", load.cpu_load[1] * 100.0),
+            ],
+        ),
+        None => check(Id::Xruns, S::Info, Vec::new()),
+    });
     checks.push(match facts.hotkeys {
         macafon_ipc::HotkeyBackend::Portal => check(Id::Hotkeys, S::Ok, vec!["portal".into()]),
         macafon_ipc::HotkeyBackend::X11 => check(Id::Hotkeys, S::Ok, vec!["X11".into()]),

@@ -84,11 +84,21 @@ JSON по строкам, сокет `$XDG_RUNTIME_DIR/macafon/macafond.sock` (�
 | `ab.waveform` | `points` (16–4096) | `{a, b}` — пики 0…1 |
 | `ab.outputs` | — | выходы с `kind` (`headphones`, `speakers`, `unknown`) и `speaker_warning` |
 | `ab.export` | `side` (`a`/`b`), `path` | `null`; WAV float32, 48 кГц, без перезаписи существующего файла |
+| `mixer.get` | — | `MixerState`: каналы, приложения, Master, выходы ([mixer.md](mixer.md)) |
+| `mixer.set_enabled` | `enabled` | `MixerState`; каналы создаются/удаляются, системный выход переходит к каналу по умолчанию и обратно |
+| `mixer.set_master` | `volume_pct?`, `muted?` | `MixerState` |
+| `mixer.set_output` / `mixer.set_output_priority` | `device` (`null` — прежний системный) / `devices` | `MixerState` |
+| `mixer.set_auto_classify` | `enabled` | `MixerState` |
+| `channel.create` / `channel.update` / `channel.delete` | `name`, `color`, `icon?` / `id`, `patch` / `id` | `MixerState` |
+| `channel.set` | `id`, `settings` (вся цепочка и фейдер) | `MixerState` |
+| `channel.adjust_volume` / `channel.toggle_mute` / `channel.set_default` / `channel.reorder` | `id`, `delta_pct` / `id` / `id` / `ids` | `MixerState` |
+| `apps.move` / `apps.set_managed` / `apps.forget` | `app_key`, `channel` / `app_key`, `managed` / `app_key` | `MixerState` |
 
 События: `meters` (уровни в dBFS, gain reduction в dB, активность NS), `mic.changed` (любое
 изменение состояния от любого клиента), `calibration.changed` (~10 Гц во время замера и итог)
 `ab.changed` (~10 Гц во время записи и воспроизведения, плюс каждое изменение) и
-`presets.changed` (новый список пресетов). Ошибка `already_exists` — имя пресета занято. Ошибки: `bad_request`, `protocol_mismatch`,
+`presets.changed` (новый список пресетов), `mixer.changed` (`MixerState` после любого изменения
+каналов, приложений или выходов) и `mixer.meters` (пики каналов и Master вместе с `meters`, пока микшер включён). Ошибка `already_exists` — имя пресета занято. Ошибки: `bad_request`, `protocol_mismatch`,
 `invalid_params`, `not_found`, `busy`, `internal`.
 
 TS-типы для UI генерируются из `macafon-ipc` (см. [ui.md](ui.md)).
@@ -100,7 +110,7 @@ TS-типы для UI генерируются из `macafon-ipc` (см. [ui.md]
 поля берутся из значений по умолчанию. Пишется атомарно (temp + fsync + rename) через 500 мс
 после последнего изменения и при выходе (CFG-001). Повреждённый, невалидный или более новый
 по схеме файл переименовывается в `config.toml.broken-<unix time>`, демон стартует с
-дефолтами. `MicState.config_recovery` содержит путь резервной копии и причину для уведомления клиента; сам UI-тост ещё не реализован.
+дефолтами. `MicState.config_recovery` содержит путь резервной копии и причину для уведомления клиента; UI показывает тост один раз на резервную копию.
 
 Профили `[device_profiles."<stable ID>"]` содержат цепочку, пресет, канал входа и калиброванный
 шумовой порог каждого физического микрофона. ID строится из serial или `device.bus-path` и имени узла;

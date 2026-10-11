@@ -134,6 +134,8 @@ target/release/macafond run --input '<node.name>'   # демон (PipeWire + с�
 target/release/macafon ctl status                   # управление демоном
 python3 tools/tests/pipewire-smoke.py             # приватный PipeWire: задержка, mute, рестарты
 python3 tools/tests/wireplumber-routing.py        # приватный WirePlumber: роутинг
+python3 tools/tests/mixer-smoke.py                # приватный WirePlumber: каналы, приложения, выходы
+python3 tools/tests/hotkeys-smoke.py              # фейковый портал GlobalShortcuts: хоткеи, OSD
 python3 tools/tests/control-smoke.py              # управление на лету, конфиг, протокол
 python3 tools/tests/tray-smoke.py                 # трей через приватную D-Bus-сессию
 pnpm -C apps/macafon-ui dev              # UI в браузере с mock-демоном

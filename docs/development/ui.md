@@ -1,7 +1,7 @@
 # M1: UI (Tauri v2 + Svelte 5)
 
-Состояние на 2026-10-10. Готов экран Microphone, калибровка, панель TEST (A/B) и базовые Settings.
-Онбординг, импорт/экспорт пресетов через файловый диалог и экран Mixer — следующие шаги.
+Состояние на 2026-10-11. Готовы онбординг, экраны Microphone и Mixer, калибровка, панель TEST (A/B)
+и Settings. Импорт/экспорт пресетов через файловый диалог — следующий шаг. Микшер — [mixer.md](mixer.md).
 
 ## Запуск
 
@@ -26,7 +26,9 @@ pnpm -C apps/macafon-ui tauri build --no-bundle   # target/release/macafon-ui
 ```
 Svelte (runes) ──DaemonClient──► Transport ─┬─ TauriTransport ─invoke/event─► src-tauri/bridge.rs ─► macafond.sock
                                             └─ MockTransport (браузер; ?daemon=down — демон недоступен,
-                                                              ?mic=disconnected — микрофон отключён)
+                                                              ?mic=disconnected — микрофон отключён,
+                                                              ?config=recovered — конфиг сброшен,
+                                                              ?overload — Studio → Lite)
 ```
 
 - `src/lib/ipc/protocol.ts` и `dsp.ts` **генерируются** из Rust (`ts-rs` за фичей `ts`, по умолчанию
@@ -49,6 +51,23 @@ Svelte (runes) ──DaemonClient──► Transport ─┬─ TauriTransport �
   из трея он должен остаться выключенным; упавший поднимет systemd) — через 4 с экран «offline»
   с Retry. `Quit Macafon` в Settings останавливает демон и закрывает UI (BG-005).
 
+## Онбординг (§9.2)
+
+Полноэкранный поток вместо основного окна, пока в `localStorage` WebView нет `macafon.onboarding=done`.
+Шесть шагов: Welcome → Microphone → Calibrate → Result → Use it → Background; «Skip setup» в шапке
+завершает поток без побочных эффектов, Settings → Setup guide запускает его снова.
+
+- Microphone: живые метры всех входов (`devices.subscribe` только пока шаг открыт), список обновляется
+  раз в 2 с. Пока пользователь не выбрал сам, выбирается вход, дольше всех слышащий речь
+  (выше −45 dBFS, 0,5 с); `mic.set_device` — только по Next.
+- Calibrate/Result: те же `CalibrationProgress` / `CalibrationResult`, что в диалоге. Result встраивает
+  панель TEST; «Listen A/B» записывает клип, «Fine-tune» проводит через шаги 5–6 и после Done
+  открывает экран Microphone.
+  Без калибровки шаг Result пропускается.
+- Use it: переключатель системного default (`mic.set_default_source` с `confirmed: true` / `restore`),
+  подсказки для Discord, OBS, Zoom (MIC-015).
+- Background: «Start with system» включён по умолчанию и применяется только по Done (AS-001).
+
 ## Понятность для новичка
 
 - Блок «Getting started» на экране Microphone: калибровка (отмечается выполненной), запись и
@@ -61,7 +80,18 @@ Svelte (runes) ──DaemonClient──► Transport ─┬─ TauriTransport �
 - Видимые подписи без жаргона: Before/After вместо Raw/Processed, Match volume, Cut и Noise вместо
   GR/NS, Mic вместо RAW; у метров, Bypass, Mute, Latency — однострочные подсказки при наведении.
   Индикатор CLIP появляется только при клипе.
-- Save в шапке виден только когда пресет изменён. Mixer скрыт из навигации до M2.
+- Save в шапке виден только когда пресет изменён.
+
+## Экран Mixer (§9.4)
+
+- Колонка канала: полоса цвета, чипы приложений, вертикальный фейдер (стрелки ±1%, PageUp/Down ±10%,
+  двойной клик — 100%) со стерео-метром, % и dB, `M` / `EQ●` / `FX●`. Боковая панель: EQ с пресетами
+  по категориям, FX (Bypass канала, NS, Compressor Amount, Limiter Ceiling), настройки канала.
+- Перенос приложения: HTML5 drag & drop (фишка с наклоном 2°, цель подсвечивается цветом и тиками),
+  клавиши 1…8 на сфокусированной фишке, контекстное меню (Move to, Don't manage, Forget).
+- Правки канала оптимистичны и сливаются (как у микрофона): одновременно не больше одного `channel.set`
+  на канал. Метры `mixer.meters` идут вместе с `meters` по той же подписке.
+- Mock: `?screen=mixer`, `?mixer=off` — микшер ещё не включён.
 - Quit в Settings — с подтверждением.
 
 ## Макросы и CUSTOM (DSP-002)
@@ -83,14 +113,11 @@ Svelte (runes) ──DaemonClient──► Transport ─┬─ TauriTransport �
 
 ## Отклонения и пробелы
 
-- MIC-002: живой мини-метр есть только у активного микрофона — демон метрит лишь подключённый вход.
-  Для метров всех устройств в списке нужен захват каждого входа в `macafond` на время открытого списка.
-- MIC-001: тип устройства (USB/гарнитура/Bluetooth/встроенный) угадывается по `node.name`;
-  `devices.list` не отдаёт `device.bus`/`device.form-factor`.
+- MIC-012: демон не сообщает, является ли Macafon Microphone текущим default; Settings показывает
+  две кнопки (сделать default с подтверждением / вернуть прежний), а не состояние.
 - Импорт/экспорт пресетов (P1) в UI нет — нужен файловый диалог (`tauri-plugin-dialog`); в CLI есть.
-- BG-001: тост «Macafon keeps running in the tray» при первом закрытии не сделан (процесс UI к этому
-  моменту завершается — нужен показ до закрытия или уведомление от демона).
-- NS Studio выбирается, но демон работает на Lite (DeepFilterNet ещё не встроен) — UI это пишет.
+- BG-001: подсказку при первом закрытии показывает демон системным уведомлением (см. mixer.md).
+- Список устройств не обновляется событием: открытый пикер/шаг онбординга перезапрашивает `devices.list`.
 
 ## Проверка
 

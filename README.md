@@ -65,8 +65,8 @@ See [Linux M0 development and limitations](docs/development/linux-m0.md),
 - [Product Requirements Document](docs/PRD.md) (RU)
 - [SteelSeries Sonar & competitors analysis](docs/research/sonar-analysis.md) (RU)
 - [Design system](docs/design/design-system.md) (RU)
-- [ADR-0001: Windows mic processing via APO](docs/adr/0001-windows-apo.md) (RU)
-- [ADR-0002: Windows output channels via user-installed VB-Cable](docs/adr/0002-windows-output-vbcable.md) (RU)
+- [ADR-0004: Windows on the free VB-CABLE: virtual mic, volume-group channels](docs/adr/0004-windows-free-vb-cable.md) (RU)
+- ADR-0001 (APO) and ADR-0002 (channels on VB-Audio cables) are superseded by ADR-0004
 
 ## Local Linux packages
 

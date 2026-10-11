@@ -8,6 +8,7 @@ import type {
   Device,
   DoctorReport,
   HotkeysState,
+  Preferences,
   ErrorCode,
   Event,
   Hello,
@@ -90,6 +91,8 @@ interface Results {
   'mic.cycle_preset': MicState;
   'hotkeys.get': HotkeysState;
   'hotkeys.set': HotkeysState;
+  'prefs.get': Preferences;
+  'prefs.set': Preferences;
 }
 
 type ResultOf<M extends Method> = M extends keyof Results ? Results[M] : never;

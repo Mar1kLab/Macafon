@@ -14,6 +14,7 @@ import type {
   HotkeysState,
   MicState,
   MixerState,
+  Preferences,
   PresetInfo,
 } from '../ipc/protocol';
 import { t } from '../i18n';
@@ -43,6 +44,7 @@ export class DaemonStore {
   autostart = $state.raw<AutostartState | null>(null);
   mixer = $state.raw<MixerState | null>(null);
   hotkeys = $state.raw<HotkeysState | null>(null);
+  prefs = $state.raw<Preferences | null>(null);
   toasts = $state<Toast[]>([]);
   canUndo = $state(false);
   /** Bumped to ask the TEST panel to record a clip (calibration → "Listen A/B"). */
@@ -106,7 +108,7 @@ export class DaemonStore {
 
   private async load() {
     try {
-      const [mic, presets, devices, ab, calibration, autostart, mixer, hotkeys] = await Promise.all([
+      const [mic, presets, devices, ab, calibration, autostart, mixer, hotkeys, prefs] = await Promise.all([
         this.client.call('mic.get'),
         this.client.call('presets.list'),
         this.client.call('devices.list'),
@@ -115,7 +117,9 @@ export class DaemonStore {
         this.client.call('autostart.get'),
         this.client.call('mixer.get'),
         this.client.call('hotkeys.get'),
+        this.client.call('prefs.get'),
       ]);
+      this.prefs = prefs;
       this.mixer = mixer;
       this.hotkeys = hotkeys;
       this.applyMic(mic);
@@ -188,6 +192,9 @@ export class DaemonStore {
         break;
       case 'mixer.changed':
         this.applyMixer(event.data);
+        break;
+      case 'prefs.changed':
+        this.prefs = event.data;
         break;
       case 'hotkeys.changed':
         this.hotkeys = event.data;

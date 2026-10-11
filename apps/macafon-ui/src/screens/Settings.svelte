@@ -12,7 +12,8 @@
   import Doctor from '../lib/settings/Doctor.svelte';
   import Hotkeys from '../lib/settings/Hotkeys.svelte';
   import { t } from '../lib/i18n';
-  import type { InputChannel } from '../lib/ipc/protocol';
+  import type { CloseAction, InputChannel } from '../lib/ipc/protocol';
+  import { QUANTUM_CHOICES, SAMPLE_RATE_HZ } from '../lib/ipc/dsp';
 
   let { onnavigate }: { onnavigate: (screen: 'microphone' | 'mixer') => void } = $props();
   const mic = $derived(daemon.mic);
@@ -44,6 +45,22 @@
   ]);
   const CHANNELS: InputChannel[] = ['Auto', 'Left', 'Right', 'Mix'];
   const channelOptions = CHANNELS.map((value) => ({ value, label: t(`settings.channels.${value}`) }));
+  const prefs = $derived(daemon.prefs);
+  const quantumOptions = QUANTUM_CHOICES.map((frames) => ({
+    value: frames,
+    label: t('settings.quantumValue', { frames, ms: ((frames / SAMPLE_RATE_HZ) * 1000).toFixed(1) }),
+  }));
+  const closeOptions = (['tray', 'quit'] as CloseAction[]).map((value) => ({
+    value,
+    label: t(`settings.closeActions.${value}`),
+  }));
+
+  async function setPrefs(patch: { quantum_frames?: number; close_action?: CloseAction }) {
+    const next = await daemon.run(
+      daemon.client.call('prefs.set', { quantum_frames: patch.quantum_frames ?? null, close_action: patch.close_action ?? null }),
+    );
+    if (next) daemon.prefs = next;
+  }
   let confirmQuit = $state(false);
   let confirmDefault = $state(false);
   const version = $derived(daemon.status.state === 'connected' ? daemon.status.version : '—');
@@ -90,6 +107,21 @@
         </div>
         <button class="btn" onclick={() => daemon.startOnboarding()}>{t('settings.onboardingRun')}</button>
       </div>
+      {#if prefs}
+        <div class="row">
+          <div>
+            <p class="name">{t('settings.closeAction')}</p>
+            <p class="hint">{t('settings.closeActionHint')}</p>
+          </div>
+          <Dropdown
+            label={t('settings.closeAction')}
+            options={closeOptions}
+            value={prefs.close_action}
+            width="280px"
+            onchange={(close_action) => setPrefs({ close_action })}
+          />
+        </div>
+      {/if}
       <div class="row">
         <div>
           <p class="name">{t('settings.quit')}</p>
@@ -135,6 +167,21 @@
           </div>
           <Toggle checked={mic.is_default_source} label={t('settings.systemDefault')} onchange={setDefault} />
         </div>
+        {#if prefs}
+          <div class="row">
+            <div>
+              <p class="name">{t('settings.quantum')}</p>
+              <p class="hint">{t('settings.quantumHint')}</p>
+            </div>
+            <Dropdown
+              label={t('settings.quantum')}
+              options={quantumOptions}
+              value={prefs.quantum_frames}
+              width="280px"
+              onchange={(quantum_frames) => setPrefs({ quantum_frames })}
+            />
+          </div>
+        {/if}
         <div class="row">
           <div>
             <p class="name">{t('settings.format')}</p>

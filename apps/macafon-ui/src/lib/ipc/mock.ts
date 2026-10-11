@@ -32,6 +32,7 @@ import type {
   MicState,
   MixerMeters,
   MixerState,
+  Preferences,
   PresetInfo,
 } from './protocol';
 
@@ -184,6 +185,7 @@ export class MockTransport implements Transport {
   private noiseFloor: number | null = null;
   private userPresets = new Map<string, { name: string; settings: ChainSettings }>();
   private isDefaultSource = false;
+  private prefs: Preferences = { quantum_frames: 128, close_action: 'tray' };
   private autostart: AutostartState = { enabled: true, method: 'systemd' };
   private shortcuts = new Map<string, string>([
     ['mic_mute_toggle', 'Ctrl+Alt+M'],
@@ -552,6 +554,14 @@ export class MockTransport implements Transport {
       case 'apps.forget':
         this.mixer.apps = this.mixer.apps.filter((a) => a.key !== p.app_key || a.streams > 0);
         return this.mixerChanged();
+      case 'prefs.get':
+        return clone(this.prefs);
+      case 'prefs.set': {
+        if (p.quantum_frames != null) this.prefs.quantum_frames = Number(p.quantum_frames);
+        if (p.close_action != null) this.prefs.close_action = p.close_action as Preferences['close_action'];
+        this.emit({ event: 'prefs.changed', data: clone(this.prefs) });
+        return clone(this.prefs);
+      }
       case 'hotkeys.get':
         return this.hotkeys();
       case 'hotkeys.set': {

@@ -148,6 +148,12 @@ const scenarios = {
     await page.locator('.picker .trigger').click();
     await page.waitForTimeout(1200);
   },
+  'settings-prefs': async (page) => {
+    await page.goto(`${base}?screen=settings`);
+    await page.waitForSelector('section');
+    await page.getByRole('button', { name: 'Buffer size' }).click();
+    await page.waitForTimeout(400);
+  },
   'settings-default': async (page) => {
     await page.goto(`${base}?screen=settings`);
     await page.waitForSelector('section');

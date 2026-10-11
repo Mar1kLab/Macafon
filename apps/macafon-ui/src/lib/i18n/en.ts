@@ -433,6 +433,12 @@ export const en = {
       ok: 'None',
       info: '{list} chose their output themselves; move them in their own settings',
     },
+    xruns: {
+      title: 'Dropouts and DSP load',
+      ok: 'No xruns on this audio device since it started; DSP load {1}%',
+      warning: '{0} xruns on this audio device since it started; DSP load {1}%. A larger buffer size in Audio settings helps.',
+      info: 'Not measured: nothing is processing Macafon Microphone right now',
+    },
     processing: {
       title: 'Audio processing',
       ok: 'Quantum {0} at {1} Hz, no overloads in the last 10 minutes',

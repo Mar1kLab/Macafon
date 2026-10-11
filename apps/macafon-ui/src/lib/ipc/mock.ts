@@ -607,6 +607,7 @@ export class MockTransport implements Transport {
               : { id: 'mixer', status: 'info', values: [] },
             { id: 'unmovable_apps', status: 'ok', values: [] },
             { id: 'processing', status: 'ok', values: ['128', '48000', '0'] },
+            { id: 'xruns', status: 'warning', values: ['2', '14'] },
             this.query.get('hotkeys') === 'unavailable'
               ? { id: 'hotkeys', status: 'info', values: [] }
               : { id: 'hotkeys', status: 'ok', values: ['portal'] },

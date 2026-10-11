@@ -54,7 +54,7 @@
   /** Versions, statuses and numbers only: names of devices and apps stay private. */
   async function copy() {
     if (!report) return;
-    const numeric = new Set<DoctorCheckId>(['pipewire', 'session_manager', 'processing']);
+    const numeric = new Set<DoctorCheckId>(['pipewire', 'session_manager', 'processing', 'xruns']);
     const lines = [
       `Macafon ${report.daemon_version} (UI ${__APP_VERSION__})`,
       `PipeWire ${report.pipewire_version ?? '?'} · ${report.session_manager?.replace(/\s*\(.*\)/, '') ?? 'no session manager'}`,

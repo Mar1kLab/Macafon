@@ -212,7 +212,8 @@ impl MicControl {
         if self.commands.is_full() {
             return Err(EngineError::Busy);
         }
-        let command = if self.settings.requires_rebuild(settings) {
+        let rebuild = self.settings.requires_rebuild(settings);
+        let command = if rebuild {
             Command::Replace(Box::new(prepare_processor(
                 settings,
                 self.telemetry.clone(),
@@ -221,6 +222,9 @@ impl MicControl {
             Command::Retune(*settings)
         };
         self.commands.push(command).map_err(|_| EngineError::Busy)?;
+        if rebuild {
+            self.over_budget_cycles = 0;
+        }
         self.settings = *settings;
         Ok(())
     }

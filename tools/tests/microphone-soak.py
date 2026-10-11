@@ -22,7 +22,9 @@ def main():
         parser.error("--seconds must be positive")
     # The helper creates only this test's private daemon, never the user's server.
     smoke.CONFIG = smoke.CONFIG.replace("{ name = libpipewire-module-protocol-native }", "{ name = libpipewire-module-protocol-native }\n    { name = libpipewire-module-profiler }")
-    stats = {"observations": 0, "xrun_baseline": None, "xrun_max": 0, "max_process_ms": 0.0}
+    stats = {"observations": 0, "xrun_baseline": None, "xrun_max": 0, "max_process_ms": 0.0,
+             "max_wake_delay_ms": 0.0, "max_deadline_lateness_ms": 0.0,
+             "over_budget_observations": 0}
     errors = []
     stop_feed = threading.Event()
     with PrivateGraph() as graph:
@@ -81,6 +83,16 @@ def main():
                     stats["xrun_max"] = max(stats["xrun_max"], count)
                     elapsed_ms = max(0, row["finish"] - row["awake"]) / 1_000_000
                     stats["max_process_ms"] = max(stats["max_process_ms"], elapsed_ms)
+                    # Processing duration excludes the delay before the follower gets CPU.
+                    # Both are useful diagnostics; neither alone attributes an xrun's cause.
+                    if row["finish"] >= row["awake"] > 0 and row["signal"] > 0:
+                        budget_ms = 128 / 48000 * 1000
+                        wake_delay_ms = max(0, row["awake"] - row["signal"]) / 1_000_000
+                        deadline_lateness_ms = max(0, (row["finish"] - row["signal"]) / 1_000_000 - budget_ms)
+                        stats["max_wake_delay_ms"] = max(stats["max_wake_delay_ms"], wake_delay_ms)
+                        stats["max_deadline_lateness_ms"] = max(stats["max_deadline_lateness_ms"], deadline_lateness_ms)
+                        if elapsed_ms > 0.8 * budget_ms:
+                            stats["over_budget_observations"] += 1
 
         observer = threading.Thread(target=monitor, daemon=True)
         observer.start()
@@ -131,10 +143,10 @@ def main():
         stats["xruns_during_test"] = stats["xrun_max"] - (stats["xrun_baseline"] or 0)
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(stats, indent=2) + "\n")
+        print(json.dumps(stats, indent=2))
         assert not errors, errors
         assert stats["observations"] > 0, "profiler did not observe the Macafon follower"
         assert stats["xruns_during_test"] == 0, stats
-        print(json.dumps(stats, indent=2))
 
 
 if __name__ == "__main__":

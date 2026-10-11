@@ -404,6 +404,22 @@ impl DaemonHost {
         self.hub.broadcast(&Event::MicChanged(state));
     }
 
+    fn noise_fallback(&mut self, settings: macafon_dsp::ChainSettings) {
+        self.config.mic.chain = settings;
+        if let Some(id) = &self.selected_stable_id {
+            self.config.device_profiles.insert(
+                id.clone(),
+                macafon_config::MicProfile::capture(&self.config.mic),
+            );
+        }
+        self.ab.settings_changed(&settings);
+        self.changed_at = Some(Instant::now());
+        self.changed();
+        self.hub.broadcast(&Event::NoiseFallback {
+            engine: settings.noise_suppression.params.engine,
+        });
+    }
+
     /// Apply a new configuration to the running engine first; keep it only if accepted.
     fn update(&mut self, update: impl FnOnce(&mut Config)) -> Result<MicState, ErrorBody> {
         let mut config = self.config.clone();
@@ -853,6 +869,28 @@ impl MicrophoneHost for DaemonHost {
         self.quit
     }
 
+    fn needs_processing_budget(&self) -> bool {
+        self.config.mic.chain.noise_suppression.enabled
+            && self.config.mic.chain.noise_suppression.params.engine
+                == macafon_dsp::settings::NoiseEngine::Studio
+    }
+
+    fn processing_budget(&mut self, elapsed_ns: u64, budget_ns: u64) {
+        if !self.needs_processing_budget() {
+            return;
+        }
+        let fallback = self.control.as_mut().map(|control| {
+            control
+                .observe_processing_budget(elapsed_ns, budget_ns)
+                .map(|changed| changed.then(|| *control.settings()))
+        });
+        match fallback {
+            Some(Ok(Some(settings))) => self.noise_fallback(settings),
+            Some(Err(error)) => tracing::warn!(%error, "Cannot apply processing budget fallback"),
+            _ => {}
+        }
+    }
+
     fn tick(&mut self) {
         self.refresh_input();
         if let Some(control) = &mut self.control {
@@ -864,21 +902,7 @@ impl MicrophoneHost for DaemonHost {
                 .map(|changed| changed.then(|| *control.settings()))
         });
         match fallback {
-            Some(Ok(Some(settings))) => {
-                self.config.mic.chain = settings;
-                if let Some(id) = &self.selected_stable_id {
-                    self.config.device_profiles.insert(
-                        id.clone(),
-                        macafon_config::MicProfile::capture(&self.config.mic),
-                    );
-                }
-                self.ab.settings_changed(&settings);
-                self.changed_at = Some(Instant::now());
-                self.changed();
-                self.hub.broadcast(&Event::NoiseFallback {
-                    engine: settings.noise_suppression.params.engine,
-                });
-            }
+            Some(Ok(Some(settings))) => self.noise_fallback(settings),
             Some(Err(error)) => tracing::warn!(%error, "Cannot apply noise suppression fallback"),
             _ => {}
         }
@@ -912,6 +936,45 @@ fn select_input<'a>(mic: &'a macafon_config::MicConfig, inputs: &[Device]) -> Op
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn graph_budget_fallback_updates_settings_and_device_profile() {
+        let (sender, _receiver) = macafon_backend_pipewire::control_channel();
+        let mut config = Config::default();
+        config.mic.chain = macafon_dsp::Preset::NoisyRoom.settings();
+        let mut host = DaemonHost::new(
+            config,
+            None,
+            PresetStore::in_memory(),
+            PathBuf::from("unused"),
+            sender,
+            false,
+        );
+        let (control, _rt) =
+            macafon_engine::microphone(&host.config.mic.chain, host.telemetry.clone())
+                .expect("embedded Studio initializes");
+        host.control = Some(control);
+        host.selected_stable_id = Some("test-device".into());
+        host.processing_budget(801, 1000);
+        host.processing_budget(801, 1000);
+        assert!(host.needs_processing_budget());
+        // A cycle at exactly 80% interrupts the streak.
+        host.processing_budget(800, 1000);
+        host.processing_budget(900, 1000);
+        host.processing_budget(900, 1000);
+        assert!(host.needs_processing_budget());
+        host.processing_budget(900, 1000);
+        assert!(!host.needs_processing_budget());
+        assert_eq!(
+            host.config.mic.chain.noise_suppression.params.engine,
+            macafon_dsp::settings::NoiseEngine::Lite
+        );
+        assert_eq!(
+            host.config.device_profiles["test-device"].chain,
+            host.config.mic.chain
+        );
+        assert!(host.changed_at.is_some());
+    }
 
     #[test]
     fn input_switch_invalidates_measurement_and_tracks_actual_connection() {

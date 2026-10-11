@@ -1,10 +1,11 @@
-//! Linux M0 backend. The only unsafe code bridges the unwrapped pw_filter API.
+//! Linux microphone backend; unsafe code bridges PipeWire control and audio FFI.
 
 mod default_source;
 mod filter;
 pub use default_source::{default_source_journal, restore_default_source, set_default_source};
 mod meter;
 mod player;
+mod profiler;
 mod routing;
 
 pub use routing::route_stream;
@@ -35,6 +36,7 @@ pub(crate) struct Connection {
     pub mainloop: pw::main_loop::MainLoopRc,
     pub core: pw::core::CoreRc,
     failure: Rc<RefCell<Option<Error>>>,
+    profiler_available: bool,
     _errors: pw::core::Listener,
 }
 
@@ -42,16 +44,36 @@ impl Connection {
     pub fn new() -> Result<Self, Error> {
         pw::init();
         let mainloop = pw::main_loop::MainLoopRc::new(None)?;
-        Self::with_mainloop(mainloop)
+        Self::with_mainloop(mainloop, false)
     }
 
-    fn with_mainloop(mainloop: pw::main_loop::MainLoopRc) -> Result<Self, Error> {
+    fn with_mainloop(mainloop: pw::main_loop::MainLoopRc, profiling: bool) -> Result<Self, Error> {
         let context = pw::context::ContextRc::new(
             &mainloop,
             Some(properties! {
                 "cpu.zero.denormals" => "true",
             }),
         )?;
+        let profiler_available = if profiling {
+            // SAFETY: the control-thread context is alive; it owns the loaded protocol extension.
+            // Client contexts need this module to marshal profiler events, as in pw-profiler.
+            let module = unsafe {
+                pw::sys::pw_context_load_module(
+                    context.as_raw_ptr(),
+                    c"libpipewire-module-profiler".as_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null_mut(),
+                )
+            };
+            if module.is_null() {
+                tracing::warn!(
+                    "PipeWire profiler extension unavailable; worker overload monitoring remains active"
+                );
+            }
+            !module.is_null()
+        } else {
+            false
+        };
         let core = context
             .connect_rc(None)
             .map_err(|error| Error::Disconnected(error.to_string()))?;
@@ -75,6 +97,7 @@ impl Connection {
             mainloop,
             core,
             failure,
+            profiler_available,
             _errors: listener,
         })
     }
@@ -385,6 +408,14 @@ pub trait MicrophoneHost {
         Ok(())
     }
 
+    /// Subscribe to graph cycle timing only while Studio needs overload detection.
+    fn needs_processing_budget(&self) -> bool {
+        false
+    }
+    /// Completed own-node cycle measurements delivered on the control loop.
+    /// A zero duration resets the streak at subscription start or a sampling gap.
+    fn processing_budget(&mut self, _elapsed_ns: u64, _budget_ns: u64) {}
+
     /// Build the RT chain for a new graph session: at startup and after a server restart.
     fn start_session(&mut self) -> Result<MicRt, Error>;
     /// The session ended; its RT chain has been dropped.
@@ -542,20 +573,26 @@ fn run_session<H: MicrophoneHost + 'static>(
     host: &Rc<RefCell<H>>,
     waiting: Rc<Cell<bool>>,
 ) -> Result<(), Error> {
-    let connection = Connection::with_mainloop(mainloop.clone())?;
+    let connection = Connection::with_mainloop(mainloop.clone(), true)?;
     let processor = host.borrow_mut().start_session()?;
     let filter = Rc::new(filter::Filter::new(
         &connection,
         processor,
         host.borrow().stereo(),
     )?);
-    let registry = connection.core.get_registry()?;
+    let registry = connection.core.get_registry_rc()?;
     let graph = Rc::new(RefCell::new(Graph::default()));
+    let profiler_global = Rc::new(Cell::new(None));
+    let profiler_add = profiler_global.clone();
+    let profiler_remove = profiler_global.clone();
     let graph_add = graph.clone();
     let graph_remove = graph.clone();
     let _registry = registry
         .add_listener_local()
         .global(move |global| {
+            if global.type_ == ObjectType::Profiler {
+                profiler_add.set(Some((global.id, global.version)));
+            }
             let mut graph = graph_add.borrow_mut();
             if let Some(device) = hardware(global) {
                 graph.devices.push(device);
@@ -579,6 +616,12 @@ fn run_session<H: MicrophoneHost + 'static>(
             }
         })
         .global_remove(move |id| {
+            if profiler_remove
+                .get()
+                .is_some_and(|(global, _)| global == id)
+            {
+                profiler_remove.set(None);
+            }
             let mut graph = graph_remove.borrow_mut();
             if graph.link.as_ref().is_some_and(|link| {
                 link.output == id
@@ -609,6 +652,9 @@ fn run_session<H: MicrophoneHost + 'static>(
     // Dropped with the timer, before the connection.
     let player = RefCell::new(None);
     let meters = RefCell::new(Vec::<(String, meter::Meter)>::new());
+    let profiler_available = connection.profiler_available;
+    let profiling = RefCell::new(None::<((u32, u32), profiler::Profiler)>);
+    let profiler_host = host.clone();
     let timer = connection.mainloop.loop_().add_timer(move |_| {
         let filter = &session_filter;
         let rate_hz = graph_rate_hz.load(std::sync::atomic::Ordering::Relaxed);
@@ -641,6 +687,37 @@ fn run_session<H: MicrophoneHost + 'static>(
             }
         }
         let mut host = host.borrow_mut();
+        let active_profiler = profiler_global.get().filter(|_| {
+            profiler_available
+                && host.needs_processing_budget()
+                && state == pw::sys::pw_filter_state_PW_FILTER_STATE_STREAMING
+        });
+        if profiling.borrow().as_ref().map(|(global, _)| *global) != active_profiler {
+            profiling.replace(None);
+            if let Some((id, version)) = active_profiler {
+                // SAFETY: the session filter is alive on this control loop.
+                let node_id = unsafe { pw::sys::pw_filter_get_node_id(filter.pointer()) };
+                let handler = profiler_host.clone();
+                match profiler::Profiler::new(
+                    registry.clone(),
+                    id,
+                    version,
+                    node_id,
+                    move |elapsed_ns, budget_ns| {
+                        handler
+                            .borrow_mut()
+                            .processing_budget(elapsed_ns, budget_ns);
+                    },
+                ) {
+                    Ok(listener) => {
+                        profiling.replace(Some(((id, version), listener)));
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "Cannot monitor microphone processing budget")
+                    }
+                }
+            }
+        }
         match host.player_request() {
             Some(PlayerRequest::Start { player: rt, target }) => {
                 player.replace(None);

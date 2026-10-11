@@ -14,9 +14,9 @@ use std::{
 const SCRATCH_SAMPLES: usize = 8192;
 
 /// Separate port storage keeps graph notifications independent of mutable DSP state.
-struct PortState {
-    output: bool,
-    io: AtomicPtr<pw::spa::sys::spa_io_buffers>,
+pub(crate) struct PortState {
+    pub(crate) output: bool,
+    pub(crate) io: AtomicPtr<pw::spa::sys::spa_io_buffers>,
 }
 
 struct RtState {
@@ -29,13 +29,14 @@ struct RtState {
     output_right: *mut c_void,
     processor: MicRt,
     graph_rate_hz: Arc<AtomicU32>,
+    graph_quantum: Arc<AtomicU32>,
     keep_processing: Arc<AtomicBool>,
     scratch: Box<[f32]>,
 }
 
-struct ControlState {
-    filter: *mut pw::sys::pw_filter,
-    stereo: bool,
+pub(crate) struct ControlState {
+    pub(crate) filter: *mut pw::sys::pw_filter,
+    pub(crate) stereo: bool,
 }
 
 pub(crate) struct Filter {
@@ -47,6 +48,8 @@ pub(crate) struct Filter {
     control_hook: Box<pw::spa::sys::spa_hook>,
     control_state: Box<ControlState>,
     pub graph_rate_hz: Arc<AtomicU32>,
+    /// Samples per graph cycle seen by the last callback (§9.6).
+    pub graph_quantum: Arc<AtomicU32>,
     keep_processing: Arc<AtomicBool>,
     input_channel: Arc<AtomicU32>,
     pub detected_channel: Arc<AtomicU32>,
@@ -55,6 +58,7 @@ pub(crate) struct Filter {
 impl Filter {
     pub fn new(connection: &Connection, processor: MicRt, stereo: bool) -> Result<Self, Error> {
         let graph_rate_hz = Arc::new(AtomicU32::new(0));
+        let graph_quantum = Arc::new(AtomicU32::new(0));
         let keep_processing = Arc::new(AtomicBool::new(false));
         let input_channel = Arc::new(AtomicU32::new(0));
         let detected_channel = Arc::new(AtomicU32::new(1));
@@ -68,6 +72,7 @@ impl Filter {
             output_right: ptr::null_mut(),
             processor,
             graph_rate_hz: graph_rate_hz.clone(),
+            graph_quantum: graph_quantum.clone(),
             keep_processing: keep_processing.clone(),
             scratch: vec![0.0; SCRATCH_SAMPLES].into_boxed_slice(),
         });
@@ -120,6 +125,7 @@ impl Filter {
             _events: events,
             hook,
             graph_rate_hz,
+            graph_quantum,
             keep_processing,
             input_channel,
             detected_channel,
@@ -341,7 +347,7 @@ pub(crate) fn audio_format(sample_format: u32, stereo: bool) -> Result<Vec<u8>, 
     )
 }
 
-fn latency_pod(samples: u32) -> Result<Vec<u8>, Error> {
+pub(crate) fn latency_pod(samples: u32) -> Result<Vec<u8>, Error> {
     use pw::spa::{
         pod::{Object, Property, PropertyFlags, Value, serialize::PodSerializer},
         sys,
@@ -396,6 +402,7 @@ unsafe fn process_inner(data: *mut c_void, position: *mut pw::spa::sys::spa_io_p
     let Ok(count) = u32::try_from(position.clock.duration) else {
         return;
     };
+    state.graph_quantum.store(count, Ordering::Relaxed);
     if count == 0 {
         return;
     }
@@ -579,7 +586,7 @@ unsafe fn reset_output_io(state: &PortState) {
     }
 }
 
-unsafe extern "C" fn io_changed(
+pub(crate) unsafe extern "C" fn io_changed(
     _data: *mut c_void,
     port: *mut c_void,
     id: u32,
@@ -603,7 +610,7 @@ unsafe extern "C" fn io_changed(
     }
 }
 
-unsafe extern "C" fn add_buffer(
+pub(crate) unsafe extern "C" fn add_buffer(
     _data: *mut c_void,
     port: *mut c_void,
     _buffer: *mut pw::sys::pw_buffer,
@@ -619,7 +626,7 @@ unsafe extern "C" fn add_buffer(
 }
 
 // PipeWire invokes parameter notifications on the control loop, never in process().
-unsafe extern "C" fn param_changed(
+pub(crate) unsafe extern "C" fn param_changed(
     data: *mut c_void,
     port: *mut c_void,
     id: u32,

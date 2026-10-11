@@ -1,16 +1,25 @@
 //! Linux microphone backend; unsafe code bridges PipeWire control and audio FFI.
 
+mod channel_node;
 mod default_source;
 mod filter;
-pub use default_source::{default_source_journal, restore_default_source, set_default_source};
+mod inspect;
+mod mixer;
+pub use default_source::{
+    default_sink_journal, default_source_journal, previous_default_sink, restore_default_sink,
+    restore_default_source, set_default_sink, set_default_source,
+};
 mod meter;
 mod player;
 mod profiler;
 mod routing;
 
+pub use channel_node::{CHANNEL_PREFIX, channel_node_name};
+pub use inspect::{Inspection, inspect, version_at_least};
+pub use mixer::{ChannelRequest, MixerHost, PlaybackStream, Route};
 pub use routing::route_stream;
 
-pub use macafon_engine::{AbRt, MicRt};
+pub use macafon_engine::{AbRt, ChannelRt, MicRt};
 use pipewire::{self as pw, properties::properties, types::ObjectType};
 use std::{
     cell::{Cell, RefCell},
@@ -215,7 +224,7 @@ fn device_kind(bus: &str, form_factor: &str, name: &str) -> &'static str {
 }
 
 #[derive(Clone)]
-struct Hardware {
+pub(crate) struct Hardware {
     id: u32,
     serial: Option<String>,
     bus_path: Option<String>,
@@ -242,7 +251,7 @@ fn hardware(
     })
 }
 
-fn enrich_node(node: &mut Node, devices: &[Hardware]) {
+pub(crate) fn enrich_node(node: &mut Node, devices: &[Hardware]) {
     if let Some(device) = devices
         .iter()
         .find(|device| Some(device.id) == node.device_id)
@@ -289,7 +298,7 @@ pub fn list_nodes() -> Result<Vec<Node>, Error> {
 }
 
 #[derive(Clone)]
-struct Port {
+pub(crate) struct Port {
     id: u32,
     node_id: u32,
     direction: String,
@@ -306,12 +315,13 @@ struct InputLink {
 }
 
 #[derive(Default)]
-struct Graph {
+pub(crate) struct Graph {
     nodes: Vec<Node>,
     devices: Vec<Hardware>,
     ports: Vec<Port>,
     link: Option<InputLink>,
     inputs_changed: bool,
+    outputs_changed: bool,
 }
 
 impl Graph {
@@ -397,8 +407,8 @@ pub enum PlayerRequest {
     Stop,
 }
 
-/// The daemon side of the microphone, driven on the PipeWire control loop.
-pub trait MicrophoneHost {
+/// The daemon side of the microphone and the mixer, driven on the PipeWire control loop.
+pub trait MicrophoneHost: MixerHost {
     /// Message type delivered from other threads through [`ControlSender`].
     type Message: 'static;
 
@@ -450,6 +460,8 @@ pub trait MicrophoneHost {
         false
     }
     fn device_meter(&mut self, _name: &str, _peak_dbfs: f32) {}
+    /// Graph rate and quantum seen by the microphone node; polled every 100 ms.
+    fn graph_clock(&mut self, _rate_hz: u32, _quantum: u32) {}
     fn handle(&mut self, message: Self::Message);
     /// Checked after every message: stop the daemon like SIGTERM does (BG-005).
     fn quit_requested(&self) -> bool {
@@ -582,6 +594,14 @@ fn run_session<H: MicrophoneHost + 'static>(
     )?);
     let registry = connection.core.get_registry_rc()?;
     let graph = Rc::new(RefCell::new(Graph::default()));
+    let streams = mixer::SharedStreams::default();
+    let stream_bindings = Rc::new(RefCell::new(mixer::StreamBindings::new()));
+    let metadata_state = Rc::new(RefCell::new(mixer::MetadataState::default()));
+    let bound_metadata = Rc::new(RefCell::new(None::<mixer::BoundMetadata>));
+    let bind_registry = registry.clone();
+    let (bind_streams, bind_bindings) = (streams.clone(), stream_bindings.clone());
+    let (bind_metadata_state, bind_metadata) = (metadata_state.clone(), bound_metadata.clone());
+    let (forget_streams, forget_bindings) = (streams.clone(), stream_bindings.clone());
     let profiler_global = Rc::new(Cell::new(None));
     let profiler_add = profiler_global.clone();
     let profiler_remove = profiler_global.clone();
@@ -600,7 +620,21 @@ fn run_session<H: MicrophoneHost + 'static>(
             }
             if let Some(node) = node(global) {
                 graph.inputs_changed |= is_physical_input(&node);
+                graph.outputs_changed |= mixer::is_output_device(&node);
                 graph.nodes.push(node);
+            }
+            if mixer::is_playback_stream(global) {
+                if let Some(binding) = mixer::bind_stream(&bind_registry, global, &bind_streams) {
+                    bind_bindings.borrow_mut().insert(global.id, binding);
+                }
+            }
+            if global.type_ == ObjectType::Metadata
+                && global
+                    .props
+                    .is_some_and(|p| p.get("metadata.name") == Some("default"))
+            {
+                *bind_metadata.borrow_mut() =
+                    mixer::bind_metadata(&bind_registry, global, &bind_metadata_state);
             }
             if global.type_ == ObjectType::Port {
                 if let Some(props) = global.props {
@@ -631,9 +665,16 @@ fn run_session<H: MicrophoneHost + 'static>(
             }) {
                 graph.link = None;
             }
-            if let Some(node) = graph.nodes.iter().find(|node| node.id == id) {
-                graph.inputs_changed |= is_physical_input(node);
+            if let Some((input, output)) = graph
+                .nodes
+                .iter()
+                .find(|node| node.id == id)
+                .map(|node| (is_physical_input(node), mixer::is_output_device(node)))
+            {
+                graph.inputs_changed |= input;
+                graph.outputs_changed |= output;
             }
+            mixer::forget_stream(&forget_streams, &forget_bindings, id);
             graph.nodes.retain(|n| n.id != id);
             graph.devices.retain(|device| device.id != id);
             graph.ports.retain(|p| p.id != id);
@@ -655,6 +696,13 @@ fn run_session<H: MicrophoneHost + 'static>(
     let profiler_available = connection.profiler_available;
     let profiling = RefCell::new(None::<((u32, u32), profiler::Profiler)>);
     let profiler_host = host.clone();
+    let mixer_session = Rc::new(RefCell::new(mixer::MixerSession::default()));
+    let tick_mixer = mixer_session.clone();
+    let (tick_streams, tick_metadata, tick_bound) = (
+        streams.clone(),
+        metadata_state.clone(),
+        bound_metadata.clone(),
+    );
     let timer = connection.mainloop.loop_().add_timer(move |_| {
         let filter = &session_filter;
         let rate_hz = graph_rate_hz.load(std::sync::atomic::Ordering::Relaxed);
@@ -733,6 +781,15 @@ fn run_session<H: MicrophoneHost + 'static>(
             }
             None => {}
         }
+        let quantum = filter
+            .graph_quantum
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let (rate_hz, quantum) = if rate_hz != 0 && quantum != 0 {
+            (rate_hz, quantum)
+        } else {
+            tick_mixer.borrow().clock().unwrap_or((0, 0))
+        };
+        host.graph_clock(rate_hz, quantum);
         let latency = host.latency_samples();
         if latency != reported_latency.get() {
             match filter.set_latency(latency) {
@@ -823,6 +880,14 @@ fn run_session<H: MicrophoneHost + 'static>(
             tracing::warn!("Microphone disconnected; producing silence");
         }
         host.input_connected(now_connected);
+        tick_mixer.borrow_mut().tick(
+            &mut *host,
+            &core,
+            &mut graph,
+            &tick_streams,
+            &tick_metadata,
+            tick_bound.borrow().as_ref(),
+        );
     });
     timer
         .update_timer(
@@ -833,6 +898,14 @@ fn run_session<H: MicrophoneHost + 'static>(
         .map_err(|error| Error::Message(error.to_string()))?;
     connection.mainloop.run();
     drop(timer);
+    // Quit or a lost server: undo stream targets before the channels disappear (BG-005).
+    let mut mixer_session = mixer_session.borrow_mut();
+    // Only on a clean stop: `check` would consume a disconnect that must trigger a reconnect.
+    if mixer_session.has_channels() && connection.failure.borrow().is_none() {
+        mixer_session.release_all(&streams, bound_metadata.borrow().as_ref());
+        let _ = connection.roundtrip();
+    }
+    *mixer_session = mixer::MixerSession::default();
     connection.check()
 }
 

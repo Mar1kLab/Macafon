@@ -154,6 +154,7 @@
           {channels}
           color={channel.color}
           onmove={(to) => move(app.key, to)}
+          onvolume={(volume_pct) => daemon.setAppVolume(app.key, volume_pct)}
           onmanaged={(managed) => daemon.setMixer(daemon.client.call('apps.set_managed', { app_key: app.key, managed }))}
           onforget={() => daemon.setMixer(daemon.client.call('apps.forget', { app_key: app.key }))}
           {ondragstart}

@@ -86,6 +86,7 @@ interface Results {
   'apps.move': MixerState;
   'apps.set_managed': MixerState;
   'apps.forget': MixerState;
+  'apps.set_volume': MixerState;
   'apps.icon': string | null;
   'doctor.run': DoctorReport;
   'mic.cycle_preset': MicState;

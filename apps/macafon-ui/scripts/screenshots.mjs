@@ -77,6 +77,13 @@ const scenarios = {
     await page.getByRole('button', { name: 'Move Voice: drag, or press ← →' }).focus();
     await page.waitForTimeout(1200);
   },
+  'mixer-app-volume': async (page) => {
+    await page.goto(`${base}?screen=mixer`);
+    await page.waitForSelector('.strip');
+    await page.locator('.chip', { hasText: 'Firefox' }).click();
+    for (let i = 0; i < 4; i++) await page.keyboard.press('PageDown');
+    await page.waitForTimeout(600);
+  },
   'mixer-channel': async (page) => {
     await page.goto(`${base}?screen=mixer`);
     await page.waitForSelector('.strip');

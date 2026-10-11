@@ -55,7 +55,7 @@ function channel(id: string, name: string, color: string, icon: string, settings
 
 function app(key: string, name: string, channel: string, active: boolean, streams = 1): AppState {
   const icon = key.startsWith('bin:') ? key.slice(4) : null;
-  return { key, name, icon, channel, active, streams, managed: true, movable: true };
+  return { key, name, icon, channel, active, streams, managed: true, movable: true, volume_pct: key === 'bin:discord' ? 80 : 100 };
 }
 
 /** Stand-ins for icon theme files (APP-003); other apps keep their letter. */
@@ -549,6 +549,11 @@ export class MockTransport implements Transport {
       case 'apps.set_managed': {
         const target = this.mixer.apps.find((a) => a.key === p.app_key);
         if (target) target.managed = Boolean(p.managed);
+        return this.mixerChanged();
+      }
+      case 'apps.set_volume': {
+        const target = this.mixer.apps.find((a) => a.key === p.app_key);
+        if (target) target.volume_pct = Number(p.volume_pct);
         return this.mixerChanged();
       }
       case 'apps.forget':

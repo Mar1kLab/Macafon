@@ -337,6 +337,31 @@ export class DaemonStore {
     return null;
   }
 
+  /** CH-008 app volume: optimistic, and a drag sends only the latest value per app. */
+  private appVolumePending = new Map<string, number>();
+  private appVolumeInFlight = new Set<string>();
+
+  setAppVolume(key: string, volume_pct: number): void {
+    const mixer = this.mixer;
+    if (mixer) {
+      this.mixer = { ...mixer, apps: mixer.apps.map((a) => (a.key === key ? { ...a, volume_pct } : a)) };
+    }
+    if (this.appVolumeInFlight.has(key)) {
+      this.appVolumePending.set(key, volume_pct);
+      return;
+    }
+    this.appVolumeInFlight.add(key);
+    this.client
+      .call('apps.set_volume', { app_key: key, volume_pct })
+      .catch((error) => this.fail(error))
+      .finally(() => {
+        this.appVolumeInFlight.delete(key);
+        const next = this.appVolumePending.get(key);
+        this.appVolumePending.delete(key);
+        if (next !== undefined) this.setAppVolume(key, next);
+      });
+  }
+
   // --- Chain edits --------------------------------------------------------------------------
 
   /** Optimistically change the chain and send it; rapid changes coalesce into one request. */

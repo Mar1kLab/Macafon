@@ -1,9 +1,11 @@
 <script lang="ts">
   // App chip (design system §6, APP-003): icon, readable name and a pulsing dot while the app
   // plays. Drag it to another channel (APP-004), or focus it and press 1…8 / open its menu
-  // (APP-008). Remembered apps that are not running are dimmed (APP-007).
+  // (APP-008). Remembered apps that are not running are dimmed (APP-007). A click opens the
+  // app's own volume inside the channel (CH-008).
   import { tick } from 'svelte';
   import { Lock } from '@lucide/svelte';
+  import RulerSlider from '../components/RulerSlider.svelte';
   import type { AppState, ChannelState } from '../ipc/protocol';
   import { t } from '../i18n';
   import { daemon } from '../state';
@@ -13,14 +15,17 @@
     channels: ChannelState[];
     color: string;
     onmove: (channel: string) => void;
+    onvolume: (volume_pct: number) => void;
     onmanaged: (managed: boolean) => void;
     onforget: () => void;
     ondragstart: (key: string) => void;
     ondragend: () => void;
   }
 
-  let { app, channels, color, onmove, onmanaged, onforget, ondragstart, ondragend }: Props = $props();
+  let { app, channels, color, onmove, onvolume, onmanaged, onforget, ondragstart, ondragend }: Props = $props();
   let menu = $state<{ x: number; y: number } | null>(null);
+  let volume = $state<{ x: number; y: number } | null>(null);
+  let popover: HTMLDivElement | undefined = $state();
   let list: HTMLUListElement | undefined = $state();
   const fixed = $derived(!app.movable || !app.managed);
   const initial = $derived(app.name.trim().charAt(0).toUpperCase() || '?');
@@ -56,15 +61,35 @@
     setTimeout(() => ghost.remove());
   }
 
+  async function openVolume(chip: HTMLElement) {
+    const rect = chip.getBoundingClientRect();
+    volume = { x: rect.left, y: rect.bottom + 4 };
+    await tick();
+    popover?.querySelector<HTMLElement>('[role="slider"]')?.focus();
+  }
+
+  function closeVolume(refocus: boolean) {
+    volume = null;
+    if (refocus) chipButton?.focus();
+  }
+
+  let chipButton: HTMLButtonElement | undefined = $state();
+
   function choose(action: () => void) {
     menu = null;
     action();
   }
 </script>
 
-<svelte:window onpointerdown={(event) => menu && !list?.contains(event.target as Node) && (menu = null)} />
+<svelte:window
+  onpointerdown={(event) => {
+    if (menu && !list?.contains(event.target as Node)) menu = null;
+    if (volume && !popover?.contains(event.target as Node) && !chipButton?.contains(event.target as Node)) volume = null;
+  }}
+/>
 
 <button
+  bind:this={chipButton}
   class="chip"
   class:inactive={app.streams === 0}
   class:fixed
@@ -74,6 +99,7 @@
   title={!app.movable ? t('mixer.cannotMove') : !app.managed ? t('mixer.unmanagedHint') : t('mixer.chipHint')}
   aria-label="{app.name}{app.active ? ` · ${t('mixer.playing')}` : ''}"
   {onkeydown}
+  onclick={(event) => (volume ? closeVolume(false) : void openVolume(event.currentTarget as HTMLElement))}
   oncontextmenu={(event) => {
     event.preventDefault();
     void openMenu(event.clientX, event.clientY);
@@ -94,9 +120,40 @@
     <span class="icon" aria-hidden="true">{initial}</span>
   {/if}
   <span class="name">{app.name}</span>
+  {#if app.volume_pct < 100}<span class="vol">{Math.round(app.volume_pct)}%</span>{/if}
   {#if fixed}<Lock size={11} strokeWidth={1.5} />{/if}
   {#if app.active}<span class="dot" aria-hidden="true"></span>{/if}
 </button>
+
+{#if volume}
+  <div
+    class="volume"
+    role="dialog"
+    aria-label={t('mixer.appVolume', { name: app.name })}
+    tabindex="-1"
+    bind:this={popover}
+    style:left="{volume.x}px"
+    style:top="{volume.y}px"
+    onkeydown={(event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeVolume(true);
+      }
+    }}
+  >
+    <RulerSlider
+      value={app.volume_pct}
+      min={0}
+      max={100}
+      step={1}
+      defaultValue={100}
+      label={t('mixer.appVolumeShort')}
+      format={(v) => `${Math.round(v)}%`}
+      {color}
+      onchange={onvolume}
+    />
+  </div>
+{/if}
 
 {#if menu}
   <ul class="menu" role="menu" bind:this={list} style:left="{menu.x}px" style:top="{menu.y}px">
@@ -174,6 +231,21 @@
   .icon.image {
     object-fit: contain;
     background: none;
+  }
+
+  .vol {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .volume {
+    position: fixed;
+    z-index: 40;
+    width: 260px;
+    padding: 10px 12px;
+    background: var(--bg-raised);
+    border: 1px solid var(--line-strong);
   }
 
   .name {

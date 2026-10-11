@@ -3,13 +3,14 @@
   // the setup guide (§9.2), fallback microphone (MIC-006), input channel (MIC-004), system
   // default microphone (MIC-012), virtual microphone format (MIC-011), quit (BG-005), about.
   // Mixer: known-app sorting (APP-006) and the output priority list (OUT-002).
-  // Doctor (§9.6). Hotkeys arrive later in M2.
+  // Hotkeys (HK-002, HK-004). Doctor (§9.6).
   import Toggle from '../lib/components/Toggle.svelte';
   import Dropdown from '../lib/components/Dropdown.svelte';
   import Dialog from '../lib/components/Dialog.svelte';
   import { ArrowDown, ArrowUp, X } from '@lucide/svelte';
   import { daemon } from '../lib/state';
   import Doctor from '../lib/settings/Doctor.svelte';
+  import Hotkeys from '../lib/settings/Hotkeys.svelte';
   import { t } from '../lib/i18n';
   import type { InputChannel } from '../lib/ipc/protocol';
 
@@ -191,6 +192,13 @@
             />
           {/if}
         </div>
+      </section>
+    {/if}
+
+    {#if daemon.hotkeys}
+      <section>
+        <h2 class="hud-label">{t('settings.hotkeys.title')}</h2>
+        <Hotkeys />
       </section>
     {/if}
 

@@ -10,6 +10,7 @@ import type {
   ChannelSettings,
   Device,
   Event,
+  HotkeysState,
   MicState,
   MixerState,
   PresetInfo,
@@ -40,6 +41,7 @@ export class DaemonStore {
   calibration = $state.raw<CalibrationState>({ state: 'idle' });
   autostart = $state.raw<AutostartState | null>(null);
   mixer = $state.raw<MixerState | null>(null);
+  hotkeys = $state.raw<HotkeysState | null>(null);
   toasts = $state<Toast[]>([]);
   canUndo = $state(false);
   /** Bumped to ask the TEST panel to record a clip (calibration → "Listen A/B"). */
@@ -100,7 +102,7 @@ export class DaemonStore {
 
   private async load() {
     try {
-      const [mic, presets, devices, ab, calibration, autostart, mixer] = await Promise.all([
+      const [mic, presets, devices, ab, calibration, autostart, mixer, hotkeys] = await Promise.all([
         this.client.call('mic.get'),
         this.client.call('presets.list'),
         this.client.call('devices.list'),
@@ -108,8 +110,10 @@ export class DaemonStore {
         this.client.call('calibration.get'),
         this.client.call('autostart.get'),
         this.client.call('mixer.get'),
+        this.client.call('hotkeys.get'),
       ]);
       this.mixer = mixer;
+      this.hotkeys = hotkeys;
       this.applyMic(mic);
       this.presets = presets;
       this.devices = devices;
@@ -177,6 +181,9 @@ export class DaemonStore {
         break;
       case 'mixer.changed':
         this.applyMixer(event.data);
+        break;
+      case 'hotkeys.changed':
+        this.hotkeys = event.data;
         break;
       case 'mixer.meters':
         mixerMeterBus.update(event.data);

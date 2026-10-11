@@ -99,6 +99,24 @@ const scenarios = {
     await page.locator('.doctor').scrollIntoViewIfNeeded();
     await page.waitForTimeout(400);
   },
+  hotkeys: async (page) => {
+    await page.goto(`${base}?screen=settings`);
+    await page.waitForSelector('.hotkeys li');
+    // A conflict: Ctrl+Alt+M already toggles the microphone.
+    await page.getByRole('button', { name: 'Set shortcut for Toggle bypass' }).click();
+    await page.keyboard.press('Control+Alt+KeyM');
+    await page.getByRole('button', { name: 'Set shortcut for Voice: Toggle mute' }).click();
+    await page.keyboard.down('Control');
+    await page.keyboard.down('Shift');
+    await page.locator('.hotkeys').scrollIntoViewIfNeeded();
+    await page.waitForTimeout(400);
+  },
+  'hotkeys-unavailable': async (page) => {
+    await page.goto(`${base}?screen=settings&hotkeys=unavailable`);
+    await page.waitForSelector('.hotkeys li');
+    await page.locator('.hotkeys').scrollIntoViewIfNeeded();
+    await page.waitForTimeout(400);
+  },
   'mixer-new': async (page) => {
     await page.goto(`${base}?screen=mixer`);
     await page.waitForSelector('.strip');

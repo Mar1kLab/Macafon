@@ -2,7 +2,8 @@
 // presets, live meters, calibration and A/B, so the UI runs without Tauri or PipeWire.
 // `?daemon=down` simulates a daemon that cannot be started, `?mic=disconnected` an unplugged
 // microphone, `?config=recovered` a config reset at startup, `?overload` a Studio overload,
-// `?mixer=off` a mixer that is not turned on yet.
+// `?mixer=off` a mixer that is not turned on yet, `?hotkeys=unavailable` a desktop without a
+// global shortcut service.
 
 import { DaemonError, type DaemonStatus, type Transport } from './client';
 import {
@@ -24,6 +25,8 @@ import type {
   ChannelState,
   Device,
   Event,
+  HotkeyBinding,
+  HotkeysState,
   InputChannel,
   Meters,
   MicState,
@@ -86,6 +89,31 @@ function initialMixer(enabled: boolean): MixerState {
 }
 const VERSION = '0.1.0-mock';
 
+const GLOBAL_HOTKEYS = ['mic_mute_toggle', 'push_to_talk', 'push_to_mute', 'bypass_toggle', 'preset_next', 'preset_previous'];
+
+/** HK-004 command for an action, as `HotkeyAction::command` builds it. */
+function hotkeyCommand(action: string): string {
+  const [kind, channel] = action.split('.');
+  switch (kind) {
+    case 'mic_mute_toggle':
+      return 'macafon ctl mic mute toggle';
+    case 'bypass_toggle':
+      return 'macafon ctl mic bypass toggle';
+    case 'preset_next':
+      return 'macafon ctl preset next';
+    case 'preset_previous':
+      return 'macafon ctl preset previous';
+    case 'channel_volume_up':
+      return `macafon ctl channel ${channel} volume +5`;
+    case 'channel_volume_down':
+      return `macafon ctl channel ${channel} volume -5`;
+    case 'channel_mute':
+      return `macafon ctl channel ${channel} mute`;
+    default:
+      return '';
+  }
+}
+
 function clone<T>(value: T): T {
   return structuredClone(value);
 }
@@ -143,6 +171,12 @@ export class MockTransport implements Transport {
   private noiseFloor: number | null = null;
   private userPresets = new Map<string, { name: string; settings: ChainSettings }>();
   private autostart: AutostartState = { enabled: true, method: 'systemd' };
+  private shortcuts = new Map<string, string>([
+    ['mic_mute_toggle', 'Ctrl+Alt+M'],
+    ['push_to_talk', 'F9'],
+    ['channel_volume_up.music', 'Ctrl+Alt+PageUp'],
+    ['channel_volume_down.music', 'Ctrl+Alt+PageDown'],
+  ]);
 
   private mixer: MixerState = initialMixer(this.query.get('mixer') !== 'off');
   private meterTimer: number | undefined;
@@ -248,6 +282,27 @@ export class MockTransport implements Transport {
 
   private presetsChanged() {
     this.emit({ event: 'presets.changed', data: this.presets() });
+  }
+
+  private hotkeys(): HotkeysState {
+    const actions = [
+      ...GLOBAL_HOTKEYS,
+      ...this.mixer.channels.flatMap((c) => [`channel_volume_up.${c.id}`, `channel_volume_down.${c.id}`, `channel_mute.${c.id}`]),
+    ];
+    const portal = this.query.get('hotkeys') !== 'unavailable';
+    return {
+      backend: portal ? 'portal' : 'unavailable',
+      bindings: actions.map(
+        (action): HotkeyBinding => ({
+          action,
+          shortcut: this.shortcuts.get(action) ?? null,
+          // KDE shows its own spelling of what it registered.
+          system_trigger: portal && this.shortcuts.has(action) ? (this.shortcuts.get(action) ?? null) : null,
+          error: null,
+          command: hotkeyCommand(action),
+        }),
+      ),
+    };
   }
 
   private abChanged(): AbState {
@@ -473,6 +528,22 @@ export class MockTransport implements Transport {
       case 'apps.forget':
         this.mixer.apps = this.mixer.apps.filter((a) => a.key !== p.app_key || a.streams > 0);
         return this.mixerChanged();
+      case 'hotkeys.get':
+        return this.hotkeys();
+      case 'hotkeys.set': {
+        const action = String(p.action);
+        const shortcut = (p.shortcut as string | null) ?? null;
+        if (shortcut === null) {
+          this.shortcuts.delete(action);
+        } else {
+          const other = [...this.shortcuts].find(([a, s]) => a !== action && s === shortcut);
+          if (other) throw new DaemonError('already_exists', `${shortcut} is already used by ${other[0]}`);
+          this.shortcuts.set(action, shortcut);
+        }
+        const state = this.hotkeys();
+        this.emit({ event: 'hotkeys.changed', data: clone(state) });
+        return state;
+      }
       case 'doctor.run':
         return {
           daemon_version: VERSION,
@@ -493,7 +564,9 @@ export class MockTransport implements Transport {
               : { id: 'mixer', status: 'info', values: [] },
             { id: 'unmovable_apps', status: 'ok', values: [] },
             { id: 'processing', status: 'ok', values: ['128', '48000', '0'] },
-            { id: 'hotkeys', status: 'info', values: [] },
+            this.query.get('hotkeys') === 'unavailable'
+              ? { id: 'hotkeys', status: 'info', values: [] }
+              : { id: 'hotkeys', status: 'ok', values: ['portal'] },
           ],
         };
       case 'devices.list':

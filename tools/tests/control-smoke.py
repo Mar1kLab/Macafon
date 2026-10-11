@@ -328,8 +328,12 @@ def main():
 
             primary = microphone("test_primary", 0.5)
             fallback = microphone("test_fallback", 0.2)
+            # Each physical microphone now restores its own chain profile.
+            # Set both profiles to Raw so this check measures routing alone.
+            ctl("device", "test_fallback")
             ctl("preset", "raw")
             ctl("device", "test_primary")
+            ctl("preset", "raw")
             ctl("fallback-device", "test_fallback")
             smoke.wait_for(lambda: active("test_primary"), "primary selected")
             assert 0.45 < record() < 0.55, "primary priority failed"

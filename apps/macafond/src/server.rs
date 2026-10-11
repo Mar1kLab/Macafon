@@ -12,7 +12,7 @@ use macafon_ipc::{
     ErrorBody, ErrorCode, Event, Hello, MAX_LINE_BYTES, MAX_METER_HZ, Outcome, PROTOCOL_VERSION,
     Request, Response, ServerMessage, decode_request, encode,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -28,6 +28,7 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 struct Clients {
     /// Clients that completed `hello`, with their meter rate if subscribed.
     registered: HashMap<u64, (mpsc::SyncSender<String>, Option<u32>)>,
+    device_meters: HashSet<u64>,
 }
 
 pub struct Hub {
@@ -82,8 +83,29 @@ impl Hub {
         self.meters_wanted.notify_all();
     }
 
+    pub fn device_metering(&self) -> bool {
+        !self.clients().device_meters.is_empty()
+    }
+
+    pub fn device_meter(&self, name: &str, peak_dbfs: f32) {
+        let Ok(line) = encode(&ServerMessage::Event(Event::DeviceMeter {
+            name: name.to_owned(),
+            peak_dbfs,
+        })) else {
+            return;
+        };
+        let clients = self.clients();
+        for client in &clients.device_meters {
+            if let Some((out, _)) = clients.registered.get(client) {
+                let _ = out.try_send(line.clone());
+            }
+        }
+    }
+
     fn remove(&self, client: u64) {
-        self.clients().registered.remove(&client);
+        let mut clients = self.clients();
+        clients.registered.remove(&client);
+        clients.device_meters.remove(&client);
         self.meters_wanted.notify_all();
     }
 
@@ -195,6 +217,7 @@ fn serve(stream: UnixStream, hub: &Hub, control: &ControlSender<ControlMessage>)
     }
     let mut reader = BufReader::new(stream);
     let mut greeted = false;
+    let mut ui = false;
     loop {
         let mut line = String::new();
         match (&mut reader)
@@ -230,6 +253,7 @@ fn serve(stream: UnixStream, hub: &Hub, control: &ControlSender<ControlMessage>)
                 } else {
                     if !greeted {
                         greeted = true;
+                        ui = client == "macafon-ui" || client.starts_with("macafon-ui-");
                         hub.clients().registered.insert(id, (out.clone(), None));
                         tracing::debug!(client, id, "IPC client connected");
                     }
@@ -241,6 +265,14 @@ fn serve(stream: UnixStream, hub: &Hub, control: &ControlSender<ControlMessage>)
                 }
             }
             _ if !greeted => Err(ErrorBody::new(ErrorCode::BadRequest, "send hello first")),
+            Request::DevicesSubscribe => {
+                hub.clients().device_meters.insert(id);
+                Ok(serde_json::Value::Null)
+            }
+            Request::DevicesUnsubscribe => {
+                hub.clients().device_meters.remove(&id);
+                Ok(serde_json::Value::Null)
+            }
             Request::MetersSubscribe { hz } => {
                 hub.set_meter_rate(id, Some(hz.clamp(1, MAX_METER_HZ)));
                 Ok(serde_json::Value::Null)
@@ -254,6 +286,9 @@ fn serve(stream: UnixStream, hub: &Hub, control: &ControlSender<ControlMessage>)
         send(&out, Some(envelope.id), reply);
     }
     hub.remove(id);
+    if ui {
+        let _ = control.send(ControlMessage::Disconnected);
+    }
 }
 
 fn forward(
@@ -263,7 +298,7 @@ fn forward(
     let (reply, outcome) = mpsc::channel();
     let internal = |message: &str| ErrorBody::new(ErrorCode::Internal, message);
     control
-        .send(ControlMessage { request, reply })
+        .send(ControlMessage::Request { request, reply })
         .map_err(|_| internal("daemon is shutting down"))?;
     match outcome.recv_timeout(REPLY_TIMEOUT) {
         Ok(Outcome::Result(value)) => Ok(value),

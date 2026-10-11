@@ -2,9 +2,11 @@
 //! and its waveform. The clip lives in memory only (AB-007).
 
 use macafon_backend_pipewire::PlayerRequest;
-use macafon_dsp::{ChainSettings, MicrophoneProcessor, SAMPLE_RATE_HZ};
+use macafon_dsp::{ChainSettings, SAMPLE_RATE_HZ};
 use macafon_engine::{AbControl, MicControl};
 use macafon_ipc::{AbRecording, AbSide, AbState, AbWaveform, ErrorBody, ErrorCode};
+use std::io::Write;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -12,8 +14,6 @@ use std::time::{Duration, Instant};
 const MIN_SECONDS: u32 = 3;
 const MAX_SECONDS: u32 = 30;
 const DEFAULT_SECONDS: u32 = 10;
-/// The loop seam is faded so it does not click.
-const EDGE_FADE_SAMPLES: usize = SAMPLE_RATE_HZ as usize / 100;
 const STALL_TIMEOUT: Duration = Duration::from_secs(2);
 pub const WAVEFORM_POINTS: std::ops::RangeInclusive<u32> = 16..=4096;
 
@@ -145,13 +145,6 @@ impl Ab {
         };
         let mut samples = recording.samples;
         samples.truncate(recording.max_samples);
-        let fade = EDGE_FADE_SAMPLES.min(samples.len() / 2);
-        for index in 0..fade {
-            let gain = index as f32 / fade as f32;
-            samples[index] *= gain;
-            let last = samples.len() - 1 - index;
-            samples[last] *= gain;
-        }
         tracing::info!(
             seconds = samples.len() as f32 / SAMPLE_RATE_HZ as f32,
             "A/B clip recorded"
@@ -253,6 +246,52 @@ impl Ab {
         }
     }
 
+    /// Forget all captured audio when the UI connection closes.
+    pub fn clear(&mut self, control: Option<&mut MicControl>) {
+        if self.recording.is_some() {
+            if let Some(control) = control {
+                control.stop_capture();
+                // The capture ring may still hold microphone samples; drain it before dropping.
+                let mut discarded = Vec::new();
+                let _ = control.read_capture(&mut discarded);
+            }
+        }
+        self.recording = None;
+        self.clip = None;
+        self.stop();
+        self.device = None;
+    }
+
+    /// Explicit export only; the clip otherwise never leaves memory.
+    pub fn export(
+        &self,
+        settings: &ChainSettings,
+        side: AbSide,
+        path: &Path,
+    ) -> Result<(), ErrorBody> {
+        let clip = self
+            .clip
+            .as_ref()
+            .ok_or_else(|| ErrorBody::new(ErrorCode::NotFound, "record a clip first"))?;
+        let processed;
+        let samples = match side {
+            AbSide::A => clip.as_ref(),
+            AbSide::B => {
+                processed = render_b(clip, settings)?;
+                processed.as_slice()
+            }
+        };
+        // Avoid silently replacing another recording or following an existing symlink.
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))?;
+        write_wav(&mut file, samples)
+            .and_then(|()| file.sync_all())
+            .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))
+    }
+
     /// AB-006: peaks of A and of B through `settings`, time-aligned.
     pub fn waveform(&self, settings: &ChainSettings, points: u32) -> Result<AbWaveform, ErrorBody> {
         let clip = self
@@ -266,21 +305,10 @@ impl Ab {
                 WAVEFORM_POINTS.end()
             )));
         }
-        let settings = ChainSettings {
-            muted: false,
-            ..*settings
-        };
-        let mut processor =
-            MicrophoneProcessor::new(&settings).map_err(|error| invalid(error.to_string()))?;
-        let latency = processor.latency_samples() as usize;
-        let mut processed = clip.to_vec();
-        processed.resize(clip.len() + latency, 0.0);
-        processed
-            .chunks_mut(macafon_dsp::FRAME_SAMPLES)
-            .for_each(|block| processor.process(block));
+        let processed = render_b(clip, settings)?;
         Ok(AbWaveform {
             a: peaks(clip, points as usize),
-            b: peaks(&processed[latency..], points as usize),
+            b: peaks(&processed, points as usize),
         })
     }
 }
@@ -297,4 +325,68 @@ fn peaks(samples: &[f32], points: usize) -> Vec<f32> {
                 .fold(0.0f32, |peak, x| peak.max(x.abs()))
         })
         .collect()
+}
+
+fn render_b(clip: &[f32], settings: &ChainSettings) -> Result<Vec<f32>, ErrorBody> {
+    let settings = ChainSettings {
+        muted: false,
+        ..*settings
+    };
+    let mut processor = macafon_engine::prepare_offline_processor(&settings, Arc::default())
+        .map_err(|error| invalid(error.to_string()))?;
+    let latency = processor.latency_samples() as usize;
+    let mut processed = clip.to_vec();
+    processed.resize(clip.len() + latency, 0.0);
+    processed
+        .chunks_mut(macafon_dsp::FRAME_SAMPLES)
+        .for_each(|block| processor.process(block));
+    processed.drain(..latency);
+    Ok(processed)
+}
+
+/// Mono IEEE float WAV at the graph sample rate, preserving the raw samples exactly.
+fn write_wav(writer: &mut impl Write, samples: &[f32]) -> std::io::Result<()> {
+    let bytes = u32::try_from(samples.len())
+        .ok()
+        .and_then(|length| length.checked_mul(4))
+        .ok_or_else(|| std::io::Error::other("WAV too large"))?;
+    writer.write_all(b"RIFF")?;
+    writer.write_all(&(48 + bytes).to_le_bytes())?;
+    writer.write_all(b"WAVEfmt ")?;
+    writer.write_all(&16u32.to_le_bytes())?;
+    writer.write_all(&3u16.to_le_bytes())?;
+    writer.write_all(&1u16.to_le_bytes())?;
+    writer.write_all(&SAMPLE_RATE_HZ.to_le_bytes())?;
+    writer.write_all(&(SAMPLE_RATE_HZ * 4).to_le_bytes())?;
+    writer.write_all(&4u16.to_le_bytes())?;
+    writer.write_all(&32u16.to_le_bytes())?;
+    writer.write_all(b"fact")?;
+    writer.write_all(&4u32.to_le_bytes())?;
+    writer.write_all(&(bytes / 4).to_le_bytes())?;
+    writer.write_all(b"data")?;
+    writer.write_all(&bytes.to_le_bytes())?;
+    for sample in samples {
+        writer.write_all(&sample.to_le_bytes())?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn wav_export_preserves_samples_and_clear_forgets_clip() {
+        let mut ab = Ab {
+            clip: Some(vec![0.25, -0.75].into()),
+            ..Ab::default()
+        };
+        let mut bytes = Vec::new();
+        write_wav(&mut bytes, ab.clip.as_ref().unwrap()).unwrap();
+        assert_eq!(&bytes[..4], b"RIFF");
+        assert_eq!(u16::from_le_bytes(bytes[20..22].try_into().unwrap()), 3);
+        assert_eq!(&bytes[56..60], &0.25f32.to_le_bytes());
+        assert_eq!(&bytes[60..64], &(-0.75f32).to_le_bytes());
+        ab.clear(None);
+        assert!(ab.state().clip_ms.is_none());
+    }
 }

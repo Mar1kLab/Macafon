@@ -22,7 +22,9 @@ fn succeeds(args: &[&str]) -> bool {
 }
 
 fn systemd_usable() -> bool {
-    std::env::var_os("MACAFON_NO_SYSTEMD").is_none_or(|value| value.is_empty() || value == "0")
+    std::env::var_os("APPIMAGE").is_none_or(|value| value.is_empty())
+        && std::env::var_os("MACAFON_NO_SYSTEMD")
+            .is_none_or(|value| value.is_empty() || value == "0")
         && succeeds(&["cat", UNIT])
         && succeeds(&["is-active", "--quiet", "graphical-session.target"])
 }
@@ -58,18 +60,19 @@ fn exec_argument(argument: &str) -> String {
     quoted.replace('%', "%%")
 }
 
-fn desktop_entry(executable: &Path) -> String {
+fn desktop_entry(executable: &Path, appimage: bool) -> String {
     format!(
         "[Desktop Entry]\n\
          Type=Application\n\
          Name=Macafon\n\
          Comment=Macafon audio daemon: virtual microphone and tray icon\n\
-         Exec={} run\n\
+         Exec={} {}\n\
          Icon=audio-input-microphone\n\
          Terminal=false\n\
          NoDisplay=true\n\
          X-GNOME-Autostart-enabled=true\n",
-        exec_argument(&executable.to_string_lossy())
+        exec_argument(&executable.to_string_lossy()),
+        if appimage { "daemon" } else { "run" }
     )
 }
 
@@ -90,11 +93,16 @@ pub fn set(enabled: bool) -> Result<AutostartState, String> {
     if enabled && systemd {
         run(&["enable", UNIT])?;
     } else if enabled {
-        let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+        // An AppImage mount vanishes after exit. Store the original image, not its mount.
+        let image = std::env::var_os("APPIMAGE").filter(|path| !path.is_empty());
+        let executable = match &image {
+            Some(path) => PathBuf::from(path),
+            None => std::env::current_exe().map_err(|error| error.to_string())?,
+        };
         if let Some(directory) = desktop.parent() {
             std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
         }
-        std::fs::write(&desktop, desktop_entry(&executable))
+        std::fs::write(&desktop, desktop_entry(&executable, image.is_some()))
             .map_err(|error| format!("{}: {error}", desktop.display()))?;
     }
     // Only one mechanism stays active.
@@ -133,8 +141,12 @@ mod tests {
             "\"/home/a b/\\$x\\\"100%%\""
         );
         assert!(
-            desktop_entry(Path::new("/opt/mic eq/macafond"))
+            desktop_entry(Path::new("/opt/mic eq/macafond"), false)
                 .contains("Exec=\"/opt/mic eq/macafond\" run\n")
+        );
+        assert!(
+            desktop_entry(Path::new("/home/user/Macafon.AppImage"), true)
+                .contains("Exec=/home/user/Macafon.AppImage daemon\n")
         );
     }
 }

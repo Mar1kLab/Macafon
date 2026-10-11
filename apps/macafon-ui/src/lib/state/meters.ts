@@ -26,7 +26,9 @@ export const meterBus = {
   },
 };
 
-export type MeterKey = keyof Meters;
+export type MeterKey = {
+  [K in keyof Meters]-?: Meters[K] extends number ? K : never;
+}[keyof Meters];
 
 const PEAK_HOLD_MS = 1000;
 const FALL_DB_PER_S = 20;

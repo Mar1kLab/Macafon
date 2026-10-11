@@ -23,13 +23,18 @@ use std::time::{Duration, Instant};
 /// CFG-001: write the config 500 ms after the last change.
 const SAVE_DEBOUNCE: Duration = Duration::from_millis(500);
 
-pub struct ControlMessage {
-    pub request: Request,
-    pub reply: mpsc::Sender<Outcome>,
+#[allow(clippy::large_enum_variant)] // One transient request; settings are already bounded by the protocol.
+pub enum ControlMessage {
+    Request {
+        request: Request,
+        reply: mpsc::Sender<Outcome>,
+    },
+    Disconnected,
 }
 
 pub struct DaemonHost {
     config: Config,
+    config_recovery: Option<macafon_ipc::ConfigRecovery>,
     store: Option<Store>,
     presets: PresetStore,
     changed_at: Option<Instant>,
@@ -38,9 +43,11 @@ pub struct DaemonHost {
     inputs: Vec<Device>,
     input_connected: bool,
     selected_device: Option<String>,
+    selected_stable_id: Option<String>,
     active_device: Option<String>,
     recording: Option<Recording>,
     calibration: CalibrationState,
+    detected_channel: macafon_dsp::InputChannel,
     ab: Ab,
     hub: Arc<Hub>,
     tray: Option<Tray>,
@@ -67,8 +74,10 @@ impl DaemonHost {
         let selected_device = config.mic.device.clone();
         Self {
             selected_device,
+            selected_stable_id: None,
             active_device: None,
             config,
+            config_recovery: None,
             store,
             presets,
             changed_at: None,
@@ -78,6 +87,7 @@ impl DaemonHost {
             input_connected: false,
             recording: None,
             calibration: CalibrationState::Idle,
+            detected_channel: macafon_dsp::InputChannel::Left,
             ab: Ab::default(),
             hub,
             tray: None,
@@ -86,6 +96,10 @@ impl DaemonHost {
             server: Some((socket, control)),
             _socket: None,
         }
+    }
+
+    pub fn set_config_recovery(&mut self, recovery: Option<macafon_ipc::ConfigRecovery>) {
+        self.config_recovery = recovery;
     }
 
     /// Persist pending changes now (shutdown).
@@ -141,6 +155,8 @@ impl DaemonHost {
         });
         MicState {
             stereo: self.config.mic.stereo,
+            input_channel: self.config.mic.input_channel,
+            config_recovery: self.config_recovery.clone(),
             settings: self.config.mic.chain,
             preset: self.config.mic.preset.clone(),
             preset_modified,
@@ -155,7 +171,52 @@ impl DaemonHost {
 
     fn refresh_input(&mut self) {
         let selected = select_input(&self.config.mic, &self.inputs).map(str::to_owned);
-        let selection_changed = self.selected_device != selected;
+        let stable_id = selected
+            .as_ref()
+            .and_then(|name| self.inputs.iter().find(|d| &d.name == name))
+            .map(|d| {
+                if d.stable_id.is_empty() {
+                    d.name.clone()
+                } else {
+                    d.stable_id.clone()
+                }
+            });
+        let selection_changed =
+            self.selected_device != selected || self.selected_stable_id != stable_id;
+        if selection_changed {
+            let previous_id = self.selected_stable_id.take();
+            if let Some(previous) = &previous_id {
+                self.config.device_profiles.insert(
+                    previous.clone(),
+                    macafon_config::MicProfile::capture(&self.config.mic),
+                );
+            }
+            if let (Some(id), Some(name)) = (&stable_id, &selected) {
+                if let Some(profile) = self.config.device_profiles.get(id).cloned() {
+                    let result = self.update(|config| profile.apply(&mut config.mic, name));
+                    if let Err(error) = result {
+                        self.selected_stable_id = previous_id;
+                        tracing::warn!(%error, "Cannot load device profile yet");
+                        return;
+                    }
+                } else if previous_id.is_some() {
+                    let defaults = macafon_config::MicConfig::default();
+                    let result = self.update(|config| {
+                        config.mic.chain = defaults.chain;
+                        config.mic.preset = defaults.preset;
+                        config.mic.noise_floor_dbfs = None;
+                        config.mic.noise_floor_device = None;
+                        config.mic.input_channel = defaults.input_channel;
+                    });
+                    if let Err(error) = result {
+                        self.selected_stable_id = previous_id;
+                        tracing::warn!(%error, "Cannot initialize device profile yet");
+                        return;
+                    }
+                }
+            }
+            self.selected_stable_id = stable_id;
+        }
         let floor_invalid = self.config.mic.noise_floor_dbfs.is_some()
             && self.config.mic.noise_floor_device != selected;
         if floor_invalid {
@@ -300,10 +361,14 @@ impl DaemonHost {
                 }
             };
         let measured_device = self.active_device.clone();
+        let detected_channel = self.detected_channel;
         let applied = self.update(|config| {
             config.mic.chain = settings;
             config.mic.noise_floor_dbfs = Some(report.noise_floor_dbfs);
             config.mic.noise_floor_device = measured_device;
+            if config.mic.input_channel == macafon_dsp::InputChannel::Auto {
+                config.mic.input_channel = detected_channel;
+            }
         });
         match applied {
             Ok(_) => {
@@ -356,11 +421,19 @@ impl DaemonHost {
                         ErrorBody::new(ErrorCode::InvalidParams, error.to_string())
                     }
                     EngineError::Busy => ErrorBody::new(ErrorCode::Busy, error.to_string()),
+                    EngineError::Build(_) | EngineError::Studio(_) => {
+                        ErrorBody::new(ErrorCode::Internal, error.to_string())
+                    }
                 })?;
         }
         if config != self.config {
             if config.mic.chain != self.config.mic.chain {
                 self.ab.settings_changed(&config.mic.chain);
+            }
+            if let Some(id) = &self.selected_stable_id {
+                config
+                    .device_profiles
+                    .insert(id.clone(), macafon_config::MicProfile::capture(&config.mic));
             }
             self.config = config;
             self.changed_at = Some(Instant::now());
@@ -485,14 +558,13 @@ impl DaemonHost {
             }
             Request::MicSetDevice { device } => {
                 self.update(|config| {
-                    if config.mic.device != device {
-                        config.mic.noise_floor_dbfs = None;
-                        config.mic.noise_floor_device = None;
-                    }
                     config.mic.device = device;
                 })?;
                 self.refresh_input();
                 self.state()
+            }
+            Request::MicSetInputChannel { channel } => {
+                self.update(|config| config.mic.input_channel = channel)?
             }
             Request::MicSetFallbackDevice { device } => {
                 self.update(|config| config.mic.fallback_device = device)?;
@@ -508,6 +580,51 @@ impl DaemonHost {
             | Request::PresetsExport { .. }
             | Request::PresetsImport { .. }) => return self.respond_presets(request),
             Request::DevicesList => return Ok(serde_json::json!(self.inputs)),
+            Request::MicSetDefaultSource { confirmed } => {
+                if !confirmed {
+                    return Err(ErrorBody::new(
+                        ErrorCode::InvalidParams,
+                        "explicit confirmation is required",
+                    ));
+                }
+                let journal =
+                    macafon_backend_pipewire::default_source_journal().map_err(backend_error)?;
+                macafon_backend_pipewire::set_default_source(&journal).map_err(backend_error)?;
+                return Ok(serde_json::Value::Null);
+            }
+            Request::MicRestoreDefaultSource => {
+                let journal =
+                    macafon_backend_pipewire::default_source_journal().map_err(backend_error)?;
+                macafon_backend_pipewire::restore_default_source(&journal)
+                    .map_err(backend_error)?;
+                return Ok(serde_json::Value::Null);
+            }
+            Request::AbExport { side, path } => {
+                self.ab
+                    .export(&self.config.mic.chain, side, std::path::Path::new(&path))?;
+                return Ok(serde_json::Value::Null);
+            }
+            Request::AbOutputs => {
+                let nodes = macafon_backend_pipewire::list_nodes().map_err(backend_error)?;
+                let outputs: Vec<macafon_ipc::PlaybackDevice> = nodes
+                    .into_iter()
+                    .filter(|node| node.media_class == "Audio/Sink")
+                    .map(|node| {
+                        let kind = match node.form_factor.as_str() {
+                            "headset" | "headphone" => macafon_ipc::PlaybackDeviceKind::Headphones,
+                            "speaker" | "speakers" => macafon_ipc::PlaybackDeviceKind::Speakers,
+                            _ => macafon_ipc::PlaybackDeviceKind::Unknown,
+                        };
+                        macafon_ipc::PlaybackDevice {
+                            name: node.name,
+                            description: node.description,
+                            kind,
+                            speaker_warning: kind != macafon_ipc::PlaybackDeviceKind::Headphones,
+                        }
+                    })
+                    .collect();
+                return Ok(serde_json::json!(outputs));
+            }
             Request::CalibrationStart => {
                 self.start_calibration()?;
                 return self.calibration_value();
@@ -546,7 +663,9 @@ impl DaemonHost {
             }
             Request::Hello { .. }
             | Request::MetersSubscribe { .. }
-            | Request::MetersUnsubscribe => {
+            | Request::MetersUnsubscribe
+            | Request::DevicesSubscribe
+            | Request::DevicesUnsubscribe => {
                 return Err(ErrorBody::new(
                     ErrorCode::BadRequest,
                     "handled by the connection, not the daemon",
@@ -556,6 +675,10 @@ impl DaemonHost {
         serde_json::to_value(state)
             .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))
     }
+}
+
+fn backend_error(error: Error) -> ErrorBody {
+    ErrorBody::new(ErrorCode::Internal, error.to_string())
 }
 
 fn preset_error(error: PresetError) -> ErrorBody {
@@ -603,6 +726,11 @@ impl MicrophoneHost for DaemonHost {
     }
 
     fn start_session(&mut self) -> Result<MicRt, Error> {
+        if let Ok(journal) = macafon_backend_pipewire::default_source_journal() {
+            if let Err(error) = macafon_backend_pipewire::restore_default_source(&journal) {
+                tracing::warn!(%error, "Cannot recover previous default microphone yet");
+            }
+        }
         let (control, rt) =
             macafon_engine::microphone(&self.config.mic.chain, self.telemetry.clone())?;
         self.control = Some(control);
@@ -631,6 +759,14 @@ impl MicrophoneHost for DaemonHost {
 
     fn input(&self) -> Option<String> {
         self.selected_device.clone()
+    }
+
+    fn input_channel_detected(&mut self, channel: macafon_dsp::InputChannel) {
+        self.detected_channel = channel;
+    }
+
+    fn input_channel(&self) -> macafon_dsp::InputChannel {
+        self.config.mic.input_channel
     }
 
     fn stereo(&self) -> bool {
@@ -673,24 +809,44 @@ impl MicrophoneHost for DaemonHost {
         }
     }
 
+    fn device_metering(&self) -> bool {
+        self.hub.device_metering()
+    }
+    fn device_meter(&mut self, name: &str, peak_dbfs: f32) {
+        self.hub.device_meter(name, peak_dbfs);
+    }
+
     fn inputs_changed(&mut self, inputs: &[Node]) {
         self.inputs = inputs
             .iter()
             .map(|node| Device {
                 name: node.name.clone(),
                 description: node.description.clone(),
+                stable_id: node.stable_id.clone(),
+                kind: match node.kind {
+                    "usb" => macafon_ipc::DeviceKind::Usb,
+                    "builtin" => macafon_ipc::DeviceKind::Builtin,
+                    "headset" => macafon_ipc::DeviceKind::Headset,
+                    "bluetooth" => macafon_ipc::DeviceKind::Bluetooth,
+                    _ => macafon_ipc::DeviceKind::Unknown,
+                },
             })
             .collect();
         self.refresh_input();
     }
 
     fn handle(&mut self, message: ControlMessage) {
-        let outcome = match self.respond(message.request) {
+        let ControlMessage::Request { request, reply } = message else {
+            self.ab.clear(self.control.as_mut());
+            self.ab_changed();
+            return;
+        };
+        let outcome = match self.respond(request) {
             Ok(value) => Outcome::Result(value),
             Err(error) => Outcome::Error(error),
         };
         // The client may have disconnected meanwhile; nothing to do then.
-        let _ = message.reply.send(outcome);
+        let _ = reply.send(outcome);
     }
 
     fn quit_requested(&self) -> bool {
@@ -698,8 +854,33 @@ impl MicrophoneHost for DaemonHost {
     }
 
     fn tick(&mut self) {
+        self.refresh_input();
         if let Some(control) = &mut self.control {
             control.collect_garbage();
+        }
+        let fallback = self.control.as_mut().map(|control| {
+            control
+                .poll_studio_fallback()
+                .map(|changed| changed.then(|| *control.settings()))
+        });
+        match fallback {
+            Some(Ok(Some(settings))) => {
+                self.config.mic.chain = settings;
+                if let Some(id) = &self.selected_stable_id {
+                    self.config.device_profiles.insert(
+                        id.clone(),
+                        macafon_config::MicProfile::capture(&self.config.mic),
+                    );
+                }
+                self.ab.settings_changed(&settings);
+                self.changed_at = Some(Instant::now());
+                self.changed();
+                self.hub.broadcast(&Event::NoiseFallback {
+                    engine: settings.noise_suppression.params.engine,
+                });
+            }
+            Some(Err(error)) => tracing::warn!(%error, "Cannot apply noise suppression fallback"),
+            _ => {}
         }
         self.poll_calibration();
         if let Some(control) = &mut self.control {
@@ -751,10 +932,14 @@ mod tests {
             Device {
                 name: "primary".into(),
                 description: "Main".into(),
+                stable_id: String::new(),
+                kind: macafon_ipc::DeviceKind::Unknown,
             },
             Device {
                 name: "fallback".into(),
                 description: "Backup".into(),
+                stable_id: String::new(),
+                kind: macafon_ipc::DeviceKind::Unknown,
             },
         ];
         host.refresh_input();
@@ -772,11 +957,15 @@ mod tests {
         host.inputs.push(Device {
             name: "primary".into(),
             description: "Main".into(),
+            stable_id: String::new(),
+            kind: macafon_ipc::DeviceKind::Unknown,
         });
         host.refresh_input();
         host.input_connected(true);
         assert_eq!(host.state().active_device.as_deref(), Some("primary"));
         assert_eq!(host.config.mic.device.as_deref(), Some("primary"));
+        assert_eq!(host.state().noise_floor_dbfs, Some(-60.0));
+        assert_eq!(host.config.device_profiles.len(), 2);
     }
 
     #[test]
@@ -804,6 +993,8 @@ mod tests {
             host.inputs = vec![Device {
                 name: "primary".into(),
                 description: "Main".into(),
+                stable_id: String::new(),
+                kind: macafon_ipc::DeviceKind::Unknown,
             }];
             host.refresh_input();
             if measured == Some("fallback") {
@@ -830,10 +1021,14 @@ mod tests {
         let fallback = Device {
             name: "fallback".into(),
             description: "Backup".into(),
+            stable_id: String::new(),
+            kind: macafon_ipc::DeviceKind::Unknown,
         };
         let primary = Device {
             name: "primary".into(),
             description: "Main".into(),
+            stable_id: String::new(),
+            kind: macafon_ipc::DeviceKind::Unknown,
         };
         assert_eq!(select_input(&mic, &[]), None);
         assert_eq!(

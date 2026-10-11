@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use macafon_ipc::{
     AbSide, AbState, AutostartState, CalibrationReport, CalibrationState, CalibrationStep, Client,
-    Device, Event, MicState, PresetInfo, Request,
+    Device, Event, InputChannel, MicState, PresetInfo, Request,
 };
 use std::io::Write;
 use std::path::PathBuf;
@@ -19,6 +19,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Top {
+    /// Run the daemon next to this binary (or on PATH), forwarding all following arguments.
+    #[command(disable_help_flag = true)]
+    Daemon {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<std::ffi::OsString>,
+    },
+    /// Restore the previous system microphone, including without a running daemon.
+    RestoreDefault,
     /// Send a command to the running macafond.
     Ctl {
         /// Print raw JSON replies.
@@ -59,8 +67,20 @@ enum Ctl {
     },
     /// List physical microphones.
     Devices,
+    /// Make Macafon the system microphone; requires explicit --confirm.
+    SetDefault {
+        #[arg(long)]
+        confirm: bool,
+    },
+    /// Restore the previous system microphone.
+    RestoreDefault,
     /// Select the physical microphone by node.name; `none` disconnects.
     Device { name: String },
+    /// Choose the physical input channel; mix combines stereo input.
+    InputChannel {
+        #[arg(value_enum)]
+        channel: Channel,
+    },
     /// Select the fallback microphone by node.name; `none` disables fallback.
     FallbackDevice { name: String },
     /// Set the input gain in dB.
@@ -119,6 +139,14 @@ enum PresetsCommand {
 
 #[derive(Subcommand)]
 enum AbCommand {
+    /// List playback devices and speaker warnings.
+    Outputs,
+    /// Export raw A or processed B as a mono float WAV (never overwrites).
+    Export {
+        #[arg(value_enum)]
+        side: Side,
+        file: PathBuf,
+    },
     /// Show the A/B state.
     Status,
     /// Record the raw microphone and wait until done.
@@ -154,6 +182,14 @@ enum AbCommand {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
+enum Channel {
+    Auto,
+    Left,
+    Right,
+    Mix,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
 enum Side {
     A,
     B,
@@ -179,15 +215,49 @@ fn open_ui() -> Result<()> {
     Err(error).with_context(|| format!("cannot start {}", program.display()))
 }
 
+fn run_daemon(args: Vec<std::ffi::OsString>) -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    let sibling = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.parent()?.join("macafond")))
+        .filter(|path| path.is_file());
+    let program = sibling.unwrap_or_else(|| "macafond".into());
+    let error = std::process::Command::new(&program)
+        .arg("run")
+        .args(args)
+        .exec();
+    Err(error).with_context(|| format!("cannot start {}", program.display()))
+}
+
 fn main() -> Result<()> {
-    let Some(Top::Ctl { json, command }) = Cli::parse().command else {
-        return open_ui();
+    let (json, command) = match Cli::parse().command {
+        None => return open_ui(),
+        Some(Top::Daemon { args }) => return run_daemon(args),
+        Some(Top::RestoreDefault) => {
+            let journal = macafon_backend_pipewire::default_source_journal()?;
+            macafon_backend_pipewire::restore_default_source(&journal)?;
+            return Ok(());
+        }
+        Some(Top::Ctl { json, command }) => (json, command),
     };
     let path = macafon_ipc::socket_path().context("XDG_RUNTIME_DIR is not set")?;
     let (mut client, _) = Client::connect(&path, "macafon-cli")
         .with_context(|| format!("is macafond running? ({})", path.display()))?;
     let request = match command {
         Ctl::Status => Request::MicGet,
+        Ctl::SetDefault { confirm } => {
+            if !confirm {
+                anyhow::bail!(
+                    "This changes the system microphone to Macafon. Pass --confirm to proceed; the previous default is restored on Quit."
+                );
+            }
+            client.call(Request::MicSetDefaultSource { confirmed: true })?;
+            return Ok(());
+        }
+        Ctl::RestoreDefault => {
+            client.call(Request::MicRestoreDefaultSource)?;
+            return Ok(());
+        }
         Ctl::Autostart { state } => {
             let request = match state {
                 None => Request::AutostartGet,
@@ -244,6 +314,14 @@ fn main() -> Result<()> {
         }
         Ctl::Device { name } => Request::MicSetDevice {
             device: (name != "none").then_some(name),
+        },
+        Ctl::InputChannel { channel } => Request::MicSetInputChannel {
+            channel: match channel {
+                Channel::Auto => InputChannel::Auto,
+                Channel::Left => InputChannel::Left,
+                Channel::Right => InputChannel::Right,
+                Channel::Mix => InputChannel::Mix,
+            },
         },
         Ctl::FallbackDevice { name } => Request::MicSetFallbackDevice {
             device: (name != "none").then_some(name),
@@ -384,6 +462,22 @@ fn presets(client: &mut Client, command: Option<PresetsCommand>, json: bool) -> 
 fn ab(client: &mut Client, command: AbCommand, json: bool) -> Result<()> {
     let request = match command {
         AbCommand::Status => Request::AbGet,
+        AbCommand::Outputs => {
+            let outputs = client.call(Request::AbOutputs)?;
+            println!("{}", serde_json::to_string_pretty(&outputs)?);
+            return Ok(());
+        }
+        AbCommand::Export { side, file } => {
+            let path = file.to_str().context("WAV path must be UTF-8")?.to_owned();
+            client.call(Request::AbExport {
+                side: match side {
+                    Side::A => AbSide::A,
+                    Side::B => AbSide::B,
+                },
+                path,
+            })?;
+            return Ok(());
+        }
         AbCommand::Record { seconds } => {
             let mut state: AbState = client.call_as(Request::AbRecord {
                 max_seconds: Some(seconds),
@@ -508,6 +602,7 @@ fn print_state(state: &MicState) {
         "active:   {}",
         state.active_device.as_deref().unwrap_or("none")
     );
+    println!("channel:  {:?}", state.input_channel);
     println!("muted:    {}", state.settings.muted);
     println!("format:   {}", if state.stereo { "stereo" } else { "mono" });
     println!("bypass:   {}", state.settings.bypass);

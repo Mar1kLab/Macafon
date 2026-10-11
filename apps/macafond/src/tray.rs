@@ -28,7 +28,9 @@ impl MicTray {
     fn send(&self, request: Request) {
         // Nobody waits for the reply; the new state comes back through `Tray::update`.
         let (reply, _) = mpsc::channel();
-        let _ = self.control.send(ControlMessage { request, reply });
+        let _ = self
+            .control
+            .send(ControlMessage::Request { request, reply });
     }
 }
 

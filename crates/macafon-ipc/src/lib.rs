@@ -10,7 +10,7 @@ mod typescript;
 
 pub use client::{Client, ClientError};
 pub use macafon_dsp::calibration::CalibrationReport;
-pub use macafon_dsp::{ChainSettings, Meters};
+pub use macafon_dsp::{ChainSettings, InputChannel, Meters};
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -54,6 +54,16 @@ pub enum Request {
     /// Optional second-priority microphone; `null` disables fallback.
     #[serde(rename = "mic.set_fallback_device")]
     MicSetFallbackDevice { device: Option<String> },
+    #[serde(rename = "mic.set_input_channel")]
+    MicSetInputChannel { channel: InputChannel },
+    #[serde(rename = "mic.set_default_source")]
+    MicSetDefaultSource { confirmed: bool },
+    #[serde(rename = "mic.restore_default_source")]
+    MicRestoreDefaultSource,
+    #[serde(rename = "ab.export")]
+    AbExport { side: AbSide, path: String },
+    #[serde(rename = "ab.outputs")]
+    AbOutputs,
     #[serde(rename = "presets.list")]
     PresetsList,
     /// Save the current chain as a new user preset and select it.
@@ -77,6 +87,10 @@ pub enum Request {
     PresetsImport { document: serde_json::Value },
     #[serde(rename = "devices.list")]
     DevicesList,
+    #[serde(rename = "devices.subscribe")]
+    DevicesSubscribe,
+    #[serde(rename = "devices.unsubscribe")]
+    DevicesUnsubscribe,
     /// Stream `meters` events at up to 60 Hz until unsubscribed (MTR-004, NFR-R7).
     #[serde(rename = "meters.subscribe")]
     MetersSubscribe { hz: u32 },
@@ -187,6 +201,12 @@ pub enum Outcome {
 #[serde(tag = "event", content = "data")]
 #[allow(clippy::large_enum_variant)] // transient messages; boxing buys nothing
 pub enum Event {
+    #[serde(rename = "mic.noise_fallback")]
+    NoiseFallback {
+        engine: macafon_dsp::settings::NoiseEngine,
+    },
+    #[serde(rename = "devices.meter")]
+    DeviceMeter { name: String, peak_dbfs: f32 },
     #[serde(rename = "meters")]
     Meters(Meters),
     /// Any change of microphone state, from any client or the daemon itself.
@@ -226,6 +246,10 @@ pub struct MicState {
     /// Virtual microphone output uses identical FL/FR channels instead of MONO.
     #[serde(default)]
     pub stereo: bool,
+    #[serde(default, skip_serializing_if = "input_channel_is_auto")]
+    pub input_channel: InputChannel,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_recovery: Option<ConfigRecovery>,
     pub settings: ChainSettings,
     /// Preset the chain was last loaded from or saved to.
     pub preset: Option<String>,
@@ -363,6 +387,54 @@ pub struct Device {
     /// PipeWire `node.name`, stable across reconnects.
     pub name: String,
     pub description: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub stable_id: String,
+    #[serde(default, skip_serializing_if = "device_kind_is_unknown")]
+    pub kind: DeviceKind,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceKind {
+    Usb,
+    Builtin,
+    Headset,
+    Bluetooth,
+    #[default]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum PlaybackDeviceKind {
+    Headphones,
+    Speakers,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct PlaybackDevice {
+    pub name: String,
+    pub description: String,
+    pub kind: PlaybackDeviceKind,
+    pub speaker_warning: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ConfigRecovery {
+    pub backup: String,
+    pub reason: String,
+}
+
+fn input_channel_is_auto(channel: &InputChannel) -> bool {
+    *channel == InputChannel::Auto
+}
+fn device_kind_is_unknown(kind: &DeviceKind) -> bool {
+    *kind == DeviceKind::Unknown
 }
 
 /// `$XDG_RUNTIME_DIR/macafon/macafond.sock` (PRD §10.4, §13).
@@ -443,6 +515,8 @@ mod tests {
             }),
             ServerMessage::Event(Event::MicChanged(MicState {
                 stereo: false,
+                input_channel: InputChannel::Auto,
+                config_recovery: None,
                 settings,
                 preset: Some("natural".into()),
                 preset_modified: false,

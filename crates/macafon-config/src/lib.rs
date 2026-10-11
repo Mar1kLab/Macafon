@@ -2,19 +2,21 @@
 
 pub mod presets;
 
-use macafon_dsp::ChainSettings;
+use macafon_dsp::{ChainSettings, InputChannel};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub schema_version: u32,
     pub mic: MicConfig,
+    pub device_profiles: BTreeMap<String, MicProfile>,
 }
 
 impl Default for Config {
@@ -22,6 +24,7 @@ impl Default for Config {
         Self {
             schema_version: SCHEMA_VERSION,
             mic: MicConfig::default(),
+            device_profiles: BTreeMap::new(),
         }
     }
 }
@@ -31,6 +34,7 @@ impl Default for Config {
 pub struct MicConfig {
     /// Duplicate processed mono audio into FL and FR; applied on daemon startup.
     pub stereo: bool,
+    pub input_channel: InputChannel,
     /// PipeWire `node.name` of the physical microphone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device: Option<String>,
@@ -55,6 +59,7 @@ impl Default for MicConfig {
         let preset = macafon_dsp::Preset::Natural;
         Self {
             stereo: false,
+            input_channel: InputChannel::Auto,
             device: None,
             fallback_device: None,
             preset: Some(preset.id().to_owned()),
@@ -62,6 +67,34 @@ impl Default for MicConfig {
             noise_floor_device: None,
             chain: preset.settings(),
         }
+    }
+}
+
+/// The sound settings that follow one physical microphone, independent of input priority.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MicProfile {
+    pub chain: ChainSettings,
+    pub preset: Option<String>,
+    pub noise_floor_dbfs: Option<f32>,
+    #[serde(default)]
+    pub input_channel: InputChannel,
+}
+
+impl MicProfile {
+    pub fn capture(mic: &MicConfig) -> Self {
+        Self {
+            chain: mic.chain,
+            preset: mic.preset.clone(),
+            noise_floor_dbfs: mic.noise_floor_dbfs,
+            input_channel: mic.input_channel,
+        }
+    }
+    pub fn apply(&self, mic: &mut MicConfig, device: &str) {
+        mic.chain = self.chain;
+        mic.preset = self.preset.clone();
+        mic.noise_floor_dbfs = self.noise_floor_dbfs;
+        mic.noise_floor_device = self.noise_floor_dbfs.map(|_| device.to_owned());
+        mic.input_channel = self.input_channel;
     }
 }
 
@@ -131,10 +164,28 @@ impl Store {
             }
         };
         match parse(&text) {
-            Ok(config) => Ok(Loaded {
-                config,
-                recovered: None,
-            }),
+            Ok(config) => {
+                let old_version = text
+                    .parse::<toml::Value>()
+                    .ok()
+                    .and_then(|value| {
+                        value
+                            .get("schema_version")
+                            .and_then(toml::Value::as_integer)
+                    })
+                    .unwrap_or(1);
+                if old_version < i64::from(SCHEMA_VERSION) {
+                    let mut name = self.path.file_name().unwrap_or_default().to_owned();
+                    name.push(".bak");
+                    let backup = self.path.with_file_name(name);
+                    write_atomically(&backup, &[text.as_bytes()])?;
+                    self.save(&config)?;
+                }
+                Ok(Loaded {
+                    config,
+                    recovered: None,
+                })
+            }
             Err(reason) => self.recover(reason),
         }
     }
@@ -142,7 +193,7 @@ impl Store {
     fn recover(&self, reason: String) -> Result<Loaded, Error> {
         let seconds = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_or(0, |elapsed| elapsed.as_secs());
+            .map_or(0, |elapsed| elapsed.as_nanos());
         let mut name = self.path.file_name().unwrap_or_default().to_owned();
         name.push(format!(".broken-{seconds}"));
         let backup = self.path.with_file_name(name);
@@ -197,7 +248,10 @@ const HEADER: &str = "# Macafon configuration. Written by macafond; edits are pi
 # Percent values (intensity, …) use 0–100; levels are dB/dBFS; times are ms.\n\n";
 
 fn parse(text: &str) -> Result<Config, String> {
-    let config: Config = toml::from_str(text).map_err(|error| error.to_string())?;
+    let mut config: Config = toml::from_str(text).map_err(|error| error.to_string())?;
+    if config.schema_version == 1 {
+        config.schema_version = SCHEMA_VERSION;
+    }
     if config.schema_version != SCHEMA_VERSION {
         return Err(format!(
             "unsupported schema_version {} (expected {SCHEMA_VERSION})",
@@ -209,6 +263,18 @@ fn parse(text: &str) -> Result<Config, String> {
         .chain
         .validate()
         .map_err(|error| error.to_string())?;
+    for profile in config.device_profiles.values() {
+        profile
+            .chain
+            .validate()
+            .map_err(|error| error.to_string())?;
+        if profile
+            .noise_floor_dbfs
+            .is_some_and(|floor| !floor.is_finite())
+        {
+            return Err("device noise floor must be finite".into());
+        }
+    }
     Ok(config)
 }
 
@@ -235,8 +301,10 @@ mod tests {
         chain.expander.params.ratio = f32::INFINITY;
         let config = Config {
             schema_version: SCHEMA_VERSION,
+            device_profiles: BTreeMap::new(),
             mic: MicConfig {
                 stereo: true,
+                input_channel: InputChannel::Right,
                 device: Some("alsa_input.usb-Yeti".into()),
                 fallback_device: Some("alsa_input.internal".into()),
                 preset: Some("broadcast".into()),
@@ -252,6 +320,28 @@ mod tests {
             "{text}"
         );
         assert_eq!(store.load().expect("load").config, config);
+        std::fs::remove_dir_all(directory).expect("cleanup");
+    }
+
+    #[test]
+    fn migration_keeps_original_and_device_profiles_round_trip() {
+        let (directory, store) = temporary_store("migration");
+        std::fs::create_dir_all(store.path().parent().expect("parent")).expect("mkdir");
+        let old = "schema_version = 1\n[mic]\ndevice = 'usb-mic'\n";
+        std::fs::write(store.path(), old).expect("write old config");
+        let mut loaded = store.load().expect("migrate");
+        assert_eq!(loaded.config.schema_version, SCHEMA_VERSION);
+        assert_eq!(
+            std::fs::read_to_string(store.path().with_extension("toml.bak")).expect("backup"),
+            old
+        );
+        loaded.config.mic.input_channel = InputChannel::Right;
+        loaded.config.device_profiles.insert(
+            "serial:usb-mic".into(),
+            MicProfile::capture(&loaded.config.mic),
+        );
+        store.save(&loaded.config).expect("save profile");
+        assert_eq!(store.load().expect("reload").config, loaded.config);
         std::fs::remove_dir_all(directory).expect("cleanup");
     }
 

@@ -67,6 +67,9 @@ JSON по строкам, сокет `$XDG_RUNTIME_DIR/macafon/macafond.sock` (�
 | `mic.set_bypass` | `bypass` | `MicState` |
 | `mic.set_device` | `device` (`node.name` или `null`) | `MicState` |
 | `mic.set_fallback_device` | `device` (`node.name` или `null`) | `MicState` |
+| `mic.set_input_channel` | `channel` (`auto`, `left`, `right`, `mix`) | `MicState`; калибровка фиксирует найденный канал |
+| `mic.set_default_source` / `mic.restore_default_source` | `confirmed: true` / — | `null`; предыдущий системный вход сохраняется в журнале и восстанавливается при выходе |
+| `devices.subscribe` / `devices.unsubscribe` | — | `null`, события `devices.meter` с `name` и `peak_dbfs`; отдельные потоки замера существуют только при подписке |
 | `presets.list`, `devices.list` | — | списки; у пресета `id`, `name`, `builtin` |
 | `presets.save` | `name` | `PresetInfo`; текущая цепочка — новый пресет, он становится выбранным |
 | `presets.update` | `id` | `PresetInfo`; перезаписать пользовательский пресет текущей цепочкой |
@@ -79,6 +82,8 @@ JSON по строкам, сокет `$XDG_RUNTIME_DIR/macafon/macafond.sock` (�
 | `ab.play` | `device` (`node.name` выхода или `null` — выход по умолчанию) | `AbState` |
 | `ab.select` / `ab.seek` / `ab.set_loudness_match` | `side` (`a`/`b`) / `position_ms` / `enabled` | `AbState` |
 | `ab.waveform` | `points` (16–4096) | `{a, b}` — пики 0…1 |
+| `ab.outputs` | — | выходы с `kind` (`headphones`, `speakers`, `unknown`) и `speaker_warning` |
+| `ab.export` | `side` (`a`/`b`), `path` | `null`; WAV float32, 48 кГц, без перезаписи существующего файла |
 
 События: `meters` (уровни в dBFS, gain reduction в dB, активность NS), `mic.changed` (любое
 изменение состояния от любого клиента), `calibration.changed` (~10 Гц во время замера и итог)
@@ -90,12 +95,18 @@ TS-типы для UI генерируются из `macafon-ipc` (см. [ui.md]
 
 ## Конфиг (`macafon-config`)
 
-`$XDG_CONFIG_HOME/macafon/config.toml`, `schema_version = 1`. Секция `[mic]`: `stereo` (по умолчанию `false`), `device`, `fallback_device`, `preset`,
+`$XDG_CONFIG_HOME/macafon/config.toml`, `schema_version = 2`. Версия 1 автоматически обновляется; исходный файл сохраняется как `config.toml.bak`. Секция `[mic]`: `stereo` (по умолчанию `false`), `device`, `fallback_device`, `preset`,
 `muted`, `bypass`, `output_gain_db` и таблицы модулей `[mic.compressor]` и т.д. Отсутствующие
 поля берутся из значений по умолчанию. Пишется атомарно (temp + fsync + rename) через 500 мс
 после последнего изменения и при выходе (CFG-001). Повреждённый, невалидный или более новый
 по схеме файл переименовывается в `config.toml.broken-<unix time>`, демон стартует с
-дефолтами (CFG-002; тоста пока нет — только предупреждение в логе).
+дефолтами. `MicState.config_recovery` содержит путь резервной копии и причину для уведомления клиента; сам UI-тост ещё не реализован.
+
+Профили `[device_profiles."<stable ID>"]` содержат цепочку, пресет, канал входа и калиброванный
+шумовой порог каждого физического микрофона. ID строится из serial или `device.bus-path` и имени узла;
+если аппаратные свойства отсутствуют, используется имя узла. Профиль загружается также при
+переключении на резервный микрофон и возврате основного. `devices.list` отдаёт `stable_id`
+и тип устройства (`usb`, `builtin`, `headset`, `bluetooth`; отсутствие типа означает неизвестный).
 
 Таймер обслуживания живёт всё время работы демона, включая ожидание переподключения
 к PipeWire. Изменения через IPC сохраняются с тем же debounce даже без аудиосервера;

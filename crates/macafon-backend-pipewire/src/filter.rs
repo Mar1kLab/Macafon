@@ -21,6 +21,10 @@ struct PortState {
 
 struct RtState {
     input: *mut c_void,
+    input_right: *mut c_void,
+    input_channel: Arc<AtomicU32>,
+    detected_channel: Arc<AtomicU32>,
+    input_scratch: Box<[f32]>,
     output: *mut c_void,
     output_right: *mut c_void,
     processor: MicRt,
@@ -44,14 +48,22 @@ pub(crate) struct Filter {
     control_state: Box<ControlState>,
     pub graph_rate_hz: Arc<AtomicU32>,
     keep_processing: Arc<AtomicBool>,
+    input_channel: Arc<AtomicU32>,
+    pub detected_channel: Arc<AtomicU32>,
 }
 
 impl Filter {
     pub fn new(connection: &Connection, processor: MicRt, stereo: bool) -> Result<Self, Error> {
         let graph_rate_hz = Arc::new(AtomicU32::new(0));
         let keep_processing = Arc::new(AtomicBool::new(false));
+        let input_channel = Arc::new(AtomicU32::new(0));
+        let detected_channel = Arc::new(AtomicU32::new(1));
         let state = Box::new(RtState {
             input: ptr::null_mut(),
+            input_right: ptr::null_mut(),
+            input_channel: input_channel.clone(),
+            detected_channel: detected_channel.clone(),
+            input_scratch: vec![0.0; SCRATCH_SAMPLES].into_boxed_slice(),
             output: ptr::null_mut(),
             output_right: ptr::null_mut(),
             processor,
@@ -109,6 +121,8 @@ impl Filter {
             hook,
             graph_rate_hz,
             keep_processing,
+            input_channel,
+            detected_channel,
             _control_events: control_events,
             control_hook,
             control_state: Box::new(ControlState {
@@ -136,7 +150,9 @@ impl Filter {
                 (&mut *filter.control_state as *mut ControlState).cast(),
             );
         }
-        filter.state.input = filter.add_port(pw::sys::PW_DIRECTION_INPUT, "input_MONO", "MONO")?;
+        filter.state.input = filter.add_port(pw::sys::PW_DIRECTION_INPUT, "input_FL", "FL")?;
+        filter.state.input_right =
+            filter.add_port(pw::sys::PW_DIRECTION_INPUT, "input_FR", "FR")?;
         filter.state.output = filter.add_port(
             pw::sys::PW_DIRECTION_OUTPUT,
             if stereo { "output_FL" } else { "output_MONO" },
@@ -191,6 +207,16 @@ impl Filter {
     /// Run the chain even when no application records the virtual microphone: for
     /// calibration, recording and meters. Off otherwise, so an unused microphone costs
     /// nothing (NFR-R7).
+    pub fn set_input_channel(&self, channel: macafon_dsp::InputChannel) {
+        let value = match channel {
+            macafon_dsp::InputChannel::Auto => 0,
+            macafon_dsp::InputChannel::Left => 1,
+            macafon_dsp::InputChannel::Right => 2,
+            macafon_dsp::InputChannel::Mix => 3,
+        };
+        self.input_channel.store(value, Ordering::Relaxed);
+    }
+
     pub fn set_keep_processing(&self, keep: bool) {
         self.keep_processing.store(keep, Ordering::Relaxed);
     }
@@ -265,7 +291,7 @@ fn channel_positions(stereo: bool) -> Vec<pw::spa::utils::Id> {
     }
 }
 
-fn audio_format(sample_format: u32, stereo: bool) -> Result<Vec<u8>, Error> {
+pub(crate) fn audio_format(sample_format: u32, stereo: bool) -> Result<Vec<u8>, Error> {
     use pw::spa::{
         pod::{Object, Property, PropertyFlags, Value, serialize::PodSerializer},
         sys,
@@ -385,6 +411,23 @@ unsafe fn process_inner(data: *mut c_void, position: *mut pw::spa::sys::spa_io_p
             },
         )
     };
+    // SAFETY: the second input is a live negotiated DSP port.
+    let input_right =
+        unsafe { pw::sys::pw_filter_get_dsp_buffer(state.input_right, count).cast::<f32>() };
+    let input = if count as usize <= state.input_scratch.len() {
+        // SAFETY: each linked input provides count readable samples; scratch was allocated at setup.
+        unsafe {
+            select_channel(
+                input,
+                input_right,
+                &mut state.input_scratch[..count as usize],
+                state.input_channel.load(Ordering::Relaxed),
+                &state.detected_channel,
+            )
+        }
+    } else {
+        ptr::null()
+    };
     let supported_rate =
         position.clock.rate.num == 1 && position.clock.rate.denom == macafon_dsp::SAMPLE_RATE_HZ;
     if left.is_null() && right.is_null() {
@@ -412,6 +455,53 @@ unsafe fn process_inner(data: *mut c_void, position: *mut pw::spa::sys::spa_io_p
             count as usize,
             supported_rate,
         );
+    }
+}
+
+unsafe fn select_channel(
+    left: *const f32,
+    right: *const f32,
+    scratch: &mut [f32],
+    channel: u32,
+    detected: &AtomicU32,
+) -> *const f32 {
+    let mut selected = channel;
+    if selected == 0 {
+        let energy = |ptr: *const f32| {
+            if ptr.is_null() {
+                return 0.0;
+            }
+            // SAFETY: the caller provides scratch.len() readable samples on linked input ports.
+            unsafe { std::slice::from_raw_parts(ptr, scratch.len()) }
+                .iter()
+                .filter(|sample| sample.is_finite())
+                .map(|sample| sample * sample)
+                .sum::<f32>()
+        };
+        let (l, r) = (energy(left), energy(right));
+        selected = if r > l * 4.0 && r > 1e-8 { 2 } else { 1 };
+        if l.max(r) > 1e-8 {
+            detected.store(selected, Ordering::Relaxed);
+        }
+    }
+    match selected {
+        2 => right,
+        3 => {
+            if left.is_null() {
+                return right;
+            }
+            if right.is_null() {
+                return left;
+            }
+            // SAFETY: both linked inputs provide scratch.len() readable samples; scratch is distinct.
+            unsafe {
+                for (index, out) in scratch.iter_mut().enumerate() {
+                    *out = 0.5 * (*left.add(index) + *right.add(index));
+                }
+            }
+            scratch.as_ptr()
+        }
+        _ => left,
     }
 }
 
@@ -583,6 +673,35 @@ mod tests {
 
     #[global_allocator]
     static ALLOCATOR: AllocDisabler = AllocDisabler;
+
+    #[test]
+    fn input_channels_mix_and_detect_right_without_allocating() {
+        let left = [0.0_f32; 128];
+        let right = [0.8_f32; 128];
+        let mut scratch = [0.0_f32; 128];
+        let detected = AtomicU32::new(1);
+        assert_no_alloc::assert_no_alloc(|| {
+            // SAFETY: arrays provide scratch.len() readable samples with distinct scratch storage.
+            unsafe {
+                assert_eq!(
+                    select_channel(left.as_ptr(), right.as_ptr(), &mut scratch, 0, &detected),
+                    right.as_ptr()
+                );
+                assert_eq!(detected.load(Ordering::Relaxed), 2);
+                let mixed =
+                    select_channel(left.as_ptr(), right.as_ptr(), &mut scratch, 3, &detected);
+                assert_eq!(*mixed, 0.4);
+                assert_eq!(
+                    select_channel(left.as_ptr(), right.as_ptr(), &mut scratch, 1, &detected),
+                    left.as_ptr()
+                );
+                assert_eq!(
+                    select_channel(left.as_ptr(), ptr::null(), &mut scratch, 3, &detected),
+                    left.as_ptr()
+                );
+            }
+        });
+    }
 
     #[test]
     fn stereo_duplicates_one_processed_signal_with_partial_links_and_silence() {

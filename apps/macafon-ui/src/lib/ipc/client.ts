@@ -11,6 +11,7 @@ import type {
   Hello,
   MicState,
   PresetInfo,
+  PlaybackDevice,
   Request,
 } from './protocol';
 
@@ -33,6 +34,9 @@ interface Results {
   'mic.set_bypass': MicState;
   'mic.set_device': MicState;
   'mic.set_fallback_device': MicState;
+  'mic.set_input_channel': MicState;
+  'mic.set_default_source': null;
+  'mic.restore_default_source': null;
   'presets.list': PresetInfo[];
   'presets.save': PresetInfo;
   'presets.update': PresetInfo;
@@ -42,6 +46,8 @@ interface Results {
   'presets.export': unknown;
   'presets.import': PresetInfo;
   'devices.list': Device[];
+  'devices.subscribe': null;
+  'devices.unsubscribe': null;
   'meters.subscribe': null;
   'meters.unsubscribe': null;
   'calibration.start': CalibrationState;
@@ -57,6 +63,8 @@ interface Results {
   'ab.set_loudness_match': AbState;
   'ab.get': AbState;
   'ab.waveform': AbWaveform;
+  'ab.outputs': PlaybackDevice[];
+  'ab.export': null;
 }
 
 type ResultOf<M extends Method> = M extends keyof Results ? Results[M] : never;

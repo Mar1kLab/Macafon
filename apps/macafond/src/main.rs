@@ -139,10 +139,15 @@ fn run(args: RunArgs) -> Result<()> {
             .inspect_err(|error| tracing::warn!(%error, "Settings will not be saved"))
             .ok(),
     };
+    let mut config_recovery = None;
     let mut config = match &store {
         Some(store) => {
             let loaded = store.load()?;
             if let Some(recovered) = loaded.recovered {
+                config_recovery = Some(macafon_ipc::ConfigRecovery {
+                    backup: recovered.backup.display().to_string(),
+                    reason: recovered.reason.clone(),
+                });
                 tracing::warn!(
                     reason = recovered.reason,
                     backup = %recovered.backup.display(),
@@ -156,12 +161,6 @@ fn run(args: RunArgs) -> Result<()> {
     args.apply(&mut config.mic);
     let settings = &config.mic.chain;
     settings.validate()?;
-    if settings.noise_suppression.enabled
-        && !settings.bypass
-        && settings.noise_suppression.params.engine == NoiseEngine::Studio
-    {
-        tracing::warn!("Studio noise suppression is not implemented yet; using Lite");
-    }
     tracing::info!(
         preset = config.mic.preset.as_deref().unwrap_or("custom"),
         input = config.mic.device.as_deref().unwrap_or("none"),
@@ -195,9 +194,20 @@ fn run(args: RunArgs) -> Result<()> {
         control,
         !args.no_tray,
     )));
+    host.borrow_mut().set_config_recovery(config_recovery);
+    if let Ok(journal) = macafon_backend_pipewire::default_source_journal() {
+        if let Err(error) = macafon_backend_pipewire::restore_default_source(&journal) {
+            tracing::warn!(%error, "Cannot recover previous default microphone yet");
+        }
+    }
     let result = macafon_backend_pipewire::run_microphone(host.clone(), receiver)
         .context("Cannot run microphone; check PipeWire and WirePlumber");
     host.borrow_mut().flush();
+    if let Ok(journal) = macafon_backend_pipewire::default_source_journal() {
+        if let Err(error) = macafon_backend_pipewire::restore_default_source(&journal) {
+            tracing::warn!(%error, "Cannot restore previous default microphone; recovery journal retained");
+        }
+    }
     result
 }
 

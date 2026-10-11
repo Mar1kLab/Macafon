@@ -1,6 +1,9 @@
 //! Linux M0 backend. The only unsafe code bridges the unwrapped pw_filter API.
 
+mod default_source;
 mod filter;
+pub use default_source::{default_source_journal, restore_default_source, set_default_source};
+mod meter;
 mod player;
 mod routing;
 
@@ -122,6 +125,11 @@ pub struct Node {
     pub name: String,
     pub description: String,
     pub media_class: String,
+    pub virtual_node: bool,
+    pub device_id: Option<u32>,
+    pub stable_id: String,
+    pub kind: &'static str,
+    pub form_factor: String,
 }
 
 fn node(global: &pw::registry::GlobalObject<&pw::spa::utils::dict::DictRef>) -> Option<Node> {
@@ -139,7 +147,95 @@ fn node(global: &pw::registry::GlobalObject<&pw::spa::utils::dict::DictRef>) -> 
             .or_else(|| props.get("node.name"))?
             .to_owned(),
         media_class: props.get("media.class").unwrap_or("").to_owned(),
+        virtual_node: props.get("node.virtual") == Some("true"),
+        device_id: props.get("device.id").and_then(|id| id.parse().ok()),
+        stable_id: stable_device_id(
+            props.get("device.serial"),
+            props
+                .get("device.bus-path")
+                .or_else(|| props.get("device.bus-id")),
+            props.get("node.name")?,
+        ),
+        form_factor: props.get("device.form-factor").unwrap_or("").to_owned(),
+        kind: device_kind(
+            props.get("device.bus").unwrap_or(""),
+            props.get("device.form-factor").unwrap_or(""),
+            props.get("node.name")?,
+        ),
     })
+}
+
+fn stable_device_id(serial: Option<&str>, bus_path: Option<&str>, name: &str) -> String {
+    format!(
+        "{}:{name}",
+        serial
+            .filter(|s| !s.is_empty())
+            .or(bus_path)
+            .unwrap_or(name)
+    )
+}
+
+fn device_kind(bus: &str, form_factor: &str, name: &str) -> &'static str {
+    if bus == "bluetooth" || name.starts_with("bluez_") {
+        "bluetooth"
+    } else if matches!(form_factor, "speaker" | "speakers") {
+        "speakers"
+    } else if matches!(form_factor, "headset" | "headphone") {
+        "headset"
+    } else if bus == "usb" || name.contains(".usb-") {
+        "usb"
+    } else if matches!(bus, "pci" | "platform") || form_factor == "internal" {
+        "builtin"
+    } else {
+        "unknown"
+    }
+}
+
+#[derive(Clone)]
+struct Hardware {
+    id: u32,
+    serial: Option<String>,
+    bus_path: Option<String>,
+    bus: String,
+    form_factor: String,
+}
+
+fn hardware(
+    global: &pw::registry::GlobalObject<&pw::spa::utils::dict::DictRef>,
+) -> Option<Hardware> {
+    if global.type_ != ObjectType::Device {
+        return None;
+    }
+    let props = global.props?;
+    Some(Hardware {
+        id: global.id,
+        serial: props.get("device.serial").map(str::to_owned),
+        bus_path: props
+            .get("device.bus-path")
+            .or_else(|| props.get("device.bus-id"))
+            .map(str::to_owned),
+        bus: props.get("device.bus").unwrap_or("").to_owned(),
+        form_factor: props.get("device.form-factor").unwrap_or("").to_owned(),
+    })
+}
+
+fn enrich_node(node: &mut Node, devices: &[Hardware]) {
+    if let Some(device) = devices
+        .iter()
+        .find(|device| Some(device.id) == node.device_id)
+    {
+        if device.serial.is_some() || device.bus_path.is_some() {
+            node.stable_id = stable_device_id(
+                device.serial.as_deref(),
+                device.bus_path.as_deref(),
+                &node.name,
+            );
+        }
+        node.kind = device_kind(&device.bus, &device.form_factor, &node.name);
+        if !device.form_factor.is_empty() {
+            node.form_factor = device.form_factor.clone();
+        }
+    }
 }
 
 pub fn list_nodes() -> Result<Vec<Node>, Error> {
@@ -147,9 +243,14 @@ pub fn list_nodes() -> Result<Vec<Node>, Error> {
     let registry = connection.core.get_registry()?;
     let nodes = Rc::new(RefCell::new(Vec::new()));
     let collected = nodes.clone();
+    let devices = Rc::new(RefCell::new(Vec::new()));
+    let hardware_devices = devices.clone();
     let _listener = registry
         .add_listener_local()
         .global(move |global| {
+            if let Some(device) = hardware(global) {
+                hardware_devices.borrow_mut().push(device);
+            }
             if let Some(node) = node(global) {
                 collected.borrow_mut().push(node);
             }
@@ -157,6 +258,9 @@ pub fn list_nodes() -> Result<Vec<Node>, Error> {
         .register();
     connection.roundtrip()?;
     let mut result = nodes.borrow().clone();
+    for node in &mut result {
+        enrich_node(node, &devices.borrow());
+    }
     result.sort_by_key(|node| node.id);
     Ok(result)
 }
@@ -173,12 +277,15 @@ struct InputLink {
     source: String,
     output: u32,
     input: u32,
-    _link: pw::link::Link,
+    output_right: u32,
+    input_right: u32,
+    _links: Vec<pw::link::Link>,
 }
 
 #[derive(Default)]
 struct Graph {
     nodes: Vec<Node>,
+    devices: Vec<Hardware>,
     ports: Vec<Port>,
     link: Option<InputLink>,
     inputs_changed: bool,
@@ -214,25 +321,42 @@ impl Graph {
         let input = self
             .ports
             .iter()
-            .find(|p| p.node_id == filter_id && p.direction == "in");
+            .find(|p| p.node_id == filter_id && p.direction == "in" && p.channel == "FL");
         if let (Some(output), Some(input)) = (output, input) {
-            let link = core.create_object::<pw::link::Link>(
-                "link-factory",
-                &properties! {
-                    "link.output.node" => source.id.to_string(),
-                    "link.output.port" => output.id.to_string(),
-                    "link.input.node" => filter_id.to_string(),
-                    "link.input.port" => input.id.to_string(),
-                    "object.linger" => "false",
-                    "link.passive" => "true",
-                },
-            )?;
+            let output_right = self
+                .ports
+                .iter()
+                .find(|p| p.node_id == source.id && p.direction == "out" && p.channel == "FR")
+                .unwrap_or(output);
+            let Some(input_right) = self
+                .ports
+                .iter()
+                .find(|p| p.node_id == filter_id && p.direction == "in" && p.channel == "FR")
+            else {
+                return Ok(());
+            };
+            let mut links = Vec::with_capacity(2);
+            for (out, inp) in [(output, input), (output_right, input_right)] {
+                links.push(core.create_object::<pw::link::Link>(
+                    "link-factory",
+                    &properties! {
+                        "link.output.node" => source.id.to_string(),
+                        "link.output.port" => out.id.to_string(),
+                        "link.input.node" => filter_id.to_string(),
+                        "link.input.port" => inp.id.to_string(),
+                        "object.linger" => "false",
+                        "link.passive" => "true",
+                    },
+                )?);
+            }
             tracing::info!(source = %source.description, "Microphone connected");
             self.link = Some(InputLink {
                 source: input_name.to_owned(),
                 output: output.id,
                 input: input.id,
-                _link: link,
+                output_right: output_right.id,
+                input_right: input_right.id,
+                _links: links,
             });
         }
         Ok(())
@@ -268,6 +392,11 @@ pub trait MicrophoneHost {
     /// Physical microphone `node.name` to link; polled every 100 ms.
     fn input(&self) -> Option<String>;
     /// Duplicate the processed mono signal into FL/FR outputs for this graph session.
+    fn input_channel(&self) -> macafon_dsp::InputChannel {
+        macafon_dsp::InputChannel::Auto
+    }
+    fn input_channel_detected(&mut self, _channel: macafon_dsp::InputChannel) {}
+
     fn stereo(&self) -> bool {
         false
     }
@@ -286,6 +415,10 @@ pub trait MicrophoneHost {
     fn player_failed(&mut self, _error: Error) {}
     /// Physical inputs (`Audio/Source`, not ours, not monitors) changed.
     fn inputs_changed(&mut self, _inputs: &[Node]) {}
+    fn device_metering(&self) -> bool {
+        false
+    }
+    fn device_meter(&mut self, _name: &str, _peak_dbfs: f32) {}
     fn handle(&mut self, message: Self::Message);
     /// Checked after every message: stop the daemon like SIGTERM does (BG-005).
     fn quit_requested(&self) -> bool {
@@ -320,6 +453,7 @@ pub fn control_channel<T>() -> (ControlSender<T>, ControlReceiver<T>) {
 
 fn is_physical_input(node: &Node) -> bool {
     node.media_class == "Audio/Source"
+        && !node.virtual_node
         && !node.name.starts_with("macafon_")
         && !node.name.ends_with(".monitor")
 }
@@ -423,6 +557,10 @@ fn run_session<H: MicrophoneHost + 'static>(
         .add_listener_local()
         .global(move |global| {
             let mut graph = graph_add.borrow_mut();
+            if let Some(device) = hardware(global) {
+                graph.devices.push(device);
+                graph.inputs_changed = true;
+            }
             if let Some(node) = node(global) {
                 graph.inputs_changed |= is_physical_input(&node);
                 graph.nodes.push(node);
@@ -442,17 +580,19 @@ fn run_session<H: MicrophoneHost + 'static>(
         })
         .global_remove(move |id| {
             let mut graph = graph_remove.borrow_mut();
-            if graph
-                .link
-                .as_ref()
-                .is_some_and(|link| link.output == id || link.input == id)
-            {
+            if graph.link.as_ref().is_some_and(|link| {
+                link.output == id
+                    || link.input == id
+                    || link.output_right == id
+                    || link.input_right == id
+            }) {
                 graph.link = None;
             }
             if let Some(node) = graph.nodes.iter().find(|node| node.id == id) {
                 graph.inputs_changed |= is_physical_input(node);
             }
             graph.nodes.retain(|n| n.id != id);
+            graph.devices.retain(|device| device.id != id);
             graph.ports.retain(|p| p.id != id);
         })
         .register();
@@ -468,6 +608,7 @@ fn run_session<H: MicrophoneHost + 'static>(
     let connected = Cell::new(None);
     // Dropped with the timer, before the connection.
     let player = RefCell::new(None);
+    let meters = RefCell::new(Vec::<(String, meter::Meter)>::new());
     let timer = connection.mainloop.loop_().add_timer(move |_| {
         let filter = &session_filter;
         let rate_hz = graph_rate_hz.load(std::sync::atomic::Ordering::Relaxed);
@@ -523,15 +664,62 @@ fn run_session<H: MicrophoneHost + 'static>(
             }
         }
         filter.set_keep_processing(host.keep_processing());
+        filter.set_input_channel(host.input_channel());
+        let detected = filter
+            .detected_channel
+            .load(std::sync::atomic::Ordering::Relaxed);
+        host.input_channel_detected(if detected == 2 {
+            macafon_dsp::InputChannel::Right
+        } else {
+            macafon_dsp::InputChannel::Left
+        });
         let mut graph = graph.borrow_mut();
         if std::mem::take(&mut graph.inputs_changed) {
-            let inputs: Vec<Node> = graph
+            let mut inputs: Vec<Node> = graph
                 .nodes
                 .iter()
                 .filter(|n| is_physical_input(n))
                 .cloned()
                 .collect();
+            for node in &mut inputs {
+                enrich_node(node, &graph.devices);
+            }
             host.inputs_changed(&inputs);
+        }
+        let mut meters = meters.borrow_mut();
+        if host.device_metering() {
+            meters.retain(|(name, _)| {
+                graph
+                    .nodes
+                    .iter()
+                    .any(|node| &node.name == name && is_physical_input(node))
+            });
+            for node in graph.nodes.iter().filter(|node| is_physical_input(node)) {
+                if !meters.iter().any(|(name, _)| name == &node.name) {
+                    match meter::Meter::new(&core, &node.name) {
+                        Ok(meter) => meters.push((node.name.clone(), meter)),
+                        Err(error) => tracing::warn!(%error, "Cannot meter physical input"),
+                    }
+                }
+            }
+            for (name, meter) in meters.iter_mut() {
+                if let Some(source) = graph.nodes.iter().find(|node| &node.name == name) {
+                    if let Err(error) = meter.connect_source(&core, source, &graph.ports) {
+                        tracing::warn!(%error, "Cannot link input meter");
+                    }
+                }
+                let peak = meter.read_peak();
+                host.device_meter(
+                    name,
+                    if peak > 0.0 {
+                        20.0 * peak.log10()
+                    } else {
+                        -120.0
+                    },
+                );
+            }
+        } else {
+            meters.clear();
         }
         let input = host.input();
         if graph
@@ -569,4 +757,20 @@ fn run_session<H: MicrophoneHost + 'static>(
     connection.mainloop.run();
     drop(timer);
     connection.check()
+}
+
+#[cfg(test)]
+mod input_identity_tests {
+    use super::*;
+    #[test]
+    fn device_identity_and_kind_use_hardware_properties() {
+        assert_eq!(
+            stable_device_id(Some("serial123"), Some("usb-1"), "mic"),
+            "serial123:mic"
+        );
+        assert_eq!(stable_device_id(None, Some("usb-1"), "mic"), "usb-1:mic");
+        assert_eq!(device_kind("usb", "headset", "mic"), "headset");
+        assert_eq!(device_kind("bluetooth", "headset", "mic"), "bluetooth");
+        assert_eq!(device_kind("pci", "", "mic"), "builtin");
+    }
 }

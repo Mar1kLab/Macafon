@@ -22,6 +22,7 @@ fn protocol() -> String {
         GainParams::decl(&cfg),
         HighPassParams::decl(&cfg),
         NoiseEngine::decl(&cfg),
+        InputChannel::decl(&cfg),
         NoiseSuppressionParams::decl(&cfg),
         ExpanderParams::decl(&cfg),
         EqFilter::decl(&cfg),
@@ -43,6 +44,7 @@ fn protocol() -> String {
         Event::decl(&cfg),
         Hello::decl(&cfg),
         MicState::decl(&cfg),
+        ConfigRecovery::decl(&cfg),
         AutostartMethod::decl(&cfg),
         AutostartState::decl(&cfg),
         AbSide::decl(&cfg),
@@ -53,6 +55,9 @@ fn protocol() -> String {
         CalibrationFailure::decl(&cfg),
         CalibrationState::decl(&cfg),
         PresetInfo::decl(&cfg),
+        DeviceKind::decl(&cfg),
+        PlaybackDeviceKind::decl(&cfg),
+        PlaybackDevice::decl(&cfg),
         Device::decl(&cfg),
     ];
     let mut out = String::from(HEADER);
@@ -69,7 +74,11 @@ fn protocol() -> String {
     }
     out.truncate(out.trim_end().len());
     out.push('\n');
-    out
+    out.lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n"
 }
 
 /// Through text, so f32 values keep their shortest form (0.707, not 0.7070000171661377).

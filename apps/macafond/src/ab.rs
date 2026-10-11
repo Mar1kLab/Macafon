@@ -372,6 +372,7 @@ fn write_wav(writer: &mut impl Write, samples: &[f32]) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     #[test]

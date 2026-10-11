@@ -11,22 +11,39 @@ fn pcm16_mono(path: &Path) -> Vec<f32> {
     let mut offset = 12;
     let mut result = None;
     while offset + 8 <= bytes.len() {
-        let length = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap()) as usize;
+        let length = u32::from_le_bytes(
+            bytes[offset + 4..offset + 8]
+                .try_into()
+                .expect("fixed-width fixture field"),
+        ) as usize;
         let data = &bytes[offset + 8..offset + 8 + length];
         match &bytes[offset..offset + 4] {
             b"fmt " => {
-                assert_eq!(u16::from_le_bytes(data[..2].try_into().unwrap()), 1);
-                assert_eq!(u16::from_le_bytes(data[2..4].try_into().unwrap()), 1);
                 assert_eq!(
-                    u32::from_le_bytes(data[4..8].try_into().unwrap()),
+                    u16::from_le_bytes(data[..2].try_into().expect("fixed-width fixture field")),
+                    1
+                );
+                assert_eq!(
+                    u16::from_le_bytes(data[2..4].try_into().expect("fixed-width fixture field")),
+                    1
+                );
+                assert_eq!(
+                    u32::from_le_bytes(data[4..8].try_into().expect("fixed-width fixture field")),
                     SAMPLE_RATE_HZ
                 );
-                assert_eq!(u16::from_le_bytes(data[14..16].try_into().unwrap()), 16);
+                assert_eq!(
+                    u16::from_le_bytes(data[14..16].try_into().expect("fixed-width fixture field")),
+                    16
+                );
             }
             b"data" => {
                 result = Some(
                     data.chunks_exact(2)
-                        .map(|v| i16::from_le_bytes(v.try_into().unwrap()) as f32 / 32768.0)
+                        .map(|v| {
+                            i16::from_le_bytes(v.try_into().expect("fixed-width fixture field"))
+                                as f32
+                                / 32768.0
+                        })
                         .collect(),
                 )
             }
@@ -46,7 +63,8 @@ fn speech_with_fan_keyboard_and_street_noise_matches_reference_waveforms() {
         ("street", Preset::NoisyRoom),
     ] {
         let mut samples = pcm16_mono(&fixtures.join(format!("voice-{noise}.wav")));
-        let mut processor = prepare_offline_processor(&preset.settings(), Arc::default()).unwrap();
+        let mut processor = prepare_offline_processor(&preset.settings(), Arc::default())
+            .expect("preset initializes offline processor");
         for block in samples.chunks_mut(128) {
             processor.process(block);
         }
@@ -65,13 +83,14 @@ fn speech_with_fan_keyboard_and_street_noise_matches_reference_waveforms() {
                     .flat_map(|v| v.to_le_bytes())
                     .collect::<Vec<_>>(),
             )
-            .unwrap();
+            .expect("explicit reference update succeeds");
         }
         let expected = std::fs::read(reference).expect("explicitly generated reference waveform");
         assert_eq!(expected.len(), anchors.len() * 4);
         for (index, (actual, expected)) in anchors.iter().zip(expected.chunks_exact(4)).enumerate()
         {
-            let expected = f32::from_le_bytes(expected.try_into().unwrap());
+            let expected =
+                f32::from_le_bytes(expected.try_into().expect("fixed-width fixture field"));
             assert!(
                 (actual - expected).abs() <= 0.0001,
                 "{noise} sample {}: {actual} vs {expected}",

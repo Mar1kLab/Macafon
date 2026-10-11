@@ -192,6 +192,7 @@ impl Drop for EventWriter {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

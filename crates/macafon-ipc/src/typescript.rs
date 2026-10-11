@@ -77,6 +77,8 @@ fn protocol() -> String {
         HotkeyBackend::decl(&cfg),
         HotkeyBinding::decl(&cfg),
         HotkeysState::decl(&cfg),
+        CloseAction::decl(&cfg),
+        Preferences::decl(&cfg),
     ];
     let mut out = String::from(HEADER);
     out.push_str("// Protocol types of macafon-ipc (PRD §11.5).\n\n");
@@ -259,6 +261,11 @@ fn dsp() -> String {
     out.push_str(&defaults(
         "MAX_CHANNELS",
         json!(macafon_config::mixer::MAX_CHANNELS),
+    ));
+    out.push_str(&typed(
+        "QUANTUM_CHOICES",
+        "readonly number[]",
+        json!(macafon_config::QUANTUM_CHOICES),
     ));
     out.push_str(&typed(
         "CHANNEL_COLORS",

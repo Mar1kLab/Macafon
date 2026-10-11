@@ -89,6 +89,10 @@ pub trait MixerHost {
     }
     /// Playback streams appeared, changed or vanished (APP-001).
     fn streams_changed(&mut self, _streams: &[PlaybackStream]) {}
+    /// Preferred quantum for Macafon's nodes in frames (§9.5); polled every 100 ms.
+    fn quantum_frames(&self) -> u32 {
+        crate::DEFAULT_QUANTUM_FRAMES
+    }
     /// Where `stream` belongs; consulted every 100 ms for each stream.
     fn route(&self, _stream: &PlaybackStream) -> Route {
         Route::Ignore
@@ -243,6 +247,8 @@ pub(crate) struct MixerSession {
     /// Keyed by stream id with the stream's `object.serial`: ids are reused, serials are not.
     routed: HashMap<u32, (String, String)>,
     outputs: Vec<Node>,
+    /// `node.latency` frames the channel nodes request now.
+    quantum: u32,
 }
 
 impl MixerSession {
@@ -255,6 +261,13 @@ impl MixerSession {
         metadata: &Rc<RefCell<MetadataState>>,
         bound: Option<&BoundMetadata>,
     ) {
+        let quantum = host.quantum_frames();
+        if quantum != self.quantum {
+            for node in &self.channels {
+                crate::filter::request_quantum(node.pointer(), quantum);
+            }
+            self.quantum = quantum;
+        }
         for request in host.channel_requests() {
             if let Err(error) = self.handle(core, request) {
                 tracing::warn!(%error, "Cannot change channel node");
@@ -321,6 +334,9 @@ impl MixerSession {
             } => {
                 self.remove(&id);
                 let node = ChannelNode::new(core, &id, &description, processor)?;
+                if self.quantum != crate::DEFAULT_QUANTUM_FRAMES {
+                    crate::filter::request_quantum(node.pointer(), self.quantum);
+                }
                 tracing::info!(channel = %id, "Channel created");
                 self.channels.push(node);
             }

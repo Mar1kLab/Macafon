@@ -16,6 +16,9 @@ mod routing;
 
 pub use channel_node::{CHANNEL_PREFIX, channel_node_name};
 pub use inspect::{Inspection, inspect, version_at_least};
+/// `node.latency` every Macafon node is created with: 128 frames = 2.7 ms (§9.5).
+pub const DEFAULT_QUANTUM_FRAMES: u32 = 128;
+
 /// `node.name` of the virtual microphone (MIC-010).
 pub const VIRTUAL_MIC_NAME: &str = "macafon_mic";
 
@@ -701,6 +704,7 @@ fn run_session<H: MicrophoneHost + 'static>(
     let profiler_host = host.clone();
     let mixer_session = Rc::new(RefCell::new(mixer::MixerSession::default()));
     let tick_mixer = mixer_session.clone();
+    let requested_quantum = Cell::new(DEFAULT_QUANTUM_FRAMES);
     let (tick_streams, tick_metadata, tick_bound) = (
         streams.clone(),
         metadata_state.clone(),
@@ -801,6 +805,10 @@ fn run_session<H: MicrophoneHost + 'static>(
             }
         }
         filter.set_keep_processing(host.keep_processing());
+        let quantum = host.quantum_frames();
+        if requested_quantum.replace(quantum) != quantum {
+            filter.request_quantum(quantum);
+        }
         filter.set_input_channel(host.input_channel());
         let detected = filter
             .detected_channel

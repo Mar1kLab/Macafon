@@ -93,11 +93,15 @@ JSON по строкам, сокет `$XDG_RUNTIME_DIR/macafon/macafond.sock` (�
 | `channel.set` | `id`, `settings` (вся цепочка и фейдер) | `MixerState` |
 | `channel.adjust_volume` / `channel.toggle_mute` / `channel.set_default` / `channel.reorder` | `id`, `delta_pct` / `id` / `id` / `ids` | `MixerState` |
 | `apps.move` / `apps.set_managed` / `apps.forget` | `app_key`, `channel` / `app_key`, `managed` / `app_key` | `MixerState` |
+| `apps.icon` | `icon` (имя иконки, app id или бинарь) | `data:` URL или `null` (APP-003) |
+| `hotkeys.get` / `hotkeys.set` | — / `action`, `shortcut` (`null` — снять) | `HotkeysState` |
+| `prefs.get` / `prefs.set` | — / `quantum_frames?` (64/128/256/512), `close_action?` (`tray`/`quit`) | `Preferences` (§9.5) |
 
 События: `meters` (уровни в dBFS, gain reduction в dB, активность NS), `mic.changed` (любое
 изменение состояния от любого клиента), `calibration.changed` (~10 Гц во время замера и итог)
 `ab.changed` (~10 Гц во время записи и воспроизведения, плюс каждое изменение) и
-`presets.changed` (новый список пресетов), `mixer.changed` (`MixerState` после любого изменения
+`presets.changed` (новый список пресетов), `devices.changed` (список входов после подключения или
+отключения, MIC-002), `prefs.changed`, `hotkeys.changed`, `mixer.changed` (`MixerState` после любого изменения
 каналов, приложений или выходов) и `mixer.meters` (пики каналов и Master вместе с `meters`, пока микшер включён). Ошибка `already_exists` — имя пресета занято. Ошибки: `bad_request`, `protocol_mismatch`,
 `invalid_params`, `not_found`, `busy`, `internal`.
 
@@ -110,7 +114,8 @@ TS-типы для UI генерируются из `macafon-ipc` (см. [ui.md]
 поля берутся из значений по умолчанию. Пишется атомарно (temp + fsync + rename) через 500 мс
 после последнего изменения и при выходе (CFG-001). Повреждённый, невалидный или более новый
 по схеме файл переименовывается в `config.toml.broken-<unix time>`, демон стартует с
-дефолтами. `MicState.config_recovery` содержит путь резервной копии и причину для уведомления клиента; UI показывает тост один раз на резервную копию.
+дефолтами. `MicState.is_default_source` — Macafon Microphone сейчас системный вход по metadata `default.audio.source`
+(MIC-012). `MicState.config_recovery` содержит путь резервной копии и причину для уведомления клиента; UI показывает тост один раз на резервную копию.
 
 Профили `[device_profiles."<stable ID>"]` содержат цепочку, пресет, канал входа и калиброванный
 шумовой порог каждого физического микрофона. ID строится из serial или `device.bus-path` и имени узла;
@@ -121,6 +126,10 @@ TS-типы для UI генерируются из `macafon-ipc` (см. [ui.md]
 Таймер обслуживания живёт всё время работы демона, включая ожидание переподключения
 к PipeWire. Изменения через IPC сохраняются с тем же debounce даже без аудиосервера;
 после его возвращения новая цепочка создаётся с актуальными настройками.
+
+`[audio] quantum_frames` (по умолчанию 128) — `node.latency` узла микрофона и каналов, меняется на лету
+(`pw_filter_update_properties`); граф берёт наименьший запрос, так что другие приложения могут сделать
+quantum меньше. `[ui] quit_on_close = true` — отключение UI-клиента завершает демон, как `daemon.quit`.
 
 Флаги `macafond run` (`--input`, `--fallback-input`, `--stereo`, `--preset`, `--engine`, …) перекрывают конфиг на этот запуск;
 последующие изменения через IPC сохраняются вместе с ними. `--config <path>` — другой файл.

@@ -176,6 +176,11 @@ impl Filter {
         self.pointer.as_ptr()
     }
 
+    /// Ask the graph for `frames` per cycle (§9.5). Control loop only.
+    pub fn request_quantum(&self, frames: u32) {
+        request_quantum(self.pointer(), frames);
+    }
+
     fn add_port(&self, direction: u32, name: &str, channel: &str) -> Result<*mut c_void, Error> {
         let props = properties! {
             "format.dsp" => "32 bit float mono audio",
@@ -284,6 +289,16 @@ impl Filter {
 }
 
 /// `EnumFormat` for mono 48 kHz audio in the given SPA sample format.
+/// Update `node.latency`; the graph picks the smallest request of its nodes.
+pub(crate) fn request_quantum(filter: *mut pw::sys::pw_filter, frames: u32) {
+    let latency = format!("{frames}/48000");
+    let props = properties! { "node.latency" => latency.as_str() };
+    // SAFETY: the caller's filter is alive on the control loop; PipeWire copies the dictionary.
+    unsafe {
+        pw::sys::pw_filter_update_properties(filter, ptr::null_mut(), props.dict().as_raw_ptr());
+    }
+}
+
 pub(crate) fn mono_format(sample_format: u32) -> Result<Vec<u8>, Error> {
     audio_format(sample_format, false)
 }

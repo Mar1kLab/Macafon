@@ -23,6 +23,7 @@ pub struct Config {
     pub mixer: MixerConfig,
     pub apps: AppsConfig,
     pub ui: UiConfig,
+    pub audio: AudioConfig,
     /// `[hotkeys]`: action id → shortcut, `mic_mute_toggle = "Ctrl+Alt+M"` (§8.3).
     pub hotkeys: BTreeMap<String, String>,
 }
@@ -33,7 +34,30 @@ pub struct Config {
 pub struct UiConfig {
     /// BG-001: the "keeps running in the tray" notification was shown once.
     pub close_hint_shown: bool,
+    /// §9.5: closing the window quits Macafon instead of keeping it in the tray.
+    pub quit_on_close: bool,
 }
+
+/// `[audio]`: graph preferences (§9.5).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AudioConfig {
+    /// Preferred PipeWire quantum for Macafon's nodes (`node.latency`), frames at 48 kHz.
+    pub quantum_frames: u32,
+}
+
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self {
+            quantum_frames: DEFAULT_QUANTUM_FRAMES,
+        }
+    }
+}
+
+/// 128 frames = 2.7 ms at 48 kHz (PRD §9.5).
+pub const DEFAULT_QUANTUM_FRAMES: u32 = 128;
+/// The choices offered in Settings → Audio.
+pub const QUANTUM_CHOICES: [u32; 4] = [64, 128, 256, 512];
 
 impl Default for Config {
     fn default() -> Self {
@@ -44,6 +68,7 @@ impl Default for Config {
             mixer: MixerConfig::default(),
             apps: AppsConfig::default(),
             ui: UiConfig::default(),
+            audio: AudioConfig::default(),
             hotkeys: BTreeMap::new(),
         }
     }
@@ -284,6 +309,9 @@ fn parse(text: &str) -> Result<Config, String> {
         .validate()
         .map_err(|error| error.to_string())?;
     config.mixer.validate()?;
+    if !QUANTUM_CHOICES.contains(&config.audio.quantum_frames) {
+        config.audio.quantum_frames = DEFAULT_QUANTUM_FRAMES;
+    }
     for profile in config.device_profiles.values() {
         profile
             .chain
@@ -325,7 +353,13 @@ mod tests {
             device_profiles: BTreeMap::new(),
             mixer: MixerConfig::default(),
             apps: AppsConfig::default(),
-            ui: UiConfig::default(),
+            ui: UiConfig {
+                close_hint_shown: false,
+                quit_on_close: true,
+            },
+            audio: AudioConfig {
+                quantum_frames: 256,
+            },
             hotkeys: BTreeMap::new(),
             mic: MicConfig {
                 stereo: true,

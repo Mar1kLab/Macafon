@@ -223,6 +223,36 @@ pub enum Request {
         action: String,
         shortcut: Option<String>,
     },
+    /// §9.5 preferences.
+    #[serde(rename = "prefs.get")]
+    PrefsGet,
+    /// Change the given preferences; `quantum_frames` is one of 64, 128, 256, 512.
+    #[serde(rename = "prefs.set")]
+    PrefsSet {
+        #[serde(default)]
+        quantum_frames: Option<u32>,
+        #[serde(default)]
+        close_action: Option<CloseAction>,
+    },
+}
+
+/// What the window's close button does (§9.5, BG-001).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum CloseAction {
+    /// The window goes away, sound keeps going in the daemon.
+    Tray,
+    /// Closing the window quits Macafon like the Quit menu item (BG-005).
+    Quit,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Preferences {
+    /// Preferred PipeWire quantum for Macafon's nodes; other apps may make it smaller.
+    pub quantum_frames: u32,
+    pub close_action: CloseAction,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -318,6 +348,8 @@ pub enum Event {
     /// A microphone was plugged in or removed (MIC-002); the full list, as `devices.list`.
     #[serde(rename = "devices.changed")]
     DevicesChanged(Vec<Device>),
+    #[serde(rename = "prefs.changed")]
+    PrefsChanged(Preferences),
 }
 
 /// One line from the daemon.

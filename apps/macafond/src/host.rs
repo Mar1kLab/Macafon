@@ -910,6 +910,17 @@ impl DaemonHost {
         }
     }
 
+    fn prefs(&self) -> macafon_ipc::Preferences {
+        macafon_ipc::Preferences {
+            quantum_frames: self.config.audio.quantum_frames,
+            close_action: if self.config.ui.quit_on_close {
+                macafon_ipc::CloseAction::Quit
+            } else {
+                macafon_ipc::CloseAction::Tray
+            },
+        }
+    }
+
     fn hotkeys_changed(&self) {
         self.hub
             .broadcast(&Event::HotkeysChanged(self.hotkeys_state()));
@@ -1052,6 +1063,31 @@ impl DaemonHost {
         let state = match request {
             Request::MicCyclePreset { step } => self.cycle_preset(step)?,
             Request::HotkeysGet => return Ok(serde_json::json!(self.hotkeys_state())),
+            Request::PrefsGet => return Ok(serde_json::json!(self.prefs())),
+            Request::PrefsSet {
+                quantum_frames,
+                close_action,
+            } => {
+                if let Some(frames) = quantum_frames {
+                    if !macafon_config::QUANTUM_CHOICES.contains(&frames) {
+                        return Err(ErrorBody::new(
+                            ErrorCode::InvalidParams,
+                            format!(
+                                "quantum must be one of {:?}",
+                                macafon_config::QUANTUM_CHOICES
+                            ),
+                        ));
+                    }
+                    self.config.audio.quantum_frames = frames;
+                }
+                if let Some(action) = close_action {
+                    self.config.ui.quit_on_close = action == macafon_ipc::CloseAction::Quit;
+                }
+                self.changed_at = Some(Instant::now());
+                let prefs = self.prefs();
+                self.hub.broadcast(&Event::PrefsChanged(prefs.clone()));
+                return Ok(serde_json::json!(prefs));
+            }
             Request::HotkeysSet { action, shortcut } => {
                 self.set_hotkey(&action, shortcut)?;
                 return Ok(serde_json::json!(self.hotkeys_state()));
@@ -1305,6 +1341,10 @@ impl MixerHost for DaemonHost {
         self.mixer.default_sink_changed(name);
     }
 
+    fn quantum_frames(&self) -> u32 {
+        self.config.audio.quantum_frames
+    }
+
     fn default_source_changed(&mut self, name: Option<&str>) {
         self.default_source = name.map(str::to_owned);
         self.changed();
@@ -1479,6 +1519,12 @@ impl MicrophoneHost for DaemonHost {
         let ControlMessage::Request { request, reply } = message else {
             self.ab.clear(self.control.as_mut());
             self.ab_changed();
+            // §9.5: the user chose "close quits Macafon".
+            if self.config.ui.quit_on_close {
+                tracing::info!("Window closed; quitting as configured");
+                self.quit = true;
+                return;
+            }
             // BG-001: the window closed, the sound keeps going; say so once.
             if !self.quit && !self.config.ui.close_hint_shown {
                 self.config.ui.close_hint_shown = true;

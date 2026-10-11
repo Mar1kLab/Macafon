@@ -383,6 +383,25 @@ def main():
             assert not json.loads(ctl("autostart", "off", "--json"))["enabled"]
             assert not entry.exists()
             print("autostart: XDG entry written and removed")
+
+            # §9.5 preferences: the preferred quantum reaches node.latency; close can quit.
+            def mic_latency():
+                return next(item["info"]["props"].get("node.latency") for item in json.loads(run("pw-dump"))
+                            if item.get("info", {}).get("props", {}).get("node.name") == "macafon_mic")
+            assert request("prefs.get") == {"quantum_frames": 128, "close_action": "tray"}
+            assert request("prefs.set", {"quantum_frames": 256})["quantum_frames"] == 256
+            smoke.wait_for(lambda: mic_latency() == "256/48000", "node.latency 256")
+            assert request("prefs.set", {"close_action": "quit"})["close_action"] == "quit"
+            with socket.socket(socket.AF_UNIX) as window:
+                window.connect(str(runtime / "macafon" / "macafond.sock"))
+                window.sendall(b'{"id":1,"method":"hello","params":{"protocol":1,"client":"macafon-ui"}}\n')
+                window.makefile().readline()
+            daemon.wait(timeout=5)
+            daemon = spawn([args.daemon, "run", "--no-tray"])
+            smoke.wait_for(lambda: ports("macafon_mic", "out"), "virtual microphone after quit")
+            smoke.wait_for(lambda: mic_latency() == "256/48000", "saved quantum")
+            request("prefs.set", {"quantum_frames": 128, "close_action": "tray"})
+            print("prefs: quantum applied live and after restart, close quits when chosen")
             stop(daemon)
 
             # Stereo duplicates the processed mono, including when only one side is linked.

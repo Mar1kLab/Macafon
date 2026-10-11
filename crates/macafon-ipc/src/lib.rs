@@ -5,12 +5,20 @@
 //! Events: `{"event":"meters","data":…}`. The first request must be `hello`.
 
 mod client;
+mod doctor;
+mod hotkeys;
+mod mixer;
 #[cfg(all(test, feature = "ts"))]
 mod typescript;
 
 pub use client::{Client, ClientError};
+pub use doctor::{DoctorCheck, DoctorCheckId, DoctorReport, DoctorStatus};
+pub use hotkeys::{HotkeyAction, HotkeyBackend, HotkeyBinding, HotkeysState};
 pub use macafon_dsp::calibration::CalibrationReport;
 pub use macafon_dsp::{ChainSettings, InputChannel, Meters};
+pub use mixer::{
+    AppState, ChannelMeterFrame, ChannelPatch, ChannelState, MixerMeters, MixerState, OutputDevice,
+};
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -137,6 +145,81 @@ pub enum Request {
     /// AB-006: peak envelopes of A and B with `points` values each (16–4096).
     #[serde(rename = "ab.waveform")]
     AbWaveform { points: u32 },
+    #[serde(rename = "mixer.get")]
+    MixerGet,
+    /// CH-009: create or remove the channels; OUT-005 default output follows.
+    #[serde(rename = "mixer.set_enabled")]
+    MixerSetEnabled { enabled: bool },
+    /// CH-006: Master fader and mute; absent fields stay.
+    #[serde(rename = "mixer.set_master")]
+    MixerSetMaster {
+        #[serde(default)]
+        volume_pct: Option<f32>,
+        #[serde(default)]
+        muted: Option<bool>,
+    },
+    /// OUT-001: play into `device` now; it moves to the top of the priority list.
+    #[serde(rename = "mixer.set_output")]
+    MixerSetOutput { device: Option<String> },
+    /// OUT-002: the whole priority list, most preferred first.
+    #[serde(rename = "mixer.set_output_priority")]
+    MixerSetOutputPriority { devices: Vec<String> },
+    /// APP-006: classify known apps on first sight.
+    #[serde(rename = "mixer.set_auto_classify")]
+    MixerSetAutoClassify { enabled: bool },
+    /// CH-002: a new channel with a free id; returns the mixer state.
+    #[serde(rename = "channel.create")]
+    ChannelCreate {
+        name: String,
+        color: String,
+        #[serde(default)]
+        icon: Option<String>,
+    },
+    #[serde(rename = "channel.update")]
+    ChannelUpdate { id: String, patch: ChannelPatch },
+    /// CH-002: apps of the deleted channel move to the default one.
+    #[serde(rename = "channel.delete")]
+    ChannelDelete { id: String },
+    /// The whole chain and fader of one channel (§7.3, CH-004).
+    #[serde(rename = "channel.set")]
+    ChannelSet {
+        id: String,
+        settings: macafon_dsp::ChannelSettings,
+    },
+    /// Relative fader change in percent points, for hotkeys and the CLI (HK-001, HK-004).
+    #[serde(rename = "channel.adjust_volume")]
+    ChannelAdjustVolume { id: String, delta_pct: f32 },
+    #[serde(rename = "channel.toggle_mute")]
+    ChannelToggleMute { id: String },
+    /// CH-003.
+    #[serde(rename = "channel.set_default")]
+    ChannelSetDefault { id: String },
+    /// CH-007: every channel id in the new order.
+    #[serde(rename = "channel.reorder")]
+    ChannelReorder { ids: Vec<String> },
+    /// APP-004/005: move all streams of the app now and remember it.
+    #[serde(rename = "apps.move")]
+    AppsMove { app_key: String, channel: String },
+    /// APP-009: `false` leaves the app where it plays and forgets nothing else.
+    #[serde(rename = "apps.set_managed")]
+    AppsSetManaged { app_key: String, managed: bool },
+    /// Forget the rule of an app that is not running (APP-007).
+    #[serde(rename = "apps.forget")]
+    AppsForget { app_key: String },
+    /// §9.6: run the self-checks now.
+    #[serde(rename = "doctor.run")]
+    DoctorRun,
+    /// Load the next (`step = 1`) or previous (`-1`) preset (HK-001, HK-004).
+    #[serde(rename = "mic.cycle_preset")]
+    MicCyclePreset { step: i32 },
+    #[serde(rename = "hotkeys.get")]
+    HotkeysGet,
+    /// HK-002: bind `shortcut` (`Ctrl+Alt+M`) to `action`, or clear it with `null`.
+    #[serde(rename = "hotkeys.set")]
+    HotkeysSet {
+        action: String,
+        shortcut: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -221,6 +304,14 @@ pub enum Event {
     /// The preset list changed (saved, renamed, deleted, imported).
     #[serde(rename = "presets.changed")]
     PresetsChanged(Vec<PresetInfo>),
+    /// Any change of channels, apps, Master or outputs.
+    #[serde(rename = "mixer.changed")]
+    MixerChanged(MixerState),
+    /// With `meters` while subscribed and the mixer is on.
+    #[serde(rename = "mixer.meters")]
+    MixerMeters(MixerMeters),
+    #[serde(rename = "hotkeys.changed")]
+    HotkeysChanged(HotkeysState),
 }
 
 /// One line from the daemon.

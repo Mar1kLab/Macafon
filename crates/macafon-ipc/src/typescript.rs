@@ -6,7 +6,7 @@ use crate::*;
 use macafon_dsp::calibration::NoiseLevel;
 use macafon_dsp::params::{self, ParameterSpec, Unit};
 use macafon_dsp::settings::{self, *};
-use macafon_dsp::{LITE_LATENCY_SAMPLES, Preset, SAMPLE_RATE_HZ};
+use macafon_dsp::{LITE_LATENCY_SAMPLES, Preset, SAMPLE_RATE_HZ, STUDIO_LATENCY_SAMPLES};
 use serde_json::{Value, json};
 use std::path::Path;
 use ts_rs::{Config, TS};
@@ -35,6 +35,10 @@ fn protocol() -> String {
         LimiterParams::decl(&cfg),
         ChainSettings::decl(&cfg),
         Meters::decl(&cfg),
+        macafon_dsp::channel::ChannelEqPreset::decl(&cfg),
+        macafon_dsp::channel::EqPresetCategory::decl(&cfg),
+        macafon_dsp::ChannelSettings::decl(&cfg),
+        macafon_dsp::ChannelMeters::decl(&cfg),
         NoiseLevel::decl(&cfg),
         CalibrationReport::decl(&cfg),
         // Protocol.
@@ -59,6 +63,20 @@ fn protocol() -> String {
         PlaybackDeviceKind::decl(&cfg),
         PlaybackDevice::decl(&cfg),
         Device::decl(&cfg),
+        ChannelState::decl(&cfg),
+        AppState::decl(&cfg),
+        OutputDevice::decl(&cfg),
+        MixerState::decl(&cfg),
+        ChannelMeterFrame::decl(&cfg),
+        MixerMeters::decl(&cfg),
+        ChannelPatch::decl(&cfg),
+        DoctorStatus::decl(&cfg),
+        DoctorCheckId::decl(&cfg),
+        DoctorCheck::decl(&cfg),
+        DoctorReport::decl(&cfg),
+        HotkeyBackend::decl(&cfg),
+        HotkeyBinding::decl(&cfg),
+        HotkeysState::decl(&cfg),
     ];
     let mut out = String::from(HEADER);
     out.push_str("// Protocol types of macafon-ipc (PRD §11.5).\n\n");
@@ -144,6 +162,7 @@ fn dsp() -> String {
         "limiter_ceiling_db": spec(&LIMITER_CEILING_DBFS),
         "limiter_release_ms": spec(&LIMITER_RELEASE_MS),
         "output_gain_db": spec(&OUTPUT_GAIN_DB),
+        "channel_volume_pct": spec(&macafon_dsp::channel::CHANNEL_VOLUME_PCT),
     });
     let macros = json!({
         "expander_threshold_offset_db": curve(&settings::macros::EXPANDER_THRESHOLD_OFFSET_DB),
@@ -169,11 +188,15 @@ fn dsp() -> String {
         |name: &str, ty: &str, value: Value| format!("export const {name}: {ty} = {value};\n");
     let mut out = String::from(HEADER);
     out.push_str("// Parameter ranges, macro curves and presets of macafon-dsp (PRD §6.3).\n\n");
-    out.push_str("import type { ChainSettings, EqBand } from './protocol';\n\n");
+    out.push_str("import type { ChainSettings, ChannelEqPreset, ChannelSettings, EqBand, EqParams, EqPresetCategory } from './protocol';\n\n");
     out.push_str(&defaults("SAMPLE_RATE_HZ", json!(SAMPLE_RATE_HZ)));
     out.push_str(&defaults(
         "LITE_LATENCY_SAMPLES",
         json!(LITE_LATENCY_SAMPLES),
+    ));
+    out.push_str(&defaults(
+        "STUDIO_LATENCY_SAMPLES",
+        json!(STUDIO_LATENCY_SAMPLES),
     ));
     out.push_str(&defaults(
         "DEFAULT_NOISE_FLOOR_DBFS",
@@ -207,6 +230,45 @@ fn dsp() -> String {
     out.push_str(&format!(
         "\nexport const EQ_CHARACTERS = {:#} as const;\n\n",
         json!(characters)
+    ));
+    let channel_presets: Vec<_> = macafon_dsp::channel::ChannelEqPreset::ALL
+        .into_iter()
+        .map(|preset| {
+            json!({
+                "id": value(preset),
+                "name": preset.name(),
+                "category": value(preset.category()),
+                "eq": value(preset.params()),
+            })
+        })
+        .collect();
+    out.push_str(&format!(
+        "export const CHANNEL_EQ_PRESETS: ReadonlyArray<{{ id: ChannelEqPreset; name: string; category: EqPresetCategory; eq: EqParams }}> = {:#};\n\n",
+        json!(channel_presets)
+    ));
+    use macafon_dsp::channel::ChannelTemplate;
+    let templates = json!({
+        "main": value(macafon_dsp::ChannelSettings::template(ChannelTemplate::Main)),
+        "voice": value(macafon_dsp::ChannelSettings::template(ChannelTemplate::Voice)),
+        "music": value(macafon_dsp::ChannelSettings::template(ChannelTemplate::Music)),
+        "custom": value(macafon_dsp::ChannelSettings::template(ChannelTemplate::Custom)),
+    });
+    out.push_str(&format!(
+        "/** Channel templates of CFX-005/006 and a new user channel. */\nexport const CHANNEL_TEMPLATES: Readonly<Record<'main' | 'voice' | 'music' | 'custom', ChannelSettings>> = {templates:#};\n\n"
+    ));
+    out.push_str(&defaults(
+        "MAX_CHANNELS",
+        json!(macafon_config::mixer::MAX_CHANNELS),
+    ));
+    out.push_str(&typed(
+        "CHANNEL_COLORS",
+        "readonly string[]",
+        json!(macafon_config::mixer::CHANNEL_COLORS),
+    ));
+    out.push_str(&typed(
+        "CHANNEL_ICONS",
+        "readonly string[]",
+        json!(macafon_config::mixer::CHANNEL_ICONS),
     ));
     out.push_str(&format!(
         "export const BUILTIN_PRESETS: ReadonlyArray<{{ id: string; name: string; settings: ChainSettings }}> = {};\n",

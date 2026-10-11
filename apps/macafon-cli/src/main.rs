@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use macafon_ipc::{
     AbSide, AbState, AutostartState, CalibrationReport, CalibrationState, CalibrationStep, Client,
-    Device, Event, InputChannel, MicState, PresetInfo, Request,
+    Device, Event, InputChannel, MicState, MixerState, PresetInfo, Request,
 };
 use std::io::Write;
 use std::path::PathBuf;
@@ -25,7 +25,7 @@ enum Top {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<std::ffi::OsString>,
     },
-    /// Restore the previous system microphone, including without a running daemon.
+    /// Restore the previous system microphone and output, including without a running daemon.
     RestoreDefault,
     /// Send a command to the running macafond.
     Ctl {
@@ -53,8 +53,18 @@ enum Ctl {
         #[command(subcommand)]
         command: Option<PresetsCommand>,
     },
-    /// Load a preset by id (keeps mute and bypass).
+    /// Load a preset by id, or `next` / `previous` (keeps mute and bypass).
     Preset { id: String },
+    /// Microphone commands as written in desktop shortcuts: `ctl mic mute toggle` (HK-004).
+    Mic {
+        #[command(subcommand)]
+        command: MicCommand,
+    },
+    /// List hotkeys, or bind one: `ctl hotkeys set mic_mute_toggle Ctrl+Alt+M` (`none` clears).
+    Hotkeys {
+        #[command(subcommand)]
+        command: Option<HotkeysCommand>,
+    },
     /// Mute the virtual microphone (digital silence).
     Mute {
         #[arg(value_enum, default_value_t = Switch::Toggle)]
@@ -95,6 +105,27 @@ enum Ctl {
         #[command(subcommand)]
         command: AbCommand,
     },
+    /// Show the mixer, or turn it on/off (CH-009).
+    Mixer {
+        #[arg(value_enum)]
+        state: Option<Switch>,
+    },
+    /// Change one output channel by id (main, voice, music, …); for desktop hotkeys (HK-004).
+    Channel {
+        id: String,
+        #[command(subcommand)]
+        action: ChannelAction,
+    },
+    /// List applications, or move one to a channel (APP-004).
+    Apps {
+        #[command(subcommand)]
+        command: Option<AppsCommand>,
+    },
+    /// Play the channels into this output (node.name); `default` follows the previous system
+    /// default (OUT-001, OUT-003).
+    Output { name: String },
+    /// Run the self-checks (§9.6) and print them.
+    Doctor,
     /// Print meter frames (dBFS) as JSON lines.
     Meters {
         #[arg(long, default_value_t = 30)]
@@ -102,6 +133,52 @@ enum Ctl {
         /// Stop after this many frames.
         #[arg(long)]
         count: Option<usize>,
+    },
+}
+
+#[derive(Subcommand)]
+enum MicCommand {
+    Mute {
+        #[arg(value_enum, default_value_t = Switch::Toggle)]
+        state: Switch,
+    },
+    Bypass {
+        #[arg(value_enum, default_value_t = Switch::Toggle)]
+        state: Switch,
+    },
+    Preset {
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum HotkeysCommand {
+    List,
+    Set { action: String, shortcut: String },
+}
+
+#[derive(Subcommand)]
+enum ChannelAction {
+    /// `+5` / `-5` change by percent points; `40` sets 40%.
+    Volume {
+        #[arg(allow_hyphen_values = true)]
+        value: String,
+    },
+    Mute {
+        #[arg(value_enum, default_value_t = Switch::Toggle)]
+        state: Switch,
+    },
+    /// Make it the channel new apps start in (CH-003).
+    Default,
+}
+
+#[derive(Subcommand)]
+enum AppsCommand {
+    List,
+    /// Move every stream of the app now and remember it.
+    Move {
+        key: String,
+        channel: String,
     },
 }
 
@@ -236,6 +313,8 @@ fn main() -> Result<()> {
         Some(Top::RestoreDefault) => {
             let journal = macafon_backend_pipewire::default_source_journal()?;
             macafon_backend_pipewire::restore_default_source(&journal)?;
+            let journal = macafon_backend_pipewire::default_sink_journal()?;
+            macafon_backend_pipewire::restore_default_sink(&journal)?;
             return Ok(());
         }
         Some(Top::Ctl { json, command }) => (json, command),
@@ -288,6 +367,116 @@ fn main() -> Result<()> {
             };
         }
         Ctl::Presets { command } => return presets(&mut client, command, json),
+        Ctl::Mixer { state } => {
+            let request = match state {
+                None => Request::MixerGet,
+                Some(Switch::On) => Request::MixerSetEnabled { enabled: true },
+                Some(Switch::Off) => Request::MixerSetEnabled { enabled: false },
+                Some(Switch::Toggle) => {
+                    let current: MixerState = client.call_as(Request::MixerGet)?;
+                    Request::MixerSetEnabled {
+                        enabled: !current.enabled,
+                    }
+                }
+            };
+            return print_mixer(&client.call_as(request)?, json);
+        }
+        Ctl::Channel { id, action } => {
+            let request = match action {
+                ChannelAction::Volume { value } => {
+                    let number: f32 = value
+                        .trim_start_matches('+')
+                        .parse()
+                        .with_context(|| format!("not a volume: {value}"))?;
+                    if value.starts_with(['+', '-']) {
+                        Request::ChannelAdjustVolume {
+                            id,
+                            delta_pct: number,
+                        }
+                    } else {
+                        let state: MixerState = client.call_as(Request::MixerGet)?;
+                        let current = state
+                            .channels
+                            .iter()
+                            .find(|channel| channel.id == id)
+                            .with_context(|| format!("no channel {id:?}"))?
+                            .settings
+                            .volume_pct;
+                        Request::ChannelAdjustVolume {
+                            id,
+                            delta_pct: number - current,
+                        }
+                    }
+                }
+                ChannelAction::Mute { state } => {
+                    let current: MixerState = client.call_as(Request::MixerGet)?;
+                    let muted = current
+                        .channels
+                        .iter()
+                        .find(|channel| channel.id == id)
+                        .with_context(|| format!("no channel {id:?}"))?
+                        .settings
+                        .muted;
+                    match state {
+                        Switch::On if muted => return Ok(()),
+                        Switch::Off if !muted => return Ok(()),
+                        _ => Request::ChannelToggleMute { id },
+                    }
+                }
+                ChannelAction::Default => Request::ChannelSetDefault { id },
+            };
+            return print_mixer(&client.call_as(request)?, json);
+        }
+        Ctl::Apps { command } => {
+            let request = match command {
+                None | Some(AppsCommand::List) => Request::MixerGet,
+                Some(AppsCommand::Move { key, channel }) => Request::AppsMove {
+                    app_key: key,
+                    channel,
+                },
+            };
+            let state: MixerState = client.call_as(request)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&state.apps)?);
+            } else {
+                for app in &state.apps {
+                    println!(
+                        "{}\t{}\t{}{}",
+                        app.key,
+                        app.channel,
+                        app.name,
+                        if app.active { "\t(playing)" } else { "" }
+                    );
+                }
+            }
+            return Ok(());
+        }
+        Ctl::Doctor => {
+            let report: macafon_ipc::DoctorReport = client.call_as(Request::DoctorRun)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                for check in &report.checks {
+                    println!(
+                        "{:<8} {:?}{}",
+                        format!("{:?}", check.status).to_lowercase(),
+                        check.id,
+                        if check.values.is_empty() {
+                            String::new()
+                        } else {
+                            format!(": {}", check.values.join(", "))
+                        }
+                    );
+                }
+            }
+            return Ok(());
+        }
+        Ctl::Output { name } => {
+            let request = Request::MixerSetOutput {
+                device: (name != "default").then_some(name),
+            };
+            return print_mixer(&client.call_as(request)?, json);
+        }
         Ctl::Devices => {
             let devices: Vec<Device> = client.call_as(Request::DevicesList)?;
             for device in devices {
@@ -295,7 +484,50 @@ fn main() -> Result<()> {
             }
             return Ok(());
         }
-        Ctl::Preset { id } => Request::MicSetPreset { preset: id },
+        Ctl::Preset { id } => preset_request(id),
+        Ctl::Mic { command } => match command {
+            MicCommand::Mute { state } => match state {
+                Switch::On => Request::MicSetMuted { muted: true },
+                Switch::Off => Request::MicSetMuted { muted: false },
+                Switch::Toggle => Request::MicToggleMute,
+            },
+            MicCommand::Bypass { state } => {
+                let bypass = match state {
+                    Switch::On => true,
+                    Switch::Off => false,
+                    Switch::Toggle => {
+                        let state: MicState = client.call_as(Request::MicGet)?;
+                        !state.settings.bypass
+                    }
+                };
+                Request::MicSetBypass { bypass }
+            }
+            MicCommand::Preset { id } => preset_request(id),
+        },
+        Ctl::Hotkeys { command } => {
+            let request = match command {
+                None | Some(HotkeysCommand::List) => Request::HotkeysGet,
+                Some(HotkeysCommand::Set { action, shortcut }) => Request::HotkeysSet {
+                    action,
+                    shortcut: (shortcut != "none").then_some(shortcut),
+                },
+            };
+            let state: macafon_ipc::HotkeysState = client.call_as(request)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&state)?);
+            } else {
+                println!("backend: {:?}", state.backend);
+                for binding in &state.bindings {
+                    println!(
+                        "{:<28} {:<20} {}",
+                        binding.action,
+                        binding.shortcut.as_deref().unwrap_or("-"),
+                        binding.error.as_deref().unwrap_or(&binding.command)
+                    );
+                }
+            }
+            return Ok(());
+        }
         Ctl::Mute { state } => match state {
             Switch::On => Request::MicSetMuted { muted: true },
             Switch::Off => Request::MicSetMuted { muted: false },
@@ -571,6 +803,47 @@ fn print_report(report: &CalibrationReport) {
     if report.suggest_studio {
         println!("tip:          the room is noisy; try Studio noise suppression");
     }
+}
+
+fn preset_request(id: String) -> Request {
+    match id.as_str() {
+        "next" => Request::MicCyclePreset { step: 1 },
+        "previous" | "prev" => Request::MicCyclePreset { step: -1 },
+        _ => Request::MicSetPreset { preset: id },
+    }
+}
+
+fn print_mixer(state: &MixerState, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(state)?);
+        return Ok(());
+    }
+    println!(
+        "mixer: {}  output: {}  master: {:.0}%{}",
+        if state.enabled { "on" } else { "off" },
+        state.output.as_deref().unwrap_or("-"),
+        state.master_volume_pct,
+        if state.master_muted { " (muted)" } else { "" }
+    );
+    for channel in &state.channels {
+        println!(
+            "  {}{}\t{}\t{:.0}%{}",
+            channel.id,
+            if channel.id == state.default_channel {
+                "*"
+            } else {
+                ""
+            },
+            channel.name,
+            channel.settings.volume_pct,
+            if channel.settings.muted {
+                " (muted)"
+            } else {
+                ""
+            }
+        );
+    }
+    Ok(())
 }
 
 fn print_state(state: &MicState) {

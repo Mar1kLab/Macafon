@@ -1,0 +1,170 @@
+//! Shortcut strings (HK-002): `Ctrl+Alt+M`, parsed into modifiers and one key, printed in a
+//! canonical order, and translated for the portal (xdg shortcuts spec) and X11.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct Modifiers {
+    pub ctrl: bool,
+    pub alt: bool,
+    pub shift: bool,
+    pub super_: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Accel {
+    pub modifiers: Modifiers,
+    /// Canonical key: `A`…`Z`, `0`…`9`, `F1`…`F24`, `Space`, `PageUp`, `ArrowUp`, …
+    pub key: String,
+}
+
+/// Named keys accepted besides letters, digits and F-keys.
+const NAMED: [&str; 14] = [
+    "Space",
+    "Insert",
+    "Delete",
+    "Home",
+    "End",
+    "PageUp",
+    "PageDown",
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "Pause",
+    "ScrollLock",
+    "PrintScreen",
+];
+
+fn function_key(key: &str) -> Option<u8> {
+    let n: u8 = key.strip_prefix('F')?.parse().ok()?;
+    (1..=24).contains(&n).then_some(n)
+}
+
+fn canonical_key(raw: &str) -> Option<String> {
+    let upper = raw.to_ascii_uppercase();
+    if raw.len() == 1 && raw.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Some(upper);
+    }
+    if function_key(&upper).is_some() {
+        return Some(upper);
+    }
+    let alias = match upper.as_str() {
+        "PGUP" | "PAGE_UP" => "PageUp",
+        "PGDN" | "PAGE_DOWN" => "PageDown",
+        "UP" => "ArrowUp",
+        "DOWN" => "ArrowDown",
+        "LEFT" => "ArrowLeft",
+        "RIGHT" => "ArrowRight",
+        "DEL" => "Delete",
+        "INS" => "Insert",
+        "PRINT" => "PrintScreen",
+        _ => "",
+    };
+    if !alias.is_empty() {
+        return Some(alias.to_owned());
+    }
+    NAMED
+        .iter()
+        .find(|name| name.eq_ignore_ascii_case(raw))
+        .map(|name| (*name).to_owned())
+}
+
+impl Accel {
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let mut modifiers = Modifiers::default();
+        let mut key = None;
+        for part in text.split('+').map(str::trim) {
+            match part.to_ascii_lowercase().as_str() {
+                "ctrl" | "control" => modifiers.ctrl = true,
+                "alt" => modifiers.alt = true,
+                "shift" => modifiers.shift = true,
+                "super" | "meta" | "logo" | "win" => modifiers.super_ = true,
+                "" => return Err(format!("empty key in {text:?}")),
+                _ if key.is_some() => return Err(format!("{text:?} has more than one key")),
+                _ => {
+                    key = Some(canonical_key(part).ok_or_else(|| format!("unknown key {part:?}"))?)
+                }
+            }
+        }
+        let key = key.ok_or_else(|| format!("{text:?} has no key"))?;
+        let any_modifier = modifiers.ctrl || modifiers.alt || modifiers.super_;
+        // A bare letter or digit would steal typing; F-keys and navigation keys alone are fine.
+        if !any_modifier && key.len() == 1 {
+            return Err(format!("{text:?} needs Ctrl, Alt or Super"));
+        }
+        Ok(Self { modifiers, key })
+    }
+
+    /// xdg shortcuts spec trigger: `CTRL+ALT+m`, keys as XKB keysym names.
+    pub fn portal_trigger(&self) -> String {
+        let mut parts = Vec::new();
+        let m = self.modifiers;
+        if m.ctrl {
+            parts.push("CTRL".to_owned());
+        }
+        if m.alt {
+            parts.push("ALT".to_owned());
+        }
+        if m.shift {
+            parts.push("SHIFT".to_owned());
+        }
+        if m.super_ {
+            parts.push("LOGO".to_owned());
+        }
+        let keysym = match self.key.as_str() {
+            key if key.len() == 1 => key.to_ascii_lowercase(),
+            "Space" => "space".into(),
+            "PageUp" => "Prior".into(),
+            "PageDown" => "Next".into(),
+            "ArrowUp" => "Up".into(),
+            "ArrowDown" => "Down".into(),
+            "ArrowLeft" => "Left".into(),
+            "ArrowRight" => "Right".into(),
+            "ScrollLock" => "Scroll_Lock".into(),
+            "PrintScreen" => "Print".into(),
+            other => other.to_owned(),
+        };
+        parts.push(keysym);
+        parts.join("+")
+    }
+}
+
+impl std::fmt::Display for Accel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let m = self.modifiers;
+        for (on, name) in [
+            (m.ctrl, "Ctrl"),
+            (m.alt, "Alt"),
+            (m.shift, "Shift"),
+            (m.super_, "Super"),
+        ] {
+            if on {
+                write!(f, "{name}+")?;
+            }
+        }
+        f.write_str(&self.key)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shortcuts_parse_to_one_canonical_form() {
+        let accel = Accel::parse("alt + ctrl+m").expect("valid");
+        assert_eq!(accel.to_string(), "Ctrl+Alt+M");
+        assert_eq!(accel.portal_trigger(), "CTRL+ALT+m");
+        assert_eq!(
+            Accel::parse("Super+Shift+pgup").expect("valid").to_string(),
+            "Shift+Super+PageUp"
+        );
+        assert_eq!(
+            Accel::parse("F9").expect("F-key alone").portal_trigger(),
+            "F9"
+        );
+        assert!(Accel::parse("M").is_err());
+        assert!(Accel::parse("Shift+M").is_err());
+        assert!(Accel::parse("Ctrl+M+N").is_err());
+        assert!(Accel::parse("Ctrl+Banana").is_err());
+    }
+}

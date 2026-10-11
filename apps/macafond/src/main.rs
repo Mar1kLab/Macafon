@@ -1,8 +1,12 @@
 mod ab;
 mod autostart;
 mod calibration;
+mod doctor;
 mod host;
+mod hotkeys;
 mod logging;
+mod mixer;
+mod notify;
 mod server;
 mod tray;
 
@@ -200,12 +204,22 @@ fn run(args: RunArgs) -> Result<()> {
             tracing::warn!(%error, "Cannot recover previous default microphone yet");
         }
     }
+    if let Ok(journal) = macafon_backend_pipewire::default_sink_journal() {
+        if let Err(error) = macafon_backend_pipewire::restore_default_sink(&journal) {
+            tracing::warn!(%error, "Cannot recover previous default output yet");
+        }
+    }
     let result = macafon_backend_pipewire::run_microphone(host.clone(), receiver)
         .context("Cannot run microphone; check PipeWire and WirePlumber");
     host.borrow_mut().flush();
     if let Ok(journal) = macafon_backend_pipewire::default_source_journal() {
         if let Err(error) = macafon_backend_pipewire::restore_default_source(&journal) {
             tracing::warn!(%error, "Cannot restore previous default microphone; recovery journal retained");
+        }
+    }
+    if let Ok(journal) = macafon_backend_pipewire::default_sink_journal() {
+        if let Err(error) = macafon_backend_pipewire::restore_default_sink(&journal) {
+            tracing::warn!(%error, "Cannot restore previous default output; recovery journal retained");
         }
     }
     result

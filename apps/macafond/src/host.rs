@@ -3,18 +3,22 @@
 
 use crate::ab::Ab;
 use crate::calibration::{Poll, Recording};
+use crate::mixer::Mixer;
 use crate::server::{self, Hub, SocketGuard};
 use crate::tray::{Tray, TrayState};
 use macafon_backend_pipewire::ControlSender;
-use macafon_backend_pipewire::{Error, MicRt, MicrophoneHost, Node, PlayerRequest};
+use macafon_backend_pipewire::{
+    ChannelRequest, Error, MicRt, MicrophoneHost, MixerHost, Node, PlaybackStream, PlayerRequest,
+    Route,
+};
 use macafon_config::presets::{self, PresetError, PresetStore};
 use macafon_config::{Config, Store};
 use macafon_dsp::calibration::CalibrationError;
 use macafon_dsp::{ChainSettings, Preset, Telemetry};
 use macafon_engine::{EngineError, MicControl};
 use macafon_ipc::{
-    CalibrationFailure, CalibrationState, Device, ErrorBody, ErrorCode, Event, MicState, Outcome,
-    PresetInfo, Request,
+    CalibrationFailure, CalibrationState, Device, ErrorBody, ErrorCode, Event, HotkeyAction,
+    HotkeyBackend, HotkeyBinding, HotkeysState, MicState, Outcome, PresetInfo, Request,
 };
 use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
@@ -30,6 +34,13 @@ pub enum ControlMessage {
         reply: mpsc::Sender<Outcome>,
     },
     Disconnected,
+    /// A global shortcut went down or up (HK-001).
+    Hotkey {
+        action: String,
+        pressed: bool,
+    },
+    /// The hotkey backend registered (or failed to register) the shortcuts.
+    HotkeyStatus(crate::hotkeys::Status),
 }
 
 pub struct DaemonHost {
@@ -49,9 +60,16 @@ pub struct DaemonHost {
     calibration: CalibrationState,
     detected_channel: macafon_dsp::InputChannel,
     ab: Ab,
+    mixer: Mixer,
+    /// Graph `(rate, quantum)` from the microphone node (Doctor).
+    clock: Option<(u32, u32)>,
+    /// Noise suppression overload fallbacks, for the Doctor's 10-minute window.
+    overloads: std::collections::VecDeque<Instant>,
     hub: Arc<Hub>,
     tray: Option<Tray>,
     tray_wanted: bool,
+    hotkeys: Option<crate::hotkeys::Hotkeys>,
+    hotkey_status: Option<crate::hotkeys::Status>,
     quit: bool,
     server: Option<(PathBuf, ControlSender<ControlMessage>)>,
     _socket: Option<SocketGuard>,
@@ -89,9 +107,14 @@ impl DaemonHost {
             calibration: CalibrationState::Idle,
             detected_channel: macafon_dsp::InputChannel::Left,
             ab: Ab::default(),
+            mixer: Mixer::default(),
+            clock: None,
+            overloads: std::collections::VecDeque::new(),
             hub,
             tray: None,
             tray_wanted: tray,
+            hotkeys: None,
+            hotkey_status: None,
             quit: false,
             server: Some((socket, control)),
             _socket: None,
@@ -279,7 +302,17 @@ impl DaemonHost {
                 let control = connected(&mut self.control, self.input_connected)?;
                 self.ab.stop_recording(control)?;
             }
-            Request::AbPlay { device } => self.ab.play(&self.config.mic.chain, device)?,
+            Request::AbPlay { device } => {
+                // With the mixer on the default output is a channel; play to the real device.
+                let device = device.or_else(|| {
+                    self.config
+                        .mixer
+                        .enabled
+                        .then(|| self.mixer.output_device(&self.config.mixer))
+                        .flatten()
+                });
+                self.ab.play(&self.config.mic.chain, device)?
+            }
             Request::AbStop => self.ab.stop(),
             Request::AbSelect { side } => self.ab.select(side),
             Request::AbToggle => self.ab.toggle(),
@@ -386,21 +419,35 @@ impl DaemonHost {
         }
     }
 
+    fn update_tray(&mut self) {
+        if self.tray.is_none() {
+            return;
+        }
+        let state = self.state();
+        let mixer = self.mixer_state();
+        let tray_state = TrayState {
+            muted: state.settings.muted,
+            bypass: state.settings.bypass,
+            connected: state.input_connected,
+            preset: state.preset.clone(),
+            preset_modified: state.preset_modified,
+            presets: self.preset_list(),
+            mixer: mixer.enabled,
+            outputs: mixer
+                .outputs
+                .into_iter()
+                .map(|output| (output.name, output.description))
+                .collect(),
+            output: mixer.output,
+        };
+        if let Some(tray) = &mut self.tray {
+            tray.update(tray_state);
+        }
+    }
+
     fn changed(&mut self) {
         let state = self.state();
-        if self.tray.is_some() {
-            let tray_state = TrayState {
-                muted: state.settings.muted,
-                bypass: state.settings.bypass,
-                connected: state.input_connected,
-                preset: state.preset.clone(),
-                preset_modified: state.preset_modified,
-                presets: self.preset_list(),
-            };
-            if let Some(tray) = &mut self.tray {
-                tray.update(tray_state);
-            }
-        }
+        self.update_tray();
         self.hub.broadcast(&Event::MicChanged(state));
     }
 
@@ -415,6 +462,7 @@ impl DaemonHost {
         self.ab.settings_changed(&settings);
         self.changed_at = Some(Instant::now());
         self.changed();
+        self.overloads.push_back(Instant::now());
         self.hub.broadcast(&Event::NoiseFallback {
             engine: settings.noise_suppression.params.engine,
         });
@@ -546,8 +594,461 @@ impl DaemonHost {
         self.changed();
     }
 
+    fn mixer_state(&self) -> macafon_ipc::MixerState {
+        self.mixer.state(&self.config)
+    }
+
+    fn mixer_changed(&mut self) {
+        self.hub.broadcast(&Event::MixerChanged(self.mixer_state()));
+        self.update_tray();
+    }
+
+    fn mixer_telemetry_changed(&self) {
+        self.hub
+            .set_mixer_telemetry(self.mixer.telemetry(&self.config.mixer));
+    }
+
+    /// Apply a mixer change to the live channels first; keep it only if accepted.
+    fn update_mixer(
+        &mut self,
+        update: impl FnOnce(&mut Config) -> Result<(), ErrorBody>,
+    ) -> Result<serde_json::Value, ErrorBody> {
+        let mut config = self.config.clone();
+        update(&mut config)?;
+        config
+            .mixer
+            .validate()
+            .map_err(|message| ErrorBody::new(ErrorCode::InvalidParams, message))?;
+        self.mixer.sync(&config.mixer).map_err(engine_error)?;
+        let was_enabled = self.config.mixer.enabled;
+        for channel in &config.mixer.channels {
+            if self
+                .config
+                .mixer
+                .channel(&channel.id)
+                .is_some_and(|old| old.name != channel.name)
+            {
+                self.mixer.rename(channel);
+            }
+        }
+        if config != self.config {
+            self.config = config;
+            self.changed_at = Some(Instant::now());
+        }
+        if was_enabled && !self.config.mixer.enabled {
+            // Give the default output back while the channels still exist (OUT-005).
+            self.mixer.restore_default_sink();
+        }
+        self.mixer_telemetry_changed();
+        self.update_tray();
+        self.rebind_hotkeys();
+        self.hotkeys_changed();
+        let state = self.mixer_state();
+        self.hub.broadcast(&Event::MixerChanged(state.clone()));
+        serde_json::to_value(state)
+            .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))
+    }
+
+    fn respond_mixer(&mut self, request: Request) -> Result<serde_json::Value, ErrorBody> {
+        let missing = |id: &str| ErrorBody::new(ErrorCode::NotFound, format!("no channel {id:?}"));
+        match request {
+            Request::MixerGet => serde_json::to_value(self.mixer_state())
+                .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string())),
+            Request::MixerSetEnabled { enabled } => {
+                tracing::info!(enabled, "Mixer switched");
+                self.update_mixer(|config| {
+                    config.mixer.enabled = enabled;
+                    Ok(())
+                })
+            }
+            Request::MixerSetMaster { volume_pct, muted } => self.update_mixer(|config| {
+                if let Some(volume) = volume_pct {
+                    config.mixer.master_volume_pct = volume;
+                }
+                if let Some(muted) = muted {
+                    config.mixer.master_muted = muted;
+                }
+                Ok(())
+            }),
+            Request::MixerSetOutput { device } => self.update_mixer(|config| {
+                let priority = &mut config.mixer.output_priority;
+                match device {
+                    Some(device) => {
+                        priority.retain(|name| name != &device);
+                        priority.insert(0, device);
+                    }
+                    None => priority.clear(),
+                }
+                Ok(())
+            }),
+            Request::MixerSetOutputPriority { devices } => self.update_mixer(|config| {
+                config.mixer.output_priority = devices;
+                Ok(())
+            }),
+            Request::MixerSetAutoClassify { enabled } => self.update_mixer(|config| {
+                config.mixer.auto_classify = enabled;
+                Ok(())
+            }),
+            Request::ChannelCreate { name, color, icon } => self.update_mixer(|config| {
+                if config.mixer.channels.len() >= macafon_config::mixer::MAX_CHANNELS {
+                    return Err(ErrorBody::new(
+                        ErrorCode::InvalidParams,
+                        format!("at most {} channels", macafon_config::mixer::MAX_CHANNELS),
+                    ));
+                }
+                let id = config.mixer.next_id();
+                let icon = icon.unwrap_or_else(|| macafon_config::mixer::CHANNEL_ICONS[0].into());
+                config
+                    .mixer
+                    .channels
+                    .push(macafon_config::ChannelConfig::new(
+                        &id,
+                        name.trim(),
+                        &color,
+                        &icon,
+                        macafon_dsp::channel::ChannelTemplate::Custom,
+                    ));
+                Ok(())
+            }),
+            Request::ChannelUpdate { id, patch } => self.update_mixer(|config| {
+                let channel = config.mixer.channel_mut(&id).ok_or_else(|| missing(&id))?;
+                if let Some(name) = patch.name {
+                    channel.name = name.trim().to_owned();
+                }
+                if let Some(color) = patch.color {
+                    channel.color = color;
+                }
+                if let Some(icon) = patch.icon {
+                    channel.icon = icon;
+                }
+                Ok(())
+            }),
+            Request::ChannelDelete { id } => self.update_mixer(|config| {
+                if config.mixer.default_channel == id {
+                    return Err(ErrorBody::new(
+                        ErrorCode::InvalidParams,
+                        "the default channel cannot be deleted",
+                    ));
+                }
+                config.mixer.channel(&id).ok_or_else(|| missing(&id))?;
+                config.mixer.channels.retain(|channel| channel.id != id);
+                // CH-002: its apps move to the default channel.
+                let default = config.mixer.default_channel.clone();
+                for rule in &mut config.apps.rules {
+                    if rule.channel == id {
+                        rule.channel.clone_from(&default);
+                    }
+                }
+                Ok(())
+            }),
+            Request::ChannelSet { id, settings } => self.update_mixer(|config| {
+                config
+                    .mixer
+                    .channel_mut(&id)
+                    .ok_or_else(|| missing(&id))?
+                    .settings = settings;
+                Ok(())
+            }),
+            Request::ChannelAdjustVolume { id, delta_pct } => self.update_mixer(|config| {
+                let settings = &mut config
+                    .mixer
+                    .channel_mut(&id)
+                    .ok_or_else(|| missing(&id))?
+                    .settings;
+                settings.volume_pct = (settings.volume_pct + delta_pct).clamp(0.0, 100.0);
+                Ok(())
+            }),
+            Request::ChannelToggleMute { id } => self.update_mixer(|config| {
+                let settings = &mut config
+                    .mixer
+                    .channel_mut(&id)
+                    .ok_or_else(|| missing(&id))?
+                    .settings;
+                settings.muted = !settings.muted;
+                Ok(())
+            }),
+            Request::ChannelSetDefault { id } => self.update_mixer(|config| {
+                config.mixer.channel(&id).ok_or_else(|| missing(&id))?;
+                config.mixer.default_channel = id;
+                Ok(())
+            }),
+            Request::ChannelReorder { ids } => self.update_mixer(|config| {
+                let channels = &mut config.mixer.channels;
+                let mut sorted = ids.clone();
+                sorted.sort();
+                let mut current: Vec<String> = channels.iter().map(|c| c.id.clone()).collect();
+                current.sort();
+                if sorted != current {
+                    return Err(ErrorBody::new(
+                        ErrorCode::InvalidParams,
+                        "the new order must list every channel once",
+                    ));
+                }
+                channels.sort_by_key(|channel| ids.iter().position(|id| id == &channel.id));
+                Ok(())
+            }),
+            Request::AppsMove { app_key, channel } => self.update_mixer(|config| {
+                config
+                    .mixer
+                    .channel(&channel)
+                    .ok_or_else(|| missing(&channel))?;
+                crate::mixer::assign(&mut config.apps, &app_key, &channel);
+                if let Some(rule) = config
+                    .apps
+                    .rules
+                    .iter_mut()
+                    .find(|rule| rule.key == app_key)
+                {
+                    rule.managed = true;
+                }
+                Ok(())
+            }),
+            Request::AppsSetManaged { app_key, managed } => self.update_mixer(|config| {
+                let channel = config
+                    .apps
+                    .rule(&app_key)
+                    .map(|rule| rule.channel.clone())
+                    .unwrap_or_else(|| config.mixer.default_channel.clone());
+                crate::mixer::assign(&mut config.apps, &app_key, &channel);
+                if let Some(rule) = config
+                    .apps
+                    .rules
+                    .iter_mut()
+                    .find(|rule| rule.key == app_key)
+                {
+                    rule.managed = managed;
+                }
+                Ok(())
+            }),
+            Request::AppsForget { app_key } => self.update_mixer(|config| {
+                config.apps.rules.retain(|rule| rule.key != app_key);
+                Ok(())
+            }),
+            _ => Err(ErrorBody::new(ErrorCode::BadRequest, "not a mixer request")),
+        }
+    }
+
+    // --- Hotkeys (§8.3) ------------------------------------------------------------------------
+
+    /// Every action available now: the global ones and three per channel.
+    fn hotkey_actions(&self) -> Vec<(HotkeyAction, String)> {
+        let mut actions: Vec<(HotkeyAction, String)> = HotkeyAction::GLOBAL
+            .into_iter()
+            .map(|action| {
+                let description = match action {
+                    HotkeyAction::MicMuteToggle => "Toggle microphone mute",
+                    HotkeyAction::PushToTalk => "Push to talk",
+                    HotkeyAction::PushToMute => "Push to mute",
+                    HotkeyAction::BypassToggle => "Toggle processing bypass",
+                    HotkeyAction::PresetNext => "Next microphone preset",
+                    _ => "Previous microphone preset",
+                };
+                (action, description.to_owned())
+            })
+            .collect();
+        for channel in &self.config.mixer.channels {
+            let name = &channel.name;
+            actions.push((
+                HotkeyAction::ChannelVolumeUp(channel.id.clone()),
+                format!("{name}: volume up"),
+            ));
+            actions.push((
+                HotkeyAction::ChannelVolumeDown(channel.id.clone()),
+                format!("{name}: volume down"),
+            ));
+            actions.push((
+                HotkeyAction::ChannelMute(channel.id.clone()),
+                format!("{name}: mute"),
+            ));
+        }
+        actions
+    }
+
+    fn rebind_hotkeys(&self) {
+        let Some(service) = &self.hotkeys else { return };
+        let bindings = self
+            .hotkey_actions()
+            .into_iter()
+            .filter_map(|(action, description)| {
+                let shortcut = self.config.hotkeys.get(&action.id())?;
+                let accel = crate::hotkeys::accel::Accel::parse(shortcut).ok()?;
+                Some(crate::hotkeys::Binding {
+                    action: action.id(),
+                    description,
+                    accel,
+                })
+            })
+            .collect();
+        service.bind(bindings);
+    }
+
+    fn hotkeys_state(&self) -> HotkeysState {
+        let status = self.hotkey_status.as_ref();
+        HotkeysState {
+            backend: status.map_or(HotkeyBackend::Unavailable, |status| status.backend),
+            bindings: self
+                .hotkey_actions()
+                .into_iter()
+                .map(|(action, _)| {
+                    let id = action.id();
+                    HotkeyBinding {
+                        shortcut: self.config.hotkeys.get(&id).cloned(),
+                        system_trigger: status.and_then(|status| status.triggers.get(&id).cloned()),
+                        error: status.and_then(|status| status.errors.get(&id).cloned()),
+                        command: action.command(),
+                        action: id,
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    fn hotkeys_changed(&self) {
+        self.hub
+            .broadcast(&Event::HotkeysChanged(self.hotkeys_state()));
+    }
+
+    /// HK-002: canonical shortcut, unique within Macafon.
+    fn set_hotkey(&mut self, action: &str, shortcut: Option<String>) -> Result<(), ErrorBody> {
+        let invalid = |message: String| ErrorBody::new(ErrorCode::InvalidParams, message);
+        if !self
+            .hotkey_actions()
+            .iter()
+            .any(|(known, _)| known.id() == action)
+        {
+            return Err(invalid(format!("unknown action {action:?}")));
+        }
+        match shortcut {
+            None => {
+                self.config.hotkeys.remove(action);
+            }
+            Some(text) => {
+                let canonical = crate::hotkeys::accel::Accel::parse(&text)
+                    .map_err(invalid)?
+                    .to_string();
+                if let Some((other, _)) = self
+                    .config
+                    .hotkeys
+                    .iter()
+                    .find(|(other, bound)| other.as_str() != action && **bound == canonical)
+                {
+                    return Err(ErrorBody::new(
+                        ErrorCode::AlreadyExists,
+                        format!("{canonical} is already used by {other}"),
+                    ));
+                }
+                self.config.hotkeys.insert(action.to_owned(), canonical);
+            }
+        }
+        self.changed_at = Some(Instant::now());
+        self.rebind_hotkeys();
+        self.hotkeys_changed();
+        Ok(())
+    }
+
+    /// Run a hotkey action like the matching request (HK-001); OSD for presets and volume
+    /// (HK-006).
+    fn hotkey(&mut self, action: &str, pressed: bool) {
+        let Some(action) = HotkeyAction::parse(action) else {
+            return;
+        };
+        if !pressed && !action.held() {
+            return;
+        }
+        let request = match &action {
+            HotkeyAction::MicMuteToggle => Request::MicToggleMute,
+            HotkeyAction::PushToTalk => Request::MicSetMuted { muted: !pressed },
+            HotkeyAction::PushToMute => Request::MicSetMuted { muted: pressed },
+            HotkeyAction::BypassToggle => Request::MicSetBypass {
+                bypass: !self.config.mic.chain.bypass,
+            },
+            HotkeyAction::PresetNext => Request::MicCyclePreset { step: 1 },
+            HotkeyAction::PresetPrevious => Request::MicCyclePreset { step: -1 },
+            HotkeyAction::ChannelVolumeUp(id) => Request::ChannelAdjustVolume {
+                id: id.clone(),
+                delta_pct: 5.0,
+            },
+            HotkeyAction::ChannelVolumeDown(id) => Request::ChannelAdjustVolume {
+                id: id.clone(),
+                delta_pct: -5.0,
+            },
+            HotkeyAction::ChannelMute(id) => Request::ChannelToggleMute { id: id.clone() },
+        };
+        if let Err(error) = self.respond(request) {
+            tracing::warn!(?action, %error, "Hotkey action failed");
+            return;
+        }
+        match &action {
+            HotkeyAction::PresetNext | HotkeyAction::PresetPrevious => {
+                let name = self
+                    .config
+                    .mic
+                    .preset
+                    .as_deref()
+                    .and_then(|id| {
+                        self.preset_list()
+                            .into_iter()
+                            .find(|preset| preset.id == id)
+                    })
+                    .map_or_else(|| "Custom".to_owned(), |preset| preset.name);
+                crate::notify::osd(format!("Preset: {name}"));
+            }
+            HotkeyAction::ChannelVolumeUp(id)
+            | HotkeyAction::ChannelVolumeDown(id)
+            | HotkeyAction::ChannelMute(id) => {
+                if let Some(channel) = self.config.mixer.channel(id) {
+                    let s = &channel.settings;
+                    let text = if s.muted {
+                        format!("{}: muted", channel.name)
+                    } else {
+                        format!("{}: {:.0}%", channel.name, s.volume_pct)
+                    };
+                    crate::notify::osd(text);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn cycle_preset(&mut self, step: i32) -> Result<MicState, ErrorBody> {
+        let presets = self.preset_list();
+        if presets.is_empty() {
+            return Err(ErrorBody::new(ErrorCode::NotFound, "no presets"));
+        }
+        let current = self
+            .config
+            .mic
+            .preset
+            .as_deref()
+            .and_then(|id| presets.iter().position(|preset| preset.id == id));
+        let count = presets.len() as i32;
+        let index = match current {
+            Some(index) => (index as i32 + step).rem_euclid(count),
+            None if step >= 0 => 0,
+            None => count - 1,
+        };
+        let preset = presets[index as usize].id.clone();
+        let settings = self
+            .preset_settings(&preset)
+            .ok_or_else(|| ErrorBody::new(ErrorCode::NotFound, "preset vanished"))?;
+        self.update(|config| {
+            let mic = &mut config.mic;
+            let (muted, bypass) = (mic.chain.muted, mic.chain.bypass);
+            mic.chain = settings;
+            mic.chain.muted = muted;
+            mic.chain.bypass = bypass;
+            mic.preset = Some(preset);
+        })
+    }
+
     fn respond(&mut self, request: Request) -> Result<serde_json::Value, ErrorBody> {
         let state = match request {
+            Request::MicCyclePreset { step } => self.cycle_preset(step)?,
+            Request::HotkeysGet => return Ok(serde_json::json!(self.hotkeys_state())),
+            Request::HotkeysSet { action, shortcut } => {
+                self.set_hotkey(&action, shortcut)?;
+                return Ok(serde_json::json!(self.hotkeys_state()));
+            }
             Request::MicGet => self.state(),
             Request::MicSet { settings } => self.update(|config| config.mic.chain = settings)?,
             Request::MicSetPreset { preset } => {
@@ -624,7 +1125,12 @@ impl DaemonHost {
                 let nodes = macafon_backend_pipewire::list_nodes().map_err(backend_error)?;
                 let outputs: Vec<macafon_ipc::PlaybackDevice> = nodes
                     .into_iter()
-                    .filter(|node| node.media_class == "Audio/Sink")
+                    .filter(|node| {
+                        node.media_class == "Audio/Sink"
+                            && !node
+                                .name
+                                .starts_with(macafon_backend_pipewire::CHANNEL_PREFIX)
+                    })
                     .map(|node| {
                         let kind = match node.form_factor.as_str() {
                             "headset" | "headphone" => macafon_ipc::PlaybackDeviceKind::Headphones,
@@ -672,6 +1178,49 @@ impl DaemonHost {
                 tracing::info!(?state, "Autostart changed");
                 return Ok(serde_json::json!(state));
             }
+            request @ (Request::MixerGet
+            | Request::MixerSetEnabled { .. }
+            | Request::MixerSetMaster { .. }
+            | Request::MixerSetOutput { .. }
+            | Request::MixerSetOutputPriority { .. }
+            | Request::MixerSetAutoClassify { .. }
+            | Request::ChannelCreate { .. }
+            | Request::ChannelUpdate { .. }
+            | Request::ChannelDelete { .. }
+            | Request::ChannelSet { .. }
+            | Request::ChannelAdjustVolume { .. }
+            | Request::ChannelToggleMute { .. }
+            | Request::ChannelSetDefault { .. }
+            | Request::ChannelReorder { .. }
+            | Request::AppsMove { .. }
+            | Request::AppsSetManaged { .. }
+            | Request::AppsForget { .. }) => return self.respond_mixer(request),
+            Request::DoctorRun => {
+                const WINDOW: Duration = Duration::from_secs(600);
+                while self
+                    .overloads
+                    .front()
+                    .is_some_and(|at| at.elapsed() > WINDOW)
+                {
+                    self.overloads.pop_front();
+                }
+                let (mic, mixer) = (self.state(), self.mixer_state());
+                let report = crate::doctor::report(crate::doctor::Facts {
+                    inspection: macafon_backend_pipewire::inspect()
+                        .map_err(|error| error.to_string()),
+                    mic: &mic,
+                    mixer: &mixer,
+                    clock: self.clock,
+                    overloads: self.overloads.len(),
+                    inputs: &self.inputs,
+                    hotkeys: self
+                        .hotkey_status
+                        .as_ref()
+                        .map_or(HotkeyBackend::Unavailable, |status| status.backend),
+                });
+                return serde_json::to_value(report)
+                    .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()));
+            }
             Request::DaemonQuit => {
                 tracing::info!("Quit requested");
                 self.quit = true;
@@ -690,6 +1239,16 @@ impl DaemonHost {
         };
         serde_json::to_value(state)
             .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))
+    }
+}
+
+fn engine_error(error: EngineError) -> ErrorBody {
+    match error {
+        EngineError::Invalid(error) => ErrorBody::new(ErrorCode::InvalidParams, error.to_string()),
+        EngineError::Busy => ErrorBody::new(ErrorCode::Busy, error.to_string()),
+        EngineError::Build(_) | EngineError::Studio(_) => {
+            ErrorBody::new(ErrorCode::Internal, error.to_string())
+        }
     }
 }
 
@@ -724,6 +1283,34 @@ fn connected(
     })
 }
 
+impl MixerHost for DaemonHost {
+    fn channel_requests(&mut self) -> Vec<ChannelRequest> {
+        self.mixer.take_requests()
+    }
+
+    fn outputs_changed(&mut self, outputs: &[Node]) {
+        self.mixer.outputs_changed(outputs);
+        self.mixer_changed();
+    }
+
+    fn default_sink_changed(&mut self, name: Option<&str>) {
+        self.mixer.default_sink_changed(name);
+    }
+
+    fn output_device(&self) -> Option<String> {
+        self.mixer.output_device(&self.config.mixer)
+    }
+
+    fn streams_changed(&mut self, streams: &[PlaybackStream]) {
+        self.mixer.streams_changed(streams);
+        self.mixer_changed();
+    }
+
+    fn route(&self, stream: &PlaybackStream) -> Route {
+        self.mixer.route(&self.config, stream)
+    }
+}
+
 impl MicrophoneHost for DaemonHost {
     type Message = ControlMessage;
 
@@ -734,6 +1321,9 @@ impl MicrophoneHost for DaemonHost {
                 self.tray = Tray::spawn(TrayState::default(), control.clone());
                 self.changed();
             }
+            // Spawned after signals are blocked, like the tray (HK-003).
+            self.hotkeys = Some(crate::hotkeys::Hotkeys::spawn(control.clone()));
+            self.rebind_hotkeys();
             let socket = server::start(&path, self.hub.clone(), control)
                 .map_err(|error| Error::Message(format!("{error:#}")))?;
             self._socket = Some(socket);
@@ -750,6 +1340,8 @@ impl MicrophoneHost for DaemonHost {
         let (control, rt) =
             macafon_engine::microphone(&self.config.mic.chain, self.telemetry.clone())?;
         self.control = Some(control);
+        self.mixer.start_session(&self.config.mixer)?;
+        self.mixer_telemetry_changed();
         Ok(rt)
     }
 
@@ -766,6 +1358,9 @@ impl MicrophoneHost for DaemonHost {
             self.ab_changed();
         }
         self.control = None;
+        self.clock = None;
+        self.mixer.end_session();
+        self.mixer_telemetry_changed();
         if self.input_connected {
             self.input_connected = false;
             self.active_device = None;
@@ -775,6 +1370,10 @@ impl MicrophoneHost for DaemonHost {
 
     fn input(&self) -> Option<String> {
         self.selected_device.clone()
+    }
+
+    fn graph_clock(&mut self, rate_hz: u32, quantum: u32) {
+        self.clock = (rate_hz != 0 && quantum != 0).then_some((rate_hz, quantum));
     }
 
     fn input_channel_detected(&mut self, channel: macafon_dsp::InputChannel) {
@@ -852,9 +1451,26 @@ impl MicrophoneHost for DaemonHost {
     }
 
     fn handle(&mut self, message: ControlMessage) {
+        let message = match message {
+            ControlMessage::Hotkey { action, pressed } => return self.hotkey(&action, pressed),
+            ControlMessage::HotkeyStatus(status) => {
+                self.hotkey_status = Some(status);
+                return self.hotkeys_changed();
+            }
+            message => message,
+        };
         let ControlMessage::Request { request, reply } = message else {
             self.ab.clear(self.control.as_mut());
             self.ab_changed();
+            // BG-001: the window closed, the sound keeps going; say so once.
+            if !self.quit && !self.config.ui.close_hint_shown {
+                self.config.ui.close_hint_shown = true;
+                self.changed_at = Some(Instant::now());
+                crate::notify::send(
+                    "Macafon keeps running in the tray",
+                    "Your microphone and mixer stay on. Open Macafon from the tray icon.",
+                );
+            }
             return;
         };
         let outcome = match self.respond(request) {
@@ -893,6 +1509,8 @@ impl MicrophoneHost for DaemonHost {
 
     fn tick(&mut self) {
         self.refresh_input();
+        self.mixer.collect_garbage();
+        self.mixer.poll_default_sink(&self.config.mixer);
         if let Some(control) = &mut self.control {
             control.collect_garbage();
         }

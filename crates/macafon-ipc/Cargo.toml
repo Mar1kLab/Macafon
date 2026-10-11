@@ -13,6 +13,9 @@ serde_json.workspace = true
 thiserror.workspace = true
 ts-rs = { workspace = true, optional = true, features = ["serde-json-impl"] }
 
+[dev-dependencies]
+macafon-config.workspace = true
+
 [features]
 # Generates apps/macafon-ui/src/lib/ipc/*.ts: `MACAFON_UPDATE_TS=1 cargo test -p macafon-ipc --features ts`.
 ts = ["dep:ts-rs", "macafon-dsp/ts"]

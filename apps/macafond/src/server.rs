@@ -7,7 +7,7 @@
 use crate::host::ControlMessage;
 use anyhow::{Context, Result, bail};
 use macafon_backend_pipewire::ControlSender;
-use macafon_dsp::Telemetry;
+use macafon_dsp::{ChannelTelemetry, Telemetry};
 use macafon_ipc::{
     ErrorBody, ErrorCode, Event, Hello, MAX_LINE_BYTES, MAX_METER_HZ, Outcome, PROTOCOL_VERSION,
     Request, Response, ServerMessage, decode_request, encode,
@@ -35,6 +35,8 @@ pub struct Hub {
     clients: Mutex<Clients>,
     meters_wanted: Condvar,
     telemetry: Arc<Telemetry>,
+    /// Live channels in display order; empty while the mixer is off.
+    mixer_telemetry: Mutex<Vec<(String, Arc<ChannelTelemetry>)>>,
     next_id: AtomicU64,
 }
 
@@ -44,6 +46,7 @@ impl Hub {
             clients: Mutex::default(),
             meters_wanted: Condvar::new(),
             telemetry: Arc::default(),
+            mixer_telemetry: Mutex::default(),
             next_id: AtomicU64::new(1),
         })
     }
@@ -66,6 +69,24 @@ impl Hub {
         for (out, _) in self.clients().registered.values() {
             let _ = out.try_send(line.clone());
         }
+    }
+
+    pub fn set_mixer_telemetry(&self, channels: Vec<(String, Arc<ChannelTelemetry>)>) {
+        let metering = self.metering();
+        channels
+            .iter()
+            .for_each(|(_, telemetry)| telemetry.set_enabled(metering));
+        *self
+            .mixer_telemetry
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = channels;
+    }
+
+    fn mixer_channels(&self) -> Vec<(String, Arc<ChannelTelemetry>)> {
+        self.mixer_telemetry
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     /// Some client is subscribed to meters.
@@ -120,6 +141,9 @@ impl Hub {
                         break hz;
                     }
                     self.telemetry.set_enabled(false);
+                    self.mixer_channels()
+                        .iter()
+                        .for_each(|(_, telemetry)| telemetry.set_enabled(false));
                     clients = self
                         .meters_wanted
                         .wait(clients)
@@ -127,12 +151,22 @@ impl Hub {
                 }
             };
             self.telemetry.set_enabled(true);
+            let channels = self.mixer_channels();
+            channels
+                .iter()
+                .for_each(|(_, telemetry)| telemetry.set_enabled(true));
             std::thread::sleep(Duration::from_secs(1) / hz);
-            let event = ServerMessage::Event(Event::Meters(self.telemetry.take()));
-            let Ok(line) = encode(&event) else { continue };
+            let mut lines = Vec::with_capacity(2);
+            lines.extend(encode(&ServerMessage::Event(Event::Meters(self.telemetry.take()))).ok());
+            if !channels.is_empty() {
+                let meters = crate::mixer::take_meters(&channels);
+                lines.extend(encode(&ServerMessage::Event(Event::MixerMeters(meters))).ok());
+            }
             for (out, rate) in self.clients().registered.values() {
                 if rate.is_some() {
-                    let _ = out.try_send(line.clone());
+                    for line in &lines {
+                        let _ = out.try_send(line.clone());
+                    }
                 }
             }
         }

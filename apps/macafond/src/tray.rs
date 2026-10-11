@@ -16,6 +16,10 @@ pub struct TrayState {
     pub preset: Option<String>,
     pub preset_modified: bool,
     pub presets: Vec<PresetInfo>,
+    pub mixer: bool,
+    /// Real output devices as `(node.name, description)` (BG-003).
+    pub outputs: Vec<(String, String)>,
+    pub output: Option<String>,
 }
 
 struct MicTray {
@@ -160,6 +164,50 @@ impl ksni::Tray for MicTray {
                             .iter()
                             .map(|preset| RadioItem {
                                 label: preset.name.clone(),
+                                ..Default::default()
+                            })
+                            .collect(),
+                    }
+                    .into(),
+                ],
+                ..Default::default()
+            }
+            .into(),
+            MenuItem::Separator,
+            CheckmarkItem {
+                label: "Mixer".into(),
+                checked: self.state.mixer,
+                activate: Box::new(|tray: &mut Self| {
+                    tray.send(Request::MixerSetEnabled {
+                        enabled: !tray.state.mixer,
+                    })
+                }),
+                ..Default::default()
+            }
+            .into(),
+            SubMenu {
+                label: "Output device".into(),
+                enabled: self.state.mixer && !self.state.outputs.is_empty(),
+                submenu: vec![
+                    RadioGroup {
+                        selected: self
+                            .state
+                            .output
+                            .as_ref()
+                            .and_then(|name| self.state.outputs.iter().position(|(n, _)| n == name))
+                            .unwrap_or(self.state.outputs.len()),
+                        select: Box::new(move |tray: &mut Self, index| {
+                            if let Some((name, _)) = tray.state.outputs.get(index) {
+                                let device = Some(name.clone());
+                                tray.send(Request::MixerSetOutput { device });
+                            }
+                        }),
+                        options: self
+                            .state
+                            .outputs
+                            .iter()
+                            .map(|(_, description)| RadioItem {
+                                label: description.clone(),
                                 ..Default::default()
                             })
                             .collect(),

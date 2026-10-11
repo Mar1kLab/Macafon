@@ -6,6 +6,7 @@
   import { Lock } from '@lucide/svelte';
   import type { AppState, ChannelState } from '../ipc/protocol';
   import { t } from '../i18n';
+  import { daemon } from '../state';
 
   interface Props {
     app: AppState;
@@ -23,6 +24,7 @@
   let list: HTMLUListElement | undefined = $state();
   const fixed = $derived(!app.movable || !app.managed);
   const initial = $derived(app.name.trim().charAt(0).toUpperCase() || '?');
+  const icon = $derived(daemon.appIcon(app.icon));
 
   async function openMenu(x: number, y: number) {
     menu = { x, y };
@@ -86,7 +88,11 @@
   }}
   ondragend={ondragend}
 >
-  <span class="icon" aria-hidden="true">{initial}</span>
+  {#if icon}
+    <img class="icon image" src={icon} alt="" draggable="false" />
+  {:else}
+    <span class="icon" aria-hidden="true">{initial}</span>
+  {/if}
   <span class="name">{app.name}</span>
   {#if fixed}<Lock size={11} strokeWidth={1.5} />{/if}
   {#if app.active}<span class="dot" aria-hidden="true"></span>{/if}
@@ -163,6 +169,11 @@
     font-family: var(--font-display);
     font-size: 12px;
     font-weight: 700;
+  }
+
+  .icon.image {
+    object-fit: contain;
+    background: none;
   }
 
   .name {

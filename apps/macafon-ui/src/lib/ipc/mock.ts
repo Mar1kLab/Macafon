@@ -53,8 +53,21 @@ function channel(id: string, name: string, color: string, icon: string, settings
 }
 
 function app(key: string, name: string, channel: string, active: boolean, streams = 1): AppState {
-  return { key, name, icon: null, channel, active, streams, managed: true, movable: true };
+  const icon = key.startsWith('bin:') ? key.slice(4) : null;
+  return { key, name, icon, channel, active, streams, managed: true, movable: true };
 }
+
+/** Stand-ins for icon theme files (APP-003); other apps keep their letter. */
+const MOCK_ICONS: Record<string, string> = {
+  firefox:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="#e8573f"/><circle cx="10" cy="10" r="5" fill="#f2a516"/></svg>',
+  discord:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect x="1" y="4" width="18" height="12" rx="5" fill="#8b5cf6"/><circle cx="7" cy="10" r="1.6" fill="#fff"/><circle cx="13" cy="10" r="1.6" fill="#fff"/></svg>',
+  cider:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect width="20" height="20" rx="4" fill="#e0368f"/><path d="M8 14V6l6-1v8" stroke="#fff" stroke-width="1.6" fill="none"/></svg>',
+  'telegram-desktop':
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="#2f7bf5"/><path d="M5 10l9-4-2 9-3-3z" fill="#fff"/></svg>',
+};
 
 /** Plausible desktop: a browser and a game in Main, Discord in Voice, Cider in Music. */
 function initialMixer(enabled: boolean): MixerState {
@@ -543,6 +556,10 @@ export class MockTransport implements Transport {
         const state = this.hotkeys();
         this.emit({ event: 'hotkeys.changed', data: clone(state) });
         return state;
+      }
+      case 'apps.icon': {
+        const svg = MOCK_ICONS[String(p.icon)];
+        return svg ? `data:image/svg+xml;base64,${btoa(svg)}` : null;
       }
       case 'doctor.run':
         return {

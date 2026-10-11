@@ -1,6 +1,7 @@
 // UI state mirrored from the daemon. The UI only talks IPC (AGENTS.md §5): every change is a
 // request, and the daemon's reply or event is the truth.
 
+import { SvelteMap } from 'svelte/reactivity';
 import { DaemonClient, DaemonError, type DaemonStatus, type Transport } from '../ipc/client';
 import type {
   AbState,
@@ -61,6 +62,9 @@ export class DaemonStore {
   /** Components showing per-device levels; the daemon meters every input only while > 0. */
   private deviceWatchers = 0;
   private recoveryShown: string | null = null;
+  /** APP-003: icon name → `data:` URL, `null` when the daemon found none. */
+  private icons = new SvelteMap<string, string | null>();
+  private iconsPending = new Set<string>();
   /** Channel settings waiting while a `channel.set` for that channel is in flight. */
   private channelQueue = new Map<string, ChannelSettings>();
   private channelInFlight = new Set<string>();
@@ -305,6 +309,22 @@ export class DaemonStore {
         this.masterPending = null;
         if (next) this.setMaster(next);
       });
+  }
+
+  /** The image for an app icon name; asks the daemon once and is `null` until it answers. */
+  appIcon(name: string | null): string | null {
+    if (!name) return null;
+    const known = this.icons.get(name);
+    if (known !== undefined) return known;
+    if (this.connected && !this.iconsPending.has(name)) {
+      this.iconsPending.add(name);
+      this.client
+        .call('apps.icon', { icon: name })
+        .then((url) => this.icons.set(name, url))
+        .catch(() => this.icons.set(name, null))
+        .finally(() => this.iconsPending.delete(name));
+    }
+    return null;
   }
 
   // --- Chain edits --------------------------------------------------------------------------

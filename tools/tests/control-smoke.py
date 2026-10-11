@@ -261,6 +261,9 @@ def main():
             smoke.wait_for(lambda: ports("test_speaker", "out"), "speaker ports")
             ctl("device", "test_speaker")
             smoke.wait_for(lambda: status()["input_connected"], "speaker linked")
+            # A new microphone without a profile may start from the defaults (MIC-007), depending
+            # on whether the daemon saw it before the request; choose the preset explicitly.
+            ctl("preset", "broadcast")
             # Nothing consumes the virtual microphone: calibration must still run.
             output = subprocess.check_output([str(args.ctl), "ctl", "calibrate", "--json"],
                                              env=env, text=True, timeout=20)

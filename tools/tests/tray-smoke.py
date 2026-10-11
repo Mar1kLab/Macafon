@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import socket
 import struct
 import subprocess
 import sys
@@ -40,7 +41,7 @@ def main():
     parser.add_argument("--icons", type=Path, help="save the 48 px icon of each state as PNG here")
     parser.add_argument("--private-session", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
-    for command in ("dbus-run-session", "gdbus", "pipewire", "pw-cat"):
+    for command in ("dbus-run-session", "gdbus", "pipewire", "pw-cat", "dbus-monitor"):
         if not shutil.which(command):
             parser.error(f"{command} missing")
     if not args.daemon.is_file() or not args.ctl.is_file():
@@ -130,6 +131,11 @@ def main():
                    "--channel-map", "MONO", "--target", "0", "--latency", "128", "--properties",
                    "node.name=test_microphone media.class=Audio/Source adapter.auto-port-config={ mode=dsp position=preserve }",
                    directory / "tone.raw"])
+            monitor_log = directory / "notifications.log"
+            monitor = subprocess.Popen(["dbus-monitor", "--session",
+                                        "interface='org.freedesktop.Notifications',member='Notify'"],
+                                       env=env, stdout=monitor_log.open("w"), stderr=subprocess.DEVNULL)
+            processes.append(monitor)
             daemon = spawn([args.daemon, "run", "--input", "test_microphone"])
             name = smoke.wait_for(tray_name, "tray D-Bus name")
             smoke.wait_for(lambda: status()["input_connected"], "microphone linked")
@@ -168,6 +174,28 @@ def main():
             save_icon(name, "disconnected")
             print("tray: tooltip, icon states, mute/bypass/preset menu, middle-click mute, "
                   "user presets listed")
+
+            ids = menu_ids(name)
+            assert "Mixer" in ids and "Output device" in ids, sorted(ids)
+            click(name, "Mixer")
+            smoke.wait_for(lambda: json.loads(run(args.ctl, "ctl", "mixer", "--json"))["enabled"], "mixer from the tray")
+            click(name, "Mixer")
+            print("tray: Mixer switch and Output device menu (BG-003)")
+
+            def ui_session():
+                client = socket.socket(socket.AF_UNIX)
+                client.connect(str(runtime / "macafon" / "macafond.sock"))
+                client.sendall(b'{"id":1,"method":"hello","params":{"protocol":1,"client":"macafon-ui"}}\n')
+                client.makefile("r").readline()
+                client.close()
+
+            ui_session()
+            smoke.wait_for(lambda: "keeps running in the tray" in monitor_log.read_text(), "first-close notification")
+            ui_session()
+            import time
+            time.sleep(1)
+            assert monitor_log.read_text().count("keeps running in the tray") == 1, "notification repeated"
+            print("notification: first window close announces the tray once (BG-001)")
 
             try:
                 click(name, "Quit Macafon")

@@ -71,12 +71,9 @@
     if (step !== 'mic') return;
     untrack(() => (picked ??= mic?.device ?? daemon.devices[0]?.name ?? null));
     const unwatch = daemon.watchDevices();
-    void daemon.refreshDevices();
-    let ticks = 0;
+    // Plugged-in microphones arrive with `devices.changed` (MIC-002).
     const timer = setInterval(() => {
       listen();
-      // There is no device event yet: refresh so a plugged-in microphone shows up.
-      if (++ticks % 20 === 0) void daemon.refreshDevices();
       untrack(() => (picked ??= daemon.devices[0]?.name ?? null));
     }, 100);
     return () => {
@@ -110,7 +107,7 @@
 
   // --- Use it / background ------------------------------------------------------------------
 
-  let systemDefault = $state(false);
+  const systemDefault = $derived(mic?.is_default_source ?? false);
   let defaultBusy = $state(false);
   let startWithSystem = $state(true);
   /** "Fine-tune" still shows "Use it" and "Background", then opens the Microphone screen. */
@@ -121,9 +118,8 @@
     const request = on
       ? daemon.client.call('mic.set_default_source', { confirmed: true })
       : daemon.client.call('mic.restore_default_source');
-    const result = await daemon.run(request);
+    await daemon.run(request);
     defaultBusy = false;
-    if (result !== undefined) systemDefault = on;
   }
 
   async function done() {

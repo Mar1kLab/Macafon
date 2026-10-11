@@ -180,6 +180,9 @@ export class DaemonStore {
       case 'presets.changed':
         this.presets = event.data;
         break;
+      case 'devices.changed':
+        this.devices = event.data;
+        break;
       case 'devices.meter':
         deviceMeterBus.peaks.set(event.data.name, event.data.peak_dbfs);
         break;
@@ -421,11 +424,6 @@ export class DaemonStore {
     if (this.mic) this.recordUndo(this.mic.settings);
     this.lastEditAt = 0;
     await this.setMic(this.client.call('mic.set_preset', { preset: id }));
-  }
-
-  async refreshDevices(): Promise<void> {
-    const devices = await this.run(this.client.call('devices.list'));
-    if (devices) this.devices = devices;
   }
 
   // --- Onboarding ---------------------------------------------------------------------------

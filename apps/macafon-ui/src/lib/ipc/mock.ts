@@ -183,6 +183,7 @@ export class MockTransport implements Transport {
   private inputChannel: InputChannel = 'Auto';
   private noiseFloor: number | null = null;
   private userPresets = new Map<string, { name: string; settings: ChainSettings }>();
+  private isDefaultSource = false;
   private autostart: AutostartState = { enabled: true, method: 'systemd' };
   private shortcuts = new Map<string, string>([
     ['mic_mute_toggle', 'Ctrl+Alt+M'],
@@ -282,6 +283,7 @@ export class MockTransport implements Transport {
       fallback_device: this.fallbackDevice,
       active_device: this.connected ? this.device : null,
       input_connected: this.connected && this.device !== null,
+      is_default_source: this.isDefaultSource,
       latency_samples: latencySamples(this.settings),
       noise_floor_dbfs: this.noiseFloor,
     };
@@ -397,8 +399,17 @@ export class MockTransport implements Transport {
         return this.micChanged();
       case 'mic.set_default_source':
         if (p.confirmed !== true) throw new DaemonError('invalid_params', 'explicit confirmation is required');
+        // PipeWire reports the new default a moment later, as a metadata change.
+        setTimeout(() => {
+          this.isDefaultSource = true;
+          this.micChanged();
+        }, 60);
         return null;
       case 'mic.restore_default_source':
+        setTimeout(() => {
+          this.isDefaultSource = false;
+          this.micChanged();
+        }, 60);
         return null;
       case 'presets.list':
         return this.presets();

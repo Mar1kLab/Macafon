@@ -20,7 +20,6 @@
   const byName = (name: string | null) => daemon.devices.find((device) => device.name === name);
 
   function opened() {
-    void daemon.refreshDevices();
     unwatch ??= daemon.watchDevices();
   }
 

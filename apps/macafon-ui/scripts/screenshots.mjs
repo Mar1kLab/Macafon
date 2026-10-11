@@ -151,7 +151,14 @@ const scenarios = {
   'settings-default': async (page) => {
     await page.goto(`${base}?screen=settings`);
     await page.waitForSelector('section');
-    await page.getByRole('button', { name: 'Make default' }).click();
+    await page.getByRole('switch', { name: 'System default microphone' }).click();
+    await page.waitForTimeout(500);
+  },
+  'settings-default-on': async (page) => {
+    await page.goto(`${base}?screen=settings`);
+    await page.waitForSelector('section');
+    await page.getByRole('switch', { name: 'System default microphone' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Make default' }).click();
     await page.waitForTimeout(500);
   },
   'noise-fallback': async (page) => {

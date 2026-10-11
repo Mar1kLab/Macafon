@@ -53,15 +53,15 @@
     if (state) daemon.autostart = state;
   }
 
+  // MIC-012: the switch shows what PipeWire reports; turning it on asks first.
   async function makeDefault() {
     confirmDefault = false;
-    const done = await daemon.run(daemon.client.call('mic.set_default_source', { confirmed: true }));
-    if (done !== undefined) daemon.toast(t('settings.defaultSet'));
+    await daemon.run(daemon.client.call('mic.set_default_source', { confirmed: true }));
   }
 
-  async function restoreDefault() {
-    const done = await daemon.run(daemon.client.call('mic.restore_default_source'));
-    if (done !== undefined) daemon.toast(t('settings.defaultRestored'));
+  async function setDefault(on: boolean) {
+    if (on) confirmDefault = true;
+    else await daemon.run(daemon.client.call('mic.restore_default_source'));
   }
 </script>
 
@@ -112,7 +112,6 @@
             options={fallbackOptions}
             value={mic.fallback_device}
             width="280px"
-            onopen={() => daemon.refreshDevices()}
             onchange={(device) => daemon.setMic(daemon.client.call('mic.set_fallback_device', { device }))}
           />
         </div>
@@ -134,10 +133,7 @@
             <p class="name">{t('settings.systemDefault')}</p>
             <p class="hint">{t('settings.systemDefaultHint')}</p>
           </div>
-          <div class="buttons">
-            <button class="btn" onclick={restoreDefault}>{t('settings.restoreDefault')}</button>
-            <button class="btn" onclick={() => (confirmDefault = true)}>{t('settings.makeDefault')}</button>
-          </div>
+          <Toggle checked={mic.is_default_source} label={t('settings.systemDefault')} onchange={setDefault} />
         </div>
         <div class="row">
           <div>
@@ -301,12 +297,6 @@
   .hint {
     font-size: 13px;
     color: var(--muted);
-  }
-
-  .buttons {
-    display: flex;
-    flex: none;
-    gap: 8px;
   }
 
   .row.column {

@@ -70,6 +70,7 @@ pub struct DaemonHost {
     tray_wanted: bool,
     hotkeys: Option<crate::hotkeys::Hotkeys>,
     hotkey_status: Option<crate::hotkeys::Status>,
+    icons: macafon_apps::icons::IconResolver,
     quit: bool,
     server: Option<(PathBuf, ControlSender<ControlMessage>)>,
     _socket: Option<SocketGuard>,
@@ -115,6 +116,7 @@ impl DaemonHost {
             tray_wanted: tray,
             hotkeys: None,
             hotkey_status: None,
+            icons: macafon_apps::icons::IconResolver::from_env(),
             quit: false,
             server: Some((socket, control)),
             _socket: None,
@@ -1195,6 +1197,7 @@ impl DaemonHost {
             | Request::AppsMove { .. }
             | Request::AppsSetManaged { .. }
             | Request::AppsForget { .. }) => return self.respond_mixer(request),
+            Request::AppsIcon { icon } => return Ok(serde_json::json!(self.icons.data_url(&icon))),
             Request::DoctorRun => {
                 const WINDOW: Duration = Duration::from_secs(600);
                 while self

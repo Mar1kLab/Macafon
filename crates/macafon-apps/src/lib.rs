@@ -1,6 +1,8 @@
 //! Applications behind playback streams (PRD §7.4): the grouping key (APP-002), a readable
 //! name and icon (APP-003), and the built-in classification of known apps (APP-006).
 
+pub mod icons;
+
 /// Where a newly seen application goes before the user moves it (APP-006).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Category {

@@ -206,6 +206,9 @@ pub enum Request {
     /// Forget the rule of an app that is not running (APP-007).
     #[serde(rename = "apps.forget")]
     AppsForget { app_key: String },
+    /// APP-003: the image for an app's `icon` as a `data:` URL, or `null` if none is found.
+    #[serde(rename = "apps.icon")]
+    AppsIcon { icon: String },
     /// §9.6: run the self-checks now.
     #[serde(rename = "doctor.run")]
     DoctorRun,

@@ -83,5 +83,9 @@ AppImage требует установленного PipeWire ≥1.0 и его �
 | Микшер end-to-end | `python3 tools/tests/mixer-smoke.py` | Пройдена в приватном PipeWire 1.6.2 + WirePlumber 0.5.13 |
 | Трей, BG-001/003 | `python3 tools/tests/tray-smoke.py` | Пройдена |
 | Горячие клавиши (портал) | `python3 tools/tests/hotkeys-smoke.py` | Пройдена с фейковым порталом |
+| Громкость приложения (CH-008), сброс при выключении микшера | `python3 tools/tests/mixer-smoke.py` | Пройдена |
+| Default-микрофон (MIC-012), `devices.changed` (MIC-002) | `m1-defaults-smoke.py`, `m1-inputs-smoke.py` | Пройдены |
+| Buffer size, close → quit, Doctor xruns/DSP load | `python3 tools/tests/control-smoke.py` | Пройдена (3 из 4 прогонов; 1 раз упала независимая проверка «stereo idle meters» — тайминг метров сразу после старта) |
+| Иконки приложений на реальном DE (APP-003) | Ручной прогон | Нужен стенд; на этом проверены только htop/btop/vim/snap |
 | Настоящие порталы KDE/GNOME/Hyprland, X11-захват | Стенд с DE | Нужен стенд |
 | Discord/Spotify/Flatpak/Electron в каналах (§14.4) | Ручной прогон | Нужен стенд |

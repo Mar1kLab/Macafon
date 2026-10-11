@@ -19,7 +19,128 @@ function executable() {
   return join(cache, dir, 'chrome-linux64/chrome');
 }
 
+/** Click through the first-run flow up to `step` (0 = welcome). */
+async function onboardingTo(page, step) {
+  // A first run: the mixer is not turned on yet (CH-009).
+  await page.goto(`${base}?mixer=off`);
+  await page.waitForSelector('.onboarding');
+  if (step === 0) return;
+  await page.getByRole('button', { name: 'Get started' }).click();
+  if (step === 1) return page.waitForTimeout(1800);
+  if (step >= 2) await page.getByRole('button', { name: 'Next' }).click();
+  if (step === 2) return page.waitForTimeout(400);
+  if (step >= 3) {
+    await page.getByRole('button', { name: 'Start' }).click();
+    await page.waitForTimeout(10_800);
+  }
+  if (step === 3) return;
+  await page.getByRole('button', { name: 'Next' }).click();
+  if (step === 4) return page.waitForTimeout(400);
+  await page.getByRole('button', { name: 'Next' }).click();
+  if (step === 5) return page.waitForTimeout(400);
+  await page.getByRole('button', { name: 'Skip', exact: true }).click();
+  await page.waitForTimeout(400);
+}
+
 const scenarios = {
+  mixer: async (page) => {
+    await page.goto(`${base}?screen=mixer`);
+    await page.waitForSelector('.strip');
+    await page.waitForTimeout(1500);
+  },
+  'mixer-off': async (page) => {
+    await page.goto(`${base}?screen=mixer&mixer=off`);
+    await page.waitForSelector('.intro');
+    await page.waitForTimeout(500);
+  },
+  'mixer-eq': async (page) => {
+    await page.goto(`${base}?screen=mixer`);
+    await page.waitForSelector('.strip');
+    await page.locator('section[aria-label="Voice"]').getByRole('button', { name: /^EQ/ }).click();
+    await page.waitForTimeout(900);
+  },
+  'mixer-fx': async (page) => {
+    await page.goto(`${base}?screen=mixer`);
+    await page.waitForSelector('.strip');
+    await page.locator('section[aria-label="Voice"]').getByRole('button', { name: /^FX/ }).click();
+    await page.waitForTimeout(900);
+  },
+  'mixer-channel': async (page) => {
+    await page.goto(`${base}?screen=mixer`);
+    await page.waitForSelector('.strip');
+    await page.getByRole('button', { name: 'Music settings' }).click();
+    await page.waitForTimeout(900);
+  },
+  'mixer-moved': async (page) => {
+    await page.goto(`${base}?screen=mixer`);
+    await page.waitForSelector('.strip');
+    await page.locator('.chip', { hasText: 'Firefox' }).dragTo(page.locator('section[aria-label="Music"] .apps'));
+    await page.waitForTimeout(1200);
+  },
+  'mixer-menu': async (page) => {
+    await page.goto(`${base}?screen=mixer`);
+    await page.waitForSelector('.strip');
+    await page.locator('.chip', { hasText: 'Cyberpunk' }).click({ button: 'right' });
+    await page.waitForTimeout(600);
+  },
+  'settings-mixer': async (page) => {
+    await page.goto(`${base}?screen=settings`);
+    await page.waitForSelector('section');
+    await page.getByRole('button', { name: 'Add output' }).click();
+    await page.getByRole('option', { name: 'Arctis Nova 7' }).click();
+    await page.getByRole('button', { name: 'Add output' }).click();
+    await page.getByRole('option', { name: 'Built-in Speakers' }).click();
+    await page.getByText('Output priority').scrollIntoViewIfNeeded();
+    await page.waitForTimeout(500);
+  },
+  doctor: async (page) => {
+    await page.goto(`${base}?screen=settings`);
+    await page.waitForSelector('.doctor li');
+    await page.locator('.doctor').scrollIntoViewIfNeeded();
+    await page.waitForTimeout(400);
+  },
+  'mixer-new': async (page) => {
+    await page.goto(`${base}?screen=mixer`);
+    await page.waitForSelector('.strip');
+    await page.locator('button.new').click();
+    await page.keyboard.type('Games');
+    await page.waitForTimeout(500);
+  },
+  'onboarding-welcome': (page) => onboardingTo(page, 0).then(() => page.waitForTimeout(600)),
+  'onboarding-mic': (page) => onboardingTo(page, 1),
+  'onboarding-calibrating': async (page) => {
+    await onboardingTo(page, 2);
+    await page.getByRole('button', { name: 'Start' }).click();
+    await page.waitForTimeout(6200);
+  },
+  'onboarding-result': async (page) => {
+    await onboardingTo(page, 3);
+    await page.getByRole('button', { name: 'Listen A/B' }).click();
+    await page.waitForTimeout(2300 + 4200);
+    await page.locator('.test .rec').click();
+    await page.getByRole('button', { name: 'Loop' }).click();
+    await page.waitForTimeout(1200);
+  },
+  'onboarding-use': (page) => onboardingTo(page, 4),
+  'onboarding-mixer': (page) => onboardingTo(page, 5),
+  'onboarding-background': (page) => onboardingTo(page, 6),
+  'device-meters': async (page) => {
+    await page.goto(base);
+    await page.waitForSelector('.chain');
+    await page.locator('.picker .trigger').click();
+    await page.waitForTimeout(1200);
+  },
+  'settings-default': async (page) => {
+    await page.goto(`${base}?screen=settings`);
+    await page.waitForSelector('section');
+    await page.getByRole('button', { name: 'Make default' }).click();
+    await page.waitForTimeout(500);
+  },
+  'noise-fallback': async (page) => {
+    await page.goto(`${base}?overload&config=recovered`);
+    await page.waitForSelector('.chain');
+    await page.waitForTimeout(2600);
+  },
   microphone: async (page) => {
     await page.goto(base);
     await page.waitForSelector('.chain');
@@ -105,6 +226,11 @@ const date = new Date().toISOString().slice(0, 10);
 for (const [name, run] of Object.entries(scenarios)) {
   if (only.size && !only.has(name)) continue;
   const page = await context.newPage();
+  // The first-run flow covers the app; only its own scenarios show it.
+  await page.addInitScript((first) => {
+    if (first) localStorage.removeItem('macafon.onboarding');
+    else localStorage.setItem('macafon.onboarding', 'done');
+  }, name.startsWith('onboarding'));
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));

@@ -68,6 +68,26 @@ raw_peak_dbfs: number, input_peak_dbfs: number, input_rms_dbfs: number, output_p
  */
 output_lufs_short_term?: number, input_clipped?: boolean, output_clipped?: boolean, input_peak_hold_dbfs?: number, output_peak_hold_dbfs?: number, expander_reduction_db: number, compressor_reduction_db: number, de_esser_reduction_db: number, limiter_reduction_db: number, noise_activity: number, };
 
+export type ChannelEqPreset = "flat" | "voice_clarity" | "bass_cut" | "warm_voice" | "bass_boost" | "v_shape" | "vocal" | "rock" | "electronic" | "classical" | "podcast" | "footsteps" | "immersive" | "competitive";
+
+export type EqPresetCategory = "basic" | "voice" | "music" | "game";
+
+export type ChannelSettings = { volume_pct: number, muted: boolean,
+/**
+ * CFX-007: every module off at once, the fader still applies.
+ */
+bypass: boolean, eq: Module<EqParams>,
+/**
+ * The preset the EQ was loaded from; cleared when bands are edited.
+ */
+eq_preset: ChannelEqPreset | null,
+/**
+ * RNNoise Lite per channel (CFX-003); the engine field is ignored.
+ */
+noise_suppression: Module<NoiseSuppressionParams>, compressor: Module<CompressorParams>, limiter: Module<LimiterParams>, };
+
+export type ChannelMeters = { peak_left_dbfs: number, peak_right_dbfs: number, compressor_reduction_db: number, limiter_reduction_db: number, };
+
 export type NoiseLevel = "low" | "medium" | "high";
 
 export type CalibrationReport = {
@@ -88,13 +108,13 @@ low_frequency_noise: boolean,
  */
 suggest_studio: boolean, gain_db: number, high_pass_freq_hz: number, noise_intensity_pct: number, expander_threshold_db: number, };
 
-export type Request = { "method": "hello", "params": { protocol: number, client: string, } } | { "method": "daemon.quit" } | { "method": "autostart.get" } | { "method": "autostart.set", "params": { enabled: boolean, } } | { "method": "mic.get" } | { "method": "mic.set", "params": { settings: ChainSettings, } } | { "method": "mic.set_preset", "params": { preset: string, } } | { "method": "mic.set_muted", "params": { muted: boolean, } } | { "method": "mic.toggle_mute" } | { "method": "mic.set_bypass", "params": { bypass: boolean, } } | { "method": "mic.set_device", "params": { device: string | null, } } | { "method": "mic.set_fallback_device", "params": { device: string | null, } } | { "method": "mic.set_input_channel", "params": { channel: InputChannel, } } | { "method": "mic.set_default_source", "params": { confirmed: boolean, } } | { "method": "mic.restore_default_source" } | { "method": "ab.export", "params": { side: AbSide, path: string, } } | { "method": "ab.outputs" } | { "method": "presets.list" } | { "method": "presets.save", "params": { name: string, } } | { "method": "presets.update", "params": { id: string, } } | { "method": "presets.rename", "params": { id: string, name: string, } } | { "method": "presets.duplicate", "params": { id: string, } } | { "method": "presets.delete", "params": { id: string, } } | { "method": "presets.export", "params": { id: string, } } | { "method": "presets.import", "params": { document: JsonValue, } } | { "method": "devices.list" } | { "method": "devices.subscribe" } | { "method": "devices.unsubscribe" } | { "method": "meters.subscribe", "params": { hz: number, } } | { "method": "meters.unsubscribe" } | { "method": "calibration.start" } | { "method": "calibration.cancel" } | { "method": "calibration.get" } | { "method": "ab.record", "params": { max_seconds: number | null, } } | { "method": "ab.stop_recording" } | { "method": "ab.play", "params": { device: string | null, } } | { "method": "ab.stop" } | { "method": "ab.select", "params": { side: AbSide, } } | { "method": "ab.toggle" } | { "method": "ab.seek", "params": { position_ms: number, } } | { "method": "ab.set_loudness_match", "params": { enabled: boolean, } } | { "method": "ab.get" } | { "method": "ab.waveform", "params": { points: number, } };
+export type Request = { "method": "hello", "params": { protocol: number, client: string, } } | { "method": "daemon.quit" } | { "method": "autostart.get" } | { "method": "autostart.set", "params": { enabled: boolean, } } | { "method": "mic.get" } | { "method": "mic.set", "params": { settings: ChainSettings, } } | { "method": "mic.set_preset", "params": { preset: string, } } | { "method": "mic.set_muted", "params": { muted: boolean, } } | { "method": "mic.toggle_mute" } | { "method": "mic.set_bypass", "params": { bypass: boolean, } } | { "method": "mic.set_device", "params": { device: string | null, } } | { "method": "mic.set_fallback_device", "params": { device: string | null, } } | { "method": "mic.set_input_channel", "params": { channel: InputChannel, } } | { "method": "mic.set_default_source", "params": { confirmed: boolean, } } | { "method": "mic.restore_default_source" } | { "method": "ab.export", "params": { side: AbSide, path: string, } } | { "method": "ab.outputs" } | { "method": "presets.list" } | { "method": "presets.save", "params": { name: string, } } | { "method": "presets.update", "params": { id: string, } } | { "method": "presets.rename", "params": { id: string, name: string, } } | { "method": "presets.duplicate", "params": { id: string, } } | { "method": "presets.delete", "params": { id: string, } } | { "method": "presets.export", "params": { id: string, } } | { "method": "presets.import", "params": { document: JsonValue, } } | { "method": "devices.list" } | { "method": "devices.subscribe" } | { "method": "devices.unsubscribe" } | { "method": "meters.subscribe", "params": { hz: number, } } | { "method": "meters.unsubscribe" } | { "method": "calibration.start" } | { "method": "calibration.cancel" } | { "method": "calibration.get" } | { "method": "ab.record", "params": { max_seconds: number | null, } } | { "method": "ab.stop_recording" } | { "method": "ab.play", "params": { device: string | null, } } | { "method": "ab.stop" } | { "method": "ab.select", "params": { side: AbSide, } } | { "method": "ab.toggle" } | { "method": "ab.seek", "params": { position_ms: number, } } | { "method": "ab.set_loudness_match", "params": { enabled: boolean, } } | { "method": "ab.get" } | { "method": "ab.waveform", "params": { points: number, } } | { "method": "mixer.get" } | { "method": "mixer.set_enabled", "params": { enabled: boolean, } } | { "method": "mixer.set_master", "params": { volume_pct: number | null, muted: boolean | null, } } | { "method": "mixer.set_output", "params": { device: string | null, } } | { "method": "mixer.set_output_priority", "params": { devices: Array<string>, } } | { "method": "mixer.set_auto_classify", "params": { enabled: boolean, } } | { "method": "channel.create", "params": { name: string, color: string, icon: string | null, } } | { "method": "channel.update", "params": { id: string, patch: ChannelPatch, } } | { "method": "channel.delete", "params": { id: string, } } | { "method": "channel.set", "params": { id: string, settings: ChannelSettings, } } | { "method": "channel.adjust_volume", "params": { id: string, delta_pct: number, } } | { "method": "channel.toggle_mute", "params": { id: string, } } | { "method": "channel.set_default", "params": { id: string, } } | { "method": "channel.reorder", "params": { ids: Array<string>, } } | { "method": "apps.move", "params": { app_key: string, channel: string, } } | { "method": "apps.set_managed", "params": { app_key: string, managed: boolean, } } | { "method": "apps.forget", "params": { app_key: string, } } | { "method": "doctor.run" } | { "method": "mic.cycle_preset", "params": { step: number, } } | { "method": "hotkeys.get" } | { "method": "hotkeys.set", "params": { action: string, shortcut: string | null, } };
 
 export type ErrorCode = "bad_request" | "protocol_mismatch" | "invalid_params" | "not_found" | "already_exists" | "busy" | "internal";
 
 export type ErrorBody = { code: ErrorCode, message: string, };
 
-export type Event = { "event": "mic.noise_fallback", "data": { engine: NoiseEngine, } } | { "event": "devices.meter", "data": { name: string, peak_dbfs: number, } } | { "event": "meters", "data": Meters } | { "event": "mic.changed", "data": MicState } | { "event": "calibration.changed", "data": CalibrationState } | { "event": "ab.changed", "data": AbState } | { "event": "presets.changed", "data": Array<PresetInfo> };
+export type Event = { "event": "mic.noise_fallback", "data": { engine: NoiseEngine, } } | { "event": "devices.meter", "data": { name: string, peak_dbfs: number, } } | { "event": "meters", "data": Meters } | { "event": "mic.changed", "data": MicState } | { "event": "calibration.changed", "data": CalibrationState } | { "event": "ab.changed", "data": AbState } | { "event": "presets.changed", "data": Array<PresetInfo> } | { "event": "mixer.changed", "data": MixerState } | { "event": "mixer.meters", "data": MixerMeters } | { "event": "hotkeys.changed", "data": HotkeysState };
 
 export type Hello = { protocol: number, daemon_version: string, };
 
@@ -185,3 +205,96 @@ export type Device = {
  * PipeWire `node.name`, stable across reconnects.
  */
 name: string, description: string, stable_id?: string, kind?: DeviceKind, };
+
+export type ChannelState = { id: string, name: string, color: string, icon: string, settings: ChannelSettings, latency_samples: number, };
+
+export type AppState = {
+/**
+ * `bin:discord`, `app:com.spotify.Client`, `name:…`, `system:sounds`.
+ */
+key: string, name: string,
+/**
+ * Freedesktop icon name, if known.
+ */
+icon: string | null, channel: string,
+/**
+ * Playing right now (APP-003).
+ */
+active: boolean,
+/**
+ * Live streams; 0 for a remembered app that is not running (APP-007).
+ */
+streams: number,
+/**
+ * `false`: "Don't manage this app" (APP-009).
+ */
+managed: boolean,
+/**
+ * The app forbids moving its streams (`node.dont-move`).
+ */
+movable: boolean, };
+
+export type OutputDevice = { name: string, description: string, kind: PlaybackDeviceKind, };
+
+export type MixerState = { enabled: boolean, default_channel: string, master_volume_pct: number, master_muted: boolean, auto_classify: boolean, channels: Array<ChannelState>, apps: Array<AppState>,
+/**
+ * Real output devices, Macafon's own channels excluded (OUT-004).
+ */
+outputs: Array<OutputDevice>,
+/**
+ * OUT-002 priority list by `node.name`.
+ */
+output_priority: Array<string>,
+/**
+ * The device the channels play into right now.
+ */
+output: string | null, };
+
+export type ChannelMeterFrame = { id: string, meters: ChannelMeters, };
+
+export type MixerMeters = { channels: Array<ChannelMeterFrame>,
+/**
+ * The loudest channel after the Master fader, per side.
+ */
+master_left_dbfs: number, master_right_dbfs: number, };
+
+export type ChannelPatch = { name?: string | null, color?: string | null, icon?: string | null, };
+
+export type DoctorStatus = "ok" | "info" | "warning" | "error";
+
+export type DoctorCheckId = "pipewire" | "session_manager" | "microphone_input" | "microphone_used" | "double_processing" | "mixer" | "default_output" | "unmovable_apps" | "processing" | "hotkeys";
+
+export type DoctorCheck = { id: DoctorCheckId, status: DoctorStatus,
+/**
+ * Values for the explanation: versions, counts, device or app names. Names stay out of
+ * the copied report.
+ */
+values: Array<string>, };
+
+export type DoctorReport = { daemon_version: string, pipewire_version: string | null, session_manager: string | null, quantum: number | null, sample_rate_hz: number | null, checks: Array<DoctorCheck>, };
+
+export type HotkeyBackend = "portal" | "x11" | "unavailable";
+
+export type HotkeyBinding = { action: string,
+/**
+ * Canonical shortcut, `Ctrl+Alt+M`.
+ */
+shortcut: string | null,
+/**
+ * What the desktop actually assigned (portal), if it says.
+ */
+system_trigger: string | null,
+/**
+ * The shortcut could not be registered (taken by another app, invalid key).
+ */
+error: string | null,
+/**
+ * HK-004 command; empty for hold actions.
+ */
+command: string, };
+
+export type HotkeysState = { backend: HotkeyBackend,
+/**
+ * Every action available now, bound or not, in display order.
+ */
+bindings: Array<HotkeyBinding>, };

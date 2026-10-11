@@ -6,10 +6,13 @@ import type {
   AutostartState,
   CalibrationState,
   Device,
+  DoctorReport,
+  HotkeysState,
   ErrorCode,
   Event,
   Hello,
   MicState,
+  MixerState,
   PresetInfo,
   PlaybackDevice,
   Request,
@@ -65,6 +68,27 @@ interface Results {
   'ab.waveform': AbWaveform;
   'ab.outputs': PlaybackDevice[];
   'ab.export': null;
+  'mixer.get': MixerState;
+  'mixer.set_enabled': MixerState;
+  'mixer.set_master': MixerState;
+  'mixer.set_output': MixerState;
+  'mixer.set_output_priority': MixerState;
+  'mixer.set_auto_classify': MixerState;
+  'channel.create': MixerState;
+  'channel.update': MixerState;
+  'channel.delete': MixerState;
+  'channel.set': MixerState;
+  'channel.adjust_volume': MixerState;
+  'channel.toggle_mute': MixerState;
+  'channel.set_default': MixerState;
+  'channel.reorder': MixerState;
+  'apps.move': MixerState;
+  'apps.set_managed': MixerState;
+  'apps.forget': MixerState;
+  'doctor.run': DoctorReport;
+  'mic.cycle_preset': MicState;
+  'hotkeys.get': HotkeysState;
+  'hotkeys.set': HotkeysState;
 }
 
 type ResultOf<M extends Method> = M extends keyof Results ? Results[M] : never;

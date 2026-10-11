@@ -1,11 +1,10 @@
 <script lang="ts" module>
-  // The Mixer screen joins in M2 (PRD §9.4).
-  export type Screen = 'microphone' | 'settings';
+  export type Screen = 'microphone' | 'mixer' | 'settings';
 </script>
 
 <script lang="ts">
   // 64px icon sidebar (PRD §9.1) with HUD labels on hover; daemon status at the bottom.
-  import { Mic, Settings } from '@lucide/svelte';
+  import { Mic, Settings, SlidersVertical } from '@lucide/svelte';
   import { daemon } from '../state';
   import { t } from '../i18n';
   import Logo from './Logo.svelte';
@@ -14,6 +13,7 @@
 
   const items = [
     { id: 'microphone' as const, icon: Mic, label: t('nav.microphone') },
+    { id: 'mixer' as const, icon: SlidersVertical, label: t('nav.mixer') },
     { id: 'settings' as const, icon: Settings, label: t('nav.settings') },
   ];
 

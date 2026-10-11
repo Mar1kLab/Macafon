@@ -9,6 +9,8 @@
   import { MODULES } from '../modules';
   import { daemon } from '../../state';
   import { t } from '../../i18n';
+  import { LITE_LATENCY_SAMPLES, SAMPLE_RATE_HZ, STUDIO_LATENCY_SAMPLES } from '../../ipc/dsp';
+  import { samplesToMs } from '../../dsp/format';
   import type { ChainSettings, NoiseEngine } from '../../ipc/protocol';
 
   let { settings }: { settings: ChainSettings } = $props();
@@ -30,13 +32,10 @@
     onchange={(v) => daemon.edit((s) => (s.noise_suppression.engine = v))}
   >
     {#snippet extra()}
-      <span class="badge">{ns.engine === 'lite' ? t('engines.liteLatency') : t('engines.studioLatency')}</span>
+      <span class="badge">+{Math.round(samplesToMs(ns.engine === 'lite' ? LITE_LATENCY_SAMPLES : STUDIO_LATENCY_SAMPLES, SAMPLE_RATE_HZ))} ms</span>
       <span class="badge">{ns.engine === 'lite' ? t('engines.liteCpu') : t('engines.studioCpu')}</span>
     {/snippet}
   </Segmented>
-  {#if ns.engine === 'studio'}
-    <p class="note">{t('engines.studioFallback')}</p>
-  {/if}
   <Param
     spec="noise_intensity_pct"
     layout="stacked"
@@ -71,11 +70,6 @@
 </ModuleCard>
 
 <style>
-  .note {
-    font-size: 12px;
-    color: var(--muted);
-  }
-
   .switch-row {
     display: grid;
     grid-template-columns: 104px auto;

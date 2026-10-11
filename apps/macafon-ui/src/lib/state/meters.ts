@@ -1,7 +1,7 @@
 // Latest meter frame, outside Svelte reactivity: canvases read it in their animation frame.
 // Ballistics follow the design system §5: peak hold 1 s, fall 20 dB/s, clip latch 2 s.
 
-import type { Meters } from '../ipc/protocol';
+import type { Meters, MixerMeters } from '../ipc/protocol';
 
 export const SILENCE_DB = -120;
 
@@ -23,6 +23,28 @@ export const meterBus = {
   receivedAt: 0,
   reset() {
     this.latest = { ...silent };
+  },
+};
+
+/** Peak level of every physical input while the device list is watched (MIC-002). */
+export const deviceMeterBus = {
+  peaks: new Map<string, number>(),
+  reset() {
+    this.peaks.clear();
+  },
+};
+
+/** Latest channel and Master peaks (CH-005, CH-006); keyed by channel id, `master` for the Master. */
+export const mixerMeterBus = {
+  peaks: new Map<string, [number, number]>(),
+  update(meters: MixerMeters) {
+    for (const frame of meters.channels) {
+      this.peaks.set(frame.id, [frame.meters.peak_left_dbfs, frame.meters.peak_right_dbfs]);
+    }
+    this.peaks.set('master', [meters.master_left_dbfs, meters.master_right_dbfs]);
+  },
+  reset() {
+    this.peaks.clear();
   },
 };
 

@@ -7,13 +7,15 @@ import type {
   AutostartState,
   CalibrationState,
   ChainSettings,
+  ChannelSettings,
   Device,
   Event,
   MicState,
+  MixerState,
   PresetInfo,
 } from '../ipc/protocol';
 import { t } from '../i18n';
-import { meterBus } from './meters';
+import { deviceMeterBus, meterBus, mixerMeterBus } from './meters';
 
 export interface Toast {
   id: number;
@@ -26,6 +28,7 @@ export interface Toast {
 const UNDO_GESTURE_MS = 600;
 const UNDO_DEPTH = 100;
 const METER_HZ = 60;
+const ONBOARDING_KEY = 'macafon.onboarding';
 
 export class DaemonStore {
   readonly client: DaemonClient;
@@ -36,11 +39,14 @@ export class DaemonStore {
   ab = $state.raw<AbState | null>(null);
   calibration = $state.raw<CalibrationState>({ state: 'idle' });
   autostart = $state.raw<AutostartState | null>(null);
+  mixer = $state.raw<MixerState | null>(null);
   toasts = $state<Toast[]>([]);
   canUndo = $state(false);
   /** Bumped to ask the TEST panel to record a clip (calibration → "Listen A/B"). */
   recordRequest = $state(0);
   canRedo = $state(false);
+  /** First-run flow (PRD §9.2); finishing or skipping it is a UI preference of this WebView. */
+  onboarding = $state(localStorage.getItem(ONBOARDING_KEY) !== 'done');
 
   private nextToast = 1;
   /** Settings waiting to be sent while a `mic.set` is in flight; the latest wins. */
@@ -50,6 +56,12 @@ export class DaemonStore {
   private redoStack: ChainSettings[] = [];
   private lastEditAt = 0;
   private metersOn = false;
+  /** Components showing per-device levels; the daemon meters every input only while > 0. */
+  private deviceWatchers = 0;
+  private recoveryShown: string | null = null;
+  /** Channel settings waiting while a `channel.set` for that channel is in flight. */
+  private channelQueue = new Map<string, ChannelSettings>();
+  private channelInFlight = new Set<string>();
 
   constructor(
     transport: Transport,
@@ -81,29 +93,50 @@ export class DaemonStore {
     if (status.state !== 'connected') {
       this.metersOn = false;
       meterBus.reset();
+      deviceMeterBus.reset();
+      mixerMeterBus.reset();
     }
   }
 
   private async load() {
     try {
-      const [mic, presets, devices, ab, calibration, autostart] = await Promise.all([
+      const [mic, presets, devices, ab, calibration, autostart, mixer] = await Promise.all([
         this.client.call('mic.get'),
         this.client.call('presets.list'),
         this.client.call('devices.list'),
         this.client.call('ab.get'),
         this.client.call('calibration.get'),
         this.client.call('autostart.get'),
+        this.client.call('mixer.get'),
       ]);
-      this.mic = mic;
+      this.mixer = mixer;
+      this.applyMic(mic);
       this.presets = presets;
       this.devices = devices;
       this.ab = ab;
       this.calibration = calibration;
       this.autostart = autostart;
       this.syncMeters();
+      if (this.deviceWatchers > 0) await this.client.call('devices.subscribe');
     } catch (error) {
       this.fail(error);
     }
+  }
+
+  /** Live levels of every microphone (MIC-002) until the returned function is called. */
+  watchDevices(): () => void {
+    if (this.deviceWatchers++ === 0 && this.connected) {
+      this.client.call('devices.subscribe').catch((error) => this.fail(error));
+    }
+    let stopped = false;
+    return () => {
+      if (stopped) return;
+      stopped = true;
+      if (--this.deviceWatchers === 0) {
+        deviceMeterBus.reset();
+        if (this.connected) this.client.call('devices.unsubscribe').catch(() => {});
+      }
+    };
   }
 
   /** Meters flow only while the window is visible (MTR-004, NFR-R7). */
@@ -139,6 +172,18 @@ export class DaemonStore {
       case 'presets.changed':
         this.presets = event.data;
         break;
+      case 'devices.meter':
+        deviceMeterBus.peaks.set(event.data.name, event.data.peak_dbfs);
+        break;
+      case 'mixer.changed':
+        this.applyMixer(event.data);
+        break;
+      case 'mixer.meters':
+        mixerMeterBus.update(event.data);
+        break;
+      case 'mic.noise_fallback':
+        this.toast(t('mic.toastNoiseFallback'), { message: t('mic.toastNoiseFallbackBody'), tone: 'danger' });
+        break;
     }
   }
 
@@ -150,11 +195,109 @@ export class DaemonStore {
     } else {
       this.mic = state;
     }
+    // The daemon replaced an unreadable config with defaults; say so once per backup.
+    const recovery = state.config_recovery;
+    if (recovery && recovery.backup !== this.recoveryShown) {
+      this.recoveryShown = recovery.backup;
+      this.toast(t('errors.configRecovered'), {
+        message: t('errors.configRecoveredBody', { backup: recovery.backup }),
+        tone: 'danger',
+      });
+    }
     if (previous && previous.input_connected !== state.input_connected && state.device) {
       this.toast(state.input_connected ? t('mic.toastReconnected') : t('mic.toastDisconnected'), {
         tone: state.input_connected ? 'info' : 'danger',
       });
     }
+  }
+
+  // --- Mixer ------------------------------------------------------------------------------
+
+  /** Pending fader drags are newer than any echo; keep their settings. */
+  private applyMixer(state: MixerState) {
+    const previous = this.mixer;
+    if (previous && (this.channelInFlight.size > 0 || this.channelQueue.size > 0)) {
+      state = {
+        ...state,
+        channels: state.channels.map((channel) => {
+          if (!this.channelInFlight.has(channel.id) && !this.channelQueue.has(channel.id)) return channel;
+          const local = previous.channels.find((c) => c.id === channel.id);
+          return local ? { ...channel, settings: local.settings } : channel;
+        }),
+      };
+    }
+    this.mixer = state;
+  }
+
+  async setMixer(request: Promise<MixerState>): Promise<void> {
+    const state = await this.run(request);
+    if (state) this.applyMixer(state);
+  }
+
+  /** Optimistic channel edit; rapid changes of one channel coalesce into one request. */
+  editChannel(id: string, change: (settings: ChannelSettings) => void): void {
+    const mixer = this.mixer;
+    const channel = mixer?.channels.find((c) => c.id === id);
+    if (!mixer || !channel) return;
+    const settings = structuredClone(channel.settings);
+    change(settings);
+    this.mixer = {
+      ...mixer,
+      channels: mixer.channels.map((c) => (c.id === id ? { ...c, settings } : c)),
+    };
+    this.sendChannel(id, settings);
+  }
+
+  private sendChannel(id: string, settings: ChannelSettings) {
+    if (this.channelInFlight.has(id)) {
+      this.channelQueue.set(id, settings);
+      return;
+    }
+    this.channelInFlight.add(id);
+    this.client
+      .call('channel.set', { id, settings })
+      .then((state) => {
+        this.channelInFlight.delete(id);
+        if (!this.channelQueue.has(id)) this.applyMixer(state);
+      })
+      .catch((error) => {
+        this.channelInFlight.delete(id);
+        this.fail(error);
+        void this.client.call('mixer.get').then((state) => this.applyMixer(state));
+      })
+      .finally(() => {
+        const next = this.channelQueue.get(id);
+        this.channelQueue.delete(id);
+        if (next) this.sendChannel(id, next);
+      });
+  }
+
+  /** Master fader changes coalesce like channel edits: the latest value wins. */
+  private masterPending: { volume_pct?: number; muted?: boolean } | null = null;
+  private masterInFlight = false;
+
+  setMaster(change: { volume_pct?: number; muted?: boolean }): void {
+    const mixer = this.mixer;
+    if (!mixer) return;
+    this.mixer = {
+      ...mixer,
+      master_volume_pct: change.volume_pct ?? mixer.master_volume_pct,
+      master_muted: change.muted ?? mixer.master_muted,
+    };
+    if (this.masterInFlight) {
+      this.masterPending = { ...this.masterPending, ...change };
+      return;
+    }
+    this.masterInFlight = true;
+    this.client
+      .call('mixer.set_master', { volume_pct: change.volume_pct ?? null, muted: change.muted ?? null })
+      .catch((error) => this.fail(error))
+      .finally(() => {
+        this.masterInFlight = false;
+        const next = this.masterPending;
+        this.masterPending = null;
+        if (next) this.setMaster(next);
+      });
   }
 
   // --- Chain edits --------------------------------------------------------------------------
@@ -256,6 +399,17 @@ export class DaemonStore {
   async refreshDevices(): Promise<void> {
     const devices = await this.run(this.client.call('devices.list'));
     if (devices) this.devices = devices;
+  }
+
+  // --- Onboarding ---------------------------------------------------------------------------
+
+  startOnboarding(): void {
+    this.onboarding = true;
+  }
+
+  finishOnboarding(): void {
+    this.onboarding = false;
+    localStorage.setItem(ONBOARDING_KEY, 'done');
   }
 
   // --- Toasts -------------------------------------------------------------------------------

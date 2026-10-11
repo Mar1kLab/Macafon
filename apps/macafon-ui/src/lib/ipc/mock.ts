@@ -1,30 +1,89 @@
 // In-browser stand-in for macafond (AGENTS.md §5): the same protocol with plausible devices,
 // presets, live meters, calibration and A/B, so the UI runs without Tauri or PipeWire.
 // `?daemon=down` simulates a daemon that cannot be started, `?mic=disconnected` an unplugged
-// microphone.
+// microphone, `?config=recovered` a config reset at startup, `?overload` a Studio overload,
+// `?mixer=off` a mixer that is not turned on yet.
 
 import { DaemonError, type DaemonStatus, type Transport } from './client';
-import { BUILTIN_PRESETS, LITE_LATENCY_SAMPLES, SAMPLE_RATE_HZ } from './dsp';
+import {
+  BUILTIN_PRESETS,
+  CHANNEL_TEMPLATES,
+  LITE_LATENCY_SAMPLES,
+  MAX_CHANNELS,
+  SAMPLE_RATE_HZ,
+  STUDIO_LATENCY_SAMPLES,
+} from './dsp';
 import type {
   AbState,
   AutostartState,
   CalibrationReport,
   CalibrationState,
+  AppState,
   ChainSettings,
+  ChannelSettings,
+  ChannelState,
   Device,
   Event,
+  InputChannel,
   Meters,
   MicState,
+  MixerMeters,
+  MixerState,
   PresetInfo,
 } from './protocol';
 
 const DEVICES: Device[] = [
-  { name: 'alsa_input.usb-Blue_Microphones_Yeti_Stereo_Microphone-00.analog-stereo', description: 'Yeti Stereo Microphone' },
-  { name: 'alsa_input.usb-SteelSeries_Arctis_Nova_7-00.mono-fallback', description: 'Arctis Nova 7 Headset' },
-  { name: 'alsa_input.pci-0000_00_1f.3.analog-stereo', description: 'Built-in Audio Analog Stereo' },
+  { name: 'alsa_input.usb-Blue_Microphones_Yeti_Stereo_Microphone-00.analog-stereo', description: 'Yeti Stereo Microphone', kind: 'usb' },
+  { name: 'alsa_input.usb-SteelSeries_Arctis_Nova_7-00.mono-fallback', description: 'Arctis Nova 7 Headset', kind: 'headset' },
+  { name: 'alsa_input.pci-0000_00_1f.3.analog-stereo', description: 'Built-in Audio Analog Stereo', kind: 'builtin' },
 ];
 
 const SILENT = -120;
+
+function channelLatency(settings: ChannelSettings): number {
+  if (settings.bypass) return 0;
+  return settings.noise_suppression.enabled ? LITE_LATENCY_SAMPLES : 0;
+}
+
+function channel(id: string, name: string, color: string, icon: string, settings: ChannelSettings): ChannelState {
+  return { id, name, color, icon, settings: structuredClone(settings), latency_samples: channelLatency(settings) };
+}
+
+function app(key: string, name: string, channel: string, active: boolean, streams = 1): AppState {
+  return { key, name, icon: null, channel, active, streams, managed: true, movable: true };
+}
+
+/** Plausible desktop: a browser and a game in Main, Discord in Voice, Cider in Music. */
+function initialMixer(enabled: boolean): MixerState {
+  return {
+    enabled,
+    default_channel: 'main',
+    master_volume_pct: 100,
+    master_muted: false,
+    auto_classify: true,
+    channels: [
+      channel('main', 'Main', 'blue', 'speaker', CHANNEL_TEMPLATES.main),
+      channel('voice', 'Voice', 'violet', 'message', CHANNEL_TEMPLATES.voice),
+      channel('music', 'Music', 'pink', 'music', CHANNEL_TEMPLATES.music),
+    ],
+    apps: enabled
+      ? [
+          app('bin:firefox', 'Firefox', 'main', true, 2),
+          app('name:Cyberpunk 2077', 'Cyberpunk 2077', 'main', true),
+          app('system:sounds', 'System sounds', 'main', false),
+          app('bin:discord', 'Discord', 'voice', true, 2),
+          app('bin:telegram-desktop', 'Telegram', 'voice', false, 0),
+          app('bin:cider', 'Cider', 'music', true),
+        ]
+      : [],
+    outputs: [
+      { name: 'alsa_output.usb-SteelSeries_Arctis_Nova_7-00.analog-stereo', description: 'Arctis Nova 7', kind: 'headphones' },
+      { name: 'alsa_output.pci-0000_00_1f.3.analog-stereo', description: 'Built-in Speakers', kind: 'speakers' },
+    ],
+    output_priority: [],
+    output: enabled ? 'alsa_output.usb-SteelSeries_Arctis_Nova_7-00.analog-stereo' : null,
+  };
+}
 const VERSION = '0.1.0-mock';
 
 function clone<T>(value: T): T {
@@ -39,7 +98,8 @@ function sameChain(a: ChainSettings, b: ChainSettings): boolean {
 
 function latencySamples(settings: ChainSettings): number {
   if (settings.bypass) return 0;
-  const ns = settings.noise_suppression.enabled ? LITE_LATENCY_SAMPLES : 0;
+  const engine = settings.noise_suppression.engine === 'studio' ? STUDIO_LATENCY_SAMPLES : LITE_LATENCY_SAMPLES;
+  const ns = settings.noise_suppression.enabled ? engine : 0;
   const limiter = settings.limiter.enabled ? (settings.limiter.lookahead_ms * SAMPLE_RATE_HZ) / 1000 : 0;
   return ns + limiter;
 }
@@ -71,18 +131,22 @@ export class MockTransport implements Transport {
   private events = new Set<(event: Event) => void>();
   private statuses = new Set<(status: DaemonStatus) => void>();
   private status: DaemonStatus = { state: 'connecting' };
-  private down = new URLSearchParams(location.search).get('daemon') === 'down';
+  private query = new URLSearchParams(location.search);
+  private down = this.query.get('daemon') === 'down';
 
   private settings: ChainSettings = clone(BUILTIN_PRESETS[1]!.settings);
   private preset: string | null = BUILTIN_PRESETS[1]!.id;
   private device: string | null = DEVICES[0]!.name;
   private fallbackDevice: string | null = DEVICES[2]!.name;
-  private connected = new URLSearchParams(location.search).get('mic') !== 'disconnected';
+  private connected = this.query.get('mic') !== 'disconnected';
+  private inputChannel: InputChannel = 'Auto';
   private noiseFloor: number | null = null;
   private userPresets = new Map<string, { name: string; settings: ChainSettings }>();
   private autostart: AutostartState = { enabled: true, method: 'systemd' };
 
+  private mixer: MixerState = initialMixer(this.query.get('mixer') !== 'off');
   private meterTimer: number | undefined;
+  private deviceMeterTimer: number | undefined;
   private started = performance.now();
 
   private calibration: CalibrationState = { state: 'idle' };
@@ -101,6 +165,13 @@ export class MockTransport implements Transport {
 
   constructor() {
     setTimeout(() => this.setStatus(this.down ? this.unavailable() : this.connectedStatus()), 250);
+    if (this.query.has('overload')) {
+      setTimeout(() => {
+        this.settings.noise_suppression.engine = 'lite';
+        this.emit({ event: 'mic.noise_fallback', data: { engine: 'lite' } });
+        this.micChanged();
+      }, 2000);
+    }
   }
 
   private connectedStatus(): DaemonStatus {
@@ -153,6 +224,10 @@ export class MockTransport implements Transport {
     const presetSettings = this.preset ? this.presetSettings(this.preset) : undefined;
     return {
       stereo: false,
+      input_channel: this.inputChannel,
+      ...(this.query.get('config') === 'recovered'
+        ? { config_recovery: { backup: '~/.config/macafon/config.toml.broken-1760180000', reason: 'TOML parse error at line 12' } }
+        : {}),
       settings: clone(this.settings),
       preset: this.preset,
       preset_modified: presetSettings ? !sameChain(presetSettings, this.settings) : false,
@@ -249,6 +324,14 @@ export class MockTransport implements Transport {
       case 'mic.set_fallback_device':
         this.fallbackDevice = (p.device as string | null) ?? null;
         return this.micChanged();
+      case 'mic.set_input_channel':
+        this.inputChannel = p.channel as InputChannel;
+        return this.micChanged();
+      case 'mic.set_default_source':
+        if (p.confirmed !== true) throw new DaemonError('invalid_params', 'explicit confirmation is required');
+        return null;
+      case 'mic.restore_default_source':
+        return null;
       case 'presets.list':
         return this.presets();
       case 'presets.save': {
@@ -304,8 +387,125 @@ export class MockTransport implements Transport {
         if (!document?.name || !document.settings) throw new DaemonError('invalid_params', 'not a Macafon preset');
         return this.addPreset(this.uniqueName(document.name), document.settings);
       }
+      case 'mixer.get':
+        return clone(this.mixer);
+      case 'mixer.set_enabled':
+        this.mixer.enabled = Boolean(p.enabled);
+        if (this.mixer.enabled && this.mixer.apps.length === 0) this.mixer.apps = initialMixer(true).apps;
+        this.mixer.output = this.mixer.enabled ? (this.mixer.output_priority[0] ?? this.mixer.outputs[0]!.name) : null;
+        return this.mixerChanged();
+      case 'mixer.set_master':
+        if (typeof p.volume_pct === 'number') this.mixer.master_volume_pct = p.volume_pct;
+        if (typeof p.muted === 'boolean') this.mixer.master_muted = p.muted;
+        return this.mixerChanged();
+      case 'mixer.set_output': {
+        const device = (p.device as string | null) ?? null;
+        this.mixer.output_priority = device ? [device, ...this.mixer.output_priority.filter((d) => d !== device)] : [];
+        this.mixer.output = this.mixer.enabled ? (device ?? this.mixer.outputs[0]!.name) : null;
+        return this.mixerChanged();
+      }
+      case 'mixer.set_output_priority':
+        this.mixer.output_priority = p.devices as string[];
+        return this.mixerChanged();
+      case 'mixer.set_auto_classify':
+        this.mixer.auto_classify = Boolean(p.enabled);
+        return this.mixerChanged();
+      case 'channel.create': {
+        if (this.mixer.channels.length >= MAX_CHANNELS) throw new DaemonError('invalid_params', 'too many channels');
+        let n = 1;
+        while (this.mixer.channels.some((c) => c.id === `ch-${n}`)) n++;
+        this.mixer.channels.push(
+          channel(`ch-${n}`, String(p.name), String(p.color), (p.icon as string | null) ?? 'speaker', CHANNEL_TEMPLATES.custom),
+        );
+        return this.mixerChanged();
+      }
+      case 'channel.update': {
+        const target = this.channel(String(p.id));
+        Object.assign(target, p.patch as object);
+        return this.mixerChanged();
+      }
+      case 'channel.delete': {
+        const id = String(p.id);
+        if (id === this.mixer.default_channel) throw new DaemonError('invalid_params', 'the default channel cannot be deleted');
+        this.mixer.channels = this.mixer.channels.filter((c) => c.id !== id);
+        this.mixer.apps.forEach((a) => a.channel === id && (a.channel = this.mixer.default_channel));
+        return this.mixerChanged();
+      }
+      case 'channel.set': {
+        const target = this.channel(String(p.id));
+        target.settings = clone(p.settings as ChannelSettings);
+        target.latency_samples = channelLatency(target.settings);
+        return this.mixerChanged();
+      }
+      case 'channel.adjust_volume': {
+        const target = this.channel(String(p.id));
+        target.settings.volume_pct = Math.min(Math.max(target.settings.volume_pct + Number(p.delta_pct), 0), 100);
+        return this.mixerChanged();
+      }
+      case 'channel.toggle_mute': {
+        const target = this.channel(String(p.id));
+        target.settings.muted = !target.settings.muted;
+        return this.mixerChanged();
+      }
+      case 'channel.set_default':
+        this.channel(String(p.id));
+        this.mixer.default_channel = String(p.id);
+        return this.mixerChanged();
+      case 'channel.reorder': {
+        const ids = p.ids as string[];
+        this.mixer.channels.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+        return this.mixerChanged();
+      }
+      case 'apps.move': {
+        this.channel(String(p.channel));
+        const target = this.mixer.apps.find((a) => a.key === p.app_key);
+        if (target) {
+          target.channel = String(p.channel);
+          target.managed = true;
+        }
+        return this.mixerChanged();
+      }
+      case 'apps.set_managed': {
+        const target = this.mixer.apps.find((a) => a.key === p.app_key);
+        if (target) target.managed = Boolean(p.managed);
+        return this.mixerChanged();
+      }
+      case 'apps.forget':
+        this.mixer.apps = this.mixer.apps.filter((a) => a.key !== p.app_key || a.streams > 0);
+        return this.mixerChanged();
+      case 'doctor.run':
+        return {
+          daemon_version: VERSION,
+          pipewire_version: '1.6.2',
+          session_manager: 'WirePlumber 0.5.13',
+          quantum: 128,
+          sample_rate_hz: 48000,
+          checks: [
+            { id: 'pipewire', status: 'ok', values: ['1.6.2'] },
+            { id: 'session_manager', status: 'ok', values: ['0.5.13'] },
+            this.connected
+              ? { id: 'microphone_input', status: 'ok', values: [DEVICES[0]!.description] }
+              : { id: 'microphone_input', status: 'error', values: [DEVICES[0]!.description] },
+            { id: 'microphone_used', status: 'info', values: [] },
+            { id: 'double_processing', status: 'warning', values: ['Easy Effects Source'] },
+            this.mixer.enabled
+              ? { id: 'mixer', status: 'ok', values: ['Arctis Nova 7'] }
+              : { id: 'mixer', status: 'info', values: [] },
+            { id: 'unmovable_apps', status: 'ok', values: [] },
+            { id: 'processing', status: 'ok', values: ['128', '48000', '0'] },
+            { id: 'hotkeys', status: 'info', values: [] },
+          ],
+        };
       case 'devices.list':
         return clone(DEVICES);
+      case 'devices.subscribe':
+        clearInterval(this.deviceMeterTimer);
+        this.deviceMeterTimer = window.setInterval(() => this.emitDeviceMeters(), 1000 / 15);
+        return null;
+      case 'devices.unsubscribe':
+        clearInterval(this.deviceMeterTimer);
+        this.deviceMeterTimer = undefined;
+        return null;
       case 'meters.subscribe':
         this.subscribeMeters(Number(p.hz));
         return null;
@@ -361,11 +561,64 @@ export class MockTransport implements Transport {
     }
   }
 
+  private channel(id: string): ChannelState {
+    const found = this.mixer.channels.find((c) => c.id === id);
+    if (!found) throw new DaemonError('not_found', `no channel ${id}`);
+    return found;
+  }
+
+  private mixerChanged(): MixerState {
+    this.emit({ event: 'mixer.changed', data: clone(this.mixer) });
+    return clone(this.mixer);
+  }
+
   // --- Meters -----------------------------------------------------------------------------
+
+  /** Channel peaks after their faders; voices come and go, music keeps going. */
+  private mixerMeters(): MixerMeters {
+    const t = (performance.now() - this.started) / 1000;
+    const master = this.mixer.master_muted ? 0 : (this.mixer.master_volume_pct / 100) ** 3;
+    const source: Record<string, number> = {
+      main: -14 + 4 * Math.sin(t * 2.1),
+      voice: voiceLevel(t + 1.7, -70) + 14,
+      music: -9 + 3 * Math.abs(Math.sin(t * 7.3)),
+    };
+    const channels = this.mixer.channels.map((c) => {
+      const playing = this.mixer.apps.some((a) => a.channel === c.id && a.active);
+      const gain = c.settings.muted ? 0 : (c.settings.volume_pct / 100) ** 3 * master;
+      const level = playing && gain > 0 ? (source[c.id] ?? -18) + 20 * Math.log10(gain) : SILENT;
+      return {
+        id: c.id,
+        meters: {
+          peak_left_dbfs: level,
+          peak_right_dbfs: level - (c.id === 'music' ? 1.5 * Math.sin(t * 3) : 0.5),
+          compressor_reduction_db: 0,
+          limiter_reduction_db: 0,
+        },
+      };
+    });
+    const max = (side: 'peak_left_dbfs' | 'peak_right_dbfs') =>
+      channels.reduce((peak, c) => Math.max(peak, c.meters[side]), SILENT);
+    return { channels, master_left_dbfs: max('peak_left_dbfs'), master_right_dbfs: max('peak_right_dbfs') };
+  }
+
+  /** The headset picks up the voice from across the desk; the built-in mic hears the room. */
+  private emitDeviceMeters() {
+    const t = (performance.now() - this.started) / 1000;
+    const offsets = [0, -10, -30];
+    DEVICES.forEach((device, i) => {
+      const unplugged = !this.connected && device.name === this.device;
+      const peak_dbfs = unplugged ? SILENT : voiceLevel(t, -66 + i * 4) + 6 + offsets[i]!;
+      this.emit({ event: 'devices.meter', data: { name: device.name, peak_dbfs } });
+    });
+  }
 
   private subscribeMeters(hz: number) {
     clearInterval(this.meterTimer);
-    this.meterTimer = window.setInterval(() => this.emit({ event: 'meters', data: this.meters() }), 1000 / hz);
+    this.meterTimer = window.setInterval(() => {
+      this.emit({ event: 'meters', data: this.meters() });
+      if (this.mixer.enabled) this.emit({ event: 'mixer.meters', data: this.mixerMeters() });
+    }, 1000 / hz);
   }
 
   private meters(): Meters {

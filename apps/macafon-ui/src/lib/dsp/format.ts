@@ -54,3 +54,13 @@ export function formatMs(ms: number): string {
 export function samplesToMs(samples: number, sampleRateHz: number): number {
   return (samples / sampleRateHz) * 1000;
 }
+
+/** CH-004: the cubic volume curve of `macafon_dsp::channel::volume_db`, shown next to the %. */
+export function volumeDb(volumePct: number): number {
+  return 60 * Math.log10(Math.min(Math.max(volumePct, 0), 100) / 100);
+}
+
+export function formatVolumeDb(volumePct: number): string {
+  const db = volumeDb(volumePct);
+  return Number.isFinite(db) ? formatDb(db) : `${MINUS}∞ dB`;
+}

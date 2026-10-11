@@ -20,11 +20,13 @@
     option?: Snippet<[Option, boolean]>;
     footer?: Snippet<[() => void]>;
     onopen?: () => void;
+    onclose?: () => void;
     width?: string;
     disabled?: boolean;
   }
 
-  let { options, value, label, onchange, button, option, footer, onopen, width, disabled = false }: Props = $props();
+  let { options, value, label, onchange, button, option, footer, onopen, onclose, width, disabled = false }: Props =
+    $props();
 
   let open = $state(false);
   let active = $state(0);
@@ -43,7 +45,9 @@
   }
 
   function close() {
+    if (!open) return;
     open = false;
+    onclose?.();
   }
 
   function choose(index: number) {

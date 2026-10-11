@@ -1,14 +1,39 @@
 <script lang="ts">
   // 03 / SETTINGS (PRD §9.5) — what the daemon supports today: start with system (AS-001),
-  // fallback microphone (MIC-006), virtual microphone format (MIC-011), quit (BG-005), about.
-  // Hotkeys and Doctor arrive with M2.
+  // the setup guide (§9.2), fallback microphone (MIC-006), input channel (MIC-004), system
+  // default microphone (MIC-012), virtual microphone format (MIC-011), quit (BG-005), about.
+  // Mixer: known-app sorting (APP-006) and the output priority list (OUT-002).
+  // Doctor (§9.6). Hotkeys arrive later in M2.
   import Toggle from '../lib/components/Toggle.svelte';
   import Dropdown from '../lib/components/Dropdown.svelte';
   import Dialog from '../lib/components/Dialog.svelte';
+  import { ArrowDown, ArrowUp, X } from '@lucide/svelte';
   import { daemon } from '../lib/state';
+  import Doctor from '../lib/settings/Doctor.svelte';
   import { t } from '../lib/i18n';
+  import type { InputChannel } from '../lib/ipc/protocol';
 
+  let { onnavigate }: { onnavigate: (screen: 'microphone' | 'mixer') => void } = $props();
   const mic = $derived(daemon.mic);
+  const mixer = $derived(daemon.mixer);
+  const describe = (name: string) => mixer?.outputs.find((output) => output.name === name)?.description ?? name;
+  const unlisted = $derived(
+    (mixer?.outputs ?? [])
+      .filter((output) => !mixer!.output_priority.includes(output.name))
+      .map((output) => ({ value: output.name, label: output.description })),
+  );
+
+  function setPriority(devices: string[]) {
+    void daemon.setMixer(daemon.client.call('mixer.set_output_priority', { devices }));
+  }
+
+  function shift(index: number, delta: number) {
+    if (!mixer) return;
+    const list = [...mixer.output_priority];
+    const [item] = list.splice(index, 1);
+    list.splice(index + delta, 0, item!);
+    setPriority(list);
+  }
   const autostart = $derived(daemon.autostart);
   const fallbackOptions = $derived([
     { value: null as string | null, label: t('settings.none') },
@@ -16,12 +41,26 @@
       .filter((device) => device.name !== mic?.device)
       .map((device) => ({ value: device.name as string | null, label: device.description })),
   ]);
+  const CHANNELS: InputChannel[] = ['Auto', 'Left', 'Right', 'Mix'];
+  const channelOptions = CHANNELS.map((value) => ({ value, label: t(`settings.channels.${value}`) }));
   let confirmQuit = $state(false);
+  let confirmDefault = $state(false);
   const version = $derived(daemon.status.state === 'connected' ? daemon.status.version : '—');
 
   async function setAutostart(enabled: boolean) {
     const state = await daemon.run(daemon.client.call('autostart.set', { enabled }));
     if (state) daemon.autostart = state;
+  }
+
+  async function makeDefault() {
+    confirmDefault = false;
+    const done = await daemon.run(daemon.client.call('mic.set_default_source', { confirmed: true }));
+    if (done !== undefined) daemon.toast(t('settings.defaultSet'));
+  }
+
+  async function restoreDefault() {
+    const done = await daemon.run(daemon.client.call('mic.restore_default_source'));
+    if (done !== undefined) daemon.toast(t('settings.defaultRestored'));
   }
 </script>
 
@@ -42,6 +81,13 @@
           {/if}
         </div>
         <Toggle checked={autostart?.enabled ?? false} disabled={!autostart} label={t('settings.startWithSystem')} onchange={setAutostart} />
+      </div>
+      <div class="row">
+        <div>
+          <p class="name">{t('settings.onboarding')}</p>
+          <p class="hint">{t('settings.onboardingHint')}</p>
+        </div>
+        <button class="btn" onclick={() => daemon.startOnboarding()}>{t('settings.onboardingRun')}</button>
       </div>
       <div class="row">
         <div>
@@ -71,6 +117,29 @@
         </div>
         <div class="row">
           <div>
+            <p class="name">{t('settings.inputChannel')}</p>
+            <p class="hint">{t('settings.inputChannelHint')}</p>
+          </div>
+          <Dropdown
+            label={t('settings.inputChannel')}
+            options={channelOptions}
+            value={mic.input_channel ?? 'Auto'}
+            width="280px"
+            onchange={(channel) => daemon.setMic(daemon.client.call('mic.set_input_channel', { channel }))}
+          />
+        </div>
+        <div class="row">
+          <div>
+            <p class="name">{t('settings.systemDefault')}</p>
+            <p class="hint">{t('settings.systemDefaultHint')}</p>
+          </div>
+          <div class="buttons">
+            <button class="btn" onclick={restoreDefault}>{t('settings.restoreDefault')}</button>
+            <button class="btn" onclick={() => (confirmDefault = true)}>{t('settings.makeDefault')}</button>
+          </div>
+        </div>
+        <div class="row">
+          <div>
             <p class="name">{t('settings.format')}</p>
             <p class="hint">{t('settings.formatHint')}</p>
           </div>
@@ -78,6 +147,57 @@
         </div>
       </section>
     {/if}
+
+    {#if mixer}
+      <section>
+        <h2 class="hud-label">{t('settings.mixer')}</h2>
+        <div class="row">
+          <div>
+            <p class="name">{t('settings.autoClassify')}</p>
+            <p class="hint">{t('settings.autoClassifyHint')}</p>
+          </div>
+          <Toggle
+            checked={mixer.auto_classify}
+            label={t('settings.autoClassify')}
+            onchange={(enabled) => daemon.setMixer(daemon.client.call('mixer.set_auto_classify', { enabled }))}
+          />
+        </div>
+        <div class="row column">
+          <div>
+            <p class="name">{t('settings.outputPriority')}</p>
+            <p class="hint">{t('settings.outputPriorityHint')}</p>
+          </div>
+          <ol class="priority">
+            {#each mixer.output_priority as name, index (name)}
+              <li class:missing={!mixer.outputs.some((o) => o.name === name)}>
+                <span class="n">{index + 1}</span>
+                <span class="device">{describe(name)}</span>
+                {#if !mixer.outputs.some((o) => o.name === name)}<span class="badge">{t('settings.disconnected')}</span>{/if}
+                <button class="btn icon ghost small" aria-label={t('settings.moveUp')} disabled={index === 0} onclick={() => shift(index, -1)}><ArrowUp size={13} strokeWidth={1.5} /></button>
+                <button class="btn icon ghost small" aria-label={t('settings.moveDown')} disabled={index === mixer.output_priority.length - 1} onclick={() => shift(index, 1)}><ArrowDown size={13} strokeWidth={1.5} /></button>
+                <button class="btn icon ghost small" aria-label={t('settings.remove')} onclick={() => setPriority(mixer.output_priority.filter((n) => n !== name))}><X size={13} strokeWidth={1.5} /></button>
+              </li>
+            {:else}
+              <li class="empty">{t('settings.priorityEmpty')}</li>
+            {/each}
+          </ol>
+          {#if unlisted.length}
+            <Dropdown
+              label={t('settings.addOutput')}
+              options={[{ value: '', label: t('settings.addOutput') }, ...unlisted]}
+              value={''}
+              width="280px"
+              onchange={(name) => name && setPriority([...mixer.output_priority, name])}
+            />
+          {/if}
+        </div>
+      </section>
+    {/if}
+
+    <section>
+      <h2 class="hud-label">{t('settings.doctor')}</h2>
+      <Doctor {onnavigate} onmakedefault={() => (confirmDefault = true)} />
+    </section>
 
     <section>
       <h2 class="hud-label">{t('settings.about')}</h2>
@@ -104,6 +224,14 @@
         void daemon.run(daemon.client.call('daemon.quit'));
       }}>{t('settings.quit')}</button
     >
+  {/snippet}
+</Dialog>
+
+<Dialog open={confirmDefault} title={t('settings.makeDefaultTitle')} onclose={() => (confirmDefault = false)}>
+  <p class="confirm">{t('settings.makeDefaultConfirm')}</p>
+  {#snippet actions()}
+    <button class="btn" onclick={() => (confirmDefault = false)}>{t('common.cancel')}</button>
+    <button class="btn invert" onclick={makeDefault}>{t('settings.makeDefault')}</button>
   {/snippet}
 </Dialog>
 
@@ -163,6 +291,55 @@
   }
 
   .hint {
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .buttons {
+    display: flex;
+    flex: none;
+    gap: 8px;
+  }
+
+  .row.column {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .priority {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 4px;
+  }
+
+  .priority li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    background: var(--bg-sunken);
+  }
+
+  .priority .n {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent-ink);
+    width: 16px;
+  }
+
+  .priority .device {
+    flex: 1;
+    color: var(--ink);
+  }
+
+  .priority .missing .device {
+    color: var(--faint);
+  }
+
+  .priority .empty {
     font-size: 13px;
     color: var(--muted);
   }

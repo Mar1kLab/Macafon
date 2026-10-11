@@ -9,8 +9,10 @@
 //! calibration and the A/B recorder (PRD §6.4, §6.5).
 
 mod ab;
+mod channel;
 
 pub use ab::{AbControl, AbRt, SWITCH_FADE_SAMPLES, ab_player};
+pub use channel::{ChannelControl, ChannelRt, channel};
 
 use macafon_dsp::{
     ChainSettings, MicrophoneProcessor, ParameterError, ProcessorBuildError, Telemetry,

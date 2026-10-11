@@ -4,6 +4,7 @@
 
 pub mod calibration;
 mod chain;
+pub mod channel;
 mod compressor;
 mod de_esser;
 mod eq;
@@ -19,6 +20,7 @@ mod svf;
 mod util;
 
 pub use chain::{Meters, MicrophoneProcessor, ProcessorBuildError, RetuneError, Telemetry};
+pub use channel::{ChannelMeters, ChannelProcessor, ChannelSettings, ChannelTelemetry};
 pub use compressor::static_curve_db;
 pub use noise::{FRAME_SAMPLES, LITE_LATENCY_SAMPLES};
 pub use noise::{STUDIO_LATENCY_SAMPLES, StudioProcessor};

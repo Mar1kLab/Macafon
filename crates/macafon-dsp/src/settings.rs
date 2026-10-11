@@ -77,7 +77,7 @@ impl HighPassParams {
         }
     }
 
-    fn validate(&self) -> Result<(), ParameterError> {
+    pub(crate) fn validate(&self) -> Result<(), ParameterError> {
         HIGH_PASS_FREQ_HZ.check(self.freq_hz)?;
         if HIGH_PASS_SLOPES_DB_OCT.contains(&self.slope_db_oct) {
             Ok(())
@@ -133,7 +133,7 @@ impl NoiseSuppressionParams {
         }
     }
 
-    fn validate(&self) -> Result<(), ParameterError> {
+    pub(crate) fn validate(&self) -> Result<(), ParameterError> {
         INTENSITY.check(self.intensity_pct)?;
         VOICE_THRESHOLD.check(self.voice_threshold_pct)?;
         Ok(())
@@ -199,7 +199,7 @@ impl ExpanderParams {
         }
     }
 
-    fn validate(&self) -> Result<(), ParameterError> {
+    pub(crate) fn validate(&self) -> Result<(), ParameterError> {
         EXPANDER_THRESHOLD_DBFS.check(self.threshold_db)?;
         if self.ratio != f32::INFINITY {
             EXPANDER_RATIO.check(self.ratio)?;
@@ -247,7 +247,7 @@ impl EqBand {
         }
     }
 
-    fn validate(&self) -> Result<(), ParameterError> {
+    pub(crate) fn validate(&self) -> Result<(), ParameterError> {
         EQ_FREQ_HZ.check(self.freq_hz)?;
         EQ_GAIN_DB.check(self.gain_db)?;
         EQ_Q.check(self.q)?;
@@ -312,7 +312,7 @@ impl EqCharacter {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
@@ -327,6 +327,13 @@ pub struct EqParams {
     pub bands: [EqBand; EQ_MAX_BANDS],
     pub band_count: usize,
     pub output_gain_db: f32,
+}
+
+/// Only the active bands matter; the unused tail is storage.
+impl PartialEq for EqParams {
+    fn eq(&self, other: &Self) -> bool {
+        self.active_bands() == other.active_bands() && self.output_gain_db == other.output_gain_db
+    }
 }
 
 impl Default for EqParams {
@@ -359,7 +366,7 @@ impl EqParams {
         &self.bands[..self.band_count.min(EQ_MAX_BANDS)]
     }
 
-    fn validate(&self) -> Result<(), ParameterError> {
+    pub(crate) fn validate(&self) -> Result<(), ParameterError> {
         if self.band_count > EQ_MAX_BANDS {
             return Err(ParameterError {
                 name: "EQ band count",
@@ -426,7 +433,7 @@ impl CompressorParams {
         }
     }
 
-    fn validate(&self) -> Result<(), ParameterError> {
+    pub(crate) fn validate(&self) -> Result<(), ParameterError> {
         COMPRESSOR_THRESHOLD_DBFS.check(self.threshold_db)?;
         COMPRESSOR_RATIO.check(self.ratio)?;
         COMPRESSOR_ATTACK_MS.check(self.attack_ms)?;
@@ -479,7 +486,7 @@ impl DeEsserParams {
         }
     }
 
-    fn validate(&self) -> Result<(), ParameterError> {
+    pub(crate) fn validate(&self) -> Result<(), ParameterError> {
         DE_ESSER_FREQ_HZ.check(self.freq_hz)?;
         DE_ESSER_THRESHOLD_DBFS.check(self.threshold_db)?;
         DE_ESSER_MAX_REDUCTION_DB.check(self.max_reduction_db)?;
@@ -515,7 +522,7 @@ impl LimiterParams {
         }
     }
 
-    fn validate(&self) -> Result<(), ParameterError> {
+    pub(crate) fn validate(&self) -> Result<(), ParameterError> {
         LIMITER_CEILING_DBFS.check(self.ceiling_db)?;
         LIMITER_RELEASE_MS.check(self.release_ms)?;
         if LIMITER_LOOKAHEAD_MS.contains(&self.lookahead_ms) {

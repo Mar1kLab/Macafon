@@ -89,6 +89,26 @@ impl Compressor {
     }
 
     pub fn process(&mut self, io: &mut [f32]) {
+        self.block_reduction_db = 0.0;
+        for sample in io {
+            *sample *= self.step(sample.abs(), *sample * *sample);
+        }
+    }
+
+    /// Stereo-linked (CFX-004): one detector on both channels, the same gain on each, so the
+    /// stereo image does not shift.
+    pub fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32]) {
+        self.block_reduction_db = 0.0;
+        for (l, r) in left.iter_mut().zip(right) {
+            let gain = self.step(l.abs().max(r.abs()), 0.5 * (*l * *l + *r * *r));
+            *l *= gain;
+            *r *= gain;
+        }
+    }
+
+    /// One sample of the gain computer: detector level in, linear gain (with makeup) out.
+    #[inline]
+    fn step(&mut self, peak: f32, power: f32) -> f32 {
         let CompressorParams {
             threshold_db,
             ratio,
@@ -96,41 +116,35 @@ impl Compressor {
             detector,
             ..
         } = self.params;
-        let mut deepest = 0.0f32;
-        for sample in io {
-            let level_db = match detector {
-                CompressorDetector::Peak => lin_to_db(sample.abs()),
-                CompressorDetector::Rms => {
-                    self.mean_square =
-                        follow(self.mean_square, *sample * *sample, self.rms, SNAP_POWER);
-                    power_to_db(self.mean_square)
-                }
-            };
-            let target = static_curve_db(level_db, threshold_db, ratio, knee_db) - level_db;
-            if self.params.auto_release {
-                self.sustained_reduction_db = follow(
-                    self.sustained_reduction_db,
-                    -target,
-                    self.auto_memory,
-                    SNAP_DB,
-                );
+        let level_db = match detector {
+            CompressorDetector::Peak => lin_to_db(peak),
+            CompressorDetector::Rms => {
+                self.mean_square = follow(self.mean_square, power, self.rms, SNAP_POWER);
+                power_to_db(self.mean_square)
             }
-            // Attack while the reduction deepens, release while it recovers.
-            let coefficient = if target < self.envelope_db {
-                self.attack
-            } else if self.params.auto_release {
-                let sustained =
-                    (self.sustained_reduction_db / (-self.envelope_db).max(0.1)).clamp(0.0, 1.0);
-                self.auto_fast_release
-                    + sustained * (self.auto_slow_release - self.auto_fast_release)
-            } else {
-                self.release
-            };
-            self.envelope_db = follow(self.envelope_db, target, coefficient, SNAP_DB);
-            deepest = deepest.min(self.envelope_db);
-            *sample *= db_to_lin(self.envelope_db) * self.makeup.next()[0];
+        };
+        let target = static_curve_db(level_db, threshold_db, ratio, knee_db) - level_db;
+        if self.params.auto_release {
+            self.sustained_reduction_db = follow(
+                self.sustained_reduction_db,
+                -target,
+                self.auto_memory,
+                SNAP_DB,
+            );
         }
-        self.block_reduction_db = deepest;
+        // Attack while the reduction deepens, release while it recovers.
+        let coefficient = if target < self.envelope_db {
+            self.attack
+        } else if self.params.auto_release {
+            let sustained =
+                (self.sustained_reduction_db / (-self.envelope_db).max(0.1)).clamp(0.0, 1.0);
+            self.auto_fast_release + sustained * (self.auto_slow_release - self.auto_fast_release)
+        } else {
+            self.release
+        };
+        self.envelope_db = follow(self.envelope_db, target, coefficient, SNAP_DB);
+        self.block_reduction_db = self.block_reduction_db.min(self.envelope_db);
+        db_to_lin(self.envelope_db) * self.makeup.next()[0]
     }
 }
 
@@ -164,6 +178,26 @@ mod tests {
             transient.envelope_db,
             sustained.envelope_db
         );
+    }
+
+    #[test]
+    fn stereo_link_applies_one_gain_to_both_channels() {
+        let params = CompressorParams {
+            threshold_db: -30.0,
+            ratio: 4.0,
+            knee_db: 0.0,
+            detector: CompressorDetector::Peak,
+            makeup_db: Some(0.0),
+            ..CompressorParams::default()
+        };
+        let mut linked = Compressor::new(&params);
+        // Loud left, quiet right: a linked compressor turns both down by the same amount.
+        let mut left = [0.5f32; 9600];
+        let mut right = [0.05f32; 9600];
+        assert_no_alloc::assert_no_alloc(|| linked.process_stereo(&mut left, &mut right));
+        assert!((left[9599] / 0.5 - right[9599] / 0.05).abs() < 1e-6);
+        assert!(lin_to_db(left[9599] / 0.5) < -15.0);
+        assert!(linked.reduction_db() < -15.0);
     }
 
     #[test]

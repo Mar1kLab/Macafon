@@ -16,6 +16,7 @@ pub struct Limiter {
     release: f32,
     gain: f32,
     delay: [f32; MAX_LOOKAHEAD_SAMPLES],
+    delay_right: [f32; MAX_LOOKAHEAD_SAMPLES],
     delay_len: usize,
     position: usize,
     block_reduction_db: f32,
@@ -37,6 +38,7 @@ impl Limiter {
             release: 0.0,
             gain: 1.0,
             delay: [0.0; MAX_LOOKAHEAD_SAMPLES],
+            delay_right: [0.0; MAX_LOOKAHEAD_SAMPLES],
             delay_len: delay_len.min(MAX_LOOKAHEAD_SAMPLES),
             position: 0,
             block_reduction_db: 0.0,
@@ -55,6 +57,7 @@ impl Limiter {
     pub fn reset(&mut self) {
         self.gain = 1.0;
         self.delay.fill(0.0);
+        self.delay_right.fill(0.0);
     }
 
     pub fn latency_samples(&self) -> u32 {
@@ -67,37 +70,73 @@ impl Limiter {
 
     pub fn process(&mut self, io: &mut [f32]) {
         let mut lowest = 1.0f32;
-        let span = self.ceiling - self.knee;
         for sample in io {
-            let peak = sample.abs();
-            let target = if peak > self.knee {
-                self.knee / peak
-            } else {
-                1.0
-            };
-            let coefficient = if target < self.gain {
-                self.attack
-            } else {
-                self.release
-            };
-            self.gain += coefficient * (target - self.gain);
-            lowest = lowest.min(self.gain);
-            let delayed = if self.delay_len == 0 {
-                *sample
-            } else {
-                let delayed = std::mem::replace(&mut self.delay[self.position], *sample);
-                self.position = (self.position + 1) % self.delay_len;
-                delayed
-            };
-            let y = delayed * self.gain;
-            let magnitude = y.abs();
-            *sample = if magnitude > self.knee {
-                (self.knee + span * ((magnitude - self.knee) / span).tanh()).copysign(y)
-            } else {
-                y
-            };
+            let gain = self.gain_for(sample.abs());
+            lowest = lowest.min(gain);
+            let delayed = Self::delay(&mut self.delay, self.position, self.delay_len, *sample);
+            self.advance();
+            *sample = self.clip(delayed * gain);
         }
         self.block_reduction_db = lin_to_db(lowest);
+    }
+
+    /// Stereo-linked (CFX-004): the louder channel sets one gain for both.
+    pub fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32]) {
+        let mut lowest = 1.0f32;
+        for (l, r) in left.iter_mut().zip(right) {
+            let gain = self.gain_for(l.abs().max(r.abs()));
+            lowest = lowest.min(gain);
+            let delayed_l = Self::delay(&mut self.delay, self.position, self.delay_len, *l);
+            let delayed_r = Self::delay(&mut self.delay_right, self.position, self.delay_len, *r);
+            self.advance();
+            *l = self.clip(delayed_l * gain);
+            *r = self.clip(delayed_r * gain);
+        }
+        self.block_reduction_db = lin_to_db(lowest);
+    }
+
+    #[inline]
+    fn gain_for(&mut self, peak: f32) -> f32 {
+        let target = if peak > self.knee {
+            self.knee / peak
+        } else {
+            1.0
+        };
+        let coefficient = if target < self.gain {
+            self.attack
+        } else {
+            self.release
+        };
+        self.gain += coefficient * (target - self.gain);
+        self.gain
+    }
+
+    #[inline]
+    fn delay(line: &mut [f32; MAX_LOOKAHEAD_SAMPLES], position: usize, len: usize, x: f32) -> f32 {
+        if len == 0 {
+            x
+        } else {
+            std::mem::replace(&mut line[position], x)
+        }
+    }
+
+    #[inline]
+    fn advance(&mut self) {
+        if self.delay_len != 0 {
+            self.position = (self.position + 1) % self.delay_len;
+        }
+    }
+
+    /// Soft clipper over the last 0.5 dB below the ceiling.
+    #[inline]
+    fn clip(&self, y: f32) -> f32 {
+        let magnitude = y.abs();
+        if magnitude > self.knee {
+            let span = self.ceiling - self.knee;
+            (self.knee + span * ((magnitude - self.knee) / span).tanh()).copysign(y)
+        } else {
+            y
+        }
     }
 }
 
@@ -129,6 +168,14 @@ mod tests {
             assert!(limiter.reduction_db() < -10.0);
             assert_eq!(limiter.latency_samples(), lookahead_ms as u32 * 48);
         }
+        let mut stereo = Limiter::new(&LimiterParams::ceiling(-3.0));
+        let mut left: Vec<f32> = (0..4800).map(|n| (n as f32 * 0.05).sin() * 2.0).collect();
+        let mut right = vec![0.1f32; 4800];
+        stereo.process_stereo(&mut left, &mut right);
+        let ceiling = db_to_lin(-3.0);
+        assert!(left.iter().chain(&right).all(|y| y.abs() <= ceiling));
+        // The quiet right channel follows the left's gain reduction.
+        assert!(right[4799] < 0.1 * 0.9);
         let mut limiter = Limiter::new(&LimiterParams::default());
         let quiet: Vec<f32> = (0..4800).map(|n| (n as f32 * 0.05).sin() * 0.5).collect();
         let mut block = quiet.clone();

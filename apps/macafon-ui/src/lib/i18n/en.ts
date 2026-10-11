@@ -361,6 +361,7 @@ export const en = {
     create: 'Create',
     playing: 'playing',
     chipHint: 'Drag to another channel, or focus and press 1–8',
+    reorder: 'Move {name}: drag, or press ← →',
     cannotMove: 'This app picks its output itself and cannot be moved',
     unmanagedHint: 'Macafon leaves this app alone',
     moveTo: 'Move to',

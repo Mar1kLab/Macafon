@@ -37,14 +37,21 @@ export const deviceMeterBus = {
 /** Latest channel and Master peaks (CH-005, CH-006); keyed by channel id, `master` for the Master. */
 export const mixerMeterBus = {
   peaks: new Map<string, [number, number]>(),
+  /** Channel compressor and limiter gain reduction in dB (≤ 0). */
+  reduction: new Map<string, { compressor: number; limiter: number }>(),
   update(meters: MixerMeters) {
     for (const frame of meters.channels) {
       this.peaks.set(frame.id, [frame.meters.peak_left_dbfs, frame.meters.peak_right_dbfs]);
+      this.reduction.set(frame.id, {
+        compressor: frame.meters.compressor_reduction_db,
+        limiter: frame.meters.limiter_reduction_db,
+      });
     }
     this.peaks.set('master', [meters.master_left_dbfs, meters.master_right_dbfs]);
   },
   reset() {
     this.peaks.clear();
+    this.reduction.clear();
   },
 };
 

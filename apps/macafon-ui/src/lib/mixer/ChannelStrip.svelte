@@ -1,7 +1,8 @@
 <script lang="ts">
   // Channel strip (design system §6, PRD §9.4): colour bar, name, app chips (a drop target),
   // fader with a stereo meter, % and dB, M / EQ / FX. While a chip is dragged over it the
-  // strip lights up in its colour with corner ticks; a new app flashes in.
+  // strip lights up in its colour with corner ticks; a new app flashes in. The channel icon is
+  // the handle that reorders strips (CH-007): drag it, or focus it and press ← / →.
   import { Settings2 } from '@lucide/svelte';
   import AppChip from './AppChip.svelte';
   import Fader from './Fader.svelte';
@@ -23,10 +24,35 @@
     onpanel: (panel: 'eq' | 'fx' | 'channel') => void;
     ondragstart: (key: string) => void;
     ondragend: () => void;
+    /** Channel whose strip is being dragged, if any. */
+    reordering: string | null;
+    onreorderstart: () => void;
+    onreorderend: () => void;
+    /** Put the dragged channel before or after this one. */
+    ondropchannel: (after: boolean) => void;
+    onshift: (delta: number) => void;
   }
 
-  let { channel, channels, apps, isDefault, dragging, flashing, onpanel, ondragstart, ondragend }: Props = $props();
+  let {
+    channel,
+    channels,
+    apps,
+    isDefault,
+    dragging,
+    flashing,
+    onpanel,
+    ondragstart,
+    ondragend,
+    reordering,
+    onreorderstart,
+    onreorderend,
+    ondropchannel,
+    onshift,
+  }: Props = $props();
   let over = $state(false);
+  /** Where the dragged channel would land: before or after this strip. */
+  let insert = $state<'before' | 'after' | null>(null);
+  const reorderTarget = $derived(reordering !== null && reordering !== channel.id);
   const s = $derived(channel.settings);
   const Icon = $derived(channelIcon(channel.icon));
   const eqOn = $derived(s.eq.enabled && !s.bypass);
@@ -37,8 +63,19 @@
     void daemon.setMixer(daemon.client.call('apps.move', { app_key: key, channel: to }));
   }
 
+  function side(event: DragEvent): 'before' | 'after' {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    return event.clientX > rect.left + rect.width / 2 ? 'after' : 'before';
+  }
+
   function ondrop(event: DragEvent) {
     event.preventDefault();
+    if (reorderTarget) {
+      const after = side(event) === 'after';
+      insert = null;
+      ondropchannel(after);
+      return;
+    }
     over = false;
     const key = event.dataTransfer?.getData('application/x-macafon-app');
     if (key && !apps.some((app) => app.key === key)) move(key, channel.id);
@@ -49,22 +86,60 @@
   class="strip"
   class:over={over && target}
   class:target
+  class:lifted={reordering === channel.id}
+  class:insert-before={insert === 'before'}
+  class:insert-after={insert === 'after'}
   aria-label={channel.name}
+  data-channel={channel.id}
   style:--c="var(--app-{channel.color})"
   style:--c-ink="var(--app-{channel.color}-ink)"
   ondragover={(event) => {
+    if (reorderTarget) {
+      event.preventDefault();
+      insert = side(event);
+      return;
+    }
     if (!target) return;
     event.preventDefault();
     over = true;
   }}
   ondragleave={(event) => {
-    if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) over = false;
+    if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) {
+      over = false;
+      insert = null;
+    }
   }}
   {ondrop}
 >
   {#if over && target}<span class="ticks"><Ticks color="var(--c-ink)" /></span>{/if}
   <header>
-    <Icon size={14} strokeWidth={1.5} />
+    <button
+      class="handle"
+      draggable="true"
+      aria-label={t('mixer.reorder', { name: channel.name })}
+      title={t('mixer.reorder', { name: channel.name })}
+      ondragstart={(event) => {
+        const transfer = event.dataTransfer;
+        if (!transfer) return;
+        transfer.setData('application/x-macafon-channel', channel.id);
+        transfer.effectAllowed = 'move';
+        const strip = (event.currentTarget as HTMLElement).closest('.strip');
+        if (strip) transfer.setDragImage(strip, 20, 20);
+        onreorderstart();
+      }}
+      ondragend={() => {
+        insert = null;
+        onreorderend();
+      }}
+      onkeydown={(event) => {
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+          event.preventDefault();
+          onshift(event.key === 'ArrowLeft' ? -1 : 1);
+        }
+      }}
+    >
+      <Icon size={14} strokeWidth={1.5} />
+    </button>
     <h2>{channel.name}</h2>
     {#if isDefault}<span class="badge">{t('mixer.default')}</span>{/if}
     <button class="btn icon ghost small settings" aria-label={t('mixer.channelSettings', { name: channel.name })} title={t('mixer.channelSettings', { name: channel.name })} onclick={() => onpanel('channel')}>
@@ -167,6 +242,47 @@
 
   .settings {
     margin-left: auto;
+  }
+
+  .handle {
+    display: inline-flex;
+    padding: 2px;
+    margin: -2px;
+    color: inherit;
+    background: none;
+    border: 1px solid transparent;
+    cursor: grab;
+  }
+
+  .handle:hover {
+    border-color: var(--line-strong);
+  }
+
+  .handle:focus-visible {
+    border-color: var(--c-ink);
+    outline: none;
+  }
+
+  .lifted {
+    opacity: 0.5;
+  }
+
+  .insert-before::before,
+  .insert-after::after {
+    content: '';
+    position: absolute;
+    top: -3px;
+    bottom: -1px;
+    width: 2px;
+    background: var(--c-ink);
+  }
+
+  .insert-before::before {
+    left: -8px;
+  }
+
+  .insert-after::after {
+    right: -8px;
   }
 
   .apps {

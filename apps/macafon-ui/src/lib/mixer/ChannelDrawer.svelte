@@ -9,6 +9,8 @@
   import Toggle from '../components/Toggle.svelte';
   import Ticks from '../components/Ticks.svelte';
   import Dialog from '../components/Dialog.svelte';
+  import ReductionMeter from '../components/ReductionMeter.svelte';
+  import { mixerMeterBus } from '../state/meters';
   import { CHANNEL_ICON } from './icons';
   import { daemon } from '../state';
   import { compressorAmount, compressorFromAmount, nearestCompressorAmount } from '../dsp/macros';
@@ -148,6 +150,11 @@
           value={amount ?? nearestCompressorAmount(s.compressor)}
           onchange={(v) => edit((x) => Object.assign(x.compressor, compressorFromAmount(v)))}
         />
+        <ReductionMeter
+          read={() => mixerMeterBus.reduction.get(channel.id)?.compressor ?? 0}
+          color="amber"
+          active={s.compressor.enabled && !s.bypass}
+        />
       </section>
       <section class="module" class:off={!s.limiter.enabled || s.bypass}>
         <div class="row">
@@ -155,6 +162,11 @@
           <Toggle checked={s.limiter.enabled} color="orange" label={t('modules.limiter.title')} onchange={(on) => edit((x) => (x.limiter.enabled = on))} />
         </div>
         <Param spec="limiter_ceiling_db" label={t('params.ceiling')} color="orange" value={s.limiter.ceiling_db} onchange={(v) => edit((x) => (x.limiter.ceiling_db = v))} />
+        <ReductionMeter
+          read={() => mixerMeterBus.reduction.get(channel.id)?.limiter ?? 0}
+          color="orange"
+          active={s.limiter.enabled && !s.bypass}
+        />
       </section>
     {:else}
       <label class="field">

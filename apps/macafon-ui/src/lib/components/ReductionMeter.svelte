@@ -7,13 +7,16 @@
   import { t } from '../i18n';
 
   interface Props {
-    meterKey: MeterKey;
+    /** Microphone meter to show; or `read` for any other source (channel reduction). */
+    meterKey?: MeterKey;
+    read?: () => number;
     color: string;
     activity?: boolean;
     active?: boolean;
   }
 
-  let { meterKey, color, activity = false, active = true }: Props = $props();
+  let { meterKey, read, color, activity = false, active = true }: Props = $props();
+  const value = () => (read ? read() : meterKey ? meterBus.latest[meterKey] : 0);
 
   const RANGE_DB = 24;
   let canvas: HTMLCanvasElement | undefined = $state();
@@ -29,7 +32,7 @@
       if (!canvas) return;
       const dt = last ? (now - last) / 1000 : 0;
       last = now;
-      const raw = active ? meterBus.latest[meterKey] : 0;
+      const raw = active ? value() : 0;
       // Fraction of the meter: activity is 0…1, reduction is negative dB.
       const target = activity ? Math.min(Math.max(raw, 0), 1) : Math.min(-raw / RANGE_DB, 1);
       // Reduction rises instantly and falls back at 20 dB/s, like the level meters.

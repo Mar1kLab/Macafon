@@ -697,14 +697,19 @@ export class MockTransport implements Transport {
     const channels = this.mixer.channels.map((c) => {
       const playing = this.mixer.apps.some((a) => a.channel === c.id && a.active);
       const gain = c.settings.muted ? 0 : (c.settings.volume_pct / 100) ** 3 * master;
-      const level = playing && gain > 0 ? (source[c.id] ?? -18) + 20 * Math.log10(gain) : SILENT;
+      const input = playing ? (source[c.id] ?? -18) : SILENT;
+      const level = playing && gain > 0 ? input + 20 * Math.log10(gain) : SILENT;
+      // Before the fader: the compressor works above −30 dBFS, the limiter above its ceiling.
+      const fx = !c.settings.bypass;
+      const compressor = fx && c.settings.compressor.enabled ? -Math.max(0, input + 30) * 0.4 : 0;
+      const limiter = fx && c.settings.limiter.enabled ? -Math.max(0, input + compressor - c.settings.limiter.ceiling_db) : 0;
       return {
         id: c.id,
         meters: {
           peak_left_dbfs: level,
           peak_right_dbfs: level - (c.id === 'music' ? 1.5 * Math.sin(t * 3) : 0.5),
-          compressor_reduction_db: 0,
-          limiter_reduction_db: 0,
+          compressor_reduction_db: compressor,
+          limiter_reduction_db: limiter,
         },
       };
     });

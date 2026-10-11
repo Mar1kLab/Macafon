@@ -65,6 +65,18 @@ const scenarios = {
     await page.locator('section[aria-label="Voice"]').getByRole('button', { name: /^FX/ }).click();
     await page.waitForTimeout(900);
   },
+  'mixer-reorder': async (page) => {
+    await page.goto(`${base}?screen=mixer`);
+    await page.waitForSelector('.strip');
+    // Keyboard: Music one place left; mouse: Main after Voice.
+    await page.getByRole('button', { name: 'Move Music: drag, or press ← →' }).focus();
+    await page.keyboard.press('ArrowLeft');
+    await page
+      .getByRole('button', { name: 'Move Main: drag, or press ← →' })
+      .dragTo(page.locator('section[aria-label="Voice"]'), { targetPosition: { x: 170, y: 300 } });
+    await page.getByRole('button', { name: 'Move Voice: drag, or press ← →' }).focus();
+    await page.waitForTimeout(1200);
+  },
   'mixer-channel': async (page) => {
     await page.goto(`${base}?screen=mixer`);
     await page.waitForSelector('.strip');

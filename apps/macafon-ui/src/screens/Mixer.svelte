@@ -3,7 +3,7 @@
   // chips moved by drag & drop (APP-004), a new-channel tile (CH-002), the Master (CH-006) and
   // a drawer with EQ / FX / channel settings. Off, the screen offers to turn the mixer on
   // (CH-009).
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { Plus } from '@lucide/svelte';
   import ChannelStrip from '../lib/mixer/ChannelStrip.svelte';
   import MasterStrip from '../lib/mixer/MasterStrip.svelte';
@@ -25,6 +25,7 @@
   const mixer = $derived(daemon.mixer);
   let drawer = $state<{ id: string; panel: Panel } | null>(null);
   let dragging = $state<string | null>(null);
+  let reordering = $state<string | null>(null);
   let showInactive = $state(true);
   let flashing = $state(new Set<string>());
   let creating = $state(false);
@@ -58,6 +59,38 @@
       known = keys;
     });
   });
+
+  /** CH-007: the new order is shown at once and confirmed by the daemon. */
+  function reorder(ids: string[]) {
+    const current = daemon.mixer;
+    if (!current || ids.join() === current.channels.map((c) => c.id).join()) return;
+    daemon.mixer = { ...current, channels: ids.map((id) => current.channels.find((c) => c.id === id)!) };
+    void daemon.setMixer(daemon.client.call('channel.reorder', { ids }));
+  }
+
+  function dropChannel(target: string, after: boolean) {
+    const moving = reordering;
+    reordering = null;
+    if (!mixer || !moving || moving === target) return;
+    const ids = mixer.channels.map((c) => c.id).filter((id) => id !== moving);
+    const index = ids.indexOf(target) + (after ? 1 : 0);
+    ids.splice(index, 0, moving);
+    reorder(ids);
+  }
+
+  async function shift(id: string, delta: number) {
+    if (!mixer) return;
+    const ids = mixer.channels.map((c) => c.id);
+    const from = ids.indexOf(id);
+    const to = from + delta;
+    if (to < 0 || to >= ids.length) return;
+    ids.splice(from, 1);
+    ids.splice(to, 0, id);
+    reorder(ids);
+    // Keep the keyboard on the moved handle.
+    await tick();
+    document.querySelector<HTMLElement>(`section[data-channel="${id}"] .handle`)?.focus();
+  }
 
   function openCreate() {
     const used = new Set(mixer?.channels.map((c) => c.color));
@@ -139,6 +172,11 @@
               onpanel={(panel) => (drawer = { id: channel.id, panel })}
               ondragstart={(key) => (dragging = key)}
               ondragend={() => (dragging = null)}
+              {reordering}
+              onreorderstart={() => (reordering = channel.id)}
+              onreorderend={() => (reordering = null)}
+              ondropchannel={(after) => dropChannel(channel.id, after)}
+              onshift={(delta) => shift(channel.id, delta)}
             />
           {/each}
           {#if mixer.channels.length < MAX_CHANNELS}

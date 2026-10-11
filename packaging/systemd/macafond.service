@@ -1,6 +1,6 @@
 [Unit]
 Description=Macafon audio daemon (virtual microphone)
-Documentation=https://github.com/Mar1kLab/Macafon
+Documentation=https://github.com/Mar1kLab/micEQ
 # The tray needs the desktop session; audio needs PipeWire (the daemon also waits for it).
 PartOf=graphical-session.target
 After=graphical-session.target pipewire.service wireplumber.service

@@ -67,7 +67,7 @@ JSON по строкам, сокет `$XDG_RUNTIME_DIR/macafon/macafond.sock` (�
 | `mic.set_bypass` | `bypass` | `MicState` |
 | `mic.set_device` | `device` (`node.name` или `null`) | `MicState` |
 | `mic.set_fallback_device` | `device` (`node.name` или `null`) | `MicState` |
-| `mic.set_input_channel` | `channel` (`auto`, `left`, `right`, `mix`) | `MicState`; калибровка фиксирует найденный канал |
+| `mic.set_input_channel` | `channel` (`Auto`, `Left`, `Right`, `Mix`) | `MicState`; калибровка фиксирует найденный канал |
 | `mic.set_default_source` / `mic.restore_default_source` | `confirmed: true` / — | `null`; предыдущий системный вход сохраняется в журнале и восстанавливается при выходе |
 | `devices.subscribe` / `devices.unsubscribe` | — | `null`, события `devices.meter` с `name` и `peak_dbfs`; отдельные потоки замера существуют только при подписке |
 | `presets.list`, `devices.list` | — | списки; у пресета `id`, `name`, `builtin` |

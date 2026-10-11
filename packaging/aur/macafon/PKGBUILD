@@ -1,0 +1,34 @@
+# Maintainer: Macafon contributors
+pkgname=macafon
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Microphone processing with a virtual microphone'
+arch=('x86_64')
+url='https://github.com/Mar1kLab/micEQ'
+license=('GPL-3.0-only')
+depends=('pipewire>=1.0' 'wireplumber>=0.5' 'webkit2gtk-4.1' 'gtk3' 'libsoup3')
+makedepends=('rust' 'clang' 'pkgconf' 'pnpm' 'python' 'git')
+conflicts=('macafon-bin')
+install=macafon.install
+source=("macafon::git+$url.git#tag=v$pkgver" 'macafon.install')
+sha256sums=('SKIP' '74e9851c13270d960dd44f1743c616416a64e70adcf57c93a776a3ac07e62e9c')
+
+build() {
+    cd "$srcdir/macafon"
+    pnpm -C apps/macafon-ui install --frozen-lockfile
+    python tools/package-linux.py --build-only
+}
+
+package() {
+    cd "$srcdir/macafon"
+    for binary in macafon macafond macafon-ui; do
+        install -Dm755 "target/release/$binary" "$pkgdir/usr/bin/$binary"
+    done
+    install -Dm644 packaging/systemd/macafond.service "$pkgdir/usr/lib/systemd/user/macafond.service"
+    install -Dm644 packaging/linux/macafon.desktop "$pkgdir/usr/share/applications/macafon.desktop"
+    install -Dm755 packaging/linux/cleanup-user-sessions.sh "$pkgdir/usr/share/macafon/cleanup-user-sessions.sh"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/macafon/LICENSE"
+    mkdir -p "$pkgdir/usr/share/icons" "$pkgdir/usr/share/macafon"
+    cp -a packaging/icons/hicolor "$pkgdir/usr/share/icons/"
+    cp -a target/package-linux/licenses "$pkgdir/usr/share/macafon/"
+}

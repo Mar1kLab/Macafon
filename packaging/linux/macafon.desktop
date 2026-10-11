@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Macafon
+Comment=Microphone processing with a virtual microphone
+Exec=macafon
+Icon=macafon
+Terminal=false
+Categories=AudioVideo;Audio;Mixer;
+StartupWMClass=dev.macafon.ui
+

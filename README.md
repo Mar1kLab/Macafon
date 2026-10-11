@@ -5,7 +5,8 @@ Think SteelSeries Sonar — faster, lighter and cross-platform.
 
 > Status: Linux prototype. The daemon runs the virtual microphone with the full eight-module
 > chain and built-in presets, is controlled live over a local socket (`macafon ctl`) and saves
-> its settings. The M1 desktop app is not implemented yet.
+> its settings. Calibration, A/B recording and playback, device profiles, and a Tauri desktop
+> client are available. M1 validation and Linux packaging are in progress.
 
 ## Linux prototype
 
@@ -66,3 +67,25 @@ See [Linux M0 development and limitations](docs/development/linux-m0.md),
 - [Design system](docs/design/design-system.md) (RU)
 - [ADR-0001: Windows mic processing via APO](docs/adr/0001-windows-apo.md) (RU)
 - [ADR-0002: Windows output channels via user-installed VB-Cable](docs/adr/0002-windows-output-vbcable.md) (RU)
+
+## Local Linux packages
+
+With the PipeWire and WebKitGTK 4.1 development packages, Rust and pnpm installed:
+
+```sh
+pnpm -C apps/macafon-ui install --frozen-lockfile
+python3 tools/package-linux.py
+```
+
+This builds deb, rpm and AppImage artifacts under `target/release/bundle/` without publishing
+anything. AUR source and removal hooks are under `packaging/aur/`; the matching binary recipe
+with the deb checksum is generated under `target/package-linux/aur/macafon-bin/`.
+PipeWire ≥ 1.0 and WirePlumber ≥ 0.5 are required at runtime, including for AppImage.
+
+`macafon ctl set-default --confirm` explicitly selects the virtual microphone as the system
+default. Quit restores the previous choice unless the user has changed it since;
+`macafon restore-default` also performs recovery without a running daemon.
+
+The application is licensed under GPL-3.0-only; `macafon-dsp` and `macafon-studio` under
+MIT OR Apache-2.0. Remaining M1 validation and measured limits are recorded in
+[the release checklist](docs/qa/release-checklist.md).

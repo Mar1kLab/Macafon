@@ -1,0 +1,26 @@
+pkgbase = macafon
+	pkgdesc = Microphone processing with a virtual microphone
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/Mar1kLab/micEQ
+	install = macafon.install
+	arch = x86_64
+	license = GPL-3.0-only
+	makedepends = rust
+	makedepends = clang
+	makedepends = pkgconf
+	makedepends = pnpm
+	makedepends = python
+	makedepends = git
+	depends = pipewire>=1.0
+	depends = wireplumber>=0.5
+	depends = webkit2gtk-4.1
+	depends = gtk3
+	depends = libsoup3
+	conflicts = macafon-bin
+	source = macafon::git+https://github.com/Mar1kLab/micEQ.git#tag=v0.1.0
+	source = macafon.install
+	sha256sums = SKIP
+	sha256sums = 74e9851c13270d960dd44f1743c616416a64e70adcf57c93a776a3ac07e62e9c
+
+pkgname = macafon

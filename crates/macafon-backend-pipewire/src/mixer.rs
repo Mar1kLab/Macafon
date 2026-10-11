@@ -81,6 +81,8 @@ pub trait MixerHost {
     fn outputs_changed(&mut self, _outputs: &[Node]) {}
     /// `default.audio.sink` changed; `None` when unset.
     fn default_sink_changed(&mut self, _name: Option<&str>) {}
+    /// `default.audio.source` changed; `None` when unset (MIC-012).
+    fn default_source_changed(&mut self, _name: Option<&str>) {}
     /// Physical sink the channels play into (`node.name`), polled every 100 ms.
     fn output_device(&self) -> Option<String> {
         None
@@ -107,6 +109,8 @@ pub(crate) struct MetadataState {
     pub targets: HashMap<u32, String>,
     pub default_sink: Option<String>,
     pub default_changed: bool,
+    pub default_source: Option<String>,
+    pub source_changed: bool,
 }
 
 pub(crate) struct BoundMetadata {
@@ -191,6 +195,13 @@ pub(crate) fn bind_metadata(
                         state.default_changed = true;
                     }
                 }
+                Some("default.audio.source") if subject == 0 => {
+                    let name = value.and_then(json_name);
+                    if state.default_source != name {
+                        state.default_source = name;
+                        state.source_changed = true;
+                    }
+                }
                 None => {
                     state.targets.remove(&subject);
                 }
@@ -263,10 +274,16 @@ impl MixerSession {
         }
         {
             let mut state = metadata.borrow_mut();
-            if std::mem::take(&mut state.default_changed) {
-                let name = state.default_sink.clone();
-                drop(state);
+            let sink =
+                std::mem::take(&mut state.default_changed).then(|| state.default_sink.clone());
+            let source =
+                std::mem::take(&mut state.source_changed).then(|| state.default_source.clone());
+            drop(state);
+            if let Some(name) = sink {
                 host.default_sink_changed(name.as_deref());
+            }
+            if let Some(name) = source {
+                host.default_source_changed(name.as_deref());
             }
         }
         let snapshot = {

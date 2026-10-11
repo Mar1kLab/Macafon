@@ -16,6 +16,9 @@ mod routing;
 
 pub use channel_node::{CHANNEL_PREFIX, channel_node_name};
 pub use inspect::{Inspection, inspect, version_at_least};
+/// `node.name` of the virtual microphone (MIC-010).
+pub const VIRTUAL_MIC_NAME: &str = "macafon_mic";
+
 pub use mixer::{ChannelRequest, MixerHost, PlaybackStream, Route};
 pub use routing::route_stream;
 

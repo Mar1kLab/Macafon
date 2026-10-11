@@ -315,6 +315,9 @@ pub enum Event {
     MixerMeters(MixerMeters),
     #[serde(rename = "hotkeys.changed")]
     HotkeysChanged(HotkeysState),
+    /// A microphone was plugged in or removed (MIC-002); the full list, as `devices.list`.
+    #[serde(rename = "devices.changed")]
+    DevicesChanged(Vec<Device>),
 }
 
 /// One line from the daemon.
@@ -357,6 +360,9 @@ pub struct MicState {
     pub active_device: Option<String>,
     /// The selected microphone is present and linked (MIC-005).
     pub input_connected: bool,
+    /// Macafon Microphone is the system default input now (MIC-012).
+    #[serde(default)]
+    pub is_default_source: bool,
     pub latency_samples: u32,
     /// Measured by the last calibration; the Expander Sensitivity macro is relative to it.
     pub noise_floor_dbfs: Option<f32>,
@@ -618,6 +624,7 @@ mod tests {
                 fallback_device: None,
                 active_device: None,
                 input_connected: false,
+                is_default_source: false,
                 latency_samples: 960,
                 noise_floor_dbfs: Some(-62.5),
             })),

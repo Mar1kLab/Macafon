@@ -114,7 +114,7 @@ export type ErrorCode = "bad_request" | "protocol_mismatch" | "invalid_params" |
 
 export type ErrorBody = { code: ErrorCode, message: string, };
 
-export type Event = { "event": "mic.noise_fallback", "data": { engine: NoiseEngine, } } | { "event": "devices.meter", "data": { name: string, peak_dbfs: number, } } | { "event": "meters", "data": Meters } | { "event": "mic.changed", "data": MicState } | { "event": "calibration.changed", "data": CalibrationState } | { "event": "ab.changed", "data": AbState } | { "event": "presets.changed", "data": Array<PresetInfo> } | { "event": "mixer.changed", "data": MixerState } | { "event": "mixer.meters", "data": MixerMeters } | { "event": "hotkeys.changed", "data": HotkeysState };
+export type Event = { "event": "mic.noise_fallback", "data": { engine: NoiseEngine, } } | { "event": "devices.meter", "data": { name: string, peak_dbfs: number, } } | { "event": "meters", "data": Meters } | { "event": "mic.changed", "data": MicState } | { "event": "calibration.changed", "data": CalibrationState } | { "event": "ab.changed", "data": AbState } | { "event": "presets.changed", "data": Array<PresetInfo> } | { "event": "mixer.changed", "data": MixerState } | { "event": "mixer.meters", "data": MixerMeters } | { "event": "hotkeys.changed", "data": HotkeysState } | { "event": "devices.changed", "data": Array<Device> };
 
 export type Hello = { protocol: number, daemon_version: string, };
 
@@ -138,7 +138,11 @@ active_device: string | null,
 /**
  * The selected microphone is present and linked (MIC-005).
  */
-input_connected: boolean, latency_samples: number,
+input_connected: boolean,
+/**
+ * Macafon Microphone is the system default input now (MIC-012).
+ */
+is_default_source: boolean, latency_samples: number,
 /**
  * Measured by the last calibration; the Expander Sensitivity macro is relative to it.
  */

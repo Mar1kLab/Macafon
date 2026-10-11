@@ -63,6 +63,8 @@ pub struct DaemonHost {
     mixer: Mixer,
     /// Graph `(rate, quantum)` from the microphone node (Doctor).
     clock: Option<(u32, u32)>,
+    /// `default.audio.source` as PipeWire reports it (MIC-012).
+    default_source: Option<String>,
     /// Noise suppression overload fallbacks, for the Doctor's 10-minute window.
     overloads: std::collections::VecDeque<Instant>,
     hub: Arc<Hub>,
@@ -110,6 +112,7 @@ impl DaemonHost {
             ab: Ab::default(),
             mixer: Mixer::default(),
             clock: None,
+            default_source: None,
             overloads: std::collections::VecDeque::new(),
             hub,
             tray: None,
@@ -189,6 +192,8 @@ impl DaemonHost {
             fallback_device: self.config.mic.fallback_device.clone(),
             active_device: self.active_device.clone(),
             input_connected: self.input_connected,
+            is_default_source: self.default_source.as_deref()
+                == Some(macafon_backend_pipewire::VIRTUAL_MIC_NAME),
             latency_samples: self.config.mic.chain.latency_samples(),
             noise_floor_dbfs: self.config.mic.noise_floor_dbfs,
         }
@@ -1300,6 +1305,11 @@ impl MixerHost for DaemonHost {
         self.mixer.default_sink_changed(name);
     }
 
+    fn default_source_changed(&mut self, name: Option<&str>) {
+        self.default_source = name.map(str::to_owned);
+        self.changed();
+    }
+
     fn output_device(&self) -> Option<String> {
         self.mixer.output_device(&self.config.mixer)
     }
@@ -1435,7 +1445,7 @@ impl MicrophoneHost for DaemonHost {
     }
 
     fn inputs_changed(&mut self, inputs: &[Node]) {
-        self.inputs = inputs
+        let inputs: Vec<Device> = inputs
             .iter()
             .map(|node| Device {
                 name: node.name.clone(),
@@ -1450,6 +1460,10 @@ impl MicrophoneHost for DaemonHost {
                 },
             })
             .collect();
+        if inputs != self.inputs {
+            self.hub.broadcast(&Event::DevicesChanged(inputs.clone()));
+            self.inputs = inputs;
+        }
         self.refresh_input();
     }
 

@@ -31,6 +31,11 @@ def main():
         client.request("mic.set_default_source", {"confirmed": True})
         assert journal.is_file() and journal.stat().st_mode & 0o777 == 0o600
         assert graph.defaults()["default.audio.source"]["name"] == "macafon_mic"
+        # MIC-012: the daemon reports the default it sees in PipeWire metadata.
+        smoke.wait_for(lambda: client.request("mic.get")["is_default_source"], "is_default_source on")
+        graph.default("original_mic")
+        smoke.wait_for(lambda: not client.request("mic.get")["is_default_source"], "is_default_source off")
+        client.request("mic.set_default_source", {"confirmed": True})
         client.request("mic.set_default_source", {"confirmed": True})
         client.request("daemon.quit")
         client.close()

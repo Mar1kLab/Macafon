@@ -60,7 +60,17 @@ def main():
         settings['gain']['gain_db'] = 6.0
         client.request('mic.set', {'settings': settings})
         client.request('mic.set_fallback_device', {'device': 'test_backup'})
+        # MIC-002: unplugging is announced with the new list, without polling.
+        watcher = Client(graph.socket_path, 'watcher')
         graph.stop(primary)
+        deadline = time.monotonic() + 5
+        while True:
+            assert time.monotonic() < deadline, 'no devices.changed after unplug'
+            event = json.loads(watcher.reader.readline())
+            if event.get('event') == 'devices.changed':
+                assert [device['name'] for device in event['data']] == ['test_backup'], event
+                break
+        watcher.close()
         smoke.wait_for(lambda: client.request('mic.get')['active_device'] == 'test_backup', 'fallback input')
         settings = client.request('mic.get')['settings']
         settings['gain']['gain_db'] = -3.0
@@ -76,7 +86,7 @@ def main():
         smoke.wait_for(lambda: len(probes()) == 2, 'reopened picker')
         observer.close()
         smoke.wait_for(lambda: not probes(), 'client disconnect removes probes')
-        print('inputs: separate stereo/mono meters, subscription teardown, left/right/mix/auto and fallback profile restoration passed')
+        print('inputs: devices.changed on unplug, separate stereo/mono meters, subscription teardown, left/right/mix/auto and fallback profile restoration passed')
 
 
 if __name__ == '__main__':

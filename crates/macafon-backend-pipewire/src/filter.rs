@@ -82,7 +82,7 @@ impl Filter {
         events.version = pw::sys::PW_VERSION_FILTER_EVENTS;
         events.process = Some(process);
         let props = properties! {
-            "node.name" => "macafon_mic",
+            "node.name" => crate::VIRTUAL_MIC_NAME,
             "node.description" => "Macafon Microphone",
             "media.type" => "Audio",
             "media.category" => "Filter",

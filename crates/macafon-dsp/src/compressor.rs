@@ -15,6 +15,10 @@ pub struct Compressor {
     attack: f32,
     release: f32,
     envelope_db: f32,
+    sustained_reduction_db: f32,
+    auto_fast_release: f32,
+    auto_slow_release: f32,
+    auto_memory: f32,
     makeup: Ramp<1>,
     block_reduction_db: f32,
 }
@@ -56,6 +60,10 @@ impl Compressor {
             attack: 0.0,
             release: 0.0,
             envelope_db: 0.0,
+            sustained_reduction_db: 0.0,
+            auto_fast_release: time_coefficient(40.0),
+            auto_slow_release: time_coefficient(400.0),
+            auto_memory: time_coefficient(200.0),
             makeup: Ramp::new([db_to_lin(makeup_db(params))]),
             block_reduction_db: 0.0,
         };
@@ -73,6 +81,7 @@ impl Compressor {
     pub fn reset(&mut self) {
         self.mean_square = 0.0;
         self.envelope_db = 0.0;
+        self.sustained_reduction_db = 0.0;
     }
 
     pub fn reduction_db(&self) -> f32 {
@@ -98,9 +107,22 @@ impl Compressor {
                 }
             };
             let target = static_curve_db(level_db, threshold_db, ratio, knee_db) - level_db;
+            if self.params.auto_release {
+                self.sustained_reduction_db = follow(
+                    self.sustained_reduction_db,
+                    -target,
+                    self.auto_memory,
+                    SNAP_DB,
+                );
+            }
             // Attack while the reduction deepens, release while it recovers.
             let coefficient = if target < self.envelope_db {
                 self.attack
+            } else if self.params.auto_release {
+                let sustained =
+                    (self.sustained_reduction_db / (-self.envelope_db).max(0.1)).clamp(0.0, 1.0);
+                self.auto_fast_release
+                    + sustained * (self.auto_slow_release - self.auto_fast_release)
             } else {
                 self.release
             };
@@ -115,6 +137,34 @@ impl Compressor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auto_release_recovers_transients_faster_than_sustained_reduction() {
+        use assert_no_alloc::assert_no_alloc;
+        let params = CompressorParams {
+            auto_release: true,
+            attack_ms: 0.1,
+            threshold_db: -30.0,
+            knee_db: 0.0,
+            detector: CompressorDetector::Peak,
+            makeup_db: Some(0.0),
+            ..CompressorParams::default()
+        };
+        let mut transient = Compressor::new(&params);
+        let mut sustained = Compressor::new(&params);
+        assert_no_alloc(|| {
+            transient.process(&mut [0.5; 480]);
+            sustained.process(&mut [0.5; 48000]);
+            transient.process(&mut [0.0; 4800]);
+            sustained.process(&mut [0.0; 4800]);
+        });
+        assert!(
+            transient.envelope_db > sustained.envelope_db + 2.0,
+            "transient {}, sustained {}",
+            transient.envelope_db,
+            sustained.envelope_db
+        );
+    }
 
     #[test]
     fn static_curve_is_continuous_soft_knee_with_ratio_above() {

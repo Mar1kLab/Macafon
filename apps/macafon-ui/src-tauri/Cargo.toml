@@ -5,6 +5,7 @@ edition.workspace = true
 # Tauri 2.12 needs a newer toolchain than the rest of the workspace.
 rust-version = "1.90"
 publish.workspace = true
+license.workspace = true
 
 [[bin]]
 name = "macafon-ui"

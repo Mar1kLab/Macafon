@@ -12,7 +12,9 @@ mod ab;
 
 pub use ab::{AbControl, AbRt, SWITCH_FADE_SAMPLES, ab_player};
 
-use macafon_dsp::{ChainSettings, MicrophoneProcessor, ParameterError, Telemetry};
+use macafon_dsp::{
+    ChainSettings, MicrophoneProcessor, ParameterError, ProcessorBuildError, Telemetry,
+};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -37,6 +39,10 @@ pub enum EngineError {
     Invalid(#[from] ParameterError),
     #[error("the audio thread is not consuming changes; try again")]
     Busy,
+    #[error(transparent)]
+    Build(#[from] ProcessorBuildError),
+    #[error(transparent)]
+    Studio(#[from] macafon_studio::StudioError),
 }
 
 /// The control loop did not drain the raw capture in time; samples were lost.
@@ -50,13 +56,56 @@ struct CaptureFlags {
     overrun: AtomicBool,
 }
 
+/// Build a complete microphone processor, including an embedded Studio worker when selected.
+pub fn prepare_processor(
+    settings: &ChainSettings,
+    telemetry: Arc<Telemetry>,
+) -> Result<MicrophoneProcessor, EngineError> {
+    settings.validate()?;
+    let studio: Option<Box<dyn macafon_dsp::StudioProcessor>> = if !settings.bypass
+        && settings.noise_suppression.enabled
+        && settings.noise_suppression.params.engine == macafon_dsp::settings::NoiseEngine::Studio
+    {
+        Some(Box::new(macafon_studio::StudioNoiseSuppression::new(
+            &settings.noise_suppression.params,
+        )?))
+    } else {
+        None
+    };
+    Ok(MicrophoneProcessor::with_studio_processor(
+        settings, telemetry, studio,
+    )?)
+}
+
+/// Offline analysis only: waits for each Studio frame, preserving the live model and latency.
+/// The returned processor must never be placed in `MicRt` or an audio callback.
+pub fn prepare_offline_processor(
+    settings: &ChainSettings,
+    telemetry: Arc<Telemetry>,
+) -> Result<MicrophoneProcessor, EngineError> {
+    settings.validate()?;
+    let studio: Option<Box<dyn macafon_dsp::StudioProcessor>> = if !settings.bypass
+        && settings.noise_suppression.enabled
+        && settings.noise_suppression.params.engine == macafon_dsp::settings::NoiseEngine::Studio
+    {
+        Some(Box::new(macafon_studio::StudioNoiseSuppression::offline(
+            &settings.noise_suppression.params,
+        )?))
+    } else {
+        None
+    };
+    Ok(MicrophoneProcessor::with_studio_processor(
+        settings, telemetry, studio,
+    )?)
+}
+
 /// Create a connected control/RT pair for one microphone chain. Pass the same telemetry to
 /// successive pairs (e.g. after a PipeWire restart) so meter readers keep working.
 pub fn microphone(
     settings: &ChainSettings,
     telemetry: Arc<Telemetry>,
-) -> Result<(MicControl, MicRt), ParameterError> {
-    let processor = MicrophoneProcessor::with_telemetry(settings, telemetry.clone())?;
+) -> Result<(MicControl, MicRt), EngineError> {
+    let processor = prepare_processor(settings, telemetry.clone())?;
     let (commands, command_queue) = rtrb::RingBuffer::new(QUEUE_CAPACITY);
     let (garbage, garbage_queue) = rtrb::RingBuffer::new(GARBAGE_CAPACITY);
     let (capture, capture_queue) = rtrb::RingBuffer::new(CAPTURE_SAMPLES);
@@ -64,6 +113,7 @@ pub fn microphone(
     Ok((
         MicControl {
             settings: *settings,
+            over_budget_cycles: 0,
             commands,
             garbage: garbage_queue,
             telemetry,
@@ -75,6 +125,8 @@ pub fn microphone(
             outgoing: None,
             retired: None,
             fade_position: 0,
+            fade_samples: SWAP_FADE_SAMPLES,
+            warmup_remaining: 0,
             scratch: vec![0.0; SCRATCH_SAMPLES].into_boxed_slice(),
             commands: command_queue,
             garbage,
@@ -86,6 +138,7 @@ pub fn microphone(
 
 pub struct MicControl {
     settings: ChainSettings,
+    over_budget_cycles: u8,
     commands: rtrb::Producer<Command>,
     garbage: rtrb::Consumer<Box<MicrophoneProcessor>>,
     telemetry: Arc<Telemetry>,
@@ -107,6 +160,51 @@ impl MicControl {
         self.telemetry.clone()
     }
 
+    /// Call from the control loop; inference timing is measured by the Studio worker.
+    /// Returns true exactly when a Lite fallback is queued (caller emits the UI event).
+    pub fn poll_studio_fallback(&mut self) -> Result<bool, EngineError> {
+        if !self.telemetry.studio_overloaded() {
+            return Ok(false);
+        }
+        self.fallback_to_lite()
+    }
+
+    /// Optional external cycle measurements, collected outside the audio callback.
+    pub fn observe_processing_budget(
+        &mut self,
+        elapsed_ns: u64,
+        budget_ns: u64,
+    ) -> Result<bool, EngineError> {
+        if budget_ns == 0 {
+            return Ok(false);
+        }
+        self.over_budget_cycles = if u128::from(elapsed_ns) * 5 > u128::from(budget_ns) * 4 {
+            self.over_budget_cycles.saturating_add(1)
+        } else {
+            0
+        };
+        if self.over_budget_cycles < 3 {
+            return Ok(false);
+        }
+        self.fallback_to_lite()
+    }
+
+    fn fallback_to_lite(&mut self) -> Result<bool, EngineError> {
+        use macafon_dsp::settings::NoiseEngine;
+        if !self.settings.noise_suppression.enabled
+            || self.settings.noise_suppression.params.engine != NoiseEngine::Studio
+        {
+            self.telemetry.clear_studio_overload();
+            return Ok(false);
+        }
+        let mut settings = self.settings;
+        settings.noise_suppression.params.engine = NoiseEngine::Lite;
+        self.apply(&settings)?;
+        self.over_budget_cycles = 0;
+        self.telemetry.clear_studio_overload();
+        Ok(true)
+    }
+
     /// Send new settings to the audio thread: retuned in place, or rebuilt and crossfaded.
     pub fn apply(&mut self, settings: &ChainSettings) -> Result<(), EngineError> {
         settings.validate()?;
@@ -115,7 +213,7 @@ impl MicControl {
             return Err(EngineError::Busy);
         }
         let command = if self.settings.requires_rebuild(settings) {
-            Command::Replace(Box::new(MicrophoneProcessor::with_telemetry(
+            Command::Replace(Box::new(prepare_processor(
                 settings,
                 self.telemetry.clone(),
             )?))
@@ -171,6 +269,8 @@ pub struct MicRt {
     outgoing: Option<Box<MicrophoneProcessor>>,
     retired: Option<Box<MicrophoneProcessor>>,
     fade_position: u32,
+    fade_samples: u32,
+    warmup_remaining: u32,
     scratch: Box<[f32]>,
     commands: rtrb::Consumer<Command>,
     garbage: rtrb::Producer<Box<MicrophoneProcessor>>,
@@ -203,11 +303,16 @@ impl MicRt {
             old.process(previous);
             self.current.process(chunk);
             for (sample, old_sample) in chunk.iter_mut().zip(previous.iter()) {
-                let weight = (self.fade_position as f32 / SWAP_FADE_SAMPLES as f32).min(1.0);
+                if self.warmup_remaining > 0 {
+                    self.warmup_remaining -= 1;
+                    *sample = *old_sample;
+                    continue;
+                }
+                let weight = (self.fade_position as f32 / self.fade_samples as f32).min(1.0);
                 *sample = old_sample + weight * (*sample - old_sample);
                 self.fade_position = self.fade_position.saturating_add(1);
             }
-            if self.fade_position >= SWAP_FADE_SAMPLES {
+            if self.fade_position >= self.fade_samples {
                 self.retired = self.outgoing.take();
                 self.release_retired();
             }
@@ -248,6 +353,19 @@ impl MicRt {
                     let _ = self.current.retune(&settings);
                 }
                 Ok(Command::Replace(processor)) => {
+                    self.fade_samples = if matches!((self.current.noise_engine(), processor.noise_engine()), (Some(old), Some(new)) if old != new)
+                    {
+                        macafon_dsp::SAMPLE_RATE_HZ / 20
+                    } else {
+                        SWAP_FADE_SAMPLES
+                    };
+                    // Fill the incoming model's delay before fading; otherwise its startup
+                    // silence would mute the old path and the first wet sample could click.
+                    self.warmup_remaining = if self.fade_samples > SWAP_FADE_SAMPLES {
+                        processor.latency_samples()
+                    } else {
+                        0
+                    };
                     self.outgoing = Some(std::mem::replace(&mut self.current, processor));
                     self.fade_position = 0;
                 }
@@ -270,6 +388,111 @@ mod tests {
         let mut output = vec![value; blocks * 128];
         assert_no_alloc(|| output.chunks_mut(128).for_each(|block| rt.process(block)));
         output
+    }
+
+    #[test]
+    fn studio_uses_embedded_model_and_falls_back_after_three_budget_violations() {
+        use macafon_dsp::settings::{Module, NoiseEngine, NoiseSuppressionParams};
+        let settings = ChainSettings {
+            noise_suppression: Module::on(NoiseSuppressionParams {
+                engine: NoiseEngine::Studio,
+                intensity_pct: 80.0,
+                ..NoiseSuppressionParams::default()
+            }),
+            ..ChainSettings::raw()
+        };
+        let (mut control, mut rt) =
+            microphone(&settings, Arc::default()).expect("embedded DFN3 initializes");
+        assert_eq!(rt.current.noise_engine(), Some(NoiseEngine::Studio));
+        assert_eq!(rt.latency_samples(), macafon_dsp::STUDIO_LATENCY_SAMPLES);
+        // Drive the adapter on a fresh thread under the allocator guard. Burst processing
+        // deliberately misses inference deadlines and must remain bounded and allocation-free.
+        let mut rt = std::thread::spawn(move || {
+            let mut block = [0.1; 480];
+            for _ in 0..10 {
+                assert_no_alloc(|| rt.process(&mut block));
+            }
+            assert!(block.iter().all(|x| x.is_finite()));
+            rt
+        })
+        .join()
+        .expect("audio thread succeeds");
+        assert!(
+            !control
+                .observe_processing_budget(800, 1000)
+                .expect("under budget")
+        );
+        assert!(!control.observe_processing_budget(801, 1000).expect("first"));
+        assert!(
+            !control
+                .observe_processing_budget(900, 1000)
+                .expect("second")
+        );
+        assert!(
+            control
+                .observe_processing_budget(900, 1000)
+                .expect("fallback queued")
+        );
+        assert_eq!(
+            control.settings().noise_suppression.params.engine,
+            NoiseEngine::Lite
+        );
+        assert_no_alloc(|| rt.process(&mut [0.1; 128]));
+        assert_eq!(rt.fade_samples, macafon_dsp::SAMPLE_RATE_HZ / 20);
+        assert_eq!(rt.fade_position, 0);
+        assert_eq!(rt.warmup_remaining, macafon_dsp::LITE_LATENCY_SAMPLES - 128);
+        assert_no_alloc(|| {
+            rt.process(&mut [0.1; macafon_dsp::LITE_LATENCY_SAMPLES as usize - 128])
+        });
+        assert_no_alloc(|| rt.process(&mut [0.1; 128]));
+        assert_eq!(rt.fade_position, 128);
+        assert!(
+            !control
+                .poll_studio_fallback()
+                .expect("fallback emitted once")
+        );
+    }
+
+    #[test]
+    fn offline_studio_preserves_frames_and_its_reported_latency_at_zero_intensity() {
+        use macafon_dsp::settings::{Module, NoiseEngine, NoiseSuppressionParams};
+        let mut settings = ChainSettings {
+            noise_suppression: Module::on(NoiseSuppressionParams {
+                engine: NoiseEngine::Studio,
+                intensity_pct: 0.0,
+                ..NoiseSuppressionParams::default()
+            }),
+            ..ChainSettings::raw()
+        };
+        let mut processor =
+            prepare_offline_processor(&settings, Arc::default()).expect("embedded model");
+        let input: Vec<f32> = (0..9600).map(|n| (n as f32 * 0.032).sin() * 0.1).collect();
+        let mut output = input.clone();
+        for block in output.chunks_mut(128) {
+            processor.process(block);
+        }
+        let latency = processor.latency_samples() as usize;
+        assert_eq!(latency, macafon_dsp::STUDIO_LATENCY_SAMPLES as usize);
+        assert!(output[..latency].iter().all(|sample| *sample == 0.0));
+        assert_eq!(&output[latency..], &input[..input.len() - latency]);
+        settings.noise_suppression.params.intensity_pct = 80.0;
+        processor
+            .retune(&settings)
+            .expect("continuous attenuation parameter");
+        let mut wet = input.clone();
+        processor.process(&mut wet);
+        assert!(
+            wet[latency..].iter().any(|x| x.abs() > 1e-9),
+            "Studio must produce actual audio: {:?}",
+            processor.noise_error()
+        );
+        assert!(
+            wet[latency..]
+                .iter()
+                .zip(&output[latency..])
+                .any(|(a, b)| (a - b).abs() > 1e-4),
+            "Studio attenuation must use the neural model"
+        );
     }
 
     #[test]

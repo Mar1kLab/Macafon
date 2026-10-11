@@ -10,6 +10,7 @@ mod eq;
 mod expander;
 mod high_pass;
 mod limiter;
+mod loudness;
 mod noise;
 pub mod params;
 mod presets;
@@ -17,12 +18,13 @@ pub mod settings;
 mod svf;
 mod util;
 
-pub use chain::{Meters, MicrophoneProcessor, RetuneError, Telemetry};
+pub use chain::{Meters, MicrophoneProcessor, ProcessorBuildError, RetuneError, Telemetry};
 pub use compressor::static_curve_db;
 pub use noise::{FRAME_SAMPLES, LITE_LATENCY_SAMPLES};
+pub use noise::{STUDIO_LATENCY_SAMPLES, StudioProcessor};
 pub use params::{INTENSITY, ParameterError, ParameterSpec, VOICE_THRESHOLD};
 pub use presets::Preset;
-pub use settings::ChainSettings;
+pub use settings::{ChainSettings, InputChannel};
 
 pub const SAMPLE_RATE_HZ: u32 = 48_000;
 
@@ -60,6 +62,25 @@ mod tests {
                     + 0.001 * ((i * 7919 % 1000) as f32 / 500.0 - 1.0)
             })
             .collect()
+    }
+
+    #[test]
+    fn clip_is_latched_until_read_and_peak_holds_for_one_second() {
+        let mut processor = processor(ChainSettings::raw());
+        let telemetry = processor.telemetry();
+        telemetry.set_enabled(true);
+        assert_no_alloc(|| processor.process(&mut [1.25; 128]));
+        let peak = telemetry.take();
+        assert!(peak.input_clipped && peak.output_clipped);
+        assert_eq!(peak.output_peak_hold_dbfs, peak.output_peak_dbfs);
+        assert_no_alloc(|| processor.process(&mut [0.1; 4800]));
+        let held = telemetry.take();
+        assert!(!held.input_clipped && !held.output_clipped);
+        assert_eq!(held.output_peak_hold_dbfs, peak.output_peak_hold_dbfs);
+        for _ in 0..10 {
+            assert_no_alloc(|| processor.process(&mut [0.1; 4800]));
+        }
+        assert!((telemetry.take().output_peak_hold_dbfs + 20.0).abs() < 1e-4);
     }
 
     #[test]
@@ -145,9 +166,16 @@ mod tests {
     }
 
     #[test]
-    fn every_preset_is_block_size_invariant_and_allocation_free_on_a_fresh_thread() {
+    fn lite_presets_are_block_size_invariant_and_allocation_free_on_a_fresh_thread() {
         let input = speech_like(SAMPLE_RATE_HZ as usize);
         for preset in Preset::ALL {
+            if preset.settings().noise_suppression.params.engine == settings::NoiseEngine::Studio {
+                assert!(matches!(
+                    MicrophoneProcessor::new(&preset.settings()),
+                    Err(ProcessorBuildError::StudioUnavailable)
+                ));
+                continue;
+            }
             let mut whole = processor(preset.settings());
             let mut split = processor(preset.settings());
             let telemetry = split.telemetry();
@@ -217,6 +245,8 @@ mod tests {
         for preset in Preset::ALL {
             let mut settings = preset.settings();
             settings.limiter.params.lookahead_ms = 5;
+            // The standalone DSP crate requires a separately prepared Studio worker.
+            settings.noise_suppression.params.engine = settings::NoiseEngine::Lite;
             assert_eq!(
                 processor(settings).latency_samples(),
                 settings.latency_samples()

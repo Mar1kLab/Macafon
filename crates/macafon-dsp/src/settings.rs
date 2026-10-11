@@ -98,7 +98,7 @@ impl HighPassParams {
 pub enum NoiseEngine {
     /// RNNoise (`nnnoiseless`).
     Lite,
-    /// DeepFilterNet 3; not implemented yet, the chain falls back to Lite.
+    /// Embedded DeepFilterNet 3, prepared by macafon-studio outside the audio callback.
     Studio,
 }
 
@@ -391,6 +391,9 @@ pub struct CompressorParams {
     pub ratio: f32,
     pub attack_ms: f32,
     pub release_ms: f32,
+    /// Program-dependent release: fast for transients, slow for sustained reduction.
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "is_false"))]
+    pub auto_release: bool,
     pub knee_db: f32,
     /// `None` = auto: restores the static gain lost at the speech reference level.
     pub makeup_db: Option<f32>,
@@ -404,6 +407,7 @@ impl Default for CompressorParams {
             ratio: COMPRESSOR_RATIO.default,
             attack_ms: COMPRESSOR_ATTACK_MS.default,
             release_ms: COMPRESSOR_RELEASE_MS.default,
+            auto_release: false,
             knee_db: COMPRESSOR_KNEE_DB.default,
             makeup_db: None,
             detector: CompressorDetector::Rms,
@@ -593,7 +597,10 @@ impl ChainSettings {
             return 0;
         }
         let noise = if self.noise_suppression.enabled {
-            crate::LITE_LATENCY_SAMPLES
+            match self.noise_suppression.params.engine {
+                NoiseEngine::Lite => crate::LITE_LATENCY_SAMPLES,
+                NoiseEngine::Studio => crate::STUDIO_LATENCY_SAMPLES,
+            }
         } else {
             0
         };
@@ -745,4 +752,21 @@ mod gate_ratio {
             ))),
         }
     }
+}
+
+/// Physical capture channel; the backend implements automatic detection and mixing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub enum InputChannel {
+    #[default]
+    Auto,
+    Left,
+    Right,
+    Mix,
+}
+
+#[cfg(feature = "serde")]
+fn is_false(value: &bool) -> bool {
+    !*value
 }

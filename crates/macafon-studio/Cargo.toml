@@ -1,0 +1,29 @@
+[package]
+name = "macafon-studio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+macafon-dsp.workspace = true
+thiserror.workspace = true
+deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet", rev = "d375b2d8309e0935d165700c91da9de862a99c31", default-features = false, features = ["tract", "default-model"] }
+ndarray = "0.15"
+# 0.21.5 is the last release compatible with upstream's graph and ndarray APIs.
+tract-core = "=0.21.5"
+tract-onnx = "=0.21.5"
+tract-pulse = "=0.21.5"
+tract-hir = "=0.21.5"
+rtrb.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+criterion = { version = "0.7", default-features = false }
+
+[[bench]]
+name = "studio"
+harness = false

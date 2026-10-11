@@ -94,3 +94,78 @@ impl LiteNoiseSuppression {
         self.intensity = self.target_intensity;
     }
 }
+
+/// Engine-specific storage is built off the audio thread.
+/// Implemented by an inference worker adapter prepared outside the DSP/audio thread.
+pub trait StudioProcessor: Send {
+    fn set(&mut self, params: &NoiseSuppressionParams);
+    fn process(&mut self, io: &mut [f32]);
+    fn activity(&self) -> f32;
+    fn overloaded(&self) -> bool;
+    /// Control-side diagnostic; runtime inference failures are published off the audio thread.
+    fn failure_reason(&self) -> Option<&str> {
+        None
+    }
+}
+
+/// Embedded DFN3 model delay (30 ms) plus bounded worker adapter delay (20 ms).
+pub const STUDIO_LATENCY_SAMPLES: u32 = 2400;
+
+pub enum NoiseSuppression {
+    Lite(Box<LiteNoiseSuppression>),
+    Studio(Box<dyn StudioProcessor>),
+}
+impl NoiseSuppression {
+    pub fn new(
+        params: &NoiseSuppressionParams,
+        studio: Option<Box<dyn StudioProcessor>>,
+    ) -> Result<Self, crate::ProcessorBuildError> {
+        match params.engine {
+            crate::settings::NoiseEngine::Lite => {
+                Ok(Self::Lite(Box::new(LiteNoiseSuppression::new(params))))
+            }
+            crate::settings::NoiseEngine::Studio => studio
+                .map(Self::Studio)
+                .ok_or(crate::ProcessorBuildError::StudioUnavailable),
+        }
+    }
+    pub fn engine(&self) -> crate::settings::NoiseEngine {
+        match self {
+            Self::Lite(_) => crate::settings::NoiseEngine::Lite,
+            Self::Studio(_) => crate::settings::NoiseEngine::Studio,
+        }
+    }
+    pub fn latency_samples(&self) -> u32 {
+        match self {
+            Self::Lite(module) => module.latency_samples(),
+            Self::Studio(_) => crate::STUDIO_LATENCY_SAMPLES,
+        }
+    }
+    pub fn set(&mut self, params: &NoiseSuppressionParams) {
+        match self {
+            Self::Lite(module) => module.set(params),
+            Self::Studio(module) => module.set(params),
+        }
+    }
+    pub fn process(&mut self, io: &mut [f32]) {
+        match self {
+            Self::Lite(module) => module.process(io),
+            Self::Studio(module) => module.process(io),
+        }
+    }
+    pub fn activity(&self) -> f32 {
+        match self {
+            Self::Lite(module) => module.activity(),
+            Self::Studio(module) => module.activity(),
+        }
+    }
+    pub fn failure_reason(&self) -> Option<&str> {
+        match self {
+            Self::Lite(_) => None,
+            Self::Studio(module) => module.failure_reason(),
+        }
+    }
+    pub fn overloaded(&self) -> bool {
+        matches!(self, Self::Studio(module) if module.overloaded())
+    }
+}

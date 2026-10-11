@@ -6,13 +6,21 @@ use crate::eq::Equalizer;
 use crate::expander::Expander;
 use crate::high_pass::HighPass;
 use crate::limiter::Limiter;
-use crate::noise::LiteNoiseSuppression;
+use crate::noise::NoiseSuppression;
 use crate::params::ParameterError;
 use crate::settings::{ChainSettings, NoiseEngine};
 use crate::util::{Ramp, SmoothedGain, lin_to_db};
 use crate::{SAMPLE_RATE_HZ, sanitize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
+#[derive(Debug, thiserror::Error)]
+pub enum ProcessorBuildError {
+    #[error(transparent)]
+    Invalid(#[from] ParameterError),
+    #[error("Studio requires a prepared DeepFilterNet3 worker")]
+    StudioUnavailable,
+}
 
 const METER_RMS_MS: f32 = 300.0;
 
@@ -33,11 +41,17 @@ pub enum RetuneError {
 #[derive(Debug, Default)]
 pub struct Telemetry {
     enabled: AtomicBool,
+    studio_overloaded: AtomicBool,
     raw_peak: AtomicU32,
     input_peak: AtomicU32,
     input_rms: AtomicU32,
     output_peak: AtomicU32,
     output_rms: AtomicU32,
+    output_loudness_power: AtomicU32,
+    input_clipped: AtomicBool,
+    output_clipped: AtomicBool,
+    input_peak_hold: AtomicU32,
+    output_peak_hold: AtomicU32,
     expander_reduction: AtomicU32,
     compressor_reduction: AtomicU32,
     de_esser_reduction: AtomicU32,
@@ -56,6 +70,26 @@ pub struct Meters {
     pub input_rms_dbfs: f32,
     pub output_peak_dbfs: f32,
     pub output_rms_dbfs: f32,
+    /// Ungated K-weighted mono loudness over the latest three seconds.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default = "silent_level", skip_serializing_if = "is_silent_level")
+    )]
+    pub output_lufs_short_term: f32,
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "is_false"))]
+    pub input_clipped: bool,
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "is_false"))]
+    pub output_clipped: bool,
+    #[cfg_attr(
+        feature = "serde",
+        serde(default = "silent_level", skip_serializing_if = "is_silent_level")
+    )]
+    pub input_peak_hold_dbfs: f32,
+    #[cfg_attr(
+        feature = "serde",
+        serde(default = "silent_level", skip_serializing_if = "is_silent_level")
+    )]
+    pub output_peak_hold_dbfs: f32,
     pub expander_reduction_db: f32,
     pub compressor_reduction_db: f32,
     pub de_esser_reduction_db: f32,
@@ -83,6 +117,14 @@ fn load(slot: &AtomicU32) -> f32 {
 }
 
 impl Telemetry {
+    /// Worker overload or three consecutive missed Studio deadlines. Read on control thread.
+    pub fn studio_overloaded(&self) -> bool {
+        self.studio_overloaded.load(Ordering::Acquire)
+    }
+    pub fn clear_studio_overload(&self) {
+        self.studio_overloaded.store(false, Ordering::Release);
+    }
+
     pub fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::Relaxed);
     }
@@ -94,6 +136,13 @@ impl Telemetry {
             input_rms_dbfs: lin_to_db(load(&self.input_rms)),
             output_peak_dbfs: lin_to_db(take(&self.output_peak)),
             output_rms_dbfs: lin_to_db(load(&self.output_rms)),
+            output_lufs_short_term: (-0.691
+                + 10.0 * load(&self.output_loudness_power).max(1e-12).log10())
+            .max(-120.0),
+            input_clipped: self.input_clipped.swap(false, Ordering::Relaxed),
+            output_clipped: self.output_clipped.swap(false, Ordering::Relaxed),
+            input_peak_hold_dbfs: lin_to_db(load(&self.input_peak_hold)),
+            output_peak_hold_dbfs: lin_to_db(load(&self.output_peak_hold)),
             expander_reduction_db: -take(&self.expander_reduction),
             compressor_reduction_db: -take(&self.compressor_reduction),
             de_esser_reduction_db: -take(&self.de_esser_reduction),
@@ -105,10 +154,19 @@ impl Telemetry {
 
 struct LevelMeter {
     mean_square: f32,
+    peak_hold: f32,
+    hold_remaining: usize,
 }
 
 impl LevelMeter {
-    fn measure(&mut self, block: &[f32], peak: &AtomicU32, rms: &AtomicU32) {
+    fn measure(
+        &mut self,
+        block: &[f32],
+        peak: &AtomicU32,
+        rms: &AtomicU32,
+        hold: &AtomicU32,
+        clipped: &AtomicBool,
+    ) {
         let (mut max, mut sum) = (0.0f32, 0.0f32);
         for sample in block {
             max = max.max(sample.abs());
@@ -117,6 +175,16 @@ impl LevelMeter {
         let samples = block.len() as f32;
         let alpha = 1.0 - (-samples / (METER_RMS_MS * 0.001 * SAMPLE_RATE_HZ as f32)).exp();
         self.mean_square += alpha * (sum / samples - self.mean_square);
+        if max >= self.peak_hold || self.hold_remaining <= block.len() {
+            self.peak_hold = max;
+            self.hold_remaining = SAMPLE_RATE_HZ as usize;
+        } else {
+            self.hold_remaining -= block.len();
+        }
+        hold.store(sanitize(self.peak_hold).to_bits(), Ordering::Relaxed);
+        if max >= 1.0 {
+            clipped.store(true, Ordering::Relaxed);
+        }
         raise(peak, sanitize(max));
         rms.store(
             sanitize(self.mean_square.sqrt()).to_bits(),
@@ -129,7 +197,7 @@ pub struct MicrophoneProcessor {
     settings: ChainSettings,
     gain: Option<SmoothedGain>,
     high_pass: Option<HighPass>,
-    noise: Option<LiteNoiseSuppression>,
+    noise: Option<NoiseSuppression>,
     expander: Option<Expander>,
     eq: Option<Equalizer>,
     compressor: Option<Compressor>,
@@ -139,11 +207,12 @@ pub struct MicrophoneProcessor {
     mute: Ramp<1>,
     input_meter: LevelMeter,
     output_meter: LevelMeter,
+    loudness: crate::loudness::ShortTermLoudness,
     telemetry: Arc<Telemetry>,
 }
 
 impl MicrophoneProcessor {
-    pub fn new(settings: &ChainSettings) -> Result<Self, ParameterError> {
+    pub fn new(settings: &ChainSettings) -> Result<Self, ProcessorBuildError> {
         Self::with_telemetry(settings, Arc::default())
     }
 
@@ -151,17 +220,30 @@ impl MicrophoneProcessor {
     pub fn with_telemetry(
         settings: &ChainSettings,
         telemetry: Arc<Telemetry>,
-    ) -> Result<Self, ParameterError> {
+    ) -> Result<Self, ProcessorBuildError> {
+        Self::with_studio_processor(settings, telemetry, None)
+    }
+
+    /// Prepared Studio worker is injected by the engine; this crate stays lightweight.
+    pub fn with_studio_processor(
+        settings: &ChainSettings,
+        telemetry: Arc<Telemetry>,
+        studio: Option<Box<dyn crate::StudioProcessor>>,
+    ) -> Result<Self, ProcessorBuildError> {
         settings.validate()?;
         let active = !settings.bypass;
         let build = |enabled: bool| active && enabled;
         let s = settings;
+        let noise = if build(s.noise_suppression.enabled) {
+            Some(NoiseSuppression::new(&s.noise_suppression.params, studio)?)
+        } else {
+            None
+        };
         Ok(Self {
             settings: *settings,
             gain: build(s.gain.enabled).then(|| SmoothedGain::new(s.gain.params.gain_db)),
             high_pass: build(s.high_pass.enabled).then(|| HighPass::new(&s.high_pass.params)),
-            noise: build(s.noise_suppression.enabled)
-                .then(|| LiteNoiseSuppression::new(&s.noise_suppression.params)),
+            noise,
             expander: build(s.expander.enabled).then(|| Expander::new(&s.expander.params)),
             eq: build(s.eq.enabled).then(|| Equalizer::new(&s.eq.params)),
             compressor: build(s.compressor.enabled).then(|| Compressor::new(&s.compressor.params)),
@@ -169,8 +251,17 @@ impl MicrophoneProcessor {
             limiter: build(s.limiter.enabled).then(|| Limiter::new(&s.limiter.params)),
             output: SmoothedGain::new(if active { s.output_gain_db } else { 0.0 }),
             mute: Ramp::new([if s.muted { 0.0 } else { 1.0 }]),
-            input_meter: LevelMeter { mean_square: 0.0 },
-            output_meter: LevelMeter { mean_square: 0.0 },
+            input_meter: LevelMeter {
+                mean_square: 0.0,
+                peak_hold: 0.0,
+                hold_remaining: 0,
+            },
+            output_meter: LevelMeter {
+                mean_square: 0.0,
+                peak_hold: 0.0,
+                hold_remaining: 0,
+            },
+            loudness: crate::loudness::ShortTermLoudness::new(),
             telemetry,
         })
     }
@@ -179,9 +270,15 @@ impl MicrophoneProcessor {
         &self.settings
     }
 
-    /// The engine actually running; Studio (DeepFilterNet) is not implemented and runs Lite.
+    /// The engine actually running. Studio initializes the embedded model before construction.
     pub fn noise_engine(&self) -> Option<NoiseEngine> {
-        self.noise.as_ref().map(|_| NoiseEngine::Lite)
+        self.noise.as_ref().map(NoiseSuppression::engine)
+    }
+
+    pub fn noise_error(&self) -> Option<&str> {
+        self.noise
+            .as_ref()
+            .and_then(NoiseSuppression::failure_reason)
     }
 
     pub fn telemetry(&self) -> Arc<Telemetry> {
@@ -192,7 +289,7 @@ impl MicrophoneProcessor {
     pub fn latency_samples(&self) -> u32 {
         self.noise
             .as_ref()
-            .map_or(0, LiteNoiseSuppression::latency_samples)
+            .map_or(0, NoiseSuppression::latency_samples)
             + self.limiter.as_ref().map_or(0, Limiter::latency_samples)
     }
 
@@ -258,7 +355,13 @@ impl MicrophoneProcessor {
             gain.process(io);
         }
         if metering {
-            self.input_meter.measure(io, &t.input_peak, &t.input_rms);
+            self.input_meter.measure(
+                io,
+                &t.input_peak,
+                &t.input_rms,
+                &t.input_peak_hold,
+                &t.input_clipped,
+            );
         }
         if let Some(module) = &mut self.high_pass {
             module.process(io);
@@ -266,6 +369,9 @@ impl MicrophoneProcessor {
         if let Some(module) = &mut self.noise {
             module.process(io);
             record(metering, &t.noise_activity, module.activity());
+            if module.overloaded() {
+                t.studio_overloaded.store(true, Ordering::Release);
+            }
         }
         if let Some(module) = &mut self.expander {
             module.process(io);
@@ -303,7 +409,15 @@ impl MicrophoneProcessor {
         }
         let t = &*self.telemetry;
         if metering {
-            self.output_meter.measure(io, &t.output_peak, &t.output_rms);
+            self.output_meter.measure(
+                io,
+                &t.output_peak,
+                &t.output_rms,
+                &t.output_peak_hold,
+                &t.output_clipped,
+            );
+            t.output_loudness_power
+                .store(self.loudness.measure(io).to_bits(), Ordering::Relaxed);
         }
     }
 
@@ -329,4 +443,17 @@ impl MicrophoneProcessor {
             module.reset();
         }
     }
+}
+
+#[cfg(feature = "serde")]
+fn silent_level() -> f32 {
+    -120.0
+}
+#[cfg(feature = "serde")]
+fn is_silent_level(value: &f32) -> bool {
+    *value <= -120.0
+}
+#[cfg(feature = "serde")]
+fn is_false(value: &bool) -> bool {
+    !*value
 }

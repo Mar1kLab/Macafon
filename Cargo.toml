@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/macafon-dsp",
+    "crates/macafon-studio",
     "crates/macafon-engine",
     "crates/macafon-config",
     "crates/macafon-ipc",
@@ -16,6 +17,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 publish = false
+license = "GPL-3.0-only"
 
 [workspace.dependencies]
 anyhow = "1"
@@ -43,3 +45,12 @@ unwrap_used = "deny"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# tract 0.21.5 codegen reuses convolution bias node names in DFN3. Its debug-only
+# compaction name assertion rejects the otherwise valid graph; production omits it.
+# Keep our audio code's assertions enabled and match production only for this dependency.
+[profile.dev.package.tract-core]
+debug-assertions = false
+
+[profile.test.package.tract-core]
+debug-assertions = false

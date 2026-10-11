@@ -6,7 +6,7 @@
 //! "louder" does not sound "better" (AB-005).
 
 use crate::{MicControl, MicRt, microphone};
-use macafon_dsp::{ChainSettings, ParameterError, SAMPLE_RATE_HZ, Telemetry};
+use macafon_dsp::{ChainSettings, SAMPLE_RATE_HZ, Telemetry};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
@@ -37,7 +37,7 @@ pub fn ab_player(
     settings: &ChainSettings,
     side_b: bool,
     loudness_match: bool,
-) -> Result<(AbControl, AbRt), ParameterError> {
+) -> Result<(AbControl, AbRt), crate::EngineError> {
     // B keeps its own meters: the A/B copy must not move the live microphone's meters.
     let (chain, rt) = microphone(settings, Arc::new(Telemetry::default()))?;
     let shared = Arc::new(Shared {
@@ -147,8 +147,8 @@ impl AbRt {
             let mut a_index = (self.position + len - latency) % len;
             let dry = &mut self.dry[..block.len()];
             for (wet, dry) in block.iter_mut().zip(dry.iter_mut()) {
-                *wet = self.clip[self.position];
-                *dry = self.clip[a_index];
+                *wet = self.clip[self.position] * seam_gain(self.position, len);
+                *dry = self.clip[a_index] * seam_gain(a_index, len);
                 self.position = (self.position + 1) % len;
                 a_index = (a_index + 1) % len;
             }
@@ -186,6 +186,12 @@ impl AbRt {
     }
 }
 
+// Fade only playback at the loop seam. The archived raw clip remains bit-exact.
+fn seam_gain(position: usize, len: usize) -> f32 {
+    let fade_samples = (SAMPLE_RATE_HZ as usize / 100).min(len / 2).max(1);
+    (position.min(len - 1 - position) as f32 / fade_samples as f32).min(1.0)
+}
+
 fn db_to_lin(db: f32) -> f32 {
     10f32.powf(db / 20.0)
 }
@@ -210,6 +216,25 @@ mod tests {
 
     fn peak(samples: &[f32]) -> f32 {
         samples.iter().fold(0.0, |peak, x| peak.max(x.abs()))
+    }
+
+    #[test]
+    fn playback_fades_loop_seam_without_changing_the_raw_archive() {
+        let clip: Arc<[f32]> = vec![0.5; 4800].into();
+        let archive = clip.clone();
+        let (_control, mut rt) =
+            ab_player(clip, &ChainSettings::raw(), false, false).expect("valid settings");
+        let output = play(&mut rt, 9600);
+        assert!(archive.iter().all(|sample| *sample == 0.5));
+        assert_eq!(output[0], 0.0);
+        assert_eq!(output[4799], 0.0);
+        assert_eq!(output[4800], 0.0);
+        assert_eq!(output[1000], 0.5);
+        assert!(
+            output
+                .windows(2)
+                .all(|pair| (pair[1] - pair[0]).abs() < 0.002)
+        );
     }
 
     #[test]

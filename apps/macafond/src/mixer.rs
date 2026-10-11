@@ -270,6 +270,19 @@ impl Mixer {
         Route::Channel(self.channel_for(config, app))
     }
 
+    /// CH-008: linear gain for the app's streams; 1.0 when Macafon does not manage them.
+    pub fn stream_volume(&self, config: &Config, stream: &PlaybackStream) -> f32 {
+        if self.route(config, stream) == Route::Release || !self.session {
+            return 1.0;
+        }
+        self.identities
+            .get(&stream.id)
+            .and_then(|app| config.apps.rule(&app.key))
+            .map_or(1.0, |rule| {
+                macafon_dsp::channel::volume_gain(rule.volume_pct)
+            })
+    }
+
     // --- State and meters ---------------------------------------------------------------------
 
     pub fn state(&self, config: &Config) -> MixerState {
@@ -288,6 +301,10 @@ impl Mixer {
                 streams: 0,
                 managed: config.apps.rule(&app.key).is_none_or(|rule| rule.managed),
                 movable: true,
+                volume_pct: config
+                    .apps
+                    .rule(&app.key)
+                    .map_or(100.0, |rule| rule.volume_pct),
             });
             entry.streams += 1;
             entry.active |= stream.running;
@@ -311,6 +328,7 @@ impl Mixer {
                         streams: 0,
                         managed: rule.managed,
                         movable: true,
+                        volume_pct: rule.volume_pct,
                     },
                 );
             }
@@ -487,8 +505,13 @@ mod tests {
             mixer.take_requests().as_slice(),
             [ChannelRequest::Remove { id }] if id == "music"
         ));
+        // CH-008: the app's fader follows the channel curve and only while Macafon manages it.
+        config.apps.rules[0].volume_pct = 50.0;
+        assert_eq!(mixer.stream_volume(&config, &mixer.streams[1]), 0.125);
+        assert_eq!(mixer.stream_volume(&config, &mixer.streams[0]), 1.0);
         config.apps.rules[0].managed = false;
         assert_eq!(mixer.route(&config, &mixer.streams[1]), Route::Release);
+        assert_eq!(mixer.stream_volume(&config, &mixer.streams[1]), 1.0);
         config.mixer.enabled = false;
         assert_eq!(mixer.route(&config, &mixer.streams[0]), Route::Release);
     }

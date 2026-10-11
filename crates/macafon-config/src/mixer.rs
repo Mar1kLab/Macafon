@@ -102,10 +102,21 @@ pub struct AppRule {
     pub channel: String,
     #[serde(default = "managed")]
     pub managed: bool,
+    /// CH-008: the app's own fader inside its channel, 0–100 % on the cubic curve.
+    #[serde(default = "full_volume", skip_serializing_if = "is_full_volume")]
+    pub volume_pct: f32,
 }
 
 fn managed() -> bool {
     true
+}
+
+fn full_volume() -> f32 {
+    100.0
+}
+
+fn is_full_volume(volume_pct: &f32) -> bool {
+    *volume_pct == 100.0
 }
 
 impl AppsConfig {
@@ -120,6 +131,7 @@ impl AppsConfig {
                 key: key.to_owned(),
                 channel: channel.to_owned(),
                 managed: true,
+                volume_pct: full_volume(),
             }),
         }
     }

@@ -206,6 +206,9 @@ pub enum Request {
     /// Forget the rule of an app that is not running (APP-007).
     #[serde(rename = "apps.forget")]
     AppsForget { app_key: String },
+    /// CH-008: the app's volume inside its channel; remembered like its channel.
+    #[serde(rename = "apps.set_volume")]
+    AppsSetVolume { app_key: String, volume_pct: f32 },
     /// APP-003: the image for an app's `icon` as a `data:` URL, or `null` if none is found.
     #[serde(rename = "apps.icon")]
     AppsIcon { icon: String },

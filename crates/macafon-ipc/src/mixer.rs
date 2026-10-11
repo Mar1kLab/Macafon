@@ -33,6 +33,8 @@ pub struct AppState {
     pub managed: bool,
     /// The app forbids moving its streams (`node.dont-move`).
     pub movable: bool,
+    /// CH-008: the app's volume inside its channel, 0–100 %.
+    pub volume_pct: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

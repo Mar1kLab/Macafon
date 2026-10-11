@@ -810,6 +810,32 @@ impl DaemonHost {
                 }
                 Ok(())
             }),
+            Request::AppsSetVolume {
+                app_key,
+                volume_pct,
+            } => self.update_mixer(|config| {
+                if !(0.0..=100.0).contains(&volume_pct) {
+                    return Err(ErrorBody::new(
+                        ErrorCode::InvalidParams,
+                        "volume_pct must be 0–100",
+                    ));
+                }
+                let channel = config
+                    .apps
+                    .rule(&app_key)
+                    .map(|rule| rule.channel.clone())
+                    .unwrap_or_else(|| config.mixer.default_channel.clone());
+                crate::mixer::assign(&mut config.apps, &app_key, &channel);
+                if let Some(rule) = config
+                    .apps
+                    .rules
+                    .iter_mut()
+                    .find(|rule| rule.key == app_key)
+                {
+                    rule.volume_pct = volume_pct;
+                }
+                Ok(())
+            }),
             Request::AppsSetManaged { app_key, managed } => self.update_mixer(|config| {
                 let channel = config
                     .apps
@@ -1237,7 +1263,8 @@ impl DaemonHost {
             | Request::ChannelReorder { .. }
             | Request::AppsMove { .. }
             | Request::AppsSetManaged { .. }
-            | Request::AppsForget { .. }) => return self.respond_mixer(request),
+            | Request::AppsForget { .. }
+            | Request::AppsSetVolume { .. }) => return self.respond_mixer(request),
             Request::AppsIcon { icon } => return Ok(serde_json::json!(self.icons.data_url(&icon))),
             Request::DoctorRun => {
                 const WINDOW: Duration = Duration::from_secs(600);
@@ -1361,6 +1388,10 @@ impl MixerHost for DaemonHost {
 
     fn route(&self, stream: &PlaybackStream) -> Route {
         self.mixer.route(&self.config, stream)
+    }
+
+    fn stream_volume(&self, stream: &PlaybackStream) -> f32 {
+        self.mixer.stream_volume(&self.config, stream)
     }
 }
 

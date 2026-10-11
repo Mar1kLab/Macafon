@@ -705,10 +705,11 @@ fn run_session<H: MicrophoneHost + 'static>(
     let mixer_session = Rc::new(RefCell::new(mixer::MixerSession::default()));
     let tick_mixer = mixer_session.clone();
     let requested_quantum = Cell::new(DEFAULT_QUANTUM_FRAMES);
-    let (tick_streams, tick_metadata, tick_bound) = (
+    let (tick_streams, tick_metadata, tick_bound, tick_bindings) = (
         streams.clone(),
         metadata_state.clone(),
         bound_metadata.clone(),
+        stream_bindings.clone(),
     );
     let timer = connection.mainloop.loop_().add_timer(move |_| {
         let filter = &session_filter;
@@ -898,6 +899,7 @@ fn run_session<H: MicrophoneHost + 'static>(
             &tick_streams,
             &tick_metadata,
             tick_bound.borrow().as_ref(),
+            &tick_bindings,
         );
     });
     timer
@@ -913,6 +915,7 @@ fn run_session<H: MicrophoneHost + 'static>(
     let mut mixer_session = mixer_session.borrow_mut();
     // Only on a clean stop: `check` would consume a disconnect that must trigger a reconnect.
     if mixer_session.has_channels() && connection.failure.borrow().is_none() {
+        mixer_session.reset_volumes(&stream_bindings);
         mixer_session.release_all(&streams, bound_metadata.borrow().as_ref());
         let _ = connection.roundtrip();
     }

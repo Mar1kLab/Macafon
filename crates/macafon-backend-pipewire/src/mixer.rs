@@ -93,6 +93,11 @@ pub trait MixerHost {
     fn quantum_frames(&self) -> u32 {
         crate::DEFAULT_QUANTUM_FRAMES
     }
+    /// Linear gain Macafon applies to `stream` on top of the app's own volume (CH-008);
+    /// consulted every 100 ms for each stream.
+    fn stream_volume(&self, _stream: &PlaybackStream) -> f32 {
+        1.0
+    }
     /// Where `stream` belongs; consulted every 100 ms for each stream.
     fn route(&self, _stream: &PlaybackStream) -> Route {
         Route::Ignore
@@ -249,9 +254,12 @@ pub(crate) struct MixerSession {
     outputs: Vec<Node>,
     /// `node.latency` frames the channel nodes request now.
     quantum: u32,
+    /// Stream volumes Macafon set (CH-008), keyed like `routed`; absent means 1.0.
+    volumes: HashMap<u32, (String, f32)>,
 }
 
 impl MixerSession {
+    #[allow(clippy::too_many_arguments)] // the session objects the control loop owns
     pub fn tick<H: MixerHost + ?Sized>(
         &mut self,
         host: &mut H,
@@ -260,6 +268,7 @@ impl MixerSession {
         streams: &SharedStreams,
         metadata: &Rc<RefCell<MetadataState>>,
         bound: Option<&BoundMetadata>,
+        bindings: &RefCell<StreamBindings>,
     ) {
         let quantum = host.quantum_frames();
         if quantum != self.quantum {
@@ -322,6 +331,60 @@ impl MixerSession {
         self.link_outputs(core, graph, host.output_device());
         if let Some(bound) = bound {
             self.apply_routes(host, graph, streams, bound);
+        }
+        self.apply_volumes(host, streams, bindings);
+    }
+
+    /// The `volume` prop of a stream is a factor separate from `channelVolumes`, which
+    /// the app and pipewire-pulse own; so Macafon never fights the app's own slider.
+    fn apply_volumes<H: MixerHost + ?Sized>(
+        &mut self,
+        host: &H,
+        streams: &SharedStreams,
+        bindings: &RefCell<StreamBindings>,
+    ) {
+        let streams = streams.borrow();
+        self.volumes.retain(|id, (serial, _)| {
+            streams
+                .streams
+                .get(id)
+                .is_some_and(|stream| &stream.serial == serial)
+        });
+        let bindings = bindings.borrow();
+        for stream in streams.streams.values() {
+            if stream.node_name.is_empty() || stream.ours() {
+                continue;
+            }
+            let volume = host.stream_volume(stream);
+            let applied = self.volumes.get(&stream.id).map_or(1.0, |(_, v)| *v);
+            if (volume - applied).abs() < 1e-4 {
+                continue;
+            }
+            let Some((node, _)) = bindings.get(&stream.id) else {
+                continue;
+            };
+            match set_stream_volume(node, volume) {
+                Ok(()) if volume == 1.0 => {
+                    self.volumes.remove(&stream.id);
+                }
+                Ok(()) => {
+                    self.volumes
+                        .insert(stream.id, (stream.serial.clone(), volume));
+                }
+                Err(error) => tracing::warn!(%error, stream = stream.id, "Cannot set app volume"),
+            }
+        }
+    }
+
+    /// Put every stream volume Macafon changed back to 1.0 (Quit, BG-005).
+    pub fn reset_volumes(&mut self, bindings: &RefCell<StreamBindings>) {
+        let bindings = bindings.borrow();
+        for (id, _) in self.volumes.drain() {
+            if let Some((node, _)) = bindings.get(&id)
+                && let Err(error) = set_stream_volume(node, 1.0)
+            {
+                tracing::warn!(%error, stream = id, "Cannot reset app volume");
+            }
         }
     }
 
@@ -535,6 +598,25 @@ pub(crate) fn is_playback_stream(
 }
 
 pub(crate) type StreamBindings = HashMap<u32, (pw::node::Node, pw::node::NodeListener)>;
+
+fn set_stream_volume(node: &pw::node::Node, volume: f32) -> Result<(), Error> {
+    use pw::spa::pod::{Object, Pod, Property, PropertyFlags, Value, serialize::PodSerializer};
+    let props = Value::Object(Object {
+        type_: pw::spa::sys::SPA_TYPE_OBJECT_Props,
+        id: pw::spa::sys::SPA_PARAM_Props,
+        properties: vec![Property {
+            key: pw::spa::sys::SPA_PROP_volume,
+            flags: PropertyFlags::empty(),
+            value: Value::Float(volume),
+        }],
+    });
+    let (bytes, _) = PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &props)
+        .map_err(|error| Error::Message(format!("Cannot build volume pod: {error:?}")))?;
+    let bytes = bytes.into_inner();
+    let pod = Pod::from_bytes(&bytes).ok_or_else(|| Error::Message("Invalid volume pod".into()))?;
+    node.set_param(pw::spa::param::ParamType::Props, 0, pod);
+    Ok(())
+}
 
 pub(crate) fn forget_stream(streams: &SharedStreams, bindings: &RefCell<StreamBindings>, id: u32) {
     if bindings.borrow_mut().remove(&id).is_some() {

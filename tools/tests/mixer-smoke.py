@@ -251,6 +251,18 @@ def main():
             assert volumes["main"]["muted"], volumes
             print("cli: channel volume and mute commands for desktop hotkeys (HK-004)")
 
+            def stream_volume(name):
+                props = nodes()[name]["info"].get("params", {}).get("Props", [])
+                return next((entry["volume"] for entry in props if "volume" in entry), None)
+
+            client.request("apps.set_volume", {"app_key": "bin:firefox", "volume_pct": 50.0})
+            smoke.wait_for(lambda: abs((stream_volume("test_firefox") or 1.0) - 0.125) < 1e-3,
+                           "Firefox volume 50% (cubic 0.125)")
+            assert stream_volume("test_discord") in (None, 1.0), "another app changed"
+            app_state = next(a for a in client.request("mixer.get")["apps"] if a["key"] == "bin:firefox")
+            assert app_state["volume_pct"] == 50.0, app_state
+            print("app volume: one app turned down inside its channel (CH-008)")
+
             report = client.request("doctor.run")
             statuses = {check["id"]: check["status"] for check in report["checks"]}
             assert statuses["pipewire"] == "ok" and statuses["session_manager"] == "ok", report
@@ -285,7 +297,8 @@ def main():
             smoke.wait_for(lambda: targets(browser["id"]) and not targets(browser["id"]) & {
                 voice_node, main_node, music_node}, "apps back on a real device")
             assert discord.poll() is None and firefox.poll() is None, "apps exited"
-            print("mixer off: channels gone, default output restored, apps keep playing")
+            smoke.wait_for(lambda: stream_volume("test_firefox") == 1.0, "app volume reset with the mixer off")
+            print("mixer off: channels gone, default output restored, app volume reset, apps keep playing")
 
             client.request("mixer.set_enabled", {"enabled": True})
             smoke.wait_for(lambda: default_sink() == "macafon_ch_main", "default output taken again")

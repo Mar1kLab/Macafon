@@ -1,6 +1,9 @@
 //! Daemon configuration: `$XDG_CONFIG_HOME/macafon/config.toml` (PRD §13).
 
+pub mod mixer;
 pub mod presets;
+
+pub use mixer::{AppRule, AppsConfig, ChannelConfig, MixerConfig};
 
 use macafon_dsp::{ChainSettings, InputChannel};
 use serde::{Deserialize, Serialize};
@@ -17,6 +20,19 @@ pub struct Config {
     pub schema_version: u32,
     pub mic: MicConfig,
     pub device_profiles: BTreeMap<String, MicProfile>,
+    pub mixer: MixerConfig,
+    pub apps: AppsConfig,
+    pub ui: UiConfig,
+    /// `[hotkeys]`: action id → shortcut, `mic_mute_toggle = "Ctrl+Alt+M"` (§8.3).
+    pub hotkeys: BTreeMap<String, String>,
+}
+
+/// UI facts the daemon remembers.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UiConfig {
+    /// BG-001: the "keeps running in the tray" notification was shown once.
+    pub close_hint_shown: bool,
 }
 
 impl Default for Config {
@@ -25,6 +41,10 @@ impl Default for Config {
             schema_version: SCHEMA_VERSION,
             mic: MicConfig::default(),
             device_profiles: BTreeMap::new(),
+            mixer: MixerConfig::default(),
+            apps: AppsConfig::default(),
+            ui: UiConfig::default(),
+            hotkeys: BTreeMap::new(),
         }
     }
 }
@@ -263,6 +283,7 @@ fn parse(text: &str) -> Result<Config, String> {
         .chain
         .validate()
         .map_err(|error| error.to_string())?;
+    config.mixer.validate()?;
     for profile in config.device_profiles.values() {
         profile
             .chain
@@ -302,6 +323,10 @@ mod tests {
         let config = Config {
             schema_version: SCHEMA_VERSION,
             device_profiles: BTreeMap::new(),
+            mixer: MixerConfig::default(),
+            apps: AppsConfig::default(),
+            ui: UiConfig::default(),
+            hotkeys: BTreeMap::new(),
             mic: MicConfig {
                 stereo: true,
                 input_channel: InputChannel::Right,

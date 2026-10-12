@@ -6,101 +6,27 @@
 // global shortcut service.
 
 import { DaemonError, type DaemonStatus, type Transport } from './client';
-import {
-  BUILTIN_PRESETS,
-  CHANNEL_TEMPLATES,
-  LITE_LATENCY_SAMPLES,
-  MAX_CHANNELS,
-  SAMPLE_RATE_HZ,
-  STUDIO_LATENCY_SAMPLES,
-} from './dsp';
+import { BUILTIN_PRESETS } from './dsp';
 import type {
   AbState,
   AutostartState,
   CalibrationReport,
   CalibrationState,
-  AppState,
   ChainSettings,
-  ChannelSettings,
-  ChannelState,
-  Device,
   Event,
   HotkeyBinding,
   HotkeysState,
   InputChannel,
   Meters,
   MicState,
-  MixerMeters,
-  MixerState,
   Preferences,
   PresetInfo,
 } from './protocol';
+import { DEVICES, MOCK_ICONS } from './mock/fixtures';
+import { clone, latencySamples, sameChain, slugify } from './mock/helpers';
+import { MockMixer } from './mock/mixer';
+import { SILENT, random, voiceLevel } from './mock/signals';
 
-const DEVICES: Device[] = [
-  { name: 'alsa_input.usb-Blue_Microphones_Yeti_Stereo_Microphone-00.analog-stereo', description: 'Yeti Stereo Microphone', kind: 'usb' },
-  { name: 'alsa_input.usb-SteelSeries_Arctis_Nova_7-00.mono-fallback', description: 'Arctis Nova 7 Headset', kind: 'headset' },
-  { name: 'alsa_input.pci-0000_00_1f.3.analog-stereo', description: 'Built-in Audio Analog Stereo', kind: 'builtin' },
-];
-
-const SILENT = -120;
-
-function channelLatency(settings: ChannelSettings): number {
-  if (settings.bypass) return 0;
-  return settings.noise_suppression.enabled ? LITE_LATENCY_SAMPLES : 0;
-}
-
-function channel(id: string, name: string, color: string, icon: string, settings: ChannelSettings): ChannelState {
-  return { id, name, color, icon, settings: structuredClone(settings), latency_samples: channelLatency(settings) };
-}
-
-function app(key: string, name: string, channel: string, active: boolean, streams = 1): AppState {
-  const icon = key.startsWith('bin:') ? key.slice(4) : null;
-  return { key, name, icon, channel, active, streams, managed: true, movable: true, volume_pct: key === 'bin:discord' ? 80 : 100 };
-}
-
-/** Stand-ins for icon theme files (APP-003); other apps keep their letter. */
-const MOCK_ICONS: Record<string, string> = {
-  firefox:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="#e8573f"/><circle cx="10" cy="10" r="5" fill="#f2a516"/></svg>',
-  discord:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect x="1" y="4" width="18" height="12" rx="5" fill="#8b5cf6"/><circle cx="7" cy="10" r="1.6" fill="#fff"/><circle cx="13" cy="10" r="1.6" fill="#fff"/></svg>',
-  cider:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect width="20" height="20" rx="4" fill="#e0368f"/><path d="M8 14V6l6-1v8" stroke="#fff" stroke-width="1.6" fill="none"/></svg>',
-  'telegram-desktop':
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="#2f7bf5"/><path d="M5 10l9-4-2 9-3-3z" fill="#fff"/></svg>',
-};
-
-/** Plausible desktop: a browser and a game in Main, Discord in Voice, Cider in Music. */
-function initialMixer(enabled: boolean): MixerState {
-  return {
-    enabled,
-    default_channel: 'main',
-    master_volume_pct: 100,
-    master_muted: false,
-    auto_classify: true,
-    channels: [
-      channel('main', 'Main', 'blue', 'speaker', CHANNEL_TEMPLATES.main),
-      channel('voice', 'Voice', 'violet', 'message', CHANNEL_TEMPLATES.voice),
-      channel('music', 'Music', 'pink', 'music', CHANNEL_TEMPLATES.music),
-    ],
-    apps: enabled
-      ? [
-          app('bin:firefox', 'Firefox', 'main', true, 2),
-          app('name:Cyberpunk 2077', 'Cyberpunk 2077', 'main', true),
-          app('system:sounds', 'System sounds', 'main', false),
-          app('bin:discord', 'Discord', 'voice', true, 2),
-          app('bin:telegram-desktop', 'Telegram', 'voice', false, 0),
-          app('bin:cider', 'Cider', 'music', true),
-        ]
-      : [],
-    outputs: [
-      { name: 'alsa_output.usb-SteelSeries_Arctis_Nova_7-00.analog-stereo', description: 'Arctis Nova 7', kind: 'headphones' },
-      { name: 'alsa_output.pci-0000_00_1f.3.analog-stereo', description: 'Built-in Speakers', kind: 'speakers' },
-    ],
-    output_priority: [],
-    output: enabled ? 'alsa_output.usb-SteelSeries_Arctis_Nova_7-00.analog-stereo' : null,
-  };
-}
 const VERSION = '0.1.0-mock';
 
 const GLOBAL_HOTKEYS = ['mic_mute_toggle', 'push_to_talk', 'push_to_mute', 'bypass_toggle', 'preset_next', 'preset_previous'];
@@ -128,47 +54,6 @@ function hotkeyCommand(action: string): string {
   }
 }
 
-function clone<T>(value: T): T {
-  return structuredClone(value);
-}
-
-/** Chain equality without mute and bypass, which presets do not store. */
-function sameChain(a: ChainSettings, b: ChainSettings): boolean {
-  const strip = (s: ChainSettings) => JSON.stringify({ ...s, muted: false, bypass: false });
-  return strip(a) === strip(b);
-}
-
-function latencySamples(settings: ChainSettings): number {
-  if (settings.bypass) return 0;
-  const engine = settings.noise_suppression.engine === 'studio' ? STUDIO_LATENCY_SAMPLES : LITE_LATENCY_SAMPLES;
-  const ns = settings.noise_suppression.enabled ? engine : 0;
-  const limiter = settings.limiter.enabled ? (settings.limiter.lookahead_ms * SAMPLE_RATE_HZ) / 1000 : 0;
-  return ns + limiter;
-}
-
-function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'preset';
-}
-
-/** Deterministic pseudo-random sequence so screenshots are stable. */
-function random(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (state * 1664525 + 1013904223) >>> 0;
-    return state / 2 ** 32;
-  };
-}
-
-/** Speech-like envelope in dBFS: syllables around −24 dBFS, pauses at the room floor. */
-function voiceLevel(timeS: number, floorDbfs: number): number {
-  const phrase = timeS % 6;
-  if (phrase > 4.2) return floorDbfs + Math.sin(timeS * 31) * 1.5;
-  const syllable = Math.max(0, Math.sin(timeS * Math.PI * 4.3)) ** 0.6;
-  const accent = 0.6 + 0.4 * Math.sin(timeS * 1.7);
-  const level = -42 + 20 * syllable * accent;
-  return Math.max(level, floorDbfs);
-}
-
 export class MockTransport implements Transport {
   private events = new Set<(event: Event) => void>();
   private statuses = new Set<(status: DaemonStatus) => void>();
@@ -194,10 +79,10 @@ export class MockTransport implements Transport {
     ['channel_volume_down.music', 'Ctrl+Alt+PageDown'],
   ]);
 
-  private mixer: MixerState = initialMixer(this.query.get('mixer') !== 'off');
   private meterTimer: number | undefined;
   private deviceMeterTimer: number | undefined;
   private started = performance.now();
+  private mixer = new MockMixer(this.query.get('mixer') !== 'off', this.started, (event) => this.emit(event));
 
   private calibration: CalibrationState = { state: 'idle' };
   private calibrationTimer: number | undefined;
@@ -304,7 +189,7 @@ export class MockTransport implements Transport {
   private hotkeys(): HotkeysState {
     const actions = [
       ...GLOBAL_HOTKEYS,
-      ...this.mixer.channels.flatMap((c) => [`channel_volume_up.${c.id}`, `channel_volume_down.${c.id}`, `channel_mute.${c.id}`]),
+      ...this.mixer.state.channels.flatMap((c) => [`channel_volume_up.${c.id}`, `channel_volume_down.${c.id}`, `channel_mute.${c.id}`]),
     ];
     const portal = this.query.get('hotkeys') !== 'unavailable';
     return {
@@ -354,6 +239,9 @@ export class MockTransport implements Transport {
     // A real socket round trip is asynchronous too.
     await new Promise((resolve) => setTimeout(resolve, 4));
     const p = (params ?? {}) as Record<string, unknown>;
+    if (method.startsWith('mixer.') || method.startsWith('channel.') || (method.startsWith('apps.') && method !== 'apps.icon')) {
+      return this.mixer.call(method, p);
+    }
     switch (method) {
       case 'hello':
         return { protocol: 1, daemon_version: VERSION };
@@ -468,97 +356,6 @@ export class MockTransport implements Transport {
         if (!document?.name || !document.settings) throw new DaemonError('invalid_params', 'not a Macafon preset');
         return this.addPreset(this.uniqueName(document.name), document.settings);
       }
-      case 'mixer.get':
-        return clone(this.mixer);
-      case 'mixer.set_enabled':
-        this.mixer.enabled = Boolean(p.enabled);
-        if (this.mixer.enabled && this.mixer.apps.length === 0) this.mixer.apps = initialMixer(true).apps;
-        this.mixer.output = this.mixer.enabled ? (this.mixer.output_priority[0] ?? this.mixer.outputs[0]!.name) : null;
-        return this.mixerChanged();
-      case 'mixer.set_master':
-        if (typeof p.volume_pct === 'number') this.mixer.master_volume_pct = p.volume_pct;
-        if (typeof p.muted === 'boolean') this.mixer.master_muted = p.muted;
-        return this.mixerChanged();
-      case 'mixer.set_output': {
-        const device = (p.device as string | null) ?? null;
-        this.mixer.output_priority = device ? [device, ...this.mixer.output_priority.filter((d) => d !== device)] : [];
-        this.mixer.output = this.mixer.enabled ? (device ?? this.mixer.outputs[0]!.name) : null;
-        return this.mixerChanged();
-      }
-      case 'mixer.set_output_priority':
-        this.mixer.output_priority = p.devices as string[];
-        return this.mixerChanged();
-      case 'mixer.set_auto_classify':
-        this.mixer.auto_classify = Boolean(p.enabled);
-        return this.mixerChanged();
-      case 'channel.create': {
-        if (this.mixer.channels.length >= MAX_CHANNELS) throw new DaemonError('invalid_params', 'too many channels');
-        let n = 1;
-        while (this.mixer.channels.some((c) => c.id === `ch-${n}`)) n++;
-        this.mixer.channels.push(
-          channel(`ch-${n}`, String(p.name), String(p.color), (p.icon as string | null) ?? 'speaker', CHANNEL_TEMPLATES.custom),
-        );
-        return this.mixerChanged();
-      }
-      case 'channel.update': {
-        const target = this.channel(String(p.id));
-        Object.assign(target, p.patch as object);
-        return this.mixerChanged();
-      }
-      case 'channel.delete': {
-        const id = String(p.id);
-        if (id === this.mixer.default_channel) throw new DaemonError('invalid_params', 'the default channel cannot be deleted');
-        this.mixer.channels = this.mixer.channels.filter((c) => c.id !== id);
-        this.mixer.apps.forEach((a) => a.channel === id && (a.channel = this.mixer.default_channel));
-        return this.mixerChanged();
-      }
-      case 'channel.set': {
-        const target = this.channel(String(p.id));
-        target.settings = clone(p.settings as ChannelSettings);
-        target.latency_samples = channelLatency(target.settings);
-        return this.mixerChanged();
-      }
-      case 'channel.adjust_volume': {
-        const target = this.channel(String(p.id));
-        target.settings.volume_pct = Math.min(Math.max(target.settings.volume_pct + Number(p.delta_pct), 0), 100);
-        return this.mixerChanged();
-      }
-      case 'channel.toggle_mute': {
-        const target = this.channel(String(p.id));
-        target.settings.muted = !target.settings.muted;
-        return this.mixerChanged();
-      }
-      case 'channel.set_default':
-        this.channel(String(p.id));
-        this.mixer.default_channel = String(p.id);
-        return this.mixerChanged();
-      case 'channel.reorder': {
-        const ids = p.ids as string[];
-        this.mixer.channels.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
-        return this.mixerChanged();
-      }
-      case 'apps.move': {
-        this.channel(String(p.channel));
-        const target = this.mixer.apps.find((a) => a.key === p.app_key);
-        if (target) {
-          target.channel = String(p.channel);
-          target.managed = true;
-        }
-        return this.mixerChanged();
-      }
-      case 'apps.set_managed': {
-        const target = this.mixer.apps.find((a) => a.key === p.app_key);
-        if (target) target.managed = Boolean(p.managed);
-        return this.mixerChanged();
-      }
-      case 'apps.set_volume': {
-        const target = this.mixer.apps.find((a) => a.key === p.app_key);
-        if (target) target.volume_pct = Number(p.volume_pct);
-        return this.mixerChanged();
-      }
-      case 'apps.forget':
-        this.mixer.apps = this.mixer.apps.filter((a) => a.key !== p.app_key || a.streams > 0);
-        return this.mixerChanged();
       case 'prefs.get':
         return clone(this.prefs);
       case 'prefs.set': {
@@ -602,7 +399,7 @@ export class MockTransport implements Transport {
               : { id: 'microphone_input', status: 'error', values: [DEVICES[0]!.description] },
             { id: 'microphone_used', status: 'info', values: [] },
             { id: 'double_processing', status: 'warning', values: ['Easy Effects Source'] },
-            this.mixer.enabled
+            this.mixer.state.enabled
               ? { id: 'mixer', status: 'ok', values: ['Arctis Nova 7'] }
               : { id: 'mixer', status: 'info', values: [] },
             { id: 'unmovable_apps', status: 'ok', values: [] },
@@ -678,52 +475,6 @@ export class MockTransport implements Transport {
     }
   }
 
-  private channel(id: string): ChannelState {
-    const found = this.mixer.channels.find((c) => c.id === id);
-    if (!found) throw new DaemonError('not_found', `no channel ${id}`);
-    return found;
-  }
-
-  private mixerChanged(): MixerState {
-    this.emit({ event: 'mixer.changed', data: clone(this.mixer) });
-    return clone(this.mixer);
-  }
-
-  // --- Meters -----------------------------------------------------------------------------
-
-  /** Channel peaks after their faders; voices come and go, music keeps going. */
-  private mixerMeters(): MixerMeters {
-    const t = (performance.now() - this.started) / 1000;
-    const master = this.mixer.master_muted ? 0 : (this.mixer.master_volume_pct / 100) ** 3;
-    const source: Record<string, number> = {
-      main: -14 + 4 * Math.sin(t * 2.1),
-      voice: voiceLevel(t + 1.7, -70) + 14,
-      music: -9 + 3 * Math.abs(Math.sin(t * 7.3)),
-    };
-    const channels = this.mixer.channels.map((c) => {
-      const playing = this.mixer.apps.some((a) => a.channel === c.id && a.active);
-      const gain = c.settings.muted ? 0 : (c.settings.volume_pct / 100) ** 3 * master;
-      const input = playing ? (source[c.id] ?? -18) : SILENT;
-      const level = playing && gain > 0 ? input + 20 * Math.log10(gain) : SILENT;
-      // Before the fader: the compressor works above −30 dBFS, the limiter above its ceiling.
-      const fx = !c.settings.bypass;
-      const compressor = fx && c.settings.compressor.enabled ? -Math.max(0, input + 30) * 0.4 : 0;
-      const limiter = fx && c.settings.limiter.enabled ? -Math.max(0, input + compressor - c.settings.limiter.ceiling_db) : 0;
-      return {
-        id: c.id,
-        meters: {
-          peak_left_dbfs: level,
-          peak_right_dbfs: level - (c.id === 'music' ? 1.5 * Math.sin(t * 3) : 0.5),
-          compressor_reduction_db: compressor,
-          limiter_reduction_db: limiter,
-        },
-      };
-    });
-    const max = (side: 'peak_left_dbfs' | 'peak_right_dbfs') =>
-      channels.reduce((peak, c) => Math.max(peak, c.meters[side]), SILENT);
-    return { channels, master_left_dbfs: max('peak_left_dbfs'), master_right_dbfs: max('peak_right_dbfs') };
-  }
-
   /** The headset picks up the voice from across the desk; the built-in mic hears the room. */
   private emitDeviceMeters() {
     const t = (performance.now() - this.started) / 1000;
@@ -739,7 +490,7 @@ export class MockTransport implements Transport {
     clearInterval(this.meterTimer);
     this.meterTimer = window.setInterval(() => {
       this.emit({ event: 'meters', data: this.meters() });
-      if (this.mixer.enabled) this.emit({ event: 'mixer.meters', data: this.mixerMeters() });
+      if (this.mixer.state.enabled) this.emit({ event: 'mixer.meters', data: this.mixer.meters() });
     }, 1000 / hz);
   }
 

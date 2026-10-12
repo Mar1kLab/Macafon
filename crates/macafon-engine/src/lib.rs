@@ -63,20 +63,11 @@ pub fn prepare_processor(
     settings: &ChainSettings,
     telemetry: Arc<Telemetry>,
 ) -> Result<MicrophoneProcessor, EngineError> {
-    settings.validate()?;
-    let studio: Option<Box<dyn macafon_dsp::StudioProcessor>> = if !settings.bypass
-        && settings.noise_suppression.enabled
-        && settings.noise_suppression.params.engine == macafon_dsp::settings::NoiseEngine::Studio
-    {
-        Some(Box::new(macafon_studio::StudioNoiseSuppression::new(
-            &settings.noise_suppression.params,
-        )?))
-    } else {
-        None
-    };
-    Ok(MicrophoneProcessor::with_studio_processor(
-        settings, telemetry, studio,
-    )?)
+    prepare_with_studio(
+        settings,
+        telemetry,
+        macafon_studio::StudioNoiseSuppression::new,
+    )
 }
 
 /// Offline analysis only: waits for each Studio frame, preserving the live model and latency.
@@ -85,14 +76,29 @@ pub fn prepare_offline_processor(
     settings: &ChainSettings,
     telemetry: Arc<Telemetry>,
 ) -> Result<MicrophoneProcessor, EngineError> {
+    prepare_with_studio(
+        settings,
+        telemetry,
+        macafon_studio::StudioNoiseSuppression::offline,
+    )
+}
+
+fn prepare_with_studio(
+    settings: &ChainSettings,
+    telemetry: Arc<Telemetry>,
+    build_studio: impl FnOnce(
+        &macafon_dsp::settings::NoiseSuppressionParams,
+    ) -> Result<
+        macafon_studio::StudioNoiseSuppression,
+        macafon_studio::StudioError,
+    >,
+) -> Result<MicrophoneProcessor, EngineError> {
     settings.validate()?;
     let studio: Option<Box<dyn macafon_dsp::StudioProcessor>> = if !settings.bypass
         && settings.noise_suppression.enabled
         && settings.noise_suppression.params.engine == macafon_dsp::settings::NoiseEngine::Studio
     {
-        Some(Box::new(macafon_studio::StudioNoiseSuppression::offline(
-            &settings.noise_suppression.params,
-        )?))
+        Some(Box::new(build_studio(&settings.noise_suppression.params)?))
     } else {
         None
     };

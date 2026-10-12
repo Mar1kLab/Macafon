@@ -5,11 +5,13 @@
 //! socket is missing, §9.7), performs the `hello` handshake, reads replies and events, and
 //! reconnects after the daemon restarts (systemd brings it back within 2 s, NFR-S6).
 
-use macafon_ipc::{MAX_LINE_BYTES, PROTOCOL_VERSION};
+use macafon_ipc::{PROTOCOL_VERSION, read_protocol_line};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(test)]
+use std::io::BufRead;
+use std::io::{BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -238,14 +240,9 @@ fn unavailable(shared: &Shared, reason: String) {
 }
 
 fn read_line(reader: &mut BufReader<UnixStream>) -> Result<Option<Value>, String> {
-    let mut line = String::new();
-    let read = reader
-        .take(MAX_LINE_BYTES as u64)
-        .read_line(&mut line)
-        .map_err(|error| error.to_string())?;
-    if read == 0 {
+    let Some(line) = read_protocol_line(reader).map_err(|error| error.to_string())? else {
         return Ok(None);
-    }
+    };
     serde_json::from_str(&line)
         .map(Some)
         .map_err(|error| format!("invalid message from macafond: {error}"))

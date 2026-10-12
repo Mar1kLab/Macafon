@@ -9,11 +9,11 @@ use anyhow::{Context, Result, bail};
 use macafon_backend_pipewire::ControlSender;
 use macafon_dsp::{ChannelTelemetry, Telemetry};
 use macafon_ipc::{
-    ErrorBody, ErrorCode, Event, Hello, MAX_LINE_BYTES, MAX_METER_HZ, Outcome, PROTOCOL_VERSION,
-    Request, Response, ServerMessage, decode_request, encode,
+    ErrorBody, ErrorCode, Event, FrameError, Hello, MAX_METER_HZ, Outcome, PROTOCOL_VERSION,
+    Request, Response, ServerMessage, decode_request, encode, read_protocol_line,
 };
 use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufReader, Write};
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -253,13 +253,10 @@ fn serve(stream: UnixStream, hub: &Hub, control: &ControlSender<ControlMessage>)
     let mut greeted = false;
     let mut ui = false;
     loop {
-        let mut line = String::new();
-        match (&mut reader)
-            .take(MAX_LINE_BYTES as u64)
-            .read_line(&mut line)
-        {
-            Ok(0) | Err(_) => break,
-            Ok(_) if !line.ends_with('\n') => {
+        let line = match read_protocol_line(&mut reader) {
+            Ok(Some(line)) => line,
+            Ok(None) | Err(FrameError::Io(_)) => break,
+            Err(FrameError::Incomplete) => {
                 send(
                     &out,
                     None,
@@ -267,8 +264,7 @@ fn serve(stream: UnixStream, hub: &Hub, control: &ControlSender<ControlMessage>)
                 );
                 break;
             }
-            Ok(_) => {}
-        }
+        };
         let envelope = match decode_request(&line) {
             Ok(envelope) => envelope,
             Err(response) => {

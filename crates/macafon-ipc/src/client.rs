@@ -1,12 +1,12 @@
 //! Blocking client for `macafon ctl` and tests.
 
 use crate::{
-    ErrorBody, Event, Hello, MAX_LINE_BYTES, Outcome, PROTOCOL_VERSION, Request, RequestEnvelope,
-    ServerMessage, encode,
+    ErrorBody, Event, FrameError, Hello, Outcome, PROTOCOL_VERSION, Request, RequestEnvelope,
+    ServerMessage, encode, read_protocol_line,
 };
 use serde::de::DeserializeOwned;
 use std::collections::VecDeque;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 
@@ -16,10 +16,21 @@ pub enum ClientError {
     Io(#[from] std::io::Error),
     #[error("invalid message from macafond: {0}")]
     Protocol(#[from] serde_json::Error),
+    #[error("invalid framing from macafond: {0}")]
+    Framing(FrameError),
     #[error("macafond closed the connection")]
     Closed,
     #[error("macafond rejected the request: {0}")]
     Rejected(#[from] ErrorBody),
+}
+
+impl From<FrameError> for ClientError {
+    fn from(error: FrameError) -> Self {
+        match error {
+            FrameError::Io(error) => Self::Io(error),
+            FrameError::Incomplete => Self::Framing(error),
+        }
+    }
 }
 
 pub struct Client {
@@ -86,13 +97,7 @@ impl Client {
     }
 
     fn read(&mut self) -> Result<ServerMessage, ClientError> {
-        let mut line = String::new();
-        let read = (&mut self.reader)
-            .take(MAX_LINE_BYTES as u64)
-            .read_line(&mut line)?;
-        if read == 0 {
-            return Err(ClientError::Closed);
-        }
+        let line = read_protocol_line(&mut self.reader)?.ok_or(ClientError::Closed)?;
         Ok(serde_json::from_str(&line)?)
     }
 }

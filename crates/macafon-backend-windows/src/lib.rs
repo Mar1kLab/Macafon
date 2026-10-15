@@ -9,6 +9,8 @@ mod com;
 pub mod devices;
 pub mod journal;
 pub mod microphone;
+pub mod mixer;
+mod mixer_journal;
 pub mod policy;
 pub mod probe;
 pub mod sessions;

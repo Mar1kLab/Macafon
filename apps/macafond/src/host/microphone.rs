@@ -24,7 +24,7 @@ impl DaemonHost {
             active_device: self.active_device.clone(),
             input_connected: self.input_connected,
             is_default_source: self.default_source.as_deref()
-                == Some(macafon_backend_pipewire::VIRTUAL_MIC_NAME),
+                == Some(macafon_backend::VIRTUAL_MIC_NAME),
             latency_samples: self.config.mic.chain.latency_samples(),
             noise_floor_dbfs: self.config.mic.noise_floor_dbfs,
         }

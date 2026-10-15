@@ -1,10 +1,14 @@
-//! Tray icon (PRD §8.1): a D-Bus StatusNotifierItem served by `ksni` on its own thread.
+//! Tray icon (PRD §8.1): on Linux a D-Bus StatusNotifierItem served by `ksni` on its own thread.
 //! Menu actions become ordinary control requests; the control loop pushes state back.
 
 use crate::host::ControlMessage;
+#[cfg(target_os = "linux")]
 use ksni::blocking::{Handle, TrayMethods};
 use macafon_backend::ControlSender;
-use macafon_ipc::{PresetInfo, Request};
+use macafon_ipc::PresetInfo;
+#[cfg(target_os = "linux")]
+use macafon_ipc::Request;
+#[cfg(target_os = "linux")]
 use std::sync::mpsc;
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -22,12 +26,14 @@ pub struct TrayState {
     pub output: Option<String>,
 }
 
+#[cfg(target_os = "linux")]
 struct MicTray {
     state: TrayState,
     bend: f32,
     control: ControlSender<ControlMessage>,
 }
 
+#[cfg(target_os = "linux")]
 impl MicTray {
     fn send(&self, request: Request) {
         // Nobody waits for the reply; the new state comes back through `Tray::update`.
@@ -39,6 +45,7 @@ impl MicTray {
 }
 
 /// Look for the UI next to the daemon first, then on PATH (BG-004).
+#[cfg(target_os = "linux")]
 fn open_ui() {
     let sibling = std::env::current_exe()
         .ok()
@@ -56,6 +63,7 @@ fn open_ui() {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl ksni::Tray for MicTray {
     fn id(&self) -> String {
         "macafon".into()
@@ -236,11 +244,13 @@ impl ksni::Tray for MicTray {
     }
 }
 
+#[cfg(target_os = "linux")]
 pub struct Tray {
     updates: mpsc::Sender<TrayState>,
     shown: TrayState,
 }
 
+#[cfg(target_os = "linux")]
 impl Tray {
     /// Start the tray service; `None` without a D-Bus session.
     pub fn spawn(state: TrayState, control: ControlSender<ControlMessage>) -> Option<Self> {
@@ -276,6 +286,7 @@ impl Tray {
 }
 
 /// Sleep while idle; animate only a state transition and retarget rapid toggles.
+#[cfg(target_os = "linux")]
 fn animate(handle: Handle<MicTray>, updates: mpsc::Receiver<TrayState>, mut bend: f32) {
     use std::time::{Duration, Instant};
     const FRAME: Duration = Duration::from_millis(25);
@@ -327,6 +338,7 @@ fn animate(handle: Handle<MicTray>, updates: mpsc::Receiver<TrayState>, mut bend
 }
 
 /// Approved rounded microphone; generated masks are shared with the UI's rubber warp.
+#[cfg(target_os = "linux")]
 mod icon {
     use super::TrayState;
 
@@ -462,4 +474,17 @@ mod icon {
             }
         }
     }
+}
+
+/// No tray icon on this platform yet (Windows: M3.5).
+#[cfg(not(target_os = "linux"))]
+pub struct Tray;
+
+#[cfg(not(target_os = "linux"))]
+impl Tray {
+    pub fn spawn(_state: TrayState, _control: ControlSender<ControlMessage>) -> Option<Self> {
+        None
+    }
+
+    pub fn update(&mut self, _state: TrayState) {}
 }

@@ -5,18 +5,23 @@
 //! the control loop or other clients — it just misses events.
 
 use crate::host::ControlMessage;
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use macafon_backend::ControlSender;
 use macafon_dsp::{ChannelTelemetry, Telemetry};
+use macafon_ipc::Endpoint;
 use macafon_ipc::{
     ErrorBody, ErrorCode, Event, FrameError, Hello, MAX_METER_HZ, Outcome, PROTOCOL_VERSION,
     Request, Response, ServerMessage, decode_request, encode, read_protocol_line,
 };
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::io::{BufReader, Write};
+#[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+#[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, mpsc};
 use std::time::Duration;
@@ -173,21 +178,87 @@ impl Hub {
     }
 }
 
-/// Removes the socket file when the daemon exits.
-pub struct SocketGuard(PathBuf);
+/// Removes the socket file when the daemon exits; the named pipe vanishes with the process.
+pub struct SocketGuard(#[cfg(unix)] PathBuf);
 
+#[cfg(unix)]
 impl Drop for SocketGuard {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.0);
     }
 }
 
-/// Bind `path` (owner-only, PRD §10.4) and serve clients on background threads.
+/// Write half of a client connection.
+trait Outgoing: Write + Send + 'static {
+    /// Also wake the reader, so a client that stopped reading is dropped.
+    fn close(&mut self) {}
+}
+
+#[cfg(unix)]
+impl Outgoing for UnixStream {
+    fn close(&mut self) {
+        let _ = self.shutdown(std::net::Shutdown::Both);
+    }
+}
+
+#[cfg(windows)]
+impl Outgoing for macafon_ipc::transport::SendHalf {}
+
+fn spawn_meters(hub: &Arc<Hub>) -> Result<()> {
+    let pump = hub.clone();
+    std::thread::Builder::new()
+        .name("macafon-meters".into())
+        .spawn(move || pump.pump_meters())?;
+    Ok(())
+}
+
+fn spawn_client(
+    connection: (impl Read + Send + 'static, impl Outgoing),
+    hub: &Arc<Hub>,
+    control: &ControlSender<ControlMessage>,
+) {
+    let (hub, control) = (hub.clone(), control.clone());
+    let spawned = std::thread::Builder::new()
+        .name("macafon-client".into())
+        .spawn(move || serve(connection.0, connection.1, &hub, &control));
+    if let Err(error) = spawned {
+        tracing::warn!(%error, "Cannot start client thread");
+    }
+}
+
+/// Bind the per-user pipe (DACL: current user only, PRD §10.4, §12.2.3) and serve clients on
+/// background threads. Fails while another daemon owns the name (single instance).
+#[cfg(windows)]
 pub fn start(
-    path: &Path,
+    endpoint: &Endpoint,
     hub: Arc<Hub>,
     control: ControlSender<ControlMessage>,
 ) -> Result<SocketGuard> {
+    let listener = macafon_ipc::transport::Listener::bind(endpoint)
+        .with_context(|| format!("cannot bind {endpoint}; is another macafond running?"))?;
+    spawn_meters(&hub)?;
+    std::thread::Builder::new()
+        .name("macafon-ipc".into())
+        .spawn(move || {
+            loop {
+                match listener.accept() {
+                    Ok(connection) => spawn_client(connection, &hub, &control),
+                    Err(error) => tracing::warn!(%error, "IPC accept failed"),
+                }
+            }
+        })?;
+    tracing::info!(pipe = %endpoint, "Control pipe ready");
+    Ok(SocketGuard())
+}
+
+/// Bind the socket (owner-only, PRD §10.4) and serve clients on background threads.
+#[cfg(unix)]
+pub fn start(
+    endpoint: &Endpoint,
+    hub: Arc<Hub>,
+    control: ControlSender<ControlMessage>,
+) -> Result<SocketGuard> {
+    let path = endpoint.path();
     let directory = path.parent().context("socket path has no directory")?;
     std::fs::DirBuilder::new()
         .recursive(true)
@@ -196,7 +267,7 @@ pub fn start(
         .with_context(|| format!("cannot create {}", directory.display()))?;
     if path.exists() {
         if UnixStream::connect(path).is_ok() {
-            bail!("another macafond is already running ({})", path.display());
+            anyhow::bail!("another macafond is already running ({})", path.display());
         }
         std::fs::remove_file(path)
             .with_context(|| format!("cannot remove stale {}", path.display()))?;
@@ -204,24 +275,13 @@ pub fn start(
     let listener =
         UnixListener::bind(path).with_context(|| format!("cannot bind {}", path.display()))?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    let pump = hub.clone();
-    std::thread::Builder::new()
-        .name("macafon-meters".into())
-        .spawn(move || pump.pump_meters())?;
+    spawn_meters(&hub)?;
     std::thread::Builder::new()
         .name("macafon-ipc".into())
         .spawn(move || {
             for stream in listener.incoming() {
-                match stream {
-                    Ok(stream) => {
-                        let (hub, control) = (hub.clone(), control.clone());
-                        let spawned = std::thread::Builder::new()
-                            .name("macafon-client".into())
-                            .spawn(move || serve(stream, &hub, &control));
-                        if let Err(error) = spawned {
-                            tracing::warn!(%error, "Cannot start client thread");
-                        }
-                    }
+                match stream.and_then(|stream| Ok((stream.try_clone()?, stream))) {
+                    Ok(connection) => spawn_client(connection, &hub, &control),
                     Err(error) => tracing::warn!(%error, "IPC accept failed"),
                 }
             }
@@ -230,12 +290,14 @@ pub fn start(
     Ok(SocketGuard(path.to_owned()))
 }
 
-fn serve(stream: UnixStream, hub: &Hub, control: &ControlSender<ControlMessage>) {
+fn serve(
+    reader: impl Read,
+    mut writer: impl Outgoing,
+    hub: &Hub,
+    control: &ControlSender<ControlMessage>,
+) {
     let id = hub.next_id.fetch_add(1, Ordering::Relaxed);
     let (out, lines) = mpsc::sync_channel::<String>(OUTGOING_LINES);
-    let Ok(mut writer) = stream.try_clone() else {
-        return;
-    };
     let spawned = std::thread::Builder::new()
         .name("macafon-client-out".into())
         .spawn(move || {
@@ -244,12 +306,12 @@ fn serve(stream: UnixStream, hub: &Hub, control: &ControlSender<ControlMessage>)
                     break;
                 }
             }
-            let _ = writer.shutdown(std::net::Shutdown::Both);
+            writer.close();
         });
     if spawned.is_err() {
         return;
     }
-    let mut reader = BufReader::new(stream);
+    let mut reader = BufReader::new(reader);
     let mut greeted = false;
     let mut ui = false;
     loop {

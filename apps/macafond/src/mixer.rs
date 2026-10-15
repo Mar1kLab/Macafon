@@ -177,7 +177,7 @@ impl Mixer {
         if !self.session || !config.enabled {
             return;
         }
-        let target = macafon_backend_pipewire::channel_node_name(&config.default_channel);
+        let target = crate::platform::channel_node_name(&config.default_channel);
         if self.default_target.as_deref() == Some(target.as_str()) {
             return;
         }
@@ -188,8 +188,7 @@ impl Mixer {
             return;
         }
         self.default_attempt = Some(Instant::now());
-        let result = macafon_backend_pipewire::default_sink_journal()
-            .and_then(|journal| macafon_backend_pipewire::set_default_sink(&journal, &target));
+        let result = crate::platform::set_default_sink(&target);
         match result {
             Ok(()) => {
                 tracing::info!(channel = %config.default_channel, "Default output set to the default channel");
@@ -205,8 +204,7 @@ impl Mixer {
     pub fn restore_default_sink(&mut self) {
         self.default_target = None;
         self.default_attempt = None;
-        let result = macafon_backend_pipewire::default_sink_journal()
-            .and_then(|journal| macafon_backend_pipewire::restore_default_sink(&journal));
+        let result = crate::platform::restore_default_sink();
         match result {
             Ok(()) => {
                 if std::mem::take(&mut self.owns_default) {
@@ -404,9 +402,7 @@ pub fn take_meters(channels: &[(String, Arc<ChannelTelemetry>)]) -> MixerMeters 
 }
 
 fn read_previous_default() -> Option<String> {
-    macafon_backend_pipewire::default_sink_journal()
-        .ok()
-        .and_then(|journal| macafon_backend_pipewire::previous_default_sink(&journal))
+    crate::platform::previous_default_sink()
 }
 
 fn identify(stream: &PlaybackStream) -> Option<AppIdentity> {

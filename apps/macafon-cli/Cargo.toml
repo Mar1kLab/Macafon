@@ -14,8 +14,14 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap = { version = "4", features = ["derive"] }
 macafon-ipc.workspace = true
-macafon-backend-pipewire.workspace = true
 serde_json.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+macafon-backend-pipewire.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+macafon-backend-windows.workspace = true
+macafon-config.workspace = true
 
 [lints]
 workspace = true

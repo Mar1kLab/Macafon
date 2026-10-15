@@ -1,4 +1,5 @@
 mod ab;
+#[cfg(target_os = "linux")]
 mod autostart;
 mod calibration;
 mod doctor;
@@ -7,10 +8,13 @@ mod hotkeys;
 mod logging;
 mod mixer;
 mod notify;
+#[cfg_attr(target_os = "linux", path = "platform/linux.rs")]
+#[cfg_attr(windows, path = "platform/windows.rs")]
+mod platform;
 mod server;
 mod tray;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use host::DaemonHost;
 use macafon_config::presets::PresetStore;
@@ -35,9 +39,10 @@ struct Cli {
 enum Command {
     /// Run the daemon: virtual microphone and control socket. System defaults are untouched.
     Run(RunArgs),
-    /// List physical inputs, sinks and playback streams (read-only).
+    /// List physical inputs and outputs (read-only).
     Devices,
     /// M0 experiment: move one playback stream through WirePlumber metadata.
+    #[cfg(target_os = "linux")]
     Route { stream_id: u32, sink_name: String },
 }
 
@@ -46,13 +51,14 @@ struct RunArgs {
     /// Duplicate mono into left/right output channels; use --stereo=false for mono.
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     stereo: Option<bool>,
-    /// Config file [default: $XDG_CONFIG_HOME/macafon/config.toml].
+    /// Config file [default: $XDG_CONFIG_HOME/macafon/config.toml, %APPDATA%\Macafon\config.toml].
     #[arg(long)]
     config: Option<PathBuf>,
-    /// Physical PipeWire node.name (see `devices`); overrides the config.
+    /// Physical microphone: PipeWire node.name or Windows endpoint ID (see `devices`);
+    /// overrides the config.
     #[arg(long)]
     input: Option<String>,
-    /// Second-priority physical PipeWire node.name; overrides the config.
+    /// Second-priority physical microphone; overrides the config.
     #[arg(long)]
     fallback_input: Option<String>,
     /// Built-in preset: natural, discord-clear, noisy-room, broadcast, warm-podcast, raw.
@@ -188,41 +194,19 @@ fn run(args: RunArgs) -> Result<()> {
         }
         None => PresetStore::in_memory(),
     };
-    let (control, receiver) = macafon_backend_pipewire::control_channel();
-    let socket = macafon_ipc::socket_path().context("XDG_RUNTIME_DIR is not set")?;
+    let (control, receiver) = platform::control_channel();
+    let endpoint = platform::endpoint()?;
     let host = Rc::new(RefCell::new(DaemonHost::new(
         config,
         store,
         presets,
-        socket,
+        endpoint,
         control,
         !args.no_tray,
     )));
     host.borrow_mut().set_config_recovery(config_recovery);
-    if let Ok(journal) = macafon_backend_pipewire::default_source_journal() {
-        if let Err(error) = macafon_backend_pipewire::restore_default_source(&journal) {
-            tracing::warn!(%error, "Cannot recover previous default microphone yet");
-        }
-    }
-    if let Ok(journal) = macafon_backend_pipewire::default_sink_journal() {
-        if let Err(error) = macafon_backend_pipewire::restore_default_sink(&journal) {
-            tracing::warn!(%error, "Cannot recover previous default output yet");
-        }
-    }
-    let result = macafon_backend_pipewire::run_microphone(host.clone(), receiver)
-        .context("Cannot run microphone; check PipeWire and WirePlumber");
-    host.borrow_mut().flush();
-    if let Ok(journal) = macafon_backend_pipewire::default_source_journal() {
-        if let Err(error) = macafon_backend_pipewire::restore_default_source(&journal) {
-            tracing::warn!(%error, "Cannot restore previous default microphone; recovery journal retained");
-        }
-    }
-    if let Ok(journal) = macafon_backend_pipewire::default_sink_journal() {
-        if let Err(error) = macafon_backend_pipewire::restore_default_sink(&journal) {
-            tracing::warn!(%error, "Cannot restore previous default output; recovery journal retained");
-        }
-    }
-    result
+    let flushing = host.clone();
+    platform::run(host, receiver, move || flushing.borrow_mut().flush())
 }
 
 fn main() -> Result<()> {
@@ -230,28 +214,12 @@ fn main() -> Result<()> {
     logging::init();
     match cli.command.unwrap_or(Command::Run(RunArgs::default())) {
         Command::Run(args) => run(args)?,
-        Command::Devices => {
-            for node in macafon_backend_pipewire::list_nodes()? {
-                if matches!(
-                    node.media_class.as_str(),
-                    "Audio/Source" | "Audio/Sink" | "Stream/Output/Audio"
-                ) && !node.name.starts_with("macafon_")
-                    && !node.name.ends_with(".monitor")
-                {
-                    println!(
-                        "{}\t{}\t{}\t{}",
-                        node.id, node.media_class, node.name, node.description
-                    );
-                }
-            }
-        }
+        Command::Devices => platform::print_devices()?,
+        #[cfg(target_os = "linux")]
         Command::Route {
             stream_id,
             sink_name,
-        } => {
-            macafon_backend_pipewire::route_stream(stream_id, &sink_name)?;
-            tracing::info!(stream_id, sink = %sink_name, "Stream moved; PipeWire links confirmed");
-        }
+        } => platform::route(stream_id, &sink_name)?,
     }
     Ok(())
 }

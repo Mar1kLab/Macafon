@@ -93,16 +93,11 @@ impl DaemonHost {
                         "explicit confirmation is required",
                     ));
                 }
-                let journal =
-                    macafon_backend_pipewire::default_source_journal().map_err(backend_error)?;
-                macafon_backend_pipewire::set_default_source(&journal).map_err(backend_error)?;
+                crate::platform::set_default_source().map_err(backend_error)?;
                 return Ok(serde_json::Value::Null);
             }
             Request::MicRestoreDefaultSource => {
-                let journal =
-                    macafon_backend_pipewire::default_source_journal().map_err(backend_error)?;
-                macafon_backend_pipewire::restore_default_source(&journal)
-                    .map_err(backend_error)?;
+                crate::platform::restore_default_source().map_err(backend_error)?;
                 return Ok(serde_json::Value::Null);
             }
             Request::AbExport { side, path } => {
@@ -111,15 +106,9 @@ impl DaemonHost {
                 return Ok(serde_json::Value::Null);
             }
             Request::AbOutputs => {
-                let nodes = macafon_backend_pipewire::list_nodes().map_err(backend_error)?;
+                let nodes = crate::platform::output_devices().map_err(backend_error)?;
                 let outputs: Vec<macafon_ipc::PlaybackDevice> = nodes
                     .into_iter()
-                    .filter(|node| {
-                        node.media_class == "Audio/Sink"
-                            && !node
-                                .name
-                                .starts_with(macafon_backend_pipewire::CHANNEL_PREFIX)
-                    })
                     .map(|node| {
                         let kind = match node.form_factor.as_str() {
                             "headset" | "headphone" => macafon_ipc::PlaybackDeviceKind::Headphones,
@@ -160,7 +149,17 @@ impl DaemonHost {
             | Request::AbSetLoudnessMatch { .. }
             | Request::AbGet
             | Request::AbWaveform { .. }) => return self.respond_ab(request),
+            #[cfg(target_os = "linux")]
             Request::AutostartGet => return Ok(serde_json::json!(crate::autostart::state())),
+            // Start with Windows (`HKCU\…\Run`) comes with M3.5.
+            #[cfg(not(target_os = "linux"))]
+            Request::AutostartGet | Request::AutostartSet { .. } => {
+                return Err(ErrorBody::new(
+                    ErrorCode::NotFound,
+                    "start with the system is not available on this platform yet",
+                ));
+            }
+            #[cfg(target_os = "linux")]
             Request::AutostartSet { enabled } => {
                 let state = crate::autostart::set(enabled)
                     .map_err(|message| ErrorBody::new(ErrorCode::Internal, message))?;
@@ -197,8 +196,7 @@ impl DaemonHost {
                 }
                 let (mic, mixer) = (self.state(), self.mixer_state());
                 let report = crate::doctor::report(crate::doctor::Facts {
-                    inspection: macafon_backend_pipewire::inspect()
-                        .map_err(|error| error.to_string()),
+                    inspection: crate::platform::inspect(),
                     mic: &mic,
                     mixer: &mixer,
                     clock: self.clock,

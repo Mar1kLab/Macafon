@@ -1,6 +1,7 @@
 //! Doctor (PRD §9.6): turn a graph snapshot and the daemon state into plain checks.
 
-use macafon_backend_pipewire::{CHANNEL_PREFIX, Inspection, version_at_least};
+use crate::platform::CHANNEL_PREFIX;
+use macafon_backend::{Inspection, version_at_least};
 use macafon_ipc::{DoctorCheck, DoctorCheckId, DoctorReport, DoctorStatus, MicState, MixerState};
 
 /// Node name fragments of other noise suppressors that may process the same microphone.
@@ -14,7 +15,8 @@ const OTHER_PROCESSORS: &[&str] = &[
 ];
 
 pub struct Facts<'a> {
-    pub inspection: Result<Inspection, String>,
+    /// The PipeWire graph; `None` on platforms without one.
+    pub inspection: Option<Result<Inspection, String>>,
     pub mic: &'a MicState,
     pub mixer: &'a MixerState,
     /// `(rate, quantum)` seen by the microphone node.
@@ -34,19 +36,23 @@ pub fn report(facts: Facts) -> DoctorReport {
     use DoctorCheckId as Id;
     use DoctorStatus as S;
     let mut checks = Vec::new();
-    let inspection = facts.inspection.as_ref().ok();
+    let inspection = facts
+        .inspection
+        .as_ref()
+        .and_then(|graph| graph.as_ref().ok());
     match &facts.inspection {
-        Ok(graph) if version_at_least(&graph.server_version, 1, 0) => checks.push(check(
+        None => {}
+        Some(Ok(graph)) if version_at_least(&graph.server_version, 1, 0) => checks.push(check(
             Id::Pipewire,
             S::Ok,
             vec![graph.server_version.clone()],
         )),
-        Ok(graph) => checks.push(check(
+        Some(Ok(graph)) => checks.push(check(
             Id::Pipewire,
             S::Error,
             vec![graph.server_version.clone()],
         )),
-        Err(error) => checks.push(check(Id::Pipewire, S::Error, vec![error.clone()])),
+        Some(Err(error)) => checks.push(check(Id::Pipewire, S::Error, vec![error.clone()])),
     }
     if let Some(graph) = inspection {
         match &graph.session_manager {

@@ -2,6 +2,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
+#[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -39,6 +40,15 @@ pub fn init() {
         .init();
 }
 
+/// `%LOCALAPPDATA%\Macafon\macafond.log`.
+#[cfg(windows)]
+fn log_path() -> io::Result<PathBuf> {
+    macafon_config::state_dir()
+        .map(|directory| directory.join("macafond.log"))
+        .map_err(io::Error::other)
+}
+
+#[cfg(not(windows))]
 fn log_path() -> io::Result<PathBuf> {
     let base = std::env::var_os("XDG_STATE_HOME")
         .filter(|value| !value.is_empty())
@@ -58,10 +68,11 @@ struct LogWriter(Arc<Mutex<RotatingLog>>);
 impl LogWriter {
     fn open(path: PathBuf, max_bytes: u64) -> io::Result<Self> {
         let directory = path.parent().unwrap_or(Path::new("."));
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(directory)?;
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        builder.mode(0o700);
+        builder.create(directory)?;
         let file = open_log(&path)?;
         let bytes = file.metadata()?.len();
         Ok(Self(Arc::new(Mutex::new(RotatingLog {
@@ -74,11 +85,12 @@ impl LogWriter {
 }
 
 fn open_log(path: &Path) -> io::Result<File> {
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(path)
+    let mut options = OpenOptions::new();
+    options.create(true).append(true);
+    // `%LOCALAPPDATA%` is already private to the user on Windows.
+    #[cfg(unix)]
+    options.mode(0o600);
+    options.open(path)
 }
 
 struct RotatingLog {

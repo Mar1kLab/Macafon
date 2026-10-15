@@ -1,10 +1,13 @@
 //! Desktop notifications (freedesktop `org.freedesktop.Notifications`): the first-close hint
 //! of BG-001, sent by the daemon because the UI process has already exited.
 
+#[cfg(target_os = "linux")]
 use std::collections::HashMap;
+#[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// The last OSD notification, replaced by the next one instead of piling up (HK-006).
+#[cfg(target_os = "linux")]
 static OSD: AtomicU32 = AtomicU32::new(0);
 
 /// A short on-screen message after a hotkey changed a preset or a volume (HK-006).
@@ -17,6 +20,13 @@ pub fn send(summary: &'static str, body: &'static str) {
     show(summary.to_owned(), body.to_owned(), false, 6000);
 }
 
+/// Windows notifications come with M3.5; until then the message only goes to the log.
+#[cfg(not(target_os = "linux"))]
+fn show(summary: String, body: String, _replace: bool, _timeout_ms: i32) {
+    tracing::info!(%summary, %body, "Notification");
+}
+
+#[cfg(target_os = "linux")]
 fn show(summary: String, body: String, replace: bool, timeout_ms: i32) {
     let spawned = std::thread::Builder::new()
         .name("macafon-notify".into())

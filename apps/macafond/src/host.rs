@@ -23,9 +23,9 @@ use macafon_config::{Config, Store};
 use macafon_dsp::Telemetry;
 use macafon_engine::{EngineError, MicControl};
 use macafon_ipc::{
-    CalibrationFailure, CalibrationState, Device, ErrorBody, ErrorCode, Event, Outcome, Request,
+    CalibrationFailure, CalibrationState, Device, Endpoint, ErrorBody, ErrorCode, Event, Outcome,
+    Request,
 };
-use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
@@ -40,6 +40,7 @@ pub enum ControlMessage {
     },
     Disconnected,
     /// A global shortcut went down or up (HK-001).
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))] // no hotkey backend before M3.5
     Hotkey {
         action: String,
         pressed: bool,
@@ -79,7 +80,7 @@ pub struct DaemonHost {
     hotkey_status: Option<crate::hotkeys::Status>,
     icons: macafon_apps::icons::IconResolver,
     quit: bool,
-    server: Option<(PathBuf, ControlSender<ControlMessage>)>,
+    server: Option<(Endpoint, ControlSender<ControlMessage>)>,
     _socket: Option<SocketGuard>,
 }
 
@@ -88,7 +89,7 @@ impl DaemonHost {
         mut config: Config,
         store: Option<Store>,
         presets: PresetStore,
-        socket: PathBuf,
+        endpoint: Endpoint,
         control: ControlSender<ControlMessage>,
         tray: bool,
     ) -> Self {
@@ -126,7 +127,7 @@ impl DaemonHost {
             hotkey_status: None,
             icons: macafon_apps::icons::IconResolver::from_env(),
             quit: false,
-            server: Some((socket, control)),
+            server: Some((endpoint, control)),
             _socket: None,
         }
     }
@@ -270,7 +271,7 @@ impl MicrophoneHost for DaemonHost {
     type Message = ControlMessage;
 
     fn started(&mut self) -> Result<(), Error> {
-        if let Some((path, control)) = self.server.take() {
+        if let Some((endpoint, control)) = self.server.take() {
             if self.tray_wanted {
                 // Spawned after signals are blocked, like the IPC threads.
                 self.tray = Tray::spawn(TrayState::default(), control.clone());
@@ -279,7 +280,7 @@ impl MicrophoneHost for DaemonHost {
             // Spawned after signals are blocked, like the tray (HK-003).
             self.hotkeys = Some(crate::hotkeys::Hotkeys::spawn(control.clone()));
             self.rebind_hotkeys();
-            let socket = server::start(&path, self.hub.clone(), control)
+            let socket = server::start(&endpoint, self.hub.clone(), control)
                 .map_err(|error| Error::Message(format!("{error:#}")))?;
             self._socket = Some(socket);
         }
@@ -287,10 +288,8 @@ impl MicrophoneHost for DaemonHost {
     }
 
     fn start_session(&mut self) -> Result<MicRt, Error> {
-        if let Ok(journal) = macafon_backend_pipewire::default_source_journal() {
-            if let Err(error) = macafon_backend_pipewire::restore_default_source(&journal) {
-                tracing::warn!(%error, "Cannot recover previous default microphone yet");
-            }
+        if let Err(error) = crate::platform::restore_default_source() {
+            tracing::warn!(%error, "Cannot recover previous default microphone yet");
         }
         let (control, rt) =
             macafon_engine::microphone(&self.config.mic.chain, self.telemetry.clone())?;
@@ -520,16 +519,24 @@ fn select_input<'a>(mic: &'a macafon_config::MicConfig, inputs: &[Device]) -> Op
 mod tests {
     use super::*;
 
+    /// Never bound: these hosts are not started.
+    fn unused_endpoint() -> Endpoint {
+        #[cfg(unix)]
+        return Endpoint::socket("unused");
+        #[cfg(windows)]
+        Endpoint::pipe("unused")
+    }
+
     #[test]
     fn graph_budget_fallback_updates_settings_and_device_profile() {
-        let (sender, _receiver) = macafon_backend_pipewire::control_channel();
+        let (sender, _receiver) = crate::platform::control_channel();
         let mut config = Config::default();
         config.mic.chain = macafon_dsp::Preset::NoisyRoom.settings();
         let mut host = DaemonHost::new(
             config,
             None,
             PresetStore::in_memory(),
-            PathBuf::from("unused"),
+            unused_endpoint(),
             sender,
             false,
         );
@@ -561,7 +568,7 @@ mod tests {
 
     #[test]
     fn input_switch_invalidates_measurement_and_tracks_actual_connection() {
-        let (sender, _receiver) = macafon_backend_pipewire::control_channel();
+        let (sender, _receiver) = crate::platform::control_channel();
         let mut config = Config::default();
         config.mic.device = Some("primary".into());
         config.mic.fallback_device = Some("fallback".into());
@@ -570,7 +577,7 @@ mod tests {
             config,
             None,
             PresetStore::in_memory(),
-            PathBuf::from("unused"),
+            unused_endpoint(),
             sender,
             false,
         );
@@ -617,7 +624,7 @@ mod tests {
     #[test]
     fn startup_floor_belongs_to_measured_device_and_legacy_defaults_to_primary() {
         for measured in [None, Some("primary"), Some("fallback")] {
-            let (sender, _receiver) = macafon_backend_pipewire::control_channel();
+            let (sender, _receiver) = crate::platform::control_channel();
             let config = Config {
                 mic: macafon_config::MicConfig {
                     device: Some("primary".into()),
@@ -632,7 +639,7 @@ mod tests {
                 config,
                 None,
                 PresetStore::in_memory(),
-                PathBuf::from("unused"),
+                unused_endpoint(),
                 sender,
                 false,
             );

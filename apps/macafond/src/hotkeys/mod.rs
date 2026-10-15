@@ -1,8 +1,13 @@
 //! Global hotkeys service (PRD §8.3): the daemon registers them, so they work with the window
 //! closed (HK-003). A helper thread owns the backend; presses arrive on the control loop.
 
+// Windows has no hotkey backend until M3.5; the bindings are built but not registered.
+#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
+
 pub mod accel;
+#[cfg(target_os = "linux")]
 mod portal;
+#[cfg(target_os = "linux")]
 mod x11;
 
 use crate::host::ControlMessage;
@@ -10,7 +15,9 @@ use accel::Accel;
 use macafon_backend::ControlSender;
 use macafon_ipc::HotkeyBackend;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::mpsc;
+#[cfg(target_os = "linux")]
+use std::sync::{Arc, Mutex};
 
 /// A shortcut to register: action id, readable description, shortcut.
 pub struct Binding {
@@ -62,9 +69,12 @@ fn press(control: &ControlSender<ControlMessage>, action: &str, pressed: bool) {
 }
 
 fn run(receiver: mpsc::Receiver<Vec<Binding>>, control: ControlSender<ControlMessage>) {
+    // Windows hotkeys (`global-hotkey`, push-to-talk) come with M3.5.
+    #[cfg(target_os = "linux")]
     if let Some(portal) = portal::Portal::connect() {
         return run_portal(portal, receiver, control);
     }
+    #[cfg(target_os = "linux")]
     if x11::available() {
         match x11::X11::new() {
             Ok(backend) => return run_x11(backend, receiver, control),
@@ -84,6 +94,7 @@ fn run(receiver: mpsc::Receiver<Vec<Binding>>, control: ControlSender<ControlMes
     while receiver.recv().is_ok() {}
 }
 
+#[cfg(target_os = "linux")]
 fn run_portal(
     mut portal: portal::Portal,
     receiver: mpsc::Receiver<Vec<Binding>>,
@@ -173,6 +184,7 @@ fn run_portal(
     }
 }
 
+#[cfg(target_os = "linux")]
 fn run_x11(
     mut backend: x11::X11,
     receiver: mpsc::Receiver<Vec<Binding>>,

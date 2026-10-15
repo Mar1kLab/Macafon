@@ -3,7 +3,7 @@
 
 use crate::host::ControlMessage;
 use ksni::blocking::{Handle, TrayMethods};
-use macafon_backend_pipewire::ControlSender;
+use macafon_backend::ControlSender;
 use macafon_ipc::{PresetInfo, Request};
 use std::sync::mpsc;
 

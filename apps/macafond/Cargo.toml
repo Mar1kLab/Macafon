@@ -18,6 +18,7 @@ macafon-engine.workspace = true
 macafon-ipc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+macafon-backend.workspace = true
 macafon-backend-pipewire.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

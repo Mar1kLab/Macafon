@@ -13,8 +13,8 @@ use crate::calibration::Recording;
 use crate::mixer::Mixer;
 use crate::server::{self, Hub, SocketGuard};
 use crate::tray::{Tray, TrayState};
-use macafon_backend_pipewire::ControlSender;
-use macafon_backend_pipewire::{
+use macafon_backend::ControlSender;
+use macafon_backend::{
     ChannelRequest, Error, MicRt, MicrophoneHost, MixerHost, Node, PlaybackStream, PlayerRequest,
     Route,
 };
@@ -194,7 +194,7 @@ fn engine_error(error: EngineError) -> ErrorBody {
     }
 }
 
-fn backend_error(error: Error) -> ErrorBody {
+fn backend_error(error: impl std::fmt::Display) -> ErrorBody {
     ErrorBody::new(ErrorCode::Internal, error.to_string())
 }
 

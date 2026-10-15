@@ -2501,10 +2501,20 @@ name = "macafon-apps"
 version = "0.1.0"
 
 [[package]]
+name = "macafon-backend"
+version = "0.1.0"
+dependencies = [
+ "macafon-dsp",
+ "macafon-engine",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "macafon-backend-pipewire"
 version = "0.1.0"
 dependencies = [
  "assert_no_alloc",
+ "macafon-backend",
  "macafon-dsp",
  "macafon-engine",
  "pipewire",
@@ -2632,6 +2642,7 @@ dependencies = [
  "global-hotkey",
  "ksni",
  "macafon-apps",
+ "macafon-backend",
  "macafon-backend-pipewire",
  "macafon-config",
  "macafon-dsp",

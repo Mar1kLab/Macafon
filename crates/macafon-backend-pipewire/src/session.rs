@@ -208,7 +208,7 @@ pub(super) fn run_session<H: MicrophoneHost + 'static>(
                     Ok(started) => {
                         player.replace(Some(started));
                     }
-                    Err(error) => host.player_failed(error),
+                    Err(error) => host.player_failed(error.into()),
                 }
             }
             Some(PlayerRequest::Stop) => {

@@ -10,6 +10,7 @@ license.workspace = true
 serde_json.workspace = true
 pipewire.workspace = true
 macafon-dsp.workspace = true
+macafon-backend.workspace = true
 macafon-engine.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

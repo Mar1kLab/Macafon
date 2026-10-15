@@ -6,7 +6,7 @@
 
 use crate::host::ControlMessage;
 use anyhow::{Context, Result, bail};
-use macafon_backend_pipewire::ControlSender;
+use macafon_backend::ControlSender;
 use macafon_dsp::{ChannelTelemetry, Telemetry};
 use macafon_ipc::{
     ErrorBody, ErrorCode, Event, FrameError, Hello, MAX_METER_HZ, Outcome, PROTOCOL_VERSION,

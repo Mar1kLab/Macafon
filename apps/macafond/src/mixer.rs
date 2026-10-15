@@ -3,7 +3,7 @@
 //! lives in `Config::mixer` / `Config::apps`; this holds what the graph session needs.
 
 use macafon_apps::{AppIdentity, Category, StreamProps};
-use macafon_backend_pipewire::{ChannelRequest, Node, PlaybackStream, Route};
+use macafon_backend::{ChannelRequest, Node, PlaybackStream, Route};
 use macafon_config::{AppsConfig, ChannelConfig, Config, MixerConfig};
 use macafon_dsp::ChannelTelemetry;
 use macafon_engine::{ChannelControl, EngineError};

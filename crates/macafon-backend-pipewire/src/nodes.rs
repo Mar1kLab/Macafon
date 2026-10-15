@@ -1,22 +1,8 @@
 //! Physical device discovery and stable hardware identity.
 
-use crate::{Connection, Error};
+use crate::{Connection, Error, Node};
 use pipewire::{self as pw, types::ObjectType};
 use std::{cell::RefCell, rc::Rc};
-
-#[derive(Debug, Clone)]
-pub struct Node {
-    pub id: u32,
-    pub serial: String,
-    pub name: String,
-    pub description: String,
-    pub media_class: String,
-    pub virtual_node: bool,
-    pub device_id: Option<u32>,
-    pub stable_id: String,
-    pub kind: &'static str,
-    pub form_factor: String,
-}
 
 pub(crate) fn node(
     global: &pw::registry::GlobalObject<&pw::spa::utils::dict::DictRef>,

@@ -1,7 +1,7 @@
 //! A/B test on the control loop (PRD §6.4): recording the raw microphone, the loop player
 //! and its waveform. The clip lives in memory only (AB-007).
 
-use macafon_backend_pipewire::PlayerRequest;
+use macafon_backend::PlayerRequest;
 use macafon_dsp::{ChainSettings, SAMPLE_RATE_HZ};
 use macafon_engine::{AbControl, MicControl};
 use macafon_ipc::{AbRecording, AbSide, AbState, AbWaveform, ErrorBody, ErrorCode};

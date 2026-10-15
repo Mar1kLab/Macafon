@@ -7,7 +7,7 @@ mod x11;
 
 use crate::host::ControlMessage;
 use accel::Accel;
-use macafon_backend_pipewire::ControlSender;
+use macafon_backend::ControlSender;
 use macafon_ipc::HotkeyBackend;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, mpsc};

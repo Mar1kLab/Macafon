@@ -1,5 +1,6 @@
 //! Blocking client for `macafon ctl` and tests.
 
+use crate::transport::{Endpoint, RecvHalf, SendHalf, connect};
 use crate::{
     ErrorBody, Event, FrameError, Hello, Outcome, PROTOCOL_VERSION, Request, RequestEnvelope,
     ServerMessage, encode, read_protocol_line,
@@ -7,8 +8,6 @@ use crate::{
 use serde::de::DeserializeOwned;
 use std::collections::VecDeque;
 use std::io::{BufReader, Write};
-use std::os::unix::net::UnixStream;
-use std::path::Path;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -34,19 +33,19 @@ impl From<FrameError> for ClientError {
 }
 
 pub struct Client {
-    reader: BufReader<UnixStream>,
-    writer: UnixStream,
+    reader: BufReader<RecvHalf>,
+    writer: SendHalf,
     next_id: u64,
     events: VecDeque<Event>,
 }
 
 impl Client {
     /// Connect and perform the protocol handshake.
-    pub fn connect(path: &Path, name: &str) -> Result<(Self, Hello), ClientError> {
-        let stream = UnixStream::connect(path)?;
+    pub fn connect(endpoint: &Endpoint, name: &str) -> Result<(Self, Hello), ClientError> {
+        let (reader, writer) = connect(endpoint)?;
         let mut client = Self {
-            reader: BufReader::new(stream.try_clone()?),
-            writer: stream,
+            reader: BufReader::new(reader),
+            writer,
             next_id: 1,
             events: VecDeque::new(),
         };

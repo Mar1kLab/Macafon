@@ -10,9 +10,10 @@ use macafon_ipc::{
 use std::io::Write;
 
 pub(super) fn run(json: bool, command: Ctl) -> Result<()> {
-    let path = macafon_ipc::socket_path().context("XDG_RUNTIME_DIR is not set")?;
-    let (mut client, _) = Client::connect(&path, "macafon-cli")
-        .with_context(|| format!("is macafond running? ({})", path.display()))?;
+    let endpoint = macafon_ipc::Endpoint::for_current_user()
+        .context("cannot locate the daemon endpoint (XDG_RUNTIME_DIR is not set)")?;
+    let (mut client, _) = Client::connect(&endpoint, "macafon-cli")
+        .with_context(|| format!("is macafond running? ({endpoint})"))?;
     let request = match command {
         Ctl::Status => Request::MicGet,
         Ctl::SetDefault { confirm } => {

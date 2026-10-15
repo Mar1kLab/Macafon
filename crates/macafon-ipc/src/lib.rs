@@ -1,4 +1,5 @@
-//! Daemon control protocol (PRD §11.5): newline-delimited JSON over a per-user Unix socket.
+//! Daemon control protocol (PRD §11.5): newline-delimited JSON over a per-user Unix socket
+//! or, on Windows, a per-user named pipe (`transport`).
 //!
 //! Requests: `{"id":1,"method":"mic.set_preset","params":{"preset":"broadcast"}}`.
 //! Replies: `{"id":1,"result":…}` or `{"id":1,"error":{"code":…,"message":…}}`.
@@ -11,6 +12,7 @@ mod hotkeys;
 mod mixer;
 mod request;
 mod state;
+pub mod transport;
 #[cfg(all(test, feature = "ts"))]
 mod typescript;
 mod wire;
@@ -24,6 +26,7 @@ pub use macafon_dsp::{ChainSettings, InputChannel, Meters};
 pub use mixer::{
     AppState, ChannelMeterFrame, ChannelPatch, ChannelState, MixerMeters, MixerState, OutputDevice,
 };
+pub use transport::Endpoint;
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};

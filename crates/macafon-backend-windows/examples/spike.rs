@@ -40,6 +40,24 @@ mod spike {
     enum Command {
         /// Active endpoints with adapter hardware IDs; marks VB-CABLE.
         Devices,
+        /// List physical outputs and show priority selection; writes are opt-in.
+        Outputs {
+            /// Ordered endpoint IDs (empty means follow system default).
+            #[arg(long)]
+            priority: Vec<String>,
+            #[arg(long)]
+            apply: bool,
+            #[arg(long, default_value_t = 3)]
+            restore_after_s: u64,
+            #[arg(long, default_value = ".artifacts/output-state")]
+            state_dir: std::path::PathBuf,
+        },
+        /// Read cable, format, writer and engine-period facts without changing settings.
+        Doctor {
+            /// Physical microphone ID or part of its name; otherwise use capture default.
+            #[arg(long)]
+            input: Option<String>,
+        },
         /// Default capture and render endpoints per role.
         Defaults,
         /// Make an endpoint the default for all roles, then restore the previous defaults.
@@ -111,6 +129,13 @@ mod spike {
         let _com = ComGuard::new()?;
         match args.command {
             Command::Devices => devices(),
+            Command::Outputs {
+                priority,
+                apply,
+                restore_after_s,
+                state_dir,
+            } => outputs(&priority, apply, restore_after_s, &state_dir),
+            Command::Doctor { input } => doctor(input.as_deref()),
             Command::Defaults => defaults(),
             Command::SetDefault {
                 device,
@@ -173,6 +198,121 @@ mod spike {
                 Ok(())
             }
         }
+    }
+
+    fn outputs(
+        priority: &[String],
+        apply: bool,
+        seconds: u64,
+        state_dir: &std::path::Path,
+    ) -> anyhow::Result<()> {
+        use macafon_backend_windows::{
+            journal::{self, SystemDefaults},
+            output::{self, OutputPolicy},
+        };
+        let list = endpoints()?;
+        for e in list
+            .iter()
+            .filter(|e| e.flow == DataFlow::Render && !e.is_vb_cable())
+        {
+            println!("{}  {}", e.id, e.name);
+        }
+        let before = policy::defaults(DataFlow::Render)?;
+        println!("current defaults: {before:?}");
+        println!(
+            "priority choice: {:?}",
+            output::priority_choice(priority, &list, before[0].as_deref())
+        );
+        if apply {
+            let path = journal::journal_path(state_dir, DataFlow::Render);
+            let mut defaults = SystemDefaults;
+            // Recover an interrupted prior run before taking a fresh snapshot.
+            journal::restore(&mut defaults, &path)?;
+            let before = policy::defaults(DataFlow::Render)?;
+            let result = OutputPolicy::default().scan(priority, &list, &mut defaults, &path);
+            println!("policy: {result:?}");
+            if result.is_ok() {
+                std::thread::sleep(Duration::from_secs(seconds));
+            }
+            // Also restore after a partially successful set.
+            journal::restore(&mut defaults, &path)?;
+            result?;
+            let after = policy::defaults(DataFlow::Render)?;
+            println!("restored defaults: {after:?}");
+            if before != after {
+                bail!("defaults differ after conditional restoration (possibly a manual change)");
+            }
+        }
+        Ok(())
+    }
+
+    fn doctor(input: Option<&str>) -> anyhow::Result<()> {
+        use macafon_backend_windows::diagnostics;
+        let list = endpoints()?;
+        let microphone = match input {
+            Some(query) => Some(pick(&list, query, Some(DataFlow::Capture))?.id),
+            None => policy::defaults(DataFlow::Capture)?[0]
+                .clone()
+                .filter(|id| list.iter().any(|e| e.id == *id && !e.is_vb_audio())),
+        };
+        let facts = diagnostics::collect(microphone.as_deref(), std::process::id())?;
+        println!(
+            "cable installed: {}; registered: {}; active: {}; other VB-Audio: {}",
+            facts.cable.installed,
+            facts.cable.registered_endpoints.len(),
+            facts.cable.active_endpoints.len(),
+            facts.cable.other_vb_audio.len()
+        );
+        for e in &facts.cable.registered_endpoints {
+            println!("  cable {:?}: {} ({})", e.flow, e.name, e.id);
+        }
+        for e in &facts.cable.other_vb_audio {
+            println!("  ignored VB-Audio: {} ({})", e.name, e.id);
+        }
+        for e in facts.endpoints {
+            println!("{} ({})", e.endpoint.name, e.endpoint.id);
+            for (label, format) in [("mix", e.mix_format), ("device", e.device_format)] {
+                match format {
+                    Ok(f) => println!(
+                        "  {label}: {} Hz, {} ch, {} bits; resampling: {}",
+                        f.rate_hz,
+                        f.channels,
+                        f.bits,
+                        f.needs_resampling()
+                    ),
+                    Err(error) => println!("  {label}: unavailable ({error})"),
+                }
+            }
+            match e.engine_periods {
+                Ok(p) => {
+                    let ms = |frames| f64::from(frames) * 1000.0 / f64::from(p.mix_rate_hz);
+                    println!(
+                        "  engine periods: default {:.2} ms, min {:.2} ms, max {:.2} ms, step {:.2} ms",
+                        ms(p.default_frames),
+                        ms(p.min_frames),
+                        ms(p.max_frames),
+                        ms(p.fundamental_frames)
+                    );
+                }
+                Err(error) => println!("  engine periods: unavailable ({error})"),
+            }
+        }
+        println!(
+            "render defaults: {:?}; cable roles: {:?}",
+            facts.render_defaults, facts.cable_default_roles
+        );
+        println!("foreign writers: {}", facts.foreign_writers.len());
+        for s in facts.foreign_writers {
+            println!(
+                "  pid {} exe {:?} endpoint {} active {} muted {} peak {:.4}",
+                s.process_id, s.executable, s.endpoint_id, s.active, s.muted, s.peak
+            );
+        }
+        println!(
+            "{}\n{}",
+            facts.format_settings, facts.latency_recommendation
+        );
+        Ok(())
     }
 
     fn devices() -> anyhow::Result<()> {

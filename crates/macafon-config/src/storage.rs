@@ -7,7 +7,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("cannot determine the config directory: neither XDG_CONFIG_HOME nor HOME is set")]
+    #[cfg_attr(
+        not(windows),
+        error("cannot determine the config directory: neither XDG_CONFIG_HOME nor HOME is set")
+    )]
+    #[cfg_attr(
+        windows,
+        error("cannot determine the config directory: APPDATA is not set")
+    )]
     NoConfigDir,
     #[error("{path}: {source}")]
     Io {
@@ -113,6 +120,7 @@ impl Store {
 }
 
 /// `$XDG_CONFIG_HOME/macafon`, falling back to `~/.config/macafon`.
+#[cfg(not(windows))]
 pub fn config_dir() -> Result<PathBuf, Error> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .filter(|value| !value.is_empty())
@@ -120,6 +128,29 @@ pub fn config_dir() -> Result<PathBuf, Error> {
         .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".config")))
         .ok_or(Error::NoConfigDir)?;
     Ok(base.join("macafon"))
+}
+
+/// `%APPDATA%\Macafon` (PRD §13).
+#[cfg(windows)]
+pub fn config_dir() -> Result<PathBuf, Error> {
+    known_dir("APPDATA")
+}
+
+/// Machine-local state that must not roam: logs and restore journals,
+/// `%LOCALAPPDATA%\Macafon` on Windows; the config directory elsewhere.
+pub fn state_dir() -> Result<PathBuf, Error> {
+    #[cfg(windows)]
+    return known_dir("LOCALAPPDATA");
+    #[cfg(not(windows))]
+    config_dir()
+}
+
+#[cfg(windows)]
+fn known_dir(variable: &str) -> Result<PathBuf, Error> {
+    std::env::var_os(variable)
+        .filter(|value| !value.is_empty())
+        .map(|base| Path::new(&base).join("Macafon"))
+        .ok_or(Error::NoConfigDir)
 }
 
 /// Write a temporary file in the same directory, fsync, rename over `path`.

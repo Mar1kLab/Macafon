@@ -5,7 +5,7 @@ pub mod presets;
 mod storage;
 
 pub(crate) use storage::write_atomically;
-pub use storage::{Error, Loaded, Recovered, Store, config_dir};
+pub use storage::{Error, Loaded, Recovered, Store, config_dir, state_dir};
 
 pub use mixer::{AppRule, AppsConfig, ChannelConfig, MixerConfig};
 

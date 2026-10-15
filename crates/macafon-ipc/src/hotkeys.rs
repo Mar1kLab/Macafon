@@ -96,6 +96,8 @@ pub enum HotkeyBackend {
     Portal,
     /// X11 key grabs.
     X11,
+    /// Windows RegisterHotKey with a daemon-owned message loop.
+    Windows,
     /// Neither: use the CLI commands in desktop settings (HK-004).
     Unavailable,
 }

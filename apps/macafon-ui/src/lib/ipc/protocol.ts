@@ -150,7 +150,7 @@ noise_floor_dbfs: number | null, };
 
 export type ConfigRecovery = { backup: string, reason: string, };
 
-export type AutostartMethod = "systemd" | "xdg_autostart";
+export type AutostartMethod = "systemd" | "xdg_autostart" | "windows_run";
 
 export type AutostartState = { enabled: boolean,
 /**
@@ -281,7 +281,7 @@ values: Array<string>, };
 
 export type DoctorReport = { daemon_version: string, pipewire_version: string | null, session_manager: string | null, quantum: number | null, sample_rate_hz: number | null, checks: Array<DoctorCheck>, };
 
-export type HotkeyBackend = "portal" | "x11" | "unavailable";
+export type HotkeyBackend = "portal" | "x11" | "windows" | "unavailable";
 
 export type HotkeyBinding = { action: string,
 /**

@@ -1,12 +1,11 @@
 //! Global hotkeys service (PRD §8.3): the daemon registers them, so they work with the window
 //! closed (HK-003). A helper thread owns the backend; presses arrive on the control loop.
 
-// Windows has no hotkey backend until M3.5; the bindings are built but not registered.
-#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
-
 pub mod accel;
 #[cfg(target_os = "linux")]
 mod portal;
+#[cfg(windows)]
+mod windows;
 #[cfg(target_os = "linux")]
 mod x11;
 
@@ -69,7 +68,14 @@ fn press(control: &ControlSender<ControlMessage>, action: &str, pressed: bool) {
 }
 
 fn run(receiver: mpsc::Receiver<Vec<Binding>>, control: ControlSender<ControlMessage>) {
-    // Windows hotkeys (`global-hotkey`, push-to-talk) come with M3.5.
+    #[cfg(windows)]
+    windows::run(receiver, control);
+    #[cfg(not(windows))]
+    run_other(receiver, control);
+}
+
+#[cfg(not(windows))]
+fn run_other(receiver: mpsc::Receiver<Vec<Binding>>, control: ControlSender<ControlMessage>) {
     #[cfg(target_os = "linux")]
     if let Some(portal) = portal::Portal::connect() {
         return run_portal(portal, receiver, control);

@@ -95,6 +95,7 @@ impl Accel {
     }
 
     /// xdg shortcuts spec trigger: `CTRL+ALT+m`, keys as XKB keysym names.
+    #[cfg(any(target_os = "linux", test))]
     pub fn portal_trigger(&self) -> String {
         let mut parts = Vec::new();
         let m = self.modifiers;
@@ -145,9 +146,61 @@ impl std::fmt::Display for Accel {
     }
 }
 
+pub fn hotkey(accel: &Accel) -> Result<global_hotkey::hotkey::HotKey, String> {
+    let m = accel.modifiers;
+    let mut text = String::new();
+    for (on, name) in [
+        (m.ctrl, "control"),
+        (m.alt, "alt"),
+        (m.shift, "shift"),
+        (m.super_, "super"),
+    ] {
+        if on {
+            text.push_str(name);
+            text.push('+');
+        }
+    }
+    let key = &accel.key;
+    let code = if key.len() == 1 && key.chars().all(|c| c.is_ascii_digit()) {
+        format!("Digit{key}")
+    } else if key.len() == 1 {
+        format!("Key{key}")
+    } else {
+        key.clone()
+    };
+    text.push_str(&code);
+    <global_hotkey::hotkey::HotKey as std::str::FromStr>::from_str(&text)
+        .map_err(|error| error.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_mapping_preserves_modifiers_and_key_codes() {
+        use global_hotkey::hotkey::{Code, HotKey, Modifiers};
+        for (text, key, mods) in [
+            ("Ctrl+Alt+F9", Code::F9, Modifiers::CONTROL | Modifiers::ALT),
+            ("Ctrl+M", Code::KeyM, Modifiers::CONTROL),
+            (
+                "Super+Shift+1",
+                Code::Digit1,
+                Modifiers::SUPER | Modifiers::SHIFT,
+            ),
+        ] {
+            assert_eq!(
+                hotkey(&Accel::parse(text).expect("valid accelerator")),
+                Ok(HotKey::new(Some(mods), key))
+            );
+        }
+        for key in NAMED {
+            assert!(
+                hotkey(&Accel::parse(key).expect("valid named key")).is_ok(),
+                "{key}"
+            );
+        }
+    }
 
     #[test]
     fn shortcuts_parse_to_one_canonical_form() {

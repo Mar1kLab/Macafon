@@ -68,6 +68,8 @@ pub enum AutostartMethod {
     Systemd,
     /// `$XDG_CONFIG_HOME/autostart/macafond.desktop`.
     XdgAutostart,
+    /// Per-user `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value.
+    WindowsRun,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,7 +1,7 @@
 //! Windows: WASAPI and the free VB-CABLE (PRD §12.2, ADR-0004).
 //!
-//! Channels are volume groups on Windows (§12.2.2) and are not wired into the daemon yet, so
-//! the channel-node and default-output functions report that they are unavailable.
+//! Channels are volume groups on Windows (§12.2.2): the backend sets app volumes and the
+//! default output itself, so the channel-node functions here have nothing to do.
 
 use anyhow::{Context, Result};
 use macafon_backend::{Inspection, MicrophoneHost, Node};
@@ -12,6 +12,9 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 pub use win::{ControlReceiver, control_channel};
+
+/// Channels are volume groups, not devices: nothing to make the default output.
+pub const CHANNEL_NODES: bool = false;
 
 /// Channel nodes do not exist on Windows; only used to build names nobody looks up.
 pub const CHANNEL_PREFIX: &str = "macafon_channel_";
@@ -38,10 +41,11 @@ pub fn run<H: MicrophoneHost + 'static>(
     flush: impl FnOnce(),
 ) -> Result<()> {
     let _com = win::ComGuard::new().context("cannot initialise COM")?;
+    let state_dir = state_dir().map_err(anyhow::Error::msg)?;
     if let Err(error) = restore_default_source() {
         tracing::warn!(%error, "Cannot restore previous default microphone yet");
     }
-    win::run_microphone(host, control, || {
+    win::run_microphone(host, control, &state_dir, || {
         flush();
         if let Err(error) = restore_default_source() {
             tracing::warn!(%error, "Cannot restore previous default microphone; recovery journal retained");

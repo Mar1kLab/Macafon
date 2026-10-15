@@ -153,6 +153,16 @@ impl PlaybackStream {
     }
 }
 
+/// The faders that make up one app's volume on Windows (§12.2.2, WIN-CH-002), in percent.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AppMix {
+    pub channel_pct: f32,
+    pub app_pct: f32,
+    pub master_pct: f32,
+    pub channel_muted: bool,
+    pub master_muted: bool,
+}
+
 /// The host side of the mixer; every method runs on the control loop.
 pub trait MixerHost {
     /// Pending channel node changes, polled every 100 ms.
@@ -184,6 +194,21 @@ pub trait MixerHost {
     fn route(&self, _stream: &PlaybackStream) -> Route {
         Route::Ignore
     }
+
+    // Volume groups (Windows, §12.2.2): apps are not routed, Macafon sets their volume.
+
+    /// Channels are on; when they go off the backend gives app volumes back (WIN-CH-008).
+    fn mixer_enabled(&self) -> bool {
+        false
+    }
+    /// The faders of `stream`'s app, `None` while Macafon does not manage it.
+    fn app_mix(&self, _stream: &PlaybackStream) -> Option<AppMix> {
+        None
+    }
+    /// The app's volume was changed outside Macafon (WIN-CH-003); it becomes the app fader.
+    fn app_volume_changed(&mut self, _stream: &PlaybackStream, _volume_pct: f32) {}
+    /// Linear peaks of apps since the last call, by [`PlaybackStream::id`] (WIN-CH-004).
+    fn stream_peaks(&mut self, _peaks: &[(u32, f32)]) {}
 }
 
 /// The daemon side of the microphone and the mixer, driven on the backend's control loop.

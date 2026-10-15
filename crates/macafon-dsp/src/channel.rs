@@ -398,6 +398,15 @@ impl ChannelTelemetry {
         self.enabled.store(enabled, Ordering::Relaxed);
     }
 
+    /// Raise both peaks from outside a processor: on Windows a channel meter is the loudest
+    /// of its apps (WIN-CH-004).
+    pub fn raise_peak(&self, peak_lin: f32) {
+        if self.enabled.load(Ordering::Relaxed) {
+            raise(&self.peak_left, peak_lin);
+            raise(&self.peak_right, peak_lin);
+        }
+    }
+
     pub fn take(&self) -> ChannelMeters {
         ChannelMeters {
             peak_left_dbfs: lin_to_db(take(&self.peak_left)),

@@ -24,7 +24,7 @@ const CONTEXT: GUID = GUID::from_u128(0xac36e42c_763e_4420_976c_6be5be43d672);
 const VOLUME_PENDING: u64 = 1 << 33;
 
 /// Faders in percent (0..100), combined before the shared cubic curve. Mutes are ORed.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MixSettings {
     pub channel_pct: f32,
     pub app_pct: f32,

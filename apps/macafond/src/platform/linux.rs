@@ -7,6 +7,9 @@ use macafon_ipc::Endpoint;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// Channels are PipeWire nodes the default output can point to (OUT-005).
+pub const CHANNEL_NODES: bool = true;
+
 pub use pw::{CHANNEL_PREFIX, ControlReceiver, channel_node_name, control_channel};
 
 pub fn endpoint() -> Result<Endpoint> {

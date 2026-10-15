@@ -9,6 +9,7 @@ mod com;
 pub mod daemon;
 pub mod devices;
 pub mod diagnostics;
+mod groups;
 pub mod journal;
 pub mod microphone;
 pub mod mixer;

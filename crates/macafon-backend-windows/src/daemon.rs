@@ -7,6 +7,7 @@
 
 use crate::com::ComGuard;
 use crate::devices::{DataFlow, Endpoint, EndpointRole, VirtualCable, endpoints, find_vb_cable};
+use crate::groups::VolumeGroups;
 use crate::journal::{self, SystemDefaults};
 use crate::microphone::{MicrophoneConfig, MicrophonePipeline};
 use crate::player::Player;
@@ -55,10 +56,12 @@ fn platform(error: crate::Error) -> Error {
 /// Run the microphone until Ctrl+C, console close, logoff or shutdown, or until the host asks
 /// to quit. The pipeline survives device loss on its own; the session is rebuilt only if an
 /// audio thread stops on an unrecoverable error. `cleanup` runs after the audio stops and
-/// before a console close, logoff or shutdown is allowed to end the process.
+/// before a console close, logoff or shutdown is allowed to end the process. Restore journals
+/// live in `state_dir`.
 pub fn run_microphone<H: MicrophoneHost>(
     host: Rc<RefCell<H>>,
     control: ControlReceiver<H::Message>,
+    state_dir: &Path,
     cleanup: impl FnOnce(),
 ) -> Result<(), Error> {
     let _com = ComGuard::new().map_err(platform)?;
@@ -67,9 +70,15 @@ pub fn run_microphone<H: MicrophoneHost>(
         tracing::warn!(%error, "Cannot handle console shutdown signals");
     }
     host.borrow_mut().started()?;
-    let mut state = LoopState::default();
+    let mut state = LoopState {
+        groups: Some(VolumeGroups::start(state_dir)),
+        ..LoopState::default()
+    };
     let result = state.run(&host, &control);
     state.player = None;
+    if let Some(groups) = &mut state.groups {
+        groups.stop();
+    }
     if let Some(pipeline) = state.pipeline.take() {
         if let Err(error) = pipeline.stop() {
             tracing::warn!(%error, "Audio thread failed while stopping");
@@ -114,6 +123,7 @@ struct LoopState {
     default_render: Option<Option<String>>,
     input: Option<String>,
     clock_reported_at: Option<Instant>,
+    groups: Option<VolumeGroups>,
 }
 
 impl LoopState {
@@ -186,6 +196,11 @@ impl LoopState {
                 let rate = macafon_dsp::SAMPLE_RATE_HZ;
                 host.graph_clock(rate, (period_ms * f64::from(rate) / 1000.0).round() as u32);
             }
+        }
+        // No channel nodes on Windows: drop the DSP the host built for them.
+        drop(host.channel_requests());
+        if let Some(groups) = &mut self.groups {
+            groups.tick(host);
         }
         if let Some(request) = host.player_request() {
             self.player = None;
@@ -294,6 +309,9 @@ impl LoopState {
         if self.default_capture.as_ref() != Some(&capture) {
             host.default_source_changed(capture.as_deref());
             self.default_capture = Some(capture);
+        }
+        if let Some(groups) = &mut self.groups {
+            groups.scan_outputs(host, &self.endpoints);
         }
         let render = crate::devices::default_device(DataFlow::Render, EndpointRole::Console)
             .ok()

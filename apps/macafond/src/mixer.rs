@@ -3,7 +3,7 @@
 //! lives in `Config::mixer` / `Config::apps`; this holds what the graph session needs.
 
 use macafon_apps::{AppIdentity, Category, StreamProps};
-use macafon_backend::{ChannelRequest, Node, PlaybackStream, Route};
+use macafon_backend::{AppMix, ChannelRequest, Node, PlaybackStream, Route};
 use macafon_config::{AppsConfig, ChannelConfig, Config, MixerConfig};
 use macafon_dsp::ChannelTelemetry;
 use macafon_engine::{ChannelControl, EngineError};
@@ -174,7 +174,7 @@ impl Mixer {
     /// OUT-005 while the mixer is on: the default output is the default channel. Retried
     /// every second until the channel node exists.
     pub fn poll_default_sink(&mut self, config: &MixerConfig) {
-        if !self.session || !config.enabled {
+        if !crate::platform::CHANNEL_NODES || !self.session || !config.enabled {
             return;
         }
         let target = crate::platform::channel_node_name(&config.default_channel);
@@ -279,6 +279,47 @@ impl Mixer {
             .map_or(1.0, |rule| {
                 macafon_dsp::channel::volume_gain(rule.volume_pct)
             })
+    }
+
+    // --- Volume groups (Windows, §12.2.2) -------------------------------------------------------
+
+    /// WIN-CH-002: the faders behind a managed app's volume; `None` while it is not managed.
+    pub fn app_mix(&self, config: &Config, stream: &PlaybackStream) -> Option<AppMix> {
+        let Route::Channel(id) = self.route(config, stream) else {
+            return None;
+        };
+        let channel = config.mixer.channel(&id)?;
+        let app = self.identities.get(&stream.id)?;
+        Some(AppMix {
+            channel_pct: channel.settings.volume_pct,
+            app_pct: config
+                .apps
+                .rule(&app.key)
+                .map_or(100.0, |rule| rule.volume_pct),
+            master_pct: config.mixer.master_volume_pct,
+            channel_muted: channel.settings.muted,
+            master_muted: config.mixer.master_muted,
+        })
+    }
+
+    /// The app key and its channel, for remembering a volume changed outside Macafon.
+    pub fn app_of(&self, config: &Config, stream: &PlaybackStream) -> Option<(String, String)> {
+        let app = self.identities.get(&stream.id)?;
+        Some((app.key.clone(), self.channel_for(config, app)))
+    }
+
+    /// WIN-CH-004: a channel meter shows the loudest of its apps.
+    pub fn stream_peaks(&self, config: &Config, peaks: &[(u32, f32)]) {
+        for (id, peak) in peaks {
+            let Some(stream) = self.streams.iter().find(|stream| stream.id == *id) else {
+                continue;
+            };
+            if let Route::Channel(channel) = self.route(config, stream) {
+                if let Some(telemetry) = self.telemetry.get(&channel) {
+                    telemetry.raise_peak(*peak);
+                }
+            }
+        }
     }
 
     // --- State and meters ---------------------------------------------------------------------
@@ -510,5 +551,34 @@ mod tests {
         assert_eq!(mixer.stream_volume(&config, &mixer.streams[1]), 1.0);
         config.mixer.enabled = false;
         assert_eq!(mixer.route(&config, &mixer.streams[0]), Route::Release);
+    }
+
+    #[test]
+    fn volume_groups_combine_channel_app_and_master_faders_of_managed_apps() {
+        let mut config = Config::default();
+        config.mixer.enabled = true;
+        config.mixer.master_volume_pct = 80.0;
+        let mut mixer = Mixer::default();
+        mixer.start_session(&config.mixer).expect("channels build");
+        mixer.streams_changed(&[stream(1, "discord"), stream(2, "firefox")]);
+        let voice = config.mixer.channel_mut("voice").expect("voice");
+        voice.settings.volume_pct = 50.0;
+        voice.settings.muted = true;
+        assign(&mut config.apps, "bin:discord", "voice");
+        config.apps.rules[0].volume_pct = 40.0;
+        assert_eq!(
+            mixer.app_mix(&config, &mixer.streams[0]),
+            Some(AppMix {
+                channel_pct: 50.0,
+                app_pct: 40.0,
+                master_pct: 80.0,
+                channel_muted: true,
+                master_muted: false,
+            })
+        );
+        config.apps.rules[0].managed = false;
+        assert_eq!(mixer.app_mix(&config, &mixer.streams[0]), None);
+        config.mixer.enabled = false;
+        assert_eq!(mixer.app_mix(&config, &mixer.streams[1]), None);
     }
 }

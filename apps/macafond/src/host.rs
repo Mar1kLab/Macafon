@@ -15,8 +15,8 @@ use crate::server::{self, Hub, SocketGuard};
 use crate::tray::{Tray, TrayState};
 use macafon_backend::ControlSender;
 use macafon_backend::{
-    ChannelRequest, Error, MicRt, MicrophoneHost, MixerHost, Node, PlaybackStream, PlayerRequest,
-    Route,
+    AppMix, ChannelRequest, Error, MicRt, MicrophoneHost, MixerHost, Node, PlaybackStream,
+    PlayerRequest, Route,
 };
 use macafon_config::presets::{PresetError, PresetStore};
 use macafon_config::{Config, Store};
@@ -264,6 +264,46 @@ impl MixerHost for DaemonHost {
 
     fn stream_volume(&self, stream: &PlaybackStream) -> f32 {
         self.mixer.stream_volume(&self.config, stream)
+    }
+
+    fn mixer_enabled(&self) -> bool {
+        self.config.mixer.enabled
+    }
+
+    fn app_mix(&self, stream: &PlaybackStream) -> Option<AppMix> {
+        self.mixer.app_mix(&self.config, stream)
+    }
+
+    fn app_volume_changed(&mut self, stream: &PlaybackStream, volume_pct: f32) {
+        let Some((key, channel)) = self.mixer.app_of(&self.config, stream) else {
+            return;
+        };
+        let volume_pct = volume_pct.clamp(0.0, 100.0);
+        if self
+            .config
+            .apps
+            .rule(&key)
+            .is_some_and(|rule| (rule.volume_pct - volume_pct).abs() < 0.5)
+        {
+            return;
+        }
+        crate::mixer::assign(&mut self.config.apps, &key, &channel);
+        if let Some(rule) = self
+            .config
+            .apps
+            .rules
+            .iter_mut()
+            .find(|rule| rule.key == key)
+        {
+            rule.volume_pct = volume_pct;
+        }
+        tracing::debug!(app = %key, volume_pct, "App volume changed outside Macafon");
+        self.changed_at = Some(Instant::now());
+        self.mixer_changed();
+    }
+
+    fn stream_peaks(&mut self, peaks: &[(u32, f32)]) {
+        self.mixer.stream_peaks(&self.config, peaks);
     }
 }
 

@@ -11,9 +11,15 @@
   import { daemon } from '../lib/state';
   import Doctor from '../lib/settings/Doctor.svelte';
   import Hotkeys from '../lib/settings/Hotkeys.svelte';
-  import { t } from '../lib/i18n';
-  import type { CloseAction, InputChannel } from '../lib/ipc/protocol';
+  import { t, type MessageKey } from '../lib/i18n';
+  import type { AutostartMethod, CloseAction, InputChannel } from '../lib/ipc/protocol';
   import { QUANTUM_CHOICES, SAMPLE_RATE_HZ } from '../lib/ipc/dsp';
+
+  const autostartMethodKey: Record<AutostartMethod, MessageKey> = {
+    systemd: 'settings.methodSystemd',
+    xdg_autostart: 'settings.methodXdg',
+    windows_run: 'settings.methodWindowsRun',
+  };
 
   let { onnavigate }: { onnavigate: (screen: 'microphone' | 'mixer') => void } = $props();
   const mic = $derived(daemon.mic);
@@ -94,7 +100,7 @@
           <p class="name">{t('settings.startWithSystem')}</p>
           {#if autostart}
             <p class="hint">
-              {t('settings.startWithSystemHint', { method: autostart.method === 'systemd' ? t('settings.methodSystemd') : t('settings.methodXdg') })}
+              {t('settings.startWithSystemHint', { method: t(autostartMethodKey[autostart.method]) })}
             </p>
           {/if}
         </div>

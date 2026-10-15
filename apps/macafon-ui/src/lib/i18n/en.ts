@@ -239,6 +239,7 @@ export const en = {
     startWithSystemHint: 'Runs the daemon when you log in ({method})',
     methodSystemd: 'systemd --user',
     methodXdg: 'XDG autostart',
+    methodWindowsRun: 'Windows sign-in',
     fallback: 'Fallback microphone',
     fallbackHint: 'Used while the main microphone is disconnected',
     inputChannel: 'Input channel',
@@ -287,6 +288,7 @@ export const en = {
       backends: {
         portal: 'Desktop portal',
         x11: 'X11',
+        windows: 'Windows',
         unavailable: 'Unavailable',
       },
       portalHint: 'Your desktop may ask to confirm a shortcut or assign a different one.',

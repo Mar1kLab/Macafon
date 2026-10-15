@@ -206,6 +206,7 @@ pub fn report(facts: Facts) -> DoctorReport {
     checks.push(match facts.hotkeys {
         macafon_ipc::HotkeyBackend::Portal => check(Id::Hotkeys, S::Ok, vec!["portal".into()]),
         macafon_ipc::HotkeyBackend::X11 => check(Id::Hotkeys, S::Ok, vec!["X11".into()]),
+        macafon_ipc::HotkeyBackend::Windows => check(Id::Hotkeys, S::Ok, vec!["Windows".into()]),
         macafon_ipc::HotkeyBackend::Unavailable => check(Id::Hotkeys, S::Info, Vec::new()),
     });
     DoctorReport {

@@ -51,6 +51,19 @@ mod spike {
         },
         /// Application audio sessions on all render endpoints.
         Sessions,
+        /// Watch app groups and peaks, optionally set an executable's group fader.
+        Mixer {
+            #[arg(long)]
+            exe: Option<String>,
+            #[arg(long, default_value_t = 50.0)]
+            volume: f32,
+            #[arg(long)]
+            mute: bool,
+            #[arg(long, default_value_t = 15)]
+            seconds: u64,
+            #[arg(long, default_value = ".artifacts/mixer-state")]
+            state_dir: std::path::PathBuf,
+        },
         /// Capture → chain → render. Reports latency components and clock drift every second.
         Run(RunOptions),
         /// Measure the delay between two capture endpoints (sanity check of the probe).
@@ -104,6 +117,45 @@ mod spike {
                 restore_after_s,
             } => set_default(&device, restore_after_s),
             Command::Sessions => list_sessions(),
+            Command::Mixer {
+                exe,
+                volume,
+                mute,
+                seconds,
+                state_dir,
+            } => {
+                use macafon_backend_windows::mixer::{MixSettings, SessionWatcher};
+                let watcher = SessionWatcher::start(&state_dir)?;
+                if let Some(exe) = exe {
+                    watcher.set_app(
+                        &exe,
+                        MixSettings {
+                            channel_pct: volume,
+                            channel_muted: mute,
+                            ..MixSettings::default()
+                        },
+                    )?;
+                }
+                let until = Instant::now() + Duration::from_secs(seconds);
+                while Instant::now() < until {
+                    while let Some(event) = watcher.try_event() {
+                        println!("{event:?}");
+                    }
+                    for app in watcher.apps()? {
+                        println!("{app:?}");
+                    }
+                    for peak in watcher.output_peaks()? {
+                        println!("{peak:?}");
+                    }
+                    std::thread::sleep(Duration::from_millis(500));
+                }
+                watcher.restore()?;
+                while let Some(event) = watcher.try_event() {
+                    println!("{event:?}");
+                }
+                println!("conditional session restoration completed");
+                Ok(())
+            }
             Command::Run(options) => run(&options),
             Command::Probe {
                 direct,

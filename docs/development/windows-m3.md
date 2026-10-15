@@ -205,3 +205,34 @@ Communications = Sonar Chat; итоговый снимок ID совпал, жу
 
 Физический hot-plug и Windows 10 не проверены. Полная задержка и численный Max Latency
 требуют отдельного probe/настройки панели; подключение API к демону остаётся другой задачей.
+
+## M3.5: хоткеи и автозапуск
+
+Windows-хоткеи (HK-001…003, §12.2.3) регистрирует `global-hotkey` на отдельном потоке
+с Win32 `GetMessageW` loop. Общий с X11 перевод `Accel` сохранён; переназначение идёт
+через существующий канал. Нажатия и отпускания поступают в control loop, включая PTT;
+переназначение удерживаемой клавиши отправляет отпускание. Конфликты регистрации
+видны в ошибке соответствующего действия. IPC получил `HotkeyBackend::Windows`.
+
+Автозапуск (AS-004) читает/меняет только значение `Macafon` в
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`: `"<macafond.exe>" run`, без UAC.
+Самостоятельно не включается; IPC-метод — `windows_run`. TS-типы сгенерированы штатным
+Cargo-генератором (`pnpm` отсутствовал в PATH); UI вручную не менялся.
+
+Ручная проверка Windows 11: `ctl hotkeys set mic_mute_toggle Ctrl+Alt+F9`, PTT на
+Ctrl+Alt+F10/F11, синтез через `SendInput`, чтение `ctl status`. Mute переключается
+один раз на нажатие; PTT отпускается, включая переназначение при удержании. Занятый
+Ctrl+Alt+F12 возвращает ошибку `bypass_toggle`. `ctl autostart on/off` создаёт/удаляет
+точную команду в реестре; повторный `off` успешен. Демон завершён, значение удалено.
+
+`cargo fmt --all -- --check` и `cargo test -p macafon-ipc --features ts` (7 тестов) прошли.
+В рабочей ветке clippy/тесты демона блокирует exhaustive match в `doctor.rs`: отсутствует
+ветка `HotkeyBackend::Windows`. По просьбе владельца этот файл не менялся. Для проверки
+использована отдельная временная копия с одной добавленной веткой Doctor: Windows
+clippy с `--all-targets -- -D warnings`, тесты macafond/ipc (10/6) и release-сборка прошли;
+ручная проверка выполнялась её бинарниками. Linux helper в WSL на той же копии прошёл
+fmt, clippy, тесты backend/PipeWire/демона (1/6/11; один ignored), release-сборку.
+Копии `check.sh`/`smoke.sh` направлены на проверочную копию внутри worktree;
+`control-smoke` и `hotkeys-smoke` завершились с exit 0: XDG-автозапуск, portal,
+toggle/PTT, пресеты, громкость и OSD сохранили прежнее поведение.
+PTT относится к HK-001; HK-005 в PRD — звуковой сигнал, который здесь не добавлялся.

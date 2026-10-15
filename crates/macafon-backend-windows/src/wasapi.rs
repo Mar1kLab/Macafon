@@ -6,16 +6,19 @@ use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::Media::Audio::{
     AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
     AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, IAudioClient,
-    IAudioClient3, WAVEFORMATEX,
+    IAudioClient3, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
 };
 use windows::Win32::System::Com::{CLSCTX_ALL, CoTaskMemFree};
 use windows::Win32::System::Threading::{
     AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW, CreateEventW,
     WaitForSingleObject,
 };
-use windows::core::w;
+use windows::core::{GUID, Interface, w};
 
 const WAVE_FORMAT_IEEE_FLOAT: u16 = 3;
+const WAVE_FORMAT_EXTENSIBLE: u16 = 0xfffe;
+const KSDATAFORMAT_SUBTYPE_IEEE_FLOAT: GUID =
+    GUID::from_u128(0x00000003_0000_0010_8000_00aa00389b71);
 pub(crate) const HNS_PER_SECOND: f64 = 10_000_000.0;
 
 /// Shared-mode engine periods a device supports at its mix format (IAudioClient3), in frames.
@@ -57,6 +60,18 @@ pub fn engine_periods(device_id: &str) -> Result<EnginePeriods, Error> {
     }
 }
 
+/// Default shared-mode period of a device, in 100 ns units, without opening a stream.
+pub fn device_period_hns(device_id: &str) -> Result<i64, Error> {
+    let device = device_by_id(device_id)?;
+    // SAFETY: COM is initialised by the caller; GetDevicePeriod needs no initialised client.
+    unsafe {
+        let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
+        let mut period = 0;
+        client.GetDevicePeriod(Some(&mut period), None)?;
+        Ok(period)
+    }
+}
+
 pub(crate) struct Stream {
     pub client: IAudioClient,
     event: HANDLE,
@@ -69,6 +84,68 @@ pub(crate) struct Stream {
 }
 
 impl Stream {
+    /// Open `device_id` in the shared-mode engine format at its smallest period
+    /// (IAudioClient3), for render paths where the period dominates latency. The device mix
+    /// format must be 48 kHz float32; `channels` is the mix format's channel count.
+    pub fn open_low_latency(device_id: &str) -> Result<Self, Error> {
+        let device = device_by_id(device_id)?;
+        // SAFETY: COM is initialised on this thread; the mix format stays alive until it is
+        // freed after initialisation; the event handle is owned by the returned Stream.
+        unsafe {
+            let client: IAudioClient3 = device.Activate(CLSCTX_ALL, None)?;
+            let format = client.GetMixFormat()?;
+            let (rate, channels, bits) = (
+                (*format).nSamplesPerSec,
+                (*format).nChannels,
+                (*format).wBitsPerSample,
+            );
+            let float = (*format).wFormatTag == WAVE_FORMAT_IEEE_FLOAT
+                || ((*format).wFormatTag == WAVE_FORMAT_EXTENSIBLE
+                    && std::ptr::addr_of!((*format.cast::<WAVEFORMATEXTENSIBLE>()).SubFormat)
+                        .read_unaligned()
+                        == KSDATAFORMAT_SUBTYPE_IEEE_FLOAT);
+            let result = if rate != macafon_dsp::SAMPLE_RATE_HZ || bits != 32 || !float {
+                Err(Error::Format(format!(
+                    "low-latency mode needs a 48 kHz float mix format, device uses {rate} Hz {bits}-bit"
+                )))
+            } else {
+                let (mut default, mut fundamental, mut min, mut max) = (0, 0, 0, 0);
+                client
+                    .GetSharedModeEnginePeriod(
+                        format,
+                        &mut default,
+                        &mut fundamental,
+                        &mut min,
+                        &mut max,
+                    )
+                    .and_then(|()| {
+                        client.InitializeSharedAudioStream(
+                            AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                            min,
+                            format,
+                            None,
+                        )
+                    })
+                    .map(|()| min)
+                    .map_err(Error::from)
+            };
+            CoTaskMemFree(Some(format.cast()));
+            let period_frames = result?;
+            let client: IAudioClient = client.cast()?;
+            let event = CreateEventW(None, false, false, None)?;
+            let stream = Self {
+                buffer_frames: client.GetBufferSize()?,
+                latency_hns: client.GetStreamLatency()?,
+                client,
+                event,
+                channels,
+                period_hns: (f64::from(period_frames) * HNS_PER_SECOND / f64::from(rate)) as i64,
+            };
+            stream.client.SetEventHandle(stream.event)?;
+            Ok(stream)
+        }
+    }
+
     /// Open `device_id` with `channels` float32 channels at 48 kHz; Windows converts rate and
     /// channel layout from the device mix format. `buffer_hns` 0 picks the engine default.
     pub fn open(device_id: &str, channels: u16, buffer_hns: i64) -> Result<Self, Error> {

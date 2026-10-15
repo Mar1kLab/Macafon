@@ -9,6 +9,7 @@ mod com;
 pub mod devices;
 pub mod microphone;
 pub mod policy;
+pub mod probe;
 pub mod sessions;
 pub mod wasapi;
 

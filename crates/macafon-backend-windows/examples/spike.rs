@@ -24,7 +24,7 @@ mod spike {
     use macafon_backend_windows::devices::VB_CABLE_HARDWARE_ID;
     use macafon_backend_windows::{
         ComGuard, DataFlow, Endpoint, EndpointRole, MicrophoneConfig, MicrophonePipeline,
-        endpoints, find_vb_cable, policy, sessions,
+        endpoints, find_vb_cable, policy, probe, sessions,
     };
     use macafon_dsp::{Preset, Telemetry};
     use std::sync::Arc;
@@ -52,24 +52,40 @@ mod spike {
         /// Application audio sessions on all render endpoints.
         Sessions,
         /// Capture → chain → render. Reports latency components and clock drift every second.
-        Run {
-            /// Capture endpoint ID or part of its name; default: system default microphone.
-            #[arg(long)]
-            input: Option<String>,
-            /// Render endpoint ID or part of its name; default: VB-CABLE `CABLE Input`.
-            #[arg(long)]
-            output: Option<String>,
-            #[arg(long, default_value = "raw")]
-            preset: String,
-            #[arg(long, default_value_t = 20)]
-            seconds: u64,
-            /// Latency kept above the minimum safe level (render buffer + one period).
+        Run(RunOptions),
+        /// Measure the delay between two capture endpoints (sanity check of the probe).
+        Probe {
+            direct: String,
+            processed: String,
             #[arg(long, default_value_t = 2.0)]
-            margin_ms: f64,
-            /// Requested WASAPI buffer per stream; 0 = engine default.
-            #[arg(long, default_value_t = 0.0)]
-            stream_buffer_ms: f64,
+            seconds: f64,
         },
+    }
+
+    #[derive(clap::Args)]
+    struct RunOptions {
+        /// Capture endpoint ID or part of its name; default: system default microphone.
+        #[arg(long)]
+        input: Option<String>,
+        /// Render endpoint ID or part of its name; default: VB-CABLE `CABLE Input`.
+        #[arg(long)]
+        output: Option<String>,
+        #[arg(long, default_value = "raw")]
+        preset: String,
+        #[arg(long, default_value_t = 20)]
+        seconds: u64,
+        /// Latency kept above the minimum safe level (render buffer + one period).
+        #[arg(long, default_value_t = 2.0)]
+        margin_ms: f64,
+        /// Requested WASAPI buffer per stream; 0 = engine default.
+        #[arg(long, default_value_t = 0.0)]
+        stream_buffer_ms: f64,
+        /// Render at the smallest shared-mode period (IAudioClient3).
+        #[arg(long)]
+        low_latency: bool,
+        /// Measure the added latency against the microphone every N seconds (VB-CABLE only).
+        #[arg(long, default_value_t = 0)]
+        probe_every_s: u64,
     }
 
     pub fn main() -> anyhow::Result<()> {
@@ -83,21 +99,22 @@ mod spike {
                 restore_after_s,
             } => set_default(&device, restore_after_s),
             Command::Sessions => list_sessions(),
-            Command::Run {
-                input,
-                output,
-                preset,
+            Command::Run(options) => run(&options),
+            Command::Probe {
+                direct,
+                processed,
                 seconds,
-                margin_ms,
-                stream_buffer_ms,
-            } => run(
-                input.as_deref(),
-                output.as_deref(),
-                &preset,
-                seconds,
-                margin_ms,
-                stream_buffer_ms,
-            ),
+            } => {
+                let list = endpoints()?;
+                let direct = pick(&list, &direct, Some(DataFlow::Capture))?;
+                let processed = pick(&list, &processed, Some(DataFlow::Capture))?;
+                let m = probe::measure_added_latency(&direct.id, &processed.id, seconds)?;
+                println!(
+                    "delay {:.2} ms (correlation {:.3})",
+                    m.added_latency_ms, m.correlation
+                );
+                Ok(())
+            }
         }
     }
 
@@ -216,16 +233,9 @@ mod spike {
         Ok(())
     }
 
-    fn run(
-        input: Option<&str>,
-        output: Option<&str>,
-        preset: &str,
-        seconds: u64,
-        margin_ms: f64,
-        stream_buffer_ms: f64,
-    ) -> anyhow::Result<()> {
+    fn run(options: &RunOptions) -> anyhow::Result<()> {
         let list = endpoints()?;
-        let input = match input {
+        let input = match options.input.as_deref() {
             Some(query) => pick(&list, query, Some(DataFlow::Capture))?,
             None => {
                 let [console, ..] = policy::defaults(DataFlow::Capture)?;
@@ -239,7 +249,7 @@ mod spike {
         if input.is_vb_cable() {
             bail!("the input is VB-CABLE itself; pick a physical microphone with --input");
         }
-        let output = match output {
+        let output = match options.output.as_deref() {
             Some(query) => pick(&list, query, Some(DataFlow::Render))?,
             None => {
                 find_vb_cable(&list)
@@ -247,6 +257,7 @@ mod spike {
                     .input
             }
         };
+        let preset = &options.preset;
         let settings = Preset::from_id(preset)
             .with_context(|| format!("unknown preset {preset}"))?
             .settings();
@@ -261,8 +272,9 @@ mod spike {
             &MicrophoneConfig {
                 input_id: input.id.clone(),
                 output_id: output.id.clone(),
-                latency_margin_ms: margin_ms,
-                stream_buffer_ms,
+                latency_margin_ms: options.margin_ms,
+                stream_buffer_ms: options.stream_buffer_ms,
+                low_latency_render: options.low_latency,
             },
             processor,
         )?;
@@ -276,7 +288,14 @@ mod spike {
             report.render_buffer_ms, report.render_period_ms, report.render_latency_ms
         );
         println!("chain:   {:.2} ms", report.chain_latency_ms);
-        let deadline = Instant::now() + Duration::from_secs(seconds);
+        let probe_target = find_vb_cable(&list)
+            .filter(|cable| cable.input.id == output.id)
+            .map(|cable| cable.output.id);
+        if options.probe_every_s > 0 && probe_target.is_none() {
+            bail!("--probe-every-s needs VB-CABLE as the output");
+        }
+        let deadline = Instant::now() + Duration::from_secs(options.seconds);
+        let mut next_probe = Instant::now() + Duration::from_secs(options.probe_every_s);
         while Instant::now() < deadline && pipeline.is_running() {
             std::thread::sleep(Duration::from_secs(1));
             control.collect_garbage();
@@ -302,6 +321,19 @@ mod spike {
                 r.skipped_frames,
                 r.discontinuities,
             );
+            if let Some(cable_output) = probe_target
+                .as_deref()
+                .filter(|_| options.probe_every_s > 0 && Instant::now() >= next_probe)
+            {
+                match probe::measure_added_latency(&input.id, cable_output, 2.0) {
+                    Ok(m) => println!(
+                        "       probe: added latency {:.2} ms (correlation {:.3}, mic {:.1} dBFS RMS)",
+                        m.added_latency_ms, m.correlation, m.direct_rms_dbfs
+                    ),
+                    Err(error) => println!("       probe failed: {error}"),
+                }
+                next_probe = Instant::now() + Duration::from_secs(options.probe_every_s);
+            }
         }
         pipeline.stop()?;
         Ok(())

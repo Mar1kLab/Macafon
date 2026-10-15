@@ -6,7 +6,7 @@
 
 use crate::Error;
 use crate::com::ComGuard;
-use crate::wasapi::{HNS_PER_SECOND, ProAudioThread, Stream};
+use crate::wasapi::{HNS_PER_SECOND, ProAudioThread, Stream, device_period_hns};
 use assert_no_alloc::assert_no_alloc;
 use macafon_engine::{DriftReader, DriftStats, DriftWriter, MicRt, drift_buffer};
 use std::sync::Arc;
@@ -29,10 +29,13 @@ pub struct MicrophoneConfig {
     pub input_id: String,
     pub output_id: String,
     /// Capture-to-playback latency kept by the drift loop on top of the minimum safe level
-    /// (render buffer + one engine period for the capture packet).
+    /// (render buffer + one capture period).
     pub latency_margin_ms: f64,
     /// Requested WASAPI buffer per stream, ms; 0 lets the audio engine choose.
     pub stream_buffer_ms: f64,
+    /// Render at the device's smallest shared-mode period (IAudioClient3), falling back to
+    /// the default period when the device cannot.
+    pub low_latency_render: bool,
 }
 
 #[derive(Debug, Default)]
@@ -107,7 +110,12 @@ pub struct MicrophonePipeline {
 
 impl MicrophonePipeline {
     pub fn start(config: &MicrophoneConfig, processor: MicRt) -> Result<Self, Error> {
-        let margin_frames = (config.latency_margin_ms * RATE_HZ / 1000.0).round() as i64;
+        // The render side must keep one whole capture packet in reserve: packets arrive once
+        // per capture period, however short the render period is.
+        let capture_period_frames =
+            (device_period_hns(&config.input_id)? as f64 * RATE_HZ / HNS_PER_SECOND).ceil() as i64;
+        let reserve_frames =
+            capture_period_frames + (config.latency_margin_ms * RATE_HZ / 1000.0).round() as i64;
         let (writer, reader) = drift_buffer(1);
         let drift = reader.stats();
         let stop = Arc::new(AtomicBool::new(false));
@@ -115,6 +123,7 @@ impl MicrophonePipeline {
         let buffer_hns = (config.stream_buffer_ms * HNS_PER_SECOND / 1000.0) as i64;
         let chain_latency_samples = processor.latency_samples();
 
+        let low_latency = config.low_latency_render;
         let (ready_tx, ready_rx) = mpsc::channel();
         let render = {
             let (stop, counters, id, ready) = (
@@ -127,7 +136,8 @@ impl MicrophonePipeline {
                 render_loop(
                     &id,
                     buffer_hns,
-                    margin_frames,
+                    low_latency,
+                    reserve_frames,
                     reader,
                     &stop,
                     &counters,
@@ -309,17 +319,27 @@ fn capture_loop(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_loop(
     device_id: &str,
     buffer_hns: i64,
-    margin_frames: i64,
+    low_latency: bool,
+    reserve_frames: i64,
     mut reader: DriftReader,
     stop: &AtomicBool,
     counters: &Counters,
     ready: mpsc::Sender<Result<StreamInfo, Error>>,
 ) -> Result<(), Error> {
     let _com = ComGuard::new()?;
-    let opened = Stream::open(device_id, RENDER_CHANNELS, buffer_hns).and_then(|stream| {
+    let stream = if low_latency {
+        Stream::open_low_latency(device_id).or_else(|error| {
+            tracing::warn!("low-latency render unavailable, using the default period: {error}");
+            Stream::open(device_id, RENDER_CHANNELS, buffer_hns)
+        })
+    } else {
+        Stream::open(device_id, RENDER_CHANNELS, buffer_hns)
+    };
+    let opened = stream.and_then(|stream| {
         // SAFETY: the client was initialised by Stream::open.
         let client: IAudioRenderClient = unsafe { stream.client.GetService() }?;
         Ok((stream, client))
@@ -336,7 +356,7 @@ fn render_loop(
     // A request may refill the whole render buffer while the next capture packet is still
     // pending; keeping at least that much in flight rules out underruns (see drift.rs).
     let period_frames = (stream.period_hns as f64 * RATE_HZ / HNS_PER_SECOND).ceil() as i64;
-    let target = i64::from(buffer_frames) + period_frames + margin_frames;
+    let target = i64::from(buffer_frames) + reserve_frames.max(period_frames);
     reader.set_target(target.max(i64::from(buffer_frames)) as usize);
     let mut mono = vec![0.0f32; buffer_frames as usize].into_boxed_slice();
     // SAFETY: prefill the whole buffer with silence before Start, as WASAPI expects.

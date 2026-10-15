@@ -10,9 +10,11 @@
 
 mod ab;
 mod channel;
+mod drift;
 
 pub use ab::{AbControl, AbRt, SWITCH_FADE_SAMPLES, ab_player};
 pub use channel::{ChannelControl, ChannelRt, channel};
+pub use drift::{DriftReader, DriftStats, DriftWriter, MAX_RATIO_DEVIATION, drift_buffer};
 
 use macafon_dsp::{
     ChainSettings, MicrophoneProcessor, ParameterError, ProcessorBuildError, Telemetry,

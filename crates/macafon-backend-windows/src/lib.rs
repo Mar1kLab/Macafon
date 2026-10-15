@@ -7,6 +7,7 @@
 
 mod com;
 pub mod devices;
+pub mod journal;
 pub mod microphone;
 pub mod policy;
 pub mod probe;
@@ -25,6 +26,8 @@ pub enum Error {
     DeviceNotFound(String),
     #[error("device format not supported: {0}")]
     Format(String),
+    #[error("restore journal: {0}")]
+    Journal(String),
     #[error("audio thread failed: {0}")]
     Thread(String),
 }

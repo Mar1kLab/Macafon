@@ -86,6 +86,11 @@ mod spike {
         /// Measure the added latency against the microphone every N seconds (VB-CABLE only).
         #[arg(long, default_value_t = 0)]
         probe_every_s: u64,
+        /// Switch the input to this endpoint (ID or part of its name) after `--switch-after-s`.
+        #[arg(long)]
+        switch_input: Option<String>,
+        #[arg(long, default_value_t = 10)]
+        switch_after_s: u64,
     }
 
     pub fn main() -> anyhow::Result<()> {
@@ -270,8 +275,8 @@ mod spike {
         );
         let pipeline = MicrophonePipeline::start(
             &MicrophoneConfig {
-                input_id: input.id.clone(),
-                output_id: output.id.clone(),
+                input_id: Some(input.id.clone()),
+                output_id: Some(output.id.clone()),
                 latency_margin_ms: options.margin_ms,
                 stream_buffer_ms: options.stream_buffer_ms,
                 low_latency_render: options.low_latency,
@@ -295,6 +300,7 @@ mod spike {
             bail!("--probe-every-s needs VB-CABLE as the output");
         }
         let deadline = Instant::now() + Duration::from_secs(options.seconds);
+        let mut switch_input = options.switch_input.clone();
         let mut next_probe = Instant::now() + Duration::from_secs(options.probe_every_s);
         while Instant::now() < deadline && pipeline.is_running() {
             std::thread::sleep(Duration::from_secs(1));
@@ -303,7 +309,7 @@ mod spike {
             let r = pipeline.report();
             println!(
                 "{:>5.0}s in {:>6.1} dBFS out {:>6.1} dBFS | level {:>5.2} ms (buffer min {:>5.2}), render queue {:>5.2} ms, max packet {:>5.2}/{:>5.2} ms, \
-                 est. {:>5.1} ms | drift {:>+5} ppm (rates {:.1}/{:.1} Hz) | underruns {} dropped {} skipped {} gaps {}",
+                 est. {:>5.1} ms | drift {:>+5} ppm (rates {:.1}/{:.1} Hz) | underruns {} dropped {} skipped {} gaps {} | in {} out {} reopened {}",
                 r.elapsed_s,
                 meters.input_peak_dbfs,
                 meters.output_peak_dbfs,
@@ -320,7 +326,21 @@ mod spike {
                 r.dropped_frames,
                 r.skipped_frames,
                 r.discontinuities,
+                if r.input_connected { "up" } else { "DOWN" },
+                if r.output_connected { "up" } else { "DOWN" },
+                r.reconnects,
             );
+            if let Some(query) = switch_input
+                .as_deref()
+                .filter(|_| r.elapsed_s >= options.switch_after_s as f64)
+            {
+                let target = pick(&list, query, Some(DataFlow::Capture))
+                    .map(|endpoint| endpoint.id)
+                    .unwrap_or_else(|_| query.to_owned());
+                println!("       switching input to {target}");
+                pipeline.set_input(Some(target));
+                switch_input = None;
+            }
             if let Some(cable_output) = probe_target
                 .as_deref()
                 .filter(|_| options.probe_every_s > 0 && Instant::now() >= next_probe)

@@ -5,7 +5,7 @@
 
 use crate::Error;
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
-    CM_Get_DevNode_PropertyW, CM_Get_Device_IDW, CM_Get_Parent, CM_LOCATE_DEVNODE_NORMAL,
+    CM_Get_DevNode_PropertyW, CM_Get_Device_IDW, CM_Get_Parent, CM_LOCATE_DEVNODE_PHANTOM,
     CM_Locate_DevNodeW, CR_SUCCESS,
 };
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
@@ -14,9 +14,9 @@ use windows::Win32::Devices::Properties::{
 };
 use windows::Win32::Foundation::DEVPROPKEY;
 use windows::Win32::Media::Audio::{
-    DEVICE_STATE_ACTIVE, EDataFlow, ERole, IMMDevice, IMMDeviceEnumerator, IMMEndpoint,
-    MMDeviceEnumerator, PKEY_AudioEndpoint_FormFactor, Speakers, eAll, eCapture, eCommunications,
-    eConsole, eMultimedia, eRender,
+    DEVICE_STATE, DEVICE_STATE_ACTIVE, DEVICE_STATEMASK_ALL, EDataFlow, ERole, IMMDevice,
+    IMMDeviceEnumerator, IMMEndpoint, MMDeviceEnumerator, PKEY_AudioEndpoint_FormFactor, Speakers,
+    eAll, eCapture, eCommunications, eConsole, eMultimedia, eRender,
 };
 use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance, CoTaskMemFree, STGM_READ};
 use windows::core::{HSTRING, Interface, PCWSTR};
@@ -106,9 +106,19 @@ pub(crate) fn enumerator() -> Result<IMMDeviceEnumerator, Error> {
 
 /// All active capture and render endpoints.
 pub fn endpoints() -> Result<Vec<Endpoint>, Error> {
+    enumerate(DEVICE_STATE_ACTIVE)
+}
+
+/// Installed endpoints, including disabled, unplugged and not-present endpoints.
+/// Use endpoints() for selection; this inventory is for installation diagnostics only.
+pub fn installed_endpoints() -> Result<Vec<Endpoint>, Error> {
+    enumerate(DEVICE_STATE(DEVICE_STATEMASK_ALL))
+}
+
+fn enumerate(states: DEVICE_STATE) -> Result<Vec<Endpoint>, Error> {
     let enumerator = enumerator()?;
     // SAFETY: plain COM calls on a live enumerator.
-    let collection = unsafe { enumerator.EnumAudioEndpoints(eAll, DEVICE_STATE_ACTIVE) }?;
+    let collection = unsafe { enumerator.EnumAudioEndpoints(eAll, states) }?;
     let count = unsafe { collection.GetCount() }?;
     let mut result = Vec::with_capacity(count as usize);
     for index in 0..count {
@@ -202,7 +212,7 @@ fn adapter_devnode(endpoint_id: &str) -> Option<u32> {
         if CM_Locate_DevNodeW(
             &mut endpoint,
             PCWSTR(path.as_ptr()),
-            CM_LOCATE_DEVNODE_NORMAL,
+            CM_LOCATE_DEVNODE_PHANTOM,
         ) != CR_SUCCESS
             || CM_Get_Parent(&mut parent, endpoint, 0) != CR_SUCCESS
         {

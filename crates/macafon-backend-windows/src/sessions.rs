@@ -1,5 +1,5 @@
 //! Application audio sessions on render endpoints (WIN-CH-001, WIN-CH-002, WIN-CH-004).
-//! M3.0: read-only snapshot; notifications and volume control come with M3.4.
+//! Read-only diagnostic snapshot. Live app groups and control are in [`crate::mixer`].
 
 use crate::Error;
 use crate::devices::{DataFlow, device_id, enumerator};
@@ -73,7 +73,7 @@ pub fn sessions() -> Result<Vec<Session>, Error> {
     Ok(result)
 }
 
-fn executable(process_id: u32) -> Option<String> {
+pub(crate) fn executable(process_id: u32) -> Option<String> {
     if process_id == 0 {
         return None;
     }

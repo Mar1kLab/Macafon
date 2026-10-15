@@ -8,8 +8,12 @@
 mod com;
 pub mod daemon;
 pub mod devices;
+pub mod diagnostics;
 pub mod journal;
 pub mod microphone;
+pub mod mixer;
+mod mixer_journal;
+pub mod output;
 mod player;
 pub mod policy;
 pub mod probe;

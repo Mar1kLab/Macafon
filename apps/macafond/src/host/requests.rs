@@ -149,17 +149,16 @@ impl DaemonHost {
             | Request::AbSetLoudnessMatch { .. }
             | Request::AbGet
             | Request::AbWaveform { .. }) => return self.respond_ab(request),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", windows))]
             Request::AutostartGet => return Ok(serde_json::json!(crate::autostart::state())),
-            // Start with Windows (`HKCU\…\Run`) comes with M3.5.
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(not(any(target_os = "linux", windows)))]
             Request::AutostartGet | Request::AutostartSet { .. } => {
                 return Err(ErrorBody::new(
                     ErrorCode::NotFound,
                     "start with the system is not available on this platform yet",
                 ));
             }
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", windows))]
             Request::AutostartSet { enabled } => {
                 let state = crate::autostart::set(enabled)
                     .map_err(|message| ErrorBody::new(ErrorCode::Internal, message))?;

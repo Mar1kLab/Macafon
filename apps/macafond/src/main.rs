@@ -1,6 +1,9 @@
 mod ab;
 #[cfg(target_os = "linux")]
 mod autostart;
+#[cfg(windows)]
+#[path = "autostart_windows.rs"]
+mod autostart;
 mod calibration;
 mod doctor;
 mod host;

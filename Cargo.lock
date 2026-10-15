@@ -2495,6 +2495,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "macafon-backend-windows"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_no_alloc",
+ "clap",
+ "macafon-dsp",
+ "macafon-engine",
+ "thiserror 2.0.21",
+ "tracing",
+ "windows",
+ "windows-core",
+]
+
+[[package]]
 name = "macafon-cli"
 version = "0.1.0"
 dependencies = [

@@ -233,6 +233,11 @@ impl MicrophonePipeline {
         self.shared.render.connected.load(Ordering::Acquire)
     }
 
+    /// Current capture period, ms; 0 while no microphone is open.
+    pub fn capture_period_ms(&self) -> f64 {
+        self.shared.capture.period_hns.load(Ordering::Relaxed) as f64 / 10_000.0
+    }
+
     /// False once a thread has stopped on an unrecoverable error.
     pub fn is_running(&self) -> bool {
         self.threads.iter().all(|thread| !thread.is_finished())

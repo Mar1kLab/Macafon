@@ -19,17 +19,14 @@ mod profiler;
 mod routing;
 
 pub use channel_node::{CHANNEL_PREFIX, channel_node_name};
-pub use inspect::{Inspection, inspect, version_at_least};
+pub use inspect::inspect;
 
-/// `node.name` of the virtual microphone (MIC-010).
-pub const VIRTUAL_MIC_NAME: &str = "macafon_mic";
-
-pub use profiler::DriverLoad;
 pub use routing::route_stream;
 
 pub use macafon_backend::{
-    AbRt, ChannelRequest, ChannelRt, ControlSender, DEFAULT_QUANTUM_FRAMES, MicRt, MicrophoneHost,
-    MixerHost, Node, PlaybackStream, PlayerRequest, Route,
+    AbRt, ChannelRequest, ChannelRt, ControlSender, DEFAULT_QUANTUM_FRAMES, DriverLoad, Inspection,
+    MicRt, MicrophoneHost, MixerHost, Node, PlaybackStream, PlayerRequest, Route, VIRTUAL_MIC_NAME,
+    version_at_least,
 };
 use pipewire as pw;
 

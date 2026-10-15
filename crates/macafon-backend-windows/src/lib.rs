@@ -1,20 +1,26 @@
 //! Windows audio backend (PRD §12.2, ADR-0004): WASAPI capture → `macafon-dsp` → VB-CABLE,
 //! endpoint discovery, default devices and application audio sessions.
 //!
-//! M3.0 spike state: the pieces are usable from `examples/spike.rs`; the daemon does not use
-//! them yet. Everything compiles to an empty crate on other platforms.
+//! `daemon` drives the daemon's host on Windows; `examples/spike.rs` exercises the pieces by
+//! hand. Everything compiles to an empty crate on other platforms.
 #![cfg(windows)]
 
 mod com;
+pub mod daemon;
 pub mod devices;
 pub mod journal;
 pub mod microphone;
+mod player;
 pub mod policy;
 pub mod probe;
 pub mod sessions;
 pub mod wasapi;
 
 pub use com::ComGuard;
+pub use daemon::{
+    ControlReceiver, control_channel, output_devices, restore_default_microphone, run_microphone,
+    set_default_microphone,
+};
 pub use devices::{DataFlow, Endpoint, EndpointRole, VirtualCable, endpoints, find_vb_cable};
 pub use microphone::{MicrophoneConfig, MicrophonePipeline, PipelineReport};
 

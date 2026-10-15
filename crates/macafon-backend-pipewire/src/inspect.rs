@@ -1,25 +1,13 @@
 //! One-shot snapshot of the graph for diagnostics (PRD §9.6): server and session manager
 //! versions, nodes and links. Runs on its own connection; never touches the audio session.
 
-use crate::{Connection, Error, Node, node};
+use crate::{Connection, Error, Inspection, node};
 use pipewire::{self as pw, types::ObjectType};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
     time::Duration,
 };
-
-#[derive(Debug, Clone, Default)]
-pub struct Inspection {
-    pub server_version: String,
-    /// `application.name` and `application.version` of the session manager, if one runs.
-    pub session_manager: Option<(String, String)>,
-    pub nodes: Vec<Node>,
-    /// `(output node id, input node id)` of every link.
-    pub links: Vec<(u32, u32)>,
-    /// Load and xruns of the driver running Macafon Microphone, from a short profiler sample.
-    pub load: Option<crate::profiler::DriverLoad>,
-}
 
 /// Profiler events arrive every cycle; this is many cycles even at quantum 1024.
 const LOAD_SAMPLE: Duration = Duration::from_millis(300);
@@ -112,24 +100,4 @@ pub fn inspect() -> Result<Inspection, Error> {
     }
     let inspection = result.borrow().clone();
     Ok(inspection)
-}
-
-/// `major.minor` of a version string, for comparisons.
-pub fn version_at_least(version: &str, major: u32, minor: u32) -> bool {
-    let mut parts = version
-        .split('.')
-        .map(|part| part.parse::<u32>().unwrap_or(0));
-    let found = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
-    found >= (major, minor)
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn versions_compare_by_major_and_minor() {
-        assert!(super::version_at_least("1.6.2", 1, 0));
-        assert!(super::version_at_least("0.5.13", 0, 5));
-        assert!(!super::version_at_least("0.4.17", 0, 5));
-        assert!(!super::version_at_least("", 1, 0));
-    }
 }

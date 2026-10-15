@@ -1,5 +1,5 @@
 //! PipeWire cycle measurements arrive on the control loop, never the audio thread.
-use crate::Error;
+use crate::{DriverLoad, Error};
 use pipewire::{self as pw, spa::pod::Pod};
 use std::{ffi::c_void, ptr::NonNull};
 
@@ -18,15 +18,6 @@ struct Data {
     callback: Box<dyn FnMut(u64, u64)>,
     /// Set for a load sampler: the driver info of cycles that ran `node_id`.
     load: Option<Box<dyn FnMut(DriverLoad)>>,
-}
-
-/// `SPA_PROFILER_info` of the driver that runs a node (Doctor, §9.6).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DriverLoad {
-    /// DSP load of the driver's cycles, fast/medium/slow averages, 0…1.
-    pub cpu_load: [f32; 3],
-    /// Xruns of the driver since it started.
-    pub xrun_count: u32,
 }
 
 #[derive(Clone, Copy)]

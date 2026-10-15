@@ -8,6 +8,10 @@
 pub use macafon_engine::{AbRt, ChannelRt, MicRt};
 use std::sync::Arc;
 
+/// Host-facing name of Macafon's virtual microphone (MIC-010): the PipeWire `node.name` on
+/// Linux; on Windows the backend reports `CABLE Output` under this name.
+pub const VIRTUAL_MIC_NAME: &str = "macafon_mic";
+
 /// `node.latency` every Macafon node is created with: 128 frames = 2.7 ms (§9.5).
 pub const DEFAULT_QUANTUM_FRAMES: u32 = 128;
 
@@ -41,6 +45,37 @@ pub struct Node {
     /// `usb`, `builtin`, `headset`, `bluetooth` or `unknown`.
     pub kind: &'static str,
     pub form_factor: String,
+}
+
+/// Snapshot of the audio server for the Doctor (PRD §9.6); PipeWire only.
+#[derive(Debug, Clone, Default)]
+pub struct Inspection {
+    pub server_version: String,
+    /// `application.name` and `application.version` of the session manager, if one runs.
+    pub session_manager: Option<(String, String)>,
+    pub nodes: Vec<Node>,
+    /// `(output node id, input node id)` of every link.
+    pub links: Vec<(u32, u32)>,
+    /// Load and xruns of the driver running Macafon Microphone, from a short profiler sample.
+    pub load: Option<DriverLoad>,
+}
+
+/// `SPA_PROFILER_info` of the driver that runs a node (Doctor, §9.6).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DriverLoad {
+    /// DSP load of the driver's cycles, fast/medium/slow averages, 0…1.
+    pub cpu_load: [f32; 3],
+    /// Xruns of the driver since it started.
+    pub xrun_count: u32,
+}
+
+/// `major.minor` of a version string, for comparisons.
+pub fn version_at_least(version: &str, major: u32, minor: u32) -> bool {
+    let mut parts = version
+        .split('.')
+        .map(|part| part.parse::<u32>().unwrap_or(0));
+    let found = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+    found >= (major, minor)
 }
 
 /// Start or stop the A/B playback stream (PRD §6.4).
@@ -234,5 +269,16 @@ impl<T> ControlSender<T> {
     /// Returns the message back if the control loop has exited.
     pub fn send(&self, message: T) -> Result<(), T> {
         (self.0)(message)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn versions_compare_by_major_and_minor() {
+        assert!(super::version_at_least("1.6.2", 1, 0));
+        assert!(super::version_at_least("0.5.13", 0, 5));
+        assert!(!super::version_at_least("0.4.17", 0, 5));
+        assert!(!super::version_at_least("", 1, 0));
     }
 }

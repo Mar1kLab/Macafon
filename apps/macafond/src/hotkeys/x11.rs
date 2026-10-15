@@ -1,10 +1,9 @@
 //! X11 key grabs through `global-hotkey` (HK-003). Used only in X11 sessions: on Wayland an
 //! XWayland grab would not see keys pressed in native windows.
 
-use super::accel::Accel;
+use super::accel::{Accel, hotkey};
 use global_hotkey::{GlobalHotKeyManager, hotkey::HotKey};
 use std::collections::HashMap;
-use std::str::FromStr;
 
 /// An X11 session with a reachable local display.
 pub fn available() -> bool {
@@ -20,32 +19,6 @@ pub fn available() -> bool {
     number.is_some_and(|n| {
         std::os::unix::net::UnixStream::connect(format!("/tmp/.X11-unix/X{n}")).is_ok()
     })
-}
-
-fn hotkey(accel: &Accel) -> Result<HotKey, String> {
-    let m = accel.modifiers;
-    let mut text = String::new();
-    for (on, name) in [
-        (m.ctrl, "control"),
-        (m.alt, "alt"),
-        (m.shift, "shift"),
-        (m.super_, "super"),
-    ] {
-        if on {
-            text.push_str(name);
-            text.push('+');
-        }
-    }
-    let key = &accel.key;
-    let code = if key.len() == 1 && key.chars().all(|c| c.is_ascii_digit()) {
-        format!("Digit{key}")
-    } else if key.len() == 1 {
-        format!("Key{key}")
-    } else {
-        key.clone()
-    };
-    text.push_str(&code);
-    HotKey::from_str(&text).map_err(|error| error.to_string())
 }
 
 pub struct X11 {

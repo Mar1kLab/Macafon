@@ -40,7 +40,6 @@ pub enum ControlMessage {
     },
     Disconnected,
     /// A global shortcut went down or up (HK-001).
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))] // no hotkey backend before M3.5
     Hotkey {
         action: String,
         pressed: bool,

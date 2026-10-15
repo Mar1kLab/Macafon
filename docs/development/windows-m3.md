@@ -49,7 +49,7 @@ cargo run --release -p macafon-backend-windows --example spike -- run --input So
   пишутся из другого потока, пока чтение заблокировано). Второй владелец имени отвергается.
   `Client` и `macafon ctl` перешли на `Endpoint`; на Linux остаётся прежний Unix-сокет.
 
-## M3.1: начато
+## M3.1: платформенный слой
 
 - Hot-plug и смена устройств на лету (WIN-MIC-006): потоки захвата и вывода переживают
   пропажу устройства и смену его формата, переоткрывают его раз в 500 мс; вход и выход
@@ -62,8 +62,48 @@ cargo run --release -p macafon-backend-windows --example spike -- run --input So
   наш; если исходное устройство отключено, журнал остаётся до следующего старта.
 - Пути: конфиг `%APPDATA%\Macafon`, состояние и журналы `%LOCALAPPDATA%\Macafon`
   (`macafon_config::state_dir`).
-- Общий trait бэкенда и сборка `macafond` на Windows не начаты: они меняют Linux-код, который
-  без сборки под Linux (WSL с PipeWire) не проверить.
+- Общий контракт бэкенда — крейт `macafon-backend` (`MicrophoneHost`, `MixerHost`, `Node`,
+  `PlaybackStream`, `ControlSender`, снимок графа для Doctor). PipeWire-крейт и Windows-крейт
+  реализуют его; демон выбирает платформу в `apps/macafond/src/platform/{linux,windows}.rs`.
+- `macafond` и `macafon` собираются и работают на Windows (2026-10-16). Цикл управления —
+  `macafon-backend-windows::daemon`: опрос хоста раз в 100 мс, пересканирование эндпоинтов раз
+  в секунду (кабель скрыт, WIN-MIC-009), A/B через свой WASAPI-поток, Ctrl+C / закрытие консоли /
+  logoff / shutdown останавливают его после восстановления default (WIN-MIC-005). Сервер
+  управления — named pipe. Лог — `%LOCALAPPDATA%\Macafon\macafond.log`.
+- Каналы как группы громкости (WIN-CH-001…004, 007, 008): приложения из `SessionWatcher`
+  передаются хосту как потоки (по exe), канал и фейдеры берёт существующий `Mixer` демона
+  (`MixerHost::app_mix`), громкость сессии = кривая (канал × приложение × Master). Изменение в
+  микшере Windows становится фейдером приложения; пики приложений идут в метры каналов;
+  выбранный выход становится default render, пока каналы включены; выключение микшера и Quit
+  возвращают громкости и default.
+
+### Проверено на стенде (Windows 11, HyperX SoloCast, VB-CABLE)
+
+| | Результат |
+|---|---|
+| Звук в `CABLE Output` (`spike probe`, пресет raw) | задержка 85,5 мс, корреляция 0,997; mute — тишина (корреляция 0,00) |
+| `ctl status / devices / doctor / meters` по named pipe | работают; кабель не виден в списке микрофонов |
+| Смена микрофона на лету (`ctl device`) | HyperX → Steam Streaming Microphone → HyperX без перезапуска |
+| `ctl set-default --confirm` / `restore-default` | `CABLE Output` по всем ролям и обратно |
+| Quit после set-default | default-микрофон восстановлен, журнал удалён |
+| Kill процесса после set-default | журнал остался; следующий старт восстановил default |
+| A/B (`ab record` 3 с, `ab play --device`) | играет, позиция идёт, `ab stop` останавливает |
+| Микшер: `ctl mixer on`, `channel main volume 50` | группировка по exe, Discord/Telegram → voice; сессии 12 % (0,5³); mute канала |
+| `ctl mixer off` | громкости сессий возвращены (журнал остаётся только для завершившихся приложений) |
+
+### Не сделано / ограничения
+
+- Doctor на Windows показывает только общие проверки; проверки кабеля, форматов, чужих сессий
+  и задержки (`diagnostics.rs`) ещё не выведены в протокол — нужны новые `DoctorCheckId` и
+  строки UI (M3.3).
+- Трей, уведомления — M3.5; хоткеи и автозапуск — в работе.
+- Неуправляемое приложение (`managed = false`) сохраняет последнюю выставленную громкость до
+  выключения микшера или Quit: у `SessionWatcher` нет восстановления одного приложения.
+- Метры каналов обновляются раз в 100 мс (опрос пиков сессий).
+- Закрытие консоли, logoff и shutdown не проверялись вручную; у фонового процесса без консоли
+  (будущий `windows`-subsystem) нужен ещё обработчик `WM_QUERYENDSESSION`.
+- Обработка Studio-перегрузки по времени цикла (NFR-S3) на Windows не подключена.
+- Часовой soak не проводился.
 
 ## Замеры
 

@@ -74,6 +74,8 @@ pub struct App {
     /// Lowercase executable file name, or [`SYSTEM_SOUNDS`]. Unknown protected processes
     /// use a PID-scoped pseudo key, never one shared "unknown application" group.
     pub exe: String,
+    /// Full executable path used to resolve the application icon.
+    pub executable: Option<String>,
     pub session_count: usize,
     pub active: bool,
     pub app_pct: f32,
@@ -202,6 +204,7 @@ impl Drop for SessionWatcher {
 }
 
 struct LiveSession {
+    executable: Option<String>,
     key: Key,
     instance: String,
     control: IAudioSessionControl2,
@@ -325,10 +328,15 @@ impl Worker {
                     continue;
                 }
                 let pid = control.GetProcessId().unwrap_or(0);
-                let exe = if control.IsSystemSoundsSession() == S_OK {
+                let system = control.IsSystemSoundsSession() == S_OK;
+                let executable = (!system)
+                    .then(|| crate::sessions::executable(pid))
+                    .flatten();
+                let exe = if system {
                     SYSTEM_SOUNDS.into()
                 } else {
-                    crate::sessions::executable(pid)
+                    executable
+                        .as_deref()
                         .and_then(|p| p.rsplit('\\').next().map(str::to_lowercase))
                         .unwrap_or_else(|| format!("<process-{pid}>"))
                 };
@@ -343,6 +351,7 @@ impl Worker {
                 control.RegisterAudioSessionNotification(&callback)?;
                 added.push(instance.clone());
                 self.sessions.push(LiveSession {
+                    executable,
                     key: Key { exe, endpoint },
                     instance,
                     volume,
@@ -450,12 +459,16 @@ impl Worker {
                         });
                 let app = apps.entry(session.key.exe.clone()).or_insert(App {
                     exe: session.key.exe.clone(),
+                    executable: session.executable.clone(),
                     session_count: 0,
                     active: false,
                     app_pct: settings.app_pct,
                     muted: true,
                     peak: 0.0,
                 });
+                if app.executable.is_none() {
+                    app.executable = session.executable.clone();
+                }
                 app.session_count += 1;
                 app.active |= session.control.GetState()? == AudioSessionStateActive;
                 app.muted &= session.volume.GetMute()?.as_bool();

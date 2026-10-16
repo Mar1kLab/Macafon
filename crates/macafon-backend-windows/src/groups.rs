@@ -200,6 +200,7 @@ fn stream(id: u32, app: &App) -> PlaybackStream {
             app.exe.trim_matches(['<', '>']).to_owned()
         }),
         // macafon-apps maps event streams to the System sounds pseudo-app (APP-011).
+        icon_name: app.executable.clone(),
         media_role: system.then(|| "event".to_owned()),
         running: app.active,
         movable: true,

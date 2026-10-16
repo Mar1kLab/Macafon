@@ -92,6 +92,15 @@ cargo run --release -p macafon-backend-windows --example spike -- run --input So
 | Микшер: `ctl mixer on`, `channel main volume 50` | группировка по exe, Discord/Telegram → voice; сессии 12 % (0,5³); mute канала |
 | `ctl mixer off` | громкости сессий возвращены (журнал остаётся только для завершившихся приложений) |
 
+### Иконки приложений (2026-10-16)
+
+Полный путь exe проходит из сессии через `PlaybackStream.icon_name` в `AppState.icon`
+(APP-003, WIN-CH-001). `apps.icon` извлекает 32×32 иконку через `ExtractIconExW`, рисует
+её в BGRA DIB и возвращает PNG data URL; кэш и TTL промахов сохранены. Используется
+уже имеющийся в lockfile лёгкий `png` (MIT/Apache-2.0), без `image`.
+AppX-манифесты отдельно не читаются: для WindowsApps используется иконка exe, при её
+отсутствии — прежний UI fallback. Системные звуки сохраняют прежнюю псевдо-иконку.
+
 ### Не сделано / ограничения
 
 - ~~Doctor без проверок кабеля~~, ~~трей и уведомления~~ — сделаны 2026-10-16 (разделы ниже).

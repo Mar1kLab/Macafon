@@ -37,6 +37,9 @@ struct Entry {
     previous: Option<String>,
     /// What Macafon set; restoring only happens while this is still the default.
     ours: String,
+    /// A write-ahead target; either choice may still be current if the call fails or crashes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending: Option<String>,
 }
 
 // Stable on-disk names, independent of the Rust enums.
@@ -122,12 +125,20 @@ pub fn set_default(
             .find(|entry| (entry.flow, entry.role) == key)
         {
             // Already ours from an earlier change: keep the original `previous`.
-            Some(entry) => entry.ours = device_id.to_owned(),
+            Some(entry) => {
+                if entry.pending.as_deref() == defaults.get(flow, role)?.as_deref() {
+                    if let Some(pending) = entry.pending.take() {
+                        entry.ours = pending;
+                    }
+                }
+                entry.pending = Some(device_id.to_owned());
+            }
             None => document.entries.push(Entry {
                 flow: key.0,
                 role: key.1,
                 previous: defaults.get(flow, role)?,
                 ours: device_id.to_owned(),
+                pending: None,
             }),
         }
     }
@@ -136,6 +147,12 @@ pub fn set_default(
     for role in EndpointRole::ALL {
         defaults.set(device_id, role)?;
     }
+    for entry in &mut document.entries {
+        if let Some(pending) = entry.pending.take() {
+            entry.ours = pending;
+        }
+    }
+    write(path, &document)?;
     Ok(())
 }
 
@@ -164,7 +181,12 @@ pub fn restore(defaults: &mut impl Defaults, path: &Path) -> Result<(), Error> {
         let Some(previous) = &entry.previous else {
             continue;
         };
-        if current.as_deref() == Some(entry.ours.as_str()) {
+        if current.as_deref() == Some(entry.ours.as_str())
+            || entry
+                .pending
+                .as_deref()
+                .is_some_and(|id| current.as_deref() == Some(id))
+        {
             // The previous device may be unplugged now; keep trying the other roles and keep
             // the journal so the next start can finish the job.
             if let Err(error) = defaults.set(previous, entry.role.into()) {
@@ -295,5 +317,33 @@ mod tests {
                 .as_deref(),
             Some("mic-usb")
         );
+    }
+
+    #[test]
+    fn failed_retarget_keeps_the_previous_macafon_choice_restorable() {
+        let path = temp("retarget");
+        let mut system = fake("mic-usb", "mic-headset");
+        set_default(&mut system, &path, DataFlow::Capture, "cable-output").expect("first choice");
+        system.unplugged.push("cable-new".into());
+        assert!(set_default(&mut system, &path, DataFlow::Capture, "cable-new").is_err());
+        // Simulate a partial switch before the failure/crash: both old and new choices
+        // must be recovered, while an unrelated manual choice must be preserved.
+        system
+            .current
+            .insert((Flow::Capture, Role::Console), "cable-new".into());
+        system
+            .current
+            .insert((Flow::Capture, Role::Multimedia), "mic-webcam".into());
+        restore(&mut system, &path).expect("restore after failed retarget");
+        assert_eq!(system.current[&(Flow::Capture, Role::Console)], "mic-usb");
+        assert_eq!(
+            system.current[&(Flow::Capture, Role::Multimedia)],
+            "mic-webcam"
+        );
+        assert_eq!(
+            system.current[&(Flow::Capture, Role::Communications)],
+            "mic-headset"
+        );
+        assert!(!path.exists());
     }
 }

@@ -23,8 +23,8 @@ pub mod wasapi;
 
 pub use com::ComGuard;
 pub use daemon::{
-    ControlReceiver, control_channel, output_devices, restore_default_microphone, run_microphone,
-    set_default_microphone,
+    ControlReceiver, control_channel, fix_cable_default_output, output_devices,
+    restore_default_microphone, run_microphone, set_default_microphone,
 };
 pub use devices::{DataFlow, Endpoint, EndpointRole, VirtualCable, endpoints, find_vb_cable};
 pub use microphone::{MicrophoneConfig, MicrophonePipeline, PipelineReport};

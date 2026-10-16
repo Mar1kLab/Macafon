@@ -251,6 +251,8 @@ pub trait MicrophoneHost: MixerHost {
         false
     }
     fn input_connected(&mut self, _connected: bool) {}
+    /// The app-visible virtual microphone appeared or went away (Windows: the VB-CABLE).
+    fn virtual_mic_changed(&mut self, _ready: bool) {}
     /// Pending A/B playback change; polled every 100 ms.
     fn player_request(&mut self) -> Option<PlayerRequest> {
         None

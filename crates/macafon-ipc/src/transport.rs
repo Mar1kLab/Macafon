@@ -169,8 +169,8 @@ mod sid {
 mod tests {
     use super::*;
     use crate::{
-        Client, Event, Hello, Outcome, PROTOCOL_VERSION, Request, Response, ServerMessage,
-        decode_request, encode, read_protocol_line,
+        Client, Event, Hello, Outcome, PROTOCOL_VERSION, Platform, Request, Response,
+        ServerMessage, decode_request, encode, read_protocol_line,
     };
     use std::io::{BufReader, Write};
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -212,6 +212,8 @@ mod tests {
                     Request::Hello { .. } => serde_json::to_value(Hello {
                         protocol: PROTOCOL_VERSION,
                         daemon_version: "test".into(),
+                        platform: Platform::current(),
+                        capabilities: Platform::current().capabilities(),
                     })
                     .expect("hello"),
                     _ => serde_json::Value::Null,

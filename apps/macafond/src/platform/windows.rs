@@ -6,7 +6,7 @@
 use anyhow::{Context, Result};
 use macafon_backend::{Inspection, MicrophoneHost, Node};
 use macafon_backend_windows as win;
-use macafon_ipc::Endpoint;
+use macafon_ipc::{DoctorCheck, DoctorCheckId, DoctorStatus, Endpoint};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -80,9 +80,122 @@ pub fn output_devices() -> Result<Vec<Node>, String> {
     win::output_devices().map_err(|error| error.to_string())
 }
 
-/// No PipeWire graph to inspect; Windows checks come with M3.3.
+/// No PipeWire graph to inspect; the cable checks come from `doctor_checks`.
 pub fn inspect() -> Option<Result<Inspection, String>> {
     None
+}
+
+/// VB-CABLE checks (WIN-MIC-001/004/007/008) from a read-only snapshot. `microphone` is the
+/// connected physical input, if any.
+pub fn doctor_checks(microphone: Option<&str>) -> Vec<DoctorCheck> {
+    use crate::doctor::check;
+    use DoctorCheckId as Id;
+    use DoctorStatus as S;
+    let pid = std::process::id();
+    // The microphone may vanish between the state and the snapshot; the cable still counts.
+    let facts = match win::diagnostics::collect(microphone, pid)
+        .or_else(|_| win::diagnostics::collect(None, pid))
+    {
+        Ok(facts) => facts,
+        Err(error) => {
+            tracing::warn!(%error, "Cannot collect VB-CABLE facts");
+            return vec![check(Id::VbCable, S::Error, Vec::new())];
+        }
+    };
+    let cable = &facts.cable;
+    let ignored: Vec<String> = cable
+        .other_vb_audio
+        .iter()
+        .map(|endpoint| endpoint.name.clone())
+        .collect();
+    let mut checks = vec![if !cable.installed {
+        check(Id::VbCable, S::Error, Vec::new())
+    } else if cable.active_endpoints.is_empty() {
+        check(Id::VbCable, S::Warning, Vec::new())
+    } else if !ignored.is_empty() {
+        check(Id::VbCable, S::Info, ignored)
+    } else {
+        check(Id::VbCable, S::Ok, Vec::new())
+    }];
+    if cable.active_endpoints.is_empty() {
+        return checks;
+    }
+    let resampled: Vec<String> = facts
+        .endpoints
+        .iter()
+        .filter_map(|facts| {
+            let format = facts.mix_format.as_ref().ok()?;
+            format
+                .needs_resampling()
+                .then(|| format!("{} ({} Hz)", facts.endpoint.name, format.rate_hz))
+        })
+        .collect();
+    checks.push(if resampled.is_empty() {
+        check(Id::CableFormat, S::Ok, Vec::new())
+    } else {
+        check(Id::CableFormat, S::Warning, resampled)
+    });
+    let mut writers: Vec<String> = facts
+        .foreign_writers
+        .iter()
+        .map(|session| {
+            session
+                .executable
+                .as_deref()
+                .and_then(|path| path.rsplit(['\\', '/']).next())
+                .map_or_else(|| session.display_name.clone(), str::to_owned)
+        })
+        .collect();
+    writers.sort();
+    writers.dedup();
+    checks.push(if writers.is_empty() {
+        check(Id::CableWriters, S::Ok, Vec::new())
+    } else {
+        check(Id::CableWriters, S::Warning, writers)
+    });
+    checks.push(if facts.cable_default_roles.is_empty() {
+        check(Id::CableDefaultOutput, S::Ok, Vec::new())
+    } else {
+        DoctorCheck {
+            fixable: true,
+            ..check(Id::CableDefaultOutput, S::Warning, Vec::new())
+        }
+    });
+    // Engine periods of the microphone and the cable input, in ms; not end-to-end latency.
+    let period_ms = |facts: &win::diagnostics::EndpointFacts| {
+        facts.engine_periods.as_ref().ok().map(|periods| {
+            let ms = |frames: u32| frames as f32 * 1000.0 / periods.mix_rate_hz.max(1) as f32;
+            format!("{:.1}", ms(periods.min_frames))
+        })
+    };
+    let cable_input = facts
+        .endpoints
+        .iter()
+        .find(|facts| facts.endpoint.flow == win::DataFlow::Render && facts.endpoint.is_vb_cable());
+    let mic = facts.endpoints.iter().find(|facts| {
+        facts.endpoint.flow == win::DataFlow::Capture && !facts.endpoint.is_vb_audio()
+    });
+    checks.push(check(
+        Id::CableLatency,
+        S::Info,
+        vec![
+            mic.and_then(period_ms).unwrap_or_else(|| "?".into()),
+            cable_input
+                .and_then(period_ms)
+                .unwrap_or_else(|| "?".into()),
+        ],
+    ));
+    checks
+}
+
+/// One-click Doctor fixes: give the system output back to a real device (WIN-MIC-004).
+pub fn doctor_fix(check: DoctorCheckId) -> Result<(), String> {
+    match check {
+        DoctorCheckId::CableDefaultOutput => {
+            win::fix_cable_default_output(&state_dir()?).map_err(|error| error.to_string())
+        }
+        _ => Err("no automatic fix for this check".into()),
+    }
 }
 
 /// `macafond devices`: active endpoints and the VB-CABLE.

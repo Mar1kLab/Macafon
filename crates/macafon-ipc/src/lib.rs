@@ -39,8 +39,9 @@ pub const MAX_METER_HZ: u32 = 60;
 pub use request::Request;
 pub use state::{
     AbRecording, AbSide, AbState, AbWaveform, AutostartMethod, AutostartState, CalibrationFailure,
-    CalibrationState, CalibrationStep, CloseAction, ConfigRecovery, Device, DeviceKind, Hello,
-    MicState, PlaybackDevice, PlaybackDeviceKind, Preferences, PresetInfo,
+    CalibrationState, CalibrationStep, Capabilities, CloseAction, ConfigRecovery, Device,
+    DeviceKind, Hello, MicState, Platform, PlaybackDevice, PlaybackDeviceKind, Preferences,
+    PresetInfo,
 };
 pub use wire::{ErrorBody, ErrorCode, Event, Outcome, RequestEnvelope, Response, ServerMessage};
 
@@ -132,6 +133,7 @@ mod tests {
                 active_device: None,
                 input_connected: false,
                 is_default_source: false,
+                virtual_mic_ready: true,
                 latency_samples: 960,
                 noise_floor_dbfs: Some(-62.5),
             })),

@@ -108,7 +108,7 @@ low_frequency_noise: boolean,
  */
 suggest_studio: boolean, gain_db: number, high_pass_freq_hz: number, noise_intensity_pct: number, expander_threshold_db: number, };
 
-export type Request = { "method": "hello", "params": { protocol: number, client: string, } } | { "method": "daemon.quit" } | { "method": "autostart.get" } | { "method": "autostart.set", "params": { enabled: boolean, } } | { "method": "mic.get" } | { "method": "mic.set", "params": { settings: ChainSettings, } } | { "method": "mic.set_preset", "params": { preset: string, } } | { "method": "mic.set_muted", "params": { muted: boolean, } } | { "method": "mic.toggle_mute" } | { "method": "mic.set_bypass", "params": { bypass: boolean, } } | { "method": "mic.set_device", "params": { device: string | null, } } | { "method": "mic.set_fallback_device", "params": { device: string | null, } } | { "method": "mic.set_input_channel", "params": { channel: InputChannel, } } | { "method": "mic.set_default_source", "params": { confirmed: boolean, } } | { "method": "mic.restore_default_source" } | { "method": "ab.export", "params": { side: AbSide, path: string, } } | { "method": "ab.outputs" } | { "method": "presets.list" } | { "method": "presets.save", "params": { name: string, } } | { "method": "presets.update", "params": { id: string, } } | { "method": "presets.rename", "params": { id: string, name: string, } } | { "method": "presets.duplicate", "params": { id: string, } } | { "method": "presets.delete", "params": { id: string, } } | { "method": "presets.export", "params": { id: string, } } | { "method": "presets.import", "params": { document: JsonValue, } } | { "method": "devices.list" } | { "method": "devices.subscribe" } | { "method": "devices.unsubscribe" } | { "method": "meters.subscribe", "params": { hz: number, } } | { "method": "meters.unsubscribe" } | { "method": "calibration.start" } | { "method": "calibration.cancel" } | { "method": "calibration.get" } | { "method": "ab.record", "params": { max_seconds: number | null, } } | { "method": "ab.stop_recording" } | { "method": "ab.play", "params": { device: string | null, } } | { "method": "ab.stop" } | { "method": "ab.select", "params": { side: AbSide, } } | { "method": "ab.toggle" } | { "method": "ab.seek", "params": { position_ms: number, } } | { "method": "ab.set_loudness_match", "params": { enabled: boolean, } } | { "method": "ab.get" } | { "method": "ab.waveform", "params": { points: number, } } | { "method": "mixer.get" } | { "method": "mixer.set_enabled", "params": { enabled: boolean, } } | { "method": "mixer.set_master", "params": { volume_pct: number | null, muted: boolean | null, } } | { "method": "mixer.set_output", "params": { device: string | null, } } | { "method": "mixer.set_output_priority", "params": { devices: Array<string>, } } | { "method": "mixer.set_auto_classify", "params": { enabled: boolean, } } | { "method": "channel.create", "params": { name: string, color: string, icon: string | null, } } | { "method": "channel.update", "params": { id: string, patch: ChannelPatch, } } | { "method": "channel.delete", "params": { id: string, } } | { "method": "channel.set", "params": { id: string, settings: ChannelSettings, } } | { "method": "channel.adjust_volume", "params": { id: string, delta_pct: number, } } | { "method": "channel.toggle_mute", "params": { id: string, } } | { "method": "channel.set_default", "params": { id: string, } } | { "method": "channel.reorder", "params": { ids: Array<string>, } } | { "method": "apps.move", "params": { app_key: string, channel: string, } } | { "method": "apps.set_managed", "params": { app_key: string, managed: boolean, } } | { "method": "apps.forget", "params": { app_key: string, } } | { "method": "apps.set_volume", "params": { app_key: string, volume_pct: number, } } | { "method": "apps.icon", "params": { icon: string, } } | { "method": "doctor.run" } | { "method": "mic.cycle_preset", "params": { step: number, } } | { "method": "hotkeys.get" } | { "method": "hotkeys.set", "params": { action: string, shortcut: string | null, } } | { "method": "prefs.get" } | { "method": "prefs.set", "params": { quantum_frames: number | null, close_action: CloseAction | null, } };
+export type Request = { "method": "hello", "params": { protocol: number, client: string, } } | { "method": "daemon.quit" } | { "method": "autostart.get" } | { "method": "autostart.set", "params": { enabled: boolean, } } | { "method": "mic.get" } | { "method": "mic.set", "params": { settings: ChainSettings, } } | { "method": "mic.set_preset", "params": { preset: string, } } | { "method": "mic.set_muted", "params": { muted: boolean, } } | { "method": "mic.toggle_mute" } | { "method": "mic.set_bypass", "params": { bypass: boolean, } } | { "method": "mic.set_device", "params": { device: string | null, } } | { "method": "mic.set_fallback_device", "params": { device: string | null, } } | { "method": "mic.set_input_channel", "params": { channel: InputChannel, } } | { "method": "mic.set_default_source", "params": { confirmed: boolean, } } | { "method": "mic.restore_default_source" } | { "method": "ab.export", "params": { side: AbSide, path: string, } } | { "method": "ab.outputs" } | { "method": "presets.list" } | { "method": "presets.save", "params": { name: string, } } | { "method": "presets.update", "params": { id: string, } } | { "method": "presets.rename", "params": { id: string, name: string, } } | { "method": "presets.duplicate", "params": { id: string, } } | { "method": "presets.delete", "params": { id: string, } } | { "method": "presets.export", "params": { id: string, } } | { "method": "presets.import", "params": { document: JsonValue, } } | { "method": "devices.list" } | { "method": "devices.subscribe" } | { "method": "devices.unsubscribe" } | { "method": "meters.subscribe", "params": { hz: number, } } | { "method": "meters.unsubscribe" } | { "method": "calibration.start" } | { "method": "calibration.cancel" } | { "method": "calibration.get" } | { "method": "ab.record", "params": { max_seconds: number | null, } } | { "method": "ab.stop_recording" } | { "method": "ab.play", "params": { device: string | null, } } | { "method": "ab.stop" } | { "method": "ab.select", "params": { side: AbSide, } } | { "method": "ab.toggle" } | { "method": "ab.seek", "params": { position_ms: number, } } | { "method": "ab.set_loudness_match", "params": { enabled: boolean, } } | { "method": "ab.get" } | { "method": "ab.waveform", "params": { points: number, } } | { "method": "mixer.get" } | { "method": "mixer.set_enabled", "params": { enabled: boolean, } } | { "method": "mixer.set_master", "params": { volume_pct: number | null, muted: boolean | null, } } | { "method": "mixer.set_output", "params": { device: string | null, } } | { "method": "mixer.set_output_priority", "params": { devices: Array<string>, } } | { "method": "mixer.set_auto_classify", "params": { enabled: boolean, } } | { "method": "channel.create", "params": { name: string, color: string, icon: string | null, } } | { "method": "channel.update", "params": { id: string, patch: ChannelPatch, } } | { "method": "channel.delete", "params": { id: string, } } | { "method": "channel.set", "params": { id: string, settings: ChannelSettings, } } | { "method": "channel.adjust_volume", "params": { id: string, delta_pct: number, } } | { "method": "channel.toggle_mute", "params": { id: string, } } | { "method": "channel.set_default", "params": { id: string, } } | { "method": "channel.reorder", "params": { ids: Array<string>, } } | { "method": "apps.move", "params": { app_key: string, channel: string, } } | { "method": "apps.set_managed", "params": { app_key: string, managed: boolean, } } | { "method": "apps.forget", "params": { app_key: string, } } | { "method": "apps.set_volume", "params": { app_key: string, volume_pct: number, } } | { "method": "apps.icon", "params": { icon: string, } } | { "method": "doctor.run" } | { "method": "doctor.fix", "params": { check: DoctorCheckId, } } | { "method": "mic.cycle_preset", "params": { step: number, } } | { "method": "hotkeys.get" } | { "method": "hotkeys.set", "params": { action: string, shortcut: string | null, } } | { "method": "prefs.get" } | { "method": "prefs.set", "params": { quantum_frames: number | null, close_action: CloseAction | null, } };
 
 export type ErrorCode = "bad_request" | "protocol_mismatch" | "invalid_params" | "not_found" | "already_exists" | "busy" | "internal";
 
@@ -116,7 +116,32 @@ export type ErrorBody = { code: ErrorCode, message: string, };
 
 export type Event = { "event": "mic.noise_fallback", "data": { engine: NoiseEngine, } } | { "event": "devices.meter", "data": { name: string, peak_dbfs: number, } } | { "event": "meters", "data": Meters } | { "event": "mic.changed", "data": MicState } | { "event": "calibration.changed", "data": CalibrationState } | { "event": "ab.changed", "data": AbState } | { "event": "presets.changed", "data": Array<PresetInfo> } | { "event": "mixer.changed", "data": MixerState } | { "event": "mixer.meters", "data": MixerMeters } | { "event": "hotkeys.changed", "data": HotkeysState } | { "event": "devices.changed", "data": Array<Device> } | { "event": "prefs.changed", "data": Preferences };
 
-export type Hello = { protocol: number, daemon_version: string, };
+export type Hello = { protocol: number, daemon_version: string, platform: Platform,
+/**
+ * What this platform can do; the UI hides the rest by these flags, not by the OS (§19.1).
+ */
+capabilities: Capabilities, };
+
+export type Platform = "linux" | "windows";
+
+export type Capabilities = {
+/**
+ * The daemon creates Macafon Microphone itself; on Windows it is the user-installed
+ * VB-CABLE (WIN-MIC-001…003).
+ */
+virtual_mic_device: boolean,
+/**
+ * Mono or stereo output of the virtual microphone (MIC-011); the cable is always stereo.
+ */
+stereo_option: boolean,
+/**
+ * EQ and effects on channels and Master (CFX-001…007, WIN-CH-006).
+ */
+channel_fx: boolean,
+/**
+ * The preferred graph quantum in Settings applies (PipeWire).
+ */
+graph_quantum: boolean, };
 
 export type MicState = {
 /**
@@ -142,7 +167,12 @@ input_connected: boolean,
 /**
  * Macafon Microphone is the system default input now (MIC-012).
  */
-is_default_source: boolean, latency_samples: number,
+is_default_source: boolean,
+/**
+ * Processed sound reaches an app-visible microphone. On Windows `false` until the
+ * VB-CABLE is installed (WIN-MIC-001); meters, calibration and A/B work either way.
+ */
+virtual_mic_ready: boolean, latency_samples: number,
 /**
  * Measured by the last calibration; the Expander Sensitivity macro is relative to it.
  */
@@ -270,14 +300,18 @@ export type ChannelPatch = { name?: string | null, color?: string | null, icon?:
 
 export type DoctorStatus = "ok" | "info" | "warning" | "error";
 
-export type DoctorCheckId = "pipewire" | "session_manager" | "microphone_input" | "microphone_used" | "double_processing" | "mixer" | "default_output" | "unmovable_apps" | "processing" | "xruns" | "hotkeys";
+export type DoctorCheckId = "pipewire" | "session_manager" | "microphone_input" | "microphone_used" | "double_processing" | "mixer" | "default_output" | "unmovable_apps" | "processing" | "xruns" | "hotkeys" | "vb_cable" | "cable_format" | "cable_writers" | "cable_default_output" | "cable_latency";
 
 export type DoctorCheck = { id: DoctorCheckId, status: DoctorStatus,
 /**
  * Values for the explanation: versions, counts, device or app names. Names stay out of
  * the copied report.
  */
-values: Array<string>, };
+values: Array<string>,
+/**
+ * `doctor.fix` with this id repairs it in one click.
+ */
+fixable?: boolean, };
 
 export type DoctorReport = { daemon_version: string, pipewire_version: string | null, session_manager: string | null, quantum: number | null, sample_rate_hz: number | null, checks: Array<DoctorCheck>, };
 

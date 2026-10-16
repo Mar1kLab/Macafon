@@ -171,6 +171,7 @@ export class MockTransport implements Transport {
       active_device: this.connected ? this.device : null,
       input_connected: this.connected && this.device !== null,
       is_default_source: this.isDefaultSource,
+      virtual_mic_ready: true,
       latency_samples: latencySamples(this.settings),
       noise_floor_dbfs: this.noiseFloor,
     };
@@ -244,7 +245,12 @@ export class MockTransport implements Transport {
     }
     switch (method) {
       case 'hello':
-        return { protocol: 1, daemon_version: VERSION };
+        return {
+          protocol: 1,
+          daemon_version: VERSION,
+          platform: 'linux',
+          capabilities: { virtual_mic_device: true, stereo_option: true, channel_fx: true, graph_quantum: true },
+        };
       case 'daemon.quit':
         this.setStatus(this.unavailable());
         return null;

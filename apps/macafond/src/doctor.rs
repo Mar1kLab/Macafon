@@ -26,10 +26,17 @@ pub struct Facts<'a> {
     /// Readable names of physical microphones by `node.name`.
     pub inputs: &'a [macafon_ipc::Device],
     pub hotkeys: macafon_ipc::HotkeyBackend,
+    /// Checks only the platform layer can make (Windows: the VB-CABLE).
+    pub platform: Vec<DoctorCheck>,
 }
 
-fn check(id: DoctorCheckId, status: DoctorStatus, values: Vec<String>) -> DoctorCheck {
-    DoctorCheck { id, status, values }
+pub fn check(id: DoctorCheckId, status: DoctorStatus, values: Vec<String>) -> DoctorCheck {
+    DoctorCheck {
+        id,
+        status,
+        values,
+        fixable: false,
+    }
 }
 
 pub fn report(facts: Facts) -> DoctorReport {
@@ -67,6 +74,8 @@ pub fn report(facts: Facts) -> DoctorReport {
             None => checks.push(check(Id::SessionManager, S::Error, Vec::new())),
         }
     }
+    // The cable comes first on Windows: without it apps hear nothing at all.
+    checks.extend(facts.platform);
     let mic = facts.mic;
     let readable = |name: &str| {
         facts

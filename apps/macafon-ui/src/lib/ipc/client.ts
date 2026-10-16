@@ -89,6 +89,7 @@ interface Results {
   'apps.set_volume': MixerState;
   'apps.icon': string | null;
   'doctor.run': DoctorReport;
+  'doctor.fix': null;
   'mic.cycle_preset': MicState;
   'hotkeys.get': HotkeysState;
   'hotkeys.set': HotkeysState;

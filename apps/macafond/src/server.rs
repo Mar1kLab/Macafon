@@ -11,7 +11,7 @@ use macafon_dsp::{ChannelTelemetry, Telemetry};
 use macafon_ipc::Endpoint;
 use macafon_ipc::{
     ErrorBody, ErrorCode, Event, FrameError, Hello, MAX_METER_HZ, Outcome, PROTOCOL_VERSION,
-    Request, Response, ServerMessage, decode_request, encode, read_protocol_line,
+    Platform, Request, Response, ServerMessage, decode_request, encode, read_protocol_line,
 };
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
@@ -352,6 +352,8 @@ fn serve(
                     serde_json::to_value(Hello {
                         protocol: PROTOCOL_VERSION,
                         daemon_version: env!("CARGO_PKG_VERSION").into(),
+                        platform: Platform::current(),
+                        capabilities: Platform::current().capabilities(),
                     })
                     .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))
                 }

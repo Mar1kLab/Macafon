@@ -190,6 +190,9 @@ pub enum Request {
     /// §9.6: run the self-checks now.
     #[serde(rename = "doctor.run")]
     DoctorRun,
+    /// Apply the one-click fix of a check marked `fixable`.
+    #[serde(rename = "doctor.fix")]
+    DoctorFix { check: crate::DoctorCheckId },
     /// Load the next (`step = 1`) or previous (`-1`) preset (HK-001, HK-004).
     #[serde(rename = "mic.cycle_preset")]
     MicCyclePreset { step: i32 },

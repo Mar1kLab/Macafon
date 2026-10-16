@@ -27,6 +27,73 @@ pub struct Preferences {
 pub struct Hello {
     pub protocol: u32,
     pub daemon_version: String,
+    #[serde(default)]
+    pub platform: Platform,
+    /// What this platform can do; the UI hides the rest by these flags, not by the OS (§19.1).
+    #[serde(default)]
+    pub capabilities: Capabilities,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum Platform {
+    #[default]
+    Linux,
+    Windows,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Capabilities {
+    /// The daemon creates Macafon Microphone itself; on Windows it is the user-installed
+    /// VB-CABLE (WIN-MIC-001…003).
+    pub virtual_mic_device: bool,
+    /// Mono or stereo output of the virtual microphone (MIC-011); the cable is always stereo.
+    pub stereo_option: bool,
+    /// EQ and effects on channels and Master (CFX-001…007, WIN-CH-006).
+    pub channel_fx: bool,
+    /// The preferred graph quantum in Settings applies (PipeWire).
+    pub graph_quantum: bool,
+}
+
+impl Capabilities {
+    pub const LINUX: Self = Self {
+        virtual_mic_device: true,
+        stereo_option: true,
+        channel_fx: true,
+        graph_quantum: true,
+    };
+    pub const WINDOWS: Self = Self {
+        virtual_mic_device: false,
+        stereo_option: false,
+        channel_fx: false,
+        graph_quantum: false,
+    };
+}
+
+impl Default for Capabilities {
+    fn default() -> Self {
+        Self::LINUX
+    }
+}
+
+impl Platform {
+    /// The platform this binary was built for.
+    pub const fn current() -> Self {
+        if cfg!(windows) {
+            Self::Windows
+        } else {
+            Self::Linux
+        }
+    }
+
+    pub const fn capabilities(self) -> Capabilities {
+        match self {
+            Self::Linux => Capabilities::LINUX,
+            Self::Windows => Capabilities::WINDOWS,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -55,9 +122,17 @@ pub struct MicState {
     /// Macafon Microphone is the system default input now (MIC-012).
     #[serde(default)]
     pub is_default_source: bool,
+    /// Processed sound reaches an app-visible microphone. On Windows `false` until the
+    /// VB-CABLE is installed (WIN-MIC-001); meters, calibration and A/B work either way.
+    #[serde(default = "yes")]
+    pub virtual_mic_ready: bool,
     pub latency_samples: u32,
     /// Measured by the last calibration; the Expander Sensitivity macro is relative to it.
     pub noise_floor_dbfs: Option<f32>,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

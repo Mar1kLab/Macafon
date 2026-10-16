@@ -194,6 +194,11 @@ impl DaemonHost {
                     self.overloads.pop_front();
                 }
                 let (mic, mixer) = (self.state(), self.mixer_state());
+                let microphone = mic
+                    .input_connected
+                    .then_some(mic.active_device.as_deref())
+                    .flatten();
+                let platform = crate::platform::doctor_checks(microphone);
                 let report = crate::doctor::report(crate::doctor::Facts {
                     inspection: crate::platform::inspect(),
                     mic: &mic,
@@ -205,9 +210,15 @@ impl DaemonHost {
                         .hotkey_status
                         .as_ref()
                         .map_or(HotkeyBackend::Unavailable, |status| status.backend),
+                    platform,
                 });
                 return serde_json::to_value(report)
                     .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()));
+            }
+            Request::DoctorFix { check } => {
+                return crate::platform::doctor_fix(check)
+                    .map(|()| serde_json::Value::Null)
+                    .map_err(|error| ErrorBody::new(ErrorCode::Internal, error));
             }
             Request::DaemonQuit => {
                 tracing::info!("Quit requested");

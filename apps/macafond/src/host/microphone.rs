@@ -25,6 +25,7 @@ impl DaemonHost {
             input_connected: self.input_connected,
             is_default_source: self.default_source.as_deref()
                 == Some(macafon_backend::VIRTUAL_MIC_NAME),
+            virtual_mic_ready: self.virtual_mic_ready,
             latency_samples: self.config.mic.chain.latency_samples(),
             noise_floor_dbfs: self.config.mic.noise_floor_dbfs,
         }

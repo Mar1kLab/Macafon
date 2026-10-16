@@ -38,6 +38,16 @@ pub enum DoctorCheckId {
     Xruns,
     /// Global shortcuts: portal or X11; otherwise CLI commands (HK-004).
     Hotkeys,
+    /// Windows: the free VB-CABLE that carries Macafon Microphone (WIN-MIC-001).
+    VbCable,
+    /// Windows: 48 kHz on the cable and the microphone, else Windows resamples (WIN-MIC-007).
+    CableFormat,
+    /// Windows: other apps writing into `CABLE Input` mix into the microphone (WIN-MIC-004).
+    CableWriters,
+    /// Windows: the system output is the cable, so all sounds reach the microphone (WIN-MIC-004).
+    CableDefaultOutput,
+    /// Windows: engine periods and the VB-CABLE buffer advice (WIN-MIC-008).
+    CableLatency,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -48,6 +58,9 @@ pub struct DoctorCheck {
     /// Values for the explanation: versions, counts, device or app names. Names stay out of
     /// the copied report.
     pub values: Vec<String>,
+    /// `doctor.fix` with this id repairs it in one click.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fixable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

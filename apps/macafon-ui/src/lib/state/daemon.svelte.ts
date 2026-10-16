@@ -11,12 +11,14 @@ import type {
   ChannelSettings,
   Device,
   Event,
+  Hello,
   HotkeysState,
   MicState,
   MixerState,
   Preferences,
   PresetInfo,
 } from '../ipc/protocol';
+import { PROTOCOL_VERSION } from '../ipc/protocol';
 import { t } from '../i18n';
 import { deviceMeterBus, meterBus, mixerMeterBus } from './meters';
 
@@ -36,6 +38,8 @@ const ONBOARDING_KEY = 'macafon.onboarding';
 export class DaemonStore {
   readonly client: DaemonClient;
   status = $state<DaemonStatus>({ state: 'connecting' });
+  /** Platform and capability flags; the UI hides what the platform lacks by these (§19.1). */
+  hello = $state.raw<Hello | null>(null);
   mic = $state.raw<MicState | null>(null);
   presets = $state.raw<PresetInfo[]>([]);
   devices = $state.raw<Device[]>([]);
@@ -85,6 +89,10 @@ export class DaemonStore {
     return this.status.state === 'connected';
   }
 
+  get windows(): boolean {
+    return this.hello?.platform === 'windows';
+  }
+
   retry(): void {
     this.client.transport.retry();
   }
@@ -108,7 +116,8 @@ export class DaemonStore {
 
   private async load() {
     try {
-      const [mic, presets, devices, ab, calibration, autostart, mixer, hotkeys, prefs] = await Promise.all([
+      const [hello, mic, presets, devices, ab, calibration, autostart, mixer, hotkeys, prefs] = await Promise.all([
+        this.client.call('hello', { protocol: PROTOCOL_VERSION, client: 'macafon-ui' }),
         this.client.call('mic.get'),
         this.client.call('presets.list'),
         this.client.call('devices.list'),
@@ -119,6 +128,7 @@ export class DaemonStore {
         this.client.call('hotkeys.get'),
         this.client.call('prefs.get'),
       ]);
+      this.hello = hello;
       this.prefs = prefs;
       this.mixer = mixer;
       this.hotkeys = hotkeys;

@@ -110,3 +110,12 @@ pub fn route(stream_id: u32, sink_name: &str) -> Result<()> {
     tracing::info!(stream_id, sink = %sink_name, "Stream moved; PipeWire links confirmed");
     Ok(())
 }
+
+/// PipeWire checks come from `inspect`; nothing platform-specific to add.
+pub fn doctor_checks(_microphone: Option<&str>) -> Vec<macafon_ipc::DoctorCheck> {
+    Vec::new()
+}
+
+pub fn doctor_fix(_check: macafon_ipc::DoctorCheckId) -> Result<(), String> {
+    Err("no automatic fix for this check".into())
+}

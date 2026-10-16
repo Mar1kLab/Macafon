@@ -47,6 +47,8 @@ fn protocol() -> String {
         ErrorBody::decl(&cfg),
         Event::decl(&cfg),
         Hello::decl(&cfg),
+        Platform::decl(&cfg),
+        Capabilities::decl(&cfg),
         MicState::decl(&cfg),
         ConfigRecovery::decl(&cfg),
         AutostartMethod::decl(&cfg),

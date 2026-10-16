@@ -274,8 +274,9 @@ impl LoopState {
                 None => tracing::warn!("VB-CABLE not found; processing without output"),
             }
             if let Some(pipeline) = &self.pipeline {
-                pipeline.set_output(cable_input);
+                pipeline.set_output(cable_input.clone());
             }
+            host.virtual_mic_changed(cable_input.is_some());
         }
         self.cable = cable;
         self.endpoints = endpoints;
@@ -398,6 +399,27 @@ pub fn set_default_microphone(state_dir: &Path) -> Result<(), Error> {
 pub fn restore_default_microphone(state_dir: &Path) -> Result<(), Error> {
     let path = journal::journal_path(state_dir, DataFlow::Capture);
     journal::restore(&mut SystemDefaults, &path).map_err(platform)
+}
+
+/// Doctor fix (WIN-MIC-004): move every render role off the cable to a real device. This is
+/// the user's own correction, so Quit does not undo it; the output journal of the mixer is
+/// only read, to prefer the device the user had before.
+pub fn fix_cable_default_output(state_dir: &Path) -> Result<(), Error> {
+    let active = endpoints().map_err(platform)?;
+    let journal = journal::journal_path(state_dir, DataFlow::Render);
+    let scratch = state_dir.join("cable-output-fix.json");
+    if journal.exists() {
+        std::fs::copy(&journal, &scratch).map_err(|error| Error::Message(error.to_string()))?;
+    }
+    let result = crate::diagnostics::fix_cable_default(&mut SystemDefaults, &scratch, &active);
+    if let Err(error) = std::fs::remove_file(&scratch) {
+        tracing::debug!(%error, "Cable fix scratch journal not removed");
+    }
+    match result.map_err(platform)? {
+        Some(id) => tracing::info!(device = id, "Default output moved off VB-CABLE"),
+        None => tracing::info!("Default output was not on VB-CABLE"),
+    }
+    Ok(())
 }
 
 /// Real output devices for the A/B player and the output picker (WIN-MIC-009).

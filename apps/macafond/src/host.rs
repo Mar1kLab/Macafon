@@ -24,7 +24,7 @@ use macafon_dsp::Telemetry;
 use macafon_engine::{EngineError, MicControl};
 use macafon_ipc::{
     CalibrationFailure, CalibrationState, Device, Endpoint, ErrorBody, ErrorCode, Event, Outcome,
-    Request,
+    Platform, Request,
 };
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
@@ -58,6 +58,8 @@ pub struct DaemonHost {
     telemetry: Arc<Telemetry>,
     inputs: Vec<Device>,
     input_connected: bool,
+    /// Processed sound reaches an app-visible microphone (WIN-MIC-001).
+    virtual_mic_ready: bool,
     selected_device: Option<String>,
     selected_stable_id: Option<String>,
     active_device: Option<String>,
@@ -111,6 +113,8 @@ impl DaemonHost {
             telemetry: hub.telemetry(),
             inputs: Vec::new(),
             input_connected: false,
+            // PipeWire: the daemon creates the device itself. Windows: reported by the scan.
+            virtual_mic_ready: Platform::current().capabilities().virtual_mic_device,
             recording: None,
             calibration: CalibrationState::Idle,
             detected_channel: macafon_dsp::InputChannel::Left,
@@ -397,6 +401,13 @@ impl MicrophoneHost for DaemonHost {
         tracing::warn!(%error, "Cannot start A/B playback");
         self.ab.player_lost();
         self.ab_changed();
+    }
+
+    fn virtual_mic_changed(&mut self, ready: bool) {
+        if ready != self.virtual_mic_ready {
+            self.virtual_mic_ready = ready;
+            self.changed();
+        }
     }
 
     fn input_connected(&mut self, connected: bool) {

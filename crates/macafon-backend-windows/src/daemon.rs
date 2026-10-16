@@ -431,6 +431,17 @@ pub fn fix_cable_default_output(state_dir: &Path) -> Result<(), Error> {
     Ok(())
 }
 
+/// Uninstall and recovery: give back the default microphone and output, and the app volumes
+/// and mutes Macafon changed (WIN-MIC-005, WIN-CH-008). The daemon must not be running.
+pub fn restore_all(state_dir: &Path) -> Result<(), Error> {
+    let _com = ComGuard::new().map_err(platform)?;
+    let microphone = restore_default_microphone(state_dir);
+    // Starting the groups restores the output journal and the session volumes; dropping them
+    // restores whatever is still Macafon's.
+    drop(VolumeGroups::start(state_dir));
+    microphone
+}
+
 /// Real output devices for the A/B player and the output picker (WIN-MIC-009).
 pub fn output_devices() -> Result<Vec<Node>, Error> {
     Ok(endpoints()

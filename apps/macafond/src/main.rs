@@ -46,6 +46,10 @@ enum Command {
     Run(RunArgs),
     /// List physical inputs and outputs (read-only).
     Devices,
+    /// Uninstall: stop a running daemon, give back system defaults and app volumes, and turn
+    /// off autostart.
+    #[cfg(windows)]
+    Cleanup,
     /// M0 experiment: move one playback stream through WirePlumber metadata.
     #[cfg(target_os = "linux")]
     Route { stream_id: u32, sink_name: String },
@@ -226,6 +230,8 @@ fn main() -> Result<()> {
     match cli.command.unwrap_or(Command::Run(RunArgs::default())) {
         Command::Run(args) => run(args)?,
         Command::Devices => platform::print_devices()?,
+        #[cfg(windows)]
+        Command::Cleanup => platform::cleanup()?,
         #[cfg(target_os = "linux")]
         Command::Route {
             stream_id,

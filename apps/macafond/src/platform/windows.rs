@@ -219,3 +219,24 @@ pub fn print_devices() -> Result<()> {
     }
     Ok(())
 }
+
+/// `macafond cleanup` for the uninstaller (§12.2.3): Quit a running daemon (it restores on
+/// its way out), restore whatever a crash left in the journals, remove the Run value.
+pub fn cleanup() -> Result<()> {
+    if let Some(endpoint) = Endpoint::for_current_user() {
+        if let Ok((mut client, _)) = macafon_ipc::Client::connect(&endpoint, "macafond-cleanup") {
+            // The daemon may exit before its reply is written.
+            drop(client.call(macafon_ipc::Request::DaemonQuit));
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while macafon_ipc::transport::connect(&endpoint).is_ok()
+                && std::time::Instant::now() < deadline
+            {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+        }
+    }
+    let state_dir = state_dir().map_err(anyhow::Error::msg)?;
+    win::restore_all(&state_dir).context("cannot restore system audio settings")?;
+    crate::autostart::set(false).map_err(anyhow::Error::msg)?;
+    Ok(())
+}

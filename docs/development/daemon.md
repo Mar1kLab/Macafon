@@ -1,275 +1,276 @@
-# M1: демон, управление на лету, конфиг и IPC
+# M1: daemon, live control, config and IPC
 
-Состояние на 2026-10-12. Демон `macafond` работает постоянно, им можно управлять во время работы
-через Unix-сокет; настройки сохраняются. UI — [ui.md](ui.md), скрипты и хоткеи — `macafon ctl`.
+State as of 2026-10-12. The `macafond` daemon runs continuously and can be controlled while it runs over
+a Unix socket (a named pipe on Windows); settings are saved. UI — [ui.md](ui.md), scripts and hotkeys —
+`macafon ctl`.
 
-## Устройство
+## Structure
 
-`apps/macafond/src/host.rs` хранит состояние и жизненный цикл демона; реализации команд
-находятся в `host/`: `microphone`, `capture` (калибровка и A/B), `presets`, `mixer`,
-`hotkeys` и общий диспетчер `requests`. Все они работают на control loop.
-В PipeWire-бэкенде `connection` управляет соединением, `nodes` — обнаружением устройств,
-`graph` — входными линками, `session` — сборкой одной сессии и её обслуживанием.
-RT-обработчики остаются в `filter`, `channel_node`, `meter` и `player`.
+`apps/macafond/src/host.rs` holds the daemon state and lifecycle; command implementations live in
+`host/`: `microphone`, `capture` (calibration and A/B), `presets`, `mixer`, `hotkeys` and the shared
+`requests` dispatcher. All of them run on the control loop.
+In the PipeWire backend `connection` manages the connection, `nodes` — device discovery, `graph` — input
+links, `session` — building and maintaining one session. The RT handlers stay in `filter`,
+`channel_node`, `meter` and `player`.
 
-В `macafon-ipc` отдельно описаны запросы (`request`), состояние (`state`), события и ответы
-(`wire`); существующие публичные пути типов и JSON-протокол сохранены. `framing` читает
-строки с единым лимитом для сервера, CLI-клиента и Tauri-моста: незавершённая или слишком
-длинная строка отвергается до JSON-десериализации. `macafon-config::storage` отвечает
-за чтение, миграцию, восстановление и атомарную запись; TOML разбирается один раз.
-В CLI аргументы, выполнение команд, запуск соседних бинарей и форматирование вывода
-разделены на `args`, `control`, `launch` и `output`.
+`macafon-ipc` describes requests (`request`), state (`state`), events and replies (`wire`) separately; the
+existing public type paths and the JSON protocol are preserved. `framing` reads lines with a single limit
+shared by the server, the CLI client and the Tauri bridge: an unterminated or overlong line is rejected
+before JSON deserialization. `macafon-config::storage` is responsible for reading, migration, recovery and
+atomic writes; TOML is parsed once. In the CLI, arguments, command execution, launching sibling binaries
+and output formatting are split into `args`, `control`, `launch` and `output`.
 
 ```
-IPC-потоки (по 2 на клиента) ──pipewire::channel──► control loop PipeWire (DaemonHost)
-        ▲   метры 1–60 Гц                                │ MicControl::apply
-   Hub (рассылка событий, насос метров)                  ▼ rtrb, без аллокаций
-                                                     MicRt в RT-колбэке pw_filter
+IPC threads (2 per client) ──pipewire::channel──► PipeWire control loop (DaemonHost)
+        ▲   meters 1–60 Hz                                │ MicControl::apply
+   Hub (event broadcast, meter pump)                      ▼ rtrb, allocation-free
+                                                     MicRt in the pw_filter RT callback
 ```
 
-- `macafon-engine`: `MicControl` (control loop) и `MicRt` (RT). Непрерывные изменения идут
-  в очередь `rtrb` и применяются `retune` со сглаживанием 10 мс. Структурные изменения
-  (вкл/выкл модуля, bypass, look-ahead) собирают новый процессор вне RT; `MicRt` делает
-  кроссфейд 10 мс, старый процессор возвращается второй очередью и освобождается на control
-  loop (NFR-S2, DSP-003). Под `assert_no_alloc` проверены retune, замена и переполнение очереди.
-- Задержка цепочки после изменений сообщается графу обновлением `ProcessLatency` (NFR-L4).
-- Смена микрофона применяется без перезапуска: линк пересоздаётся на следующем тике (100 мс).
-  Отключение/подключение входа рассылается событием `mic.changed` (основа тоста MIC-005).
-- Резервный микрофон (MIC-006) задаётся через `macafon ctl fallback-device '<node.name>'`
-  (`none` отключает резерв). Основной всегда имеет приоритет; при его отключении выбирается
-  доступный резервный, при возвращении основного демон переключается обратно. Если оба
-  отключены, виртуальный микрофон остаётся и выдаёт тишину (MIC-005, MIC-010).
-  `macafon ctl device none` отключает вход целиком, включая резерв.
-  `MicState.device` — сохранённый основной, `fallback_device` — резервный,
-  `active_device` — текущий подключённый вход. Смена активного микрофона прерывает
-  калибровку и запись A/B, чтобы не смешивать данные разных устройств; измеренный шумовой
-  пол сбрасывается. Цепочка остаётся общей — профили на устройство (MIC-007) ещё не сделаны.
-- Stereo-режим виртуального микрофона (MIC-011): `macafond run --stereo` или `stereo = true`
-  в `[mic]` конфига. Вместо порта MONO создаются FL и FR; DSP обрабатывает моносигнал
-  один раз и копирует результат в оба канала. Дополнительной задержки нет. Работает и
-  потребитель, подключённый только к одному из каналов. Вход и запись A/B остаются моно.
-  `MicState.stereo` показывает формат выхода. Выбор формата применяется при запуске
-  демона; для возврата в mono — `--stereo=false` или `stereo = false` и перезапуск.
-  При обновлении выходных буферов сбрасывается старый ID в PipeWire IO: иначе после
-  hotplug один буфер повторно попадает в очередь и каналы читают разные аудиоблоки.
-- Метры считаются в RT, только пока есть подписчик (NFR-R7, MTR-004); иначе — ноль работы.
-  При mute без подписчика цепочка не считается вовсе; с подписчиком — считается, чтобы метр
-  входа оставался живым, а выход всё равно цифровая тишина.
-- Если виртуальный микрофон никто не записывает, у выходного порта нет буфера и цепочка не
-  работает. Пока идёт калибровка или кто-то подписан на метры, демон просит RT-колбэк
-  прогонять вход через заранее выделенный scratch-буфер — метры и калибровка работают без
-  приложения-потребителя (нужно для онбординга). В остальное время неиспользуемый микрофон
-  по-прежнему ничего не стоит.
-- Медленный клиент не блокирует демон: исходящие строки идут через ограниченные очереди,
-  события для него отбрасываются.
-- Потоки IPC стартуют после блокировки SIGINT/SIGTERM, поэтому сигналы обрабатывает
-  только control loop и демон корректно завершается.
+- `macafon-engine`: `MicControl` (control loop) and `MicRt` (RT). Continuous changes go into an `rtrb`
+  queue and are applied by `retune` with 10 ms smoothing. Structural changes (module on/off, bypass,
+  look-ahead) build a new processor outside RT; `MicRt` crossfades over 10 ms, and the old processor is
+  returned through a second queue and freed on the control loop (NFR-S2, DSP-003). Retune, replacement and
+  queue overflow are checked under `assert_no_alloc`.
+- The chain latency after changes is reported to the graph by updating `ProcessLatency` (NFR-L4).
+- Changing the microphone applies without a restart: the link is recreated on the next tick (100 ms).
+  Input disconnect/connect is broadcast as a `mic.changed` event (the basis of the MIC-005 toast).
+- The fallback microphone (MIC-006) is set with `macafon ctl fallback-device '<node.name>'` (`none`
+  disables the fallback). The primary always has priority; when it disconnects, an available fallback is
+  selected, and when the primary returns the daemon switches back. If both are disconnected, the virtual
+  microphone stays and outputs silence (MIC-005, MIC-010). `macafon ctl device none` disconnects the input
+  entirely, including the fallback. `MicState.device` is the saved primary, `fallback_device` the fallback,
+  `active_device` the currently connected input. Changing the active microphone interrupts calibration and
+  A/B recording so that data from different devices is not mixed; the measured noise floor is reset. The
+  chain stays shared — per-device profiles (MIC-007) are not done yet.
+- Stereo mode of the virtual microphone (MIC-011): `macafond run --stereo` or `stereo = true` in the
+  config's `[mic]`. FL and FR ports are created instead of MONO; DSP processes the mono signal once and
+  copies the result into both channels. No extra latency. A consumer connected to only one of the channels
+  works too. The input and A/B recording stay mono. `MicState.stereo` shows the output format. The format
+  is applied at daemon start; to go back to mono — `--stereo=false` or `stereo = false` and a restart.
+  When the output buffers are updated, the old ID in the PipeWire IO is reset: otherwise after hot-plug one
+  buffer is queued twice and the channels read different audio blocks.
+- Meters are computed in RT only while there is a subscriber (NFR-R7, MTR-004); otherwise zero work. When
+  muted without a subscriber the chain is not computed at all; with a subscriber it is, so that the input
+  meter stays alive, while the output is still digital silence.
+- If nobody records the virtual microphone, the output port has no buffer and the chain does not run.
+  While calibration is running or someone is subscribed to meters, the daemon asks the RT callback to run
+  the input through a pre-allocated scratch buffer — meters and calibration work without a consuming
+  application (needed for onboarding). The rest of the time an unused microphone still costs nothing.
+- A slow client does not block the daemon: outgoing lines go through bounded queues, and events for it are
+  dropped.
+- IPC threads start after SIGINT/SIGTERM are blocked, so signals are handled only by the control loop and
+  the daemon shuts down cleanly.
 
-## Протокол (`macafon-ipc`, версия 1)
+## Protocol (`macafon-ipc`, version 1)
 
-JSON по строкам, сокет `$XDG_RUNTIME_DIR/macafon/macafond.sock` (каталог 0700, сокет 0600).
-Первым запросом должен быть `hello` с номером протокола; при несовпадении — `protocol_mismatch`.
+JSON lines over the socket `$XDG_RUNTIME_DIR/macafon/macafond.sock` (directory 0700, socket 0600); on
+Windows the named pipe `\\.\pipe\macafon-<user SID>` with a current-user ACL. The first request must be
+`hello` with the protocol number; on a mismatch — `protocol_mismatch`.
 
-| Метод | Параметры | Ответ |
+| Method | Parameters | Reply |
 |---|---|---|
-| `hello` | `protocol`, `client` | `protocol`, `daemon_version` |
-| `daemon.quit` | — | `null`; демон завершается как по SIGTERM (BG-005) |
-| `autostart.get` / `autostart.set` | — / `enabled` | `{enabled, method}`, `method` = `systemd` или `xdg_autostart` |
+| `hello` | `protocol`, `client` | `protocol`, `daemon_version`, `platform`, `capabilities` |
+| `daemon.quit` | — | `null`; the daemon exits as on SIGTERM (BG-005) |
+| `autostart.get` / `autostart.set` | — / `enabled` | `{enabled, method}`, `method` = `systemd`, `xdg_autostart` or `windows_run` |
 | `mic.get` | — | `MicState` |
-| `mic.set` | `settings` (вся цепочка) | `MicState` |
-| `mic.set_preset` | `preset` (`natural`, …, `user:<slug>`) | `MicState`; mute и bypass сохраняются |
+| `mic.set` | `settings` (the whole chain) | `MicState` |
+| `mic.set_preset` | `preset` (`natural`, …, `user:<slug>`) | `MicState`; mute and bypass are kept |
 | `mic.set_muted` / `mic.toggle_mute` | `muted` / — | `MicState` |
 | `mic.set_bypass` | `bypass` | `MicState` |
-| `mic.set_device` | `device` (`node.name` или `null`) | `MicState` |
-| `mic.set_fallback_device` | `device` (`node.name` или `null`) | `MicState` |
-| `mic.set_input_channel` | `channel` (`Auto`, `Left`, `Right`, `Mix`) | `MicState`; калибровка фиксирует найденный канал |
-| `mic.set_default_source` / `mic.restore_default_source` | `confirmed: true` / — | `null`; предыдущий системный вход сохраняется в журнале и восстанавливается при выходе |
-| `devices.subscribe` / `devices.unsubscribe` | — | `null`, события `devices.meter` с `name` и `peak_dbfs`; отдельные потоки замера существуют только при подписке |
-| `presets.list`, `devices.list` | — | списки; у пресета `id`, `name`, `builtin` |
-| `presets.save` | `name` | `PresetInfo`; текущая цепочка — новый пресет, он становится выбранным |
-| `presets.update` | `id` | `PresetInfo`; перезаписать пользовательский пресет текущей цепочкой |
+| `mic.set_device` | `device` (`node.name` or `null`) | `MicState` |
+| `mic.set_fallback_device` | `device` (`node.name` or `null`) | `MicState` |
+| `mic.set_input_channel` | `channel` (`Auto`, `Left`, `Right`, `Mix`) | `MicState`; calibration pins the detected channel |
+| `mic.set_default_source` / `mic.restore_default_source` | `confirmed: true` / — | `null`; the previous system input is kept in a journal and restored on exit |
+| `devices.subscribe` / `devices.unsubscribe` | — | `null`, `devices.meter` events with `name` and `peak_dbfs`; separate measuring streams exist only while subscribed |
+| `presets.list`, `devices.list` | — | lists; a preset has `id`, `name`, `builtin` |
+| `presets.save` | `name` | `PresetInfo`; the current chain becomes a new preset, which becomes selected |
+| `presets.update` | `id` | `PresetInfo`; overwrite a user preset with the current chain |
 | `presets.rename` / `presets.duplicate` / `presets.delete` | `id` (+ `name`) / `id` / `id` | `PresetInfo` / `PresetInfo` / `null` |
-| `presets.export` / `presets.import` | `id` / `document` | документ `.macafon-preset.json` / `PresetInfo` |
-| `meters.subscribe` / `meters.unsubscribe` | `hz` (1–60) / — | `null`, затем события `meters` |
+| `presets.export` / `presets.import` | `id` / `document` | a `.macafon-preset.json` document / `PresetInfo` |
+| `meters.subscribe` / `meters.unsubscribe` | `hz` (1–60) / — | `null`, then `meters` events |
 | `calibration.start` / `calibration.cancel` / `calibration.get` | — | `CalibrationState` |
-| `ab.record` | `max_seconds` (3–30, по умолчанию 10) | `AbState` |
+| `ab.record` | `max_seconds` (3–30, default 10) | `AbState` |
 | `ab.stop_recording`, `ab.stop`, `ab.toggle`, `ab.get` | — | `AbState` |
-| `ab.play` | `device` (`node.name` выхода или `null` — выход по умолчанию) | `AbState` |
+| `ab.play` | `device` (output `node.name` or `null` — the default output) | `AbState` |
 | `ab.select` / `ab.seek` / `ab.set_loudness_match` | `side` (`a`/`b`) / `position_ms` / `enabled` | `AbState` |
-| `ab.waveform` | `points` (16–4096) | `{a, b}` — пики 0…1 |
-| `ab.outputs` | — | выходы с `kind` (`headphones`, `speakers`, `unknown`) и `speaker_warning` |
-| `ab.export` | `side` (`a`/`b`), `path` | `null`; WAV float32, 48 кГц, без перезаписи существующего файла |
-| `mixer.get` | — | `MixerState`: каналы, приложения, Master, выходы ([mixer.md](mixer.md)) |
-| `mixer.set_enabled` | `enabled` | `MixerState`; каналы создаются/удаляются, системный выход переходит к каналу по умолчанию и обратно |
+| `ab.waveform` | `points` (16–4096) | `{a, b}` — peaks 0…1 |
+| `ab.outputs` | — | outputs with `kind` (`headphones`, `speakers`, `unknown`) and `speaker_warning` |
+| `ab.export` | `side` (`a`/`b`), `path` | `null`; float32 WAV, 48 kHz, never overwrites an existing file |
+| `mixer.get` | — | `MixerState`: channels, applications, Master, outputs ([mixer.md](mixer.md)) |
+| `mixer.set_enabled` | `enabled` | `MixerState`; channels are created/removed, the system output moves to the default channel and back |
 | `mixer.set_master` | `volume_pct?`, `muted?` | `MixerState` |
-| `mixer.set_output` / `mixer.set_output_priority` | `device` (`null` — прежний системный) / `devices` | `MixerState` |
+| `mixer.set_output` / `mixer.set_output_priority` | `device` (`null` — the previous system output) / `devices` | `MixerState` |
 | `mixer.set_auto_classify` | `enabled` | `MixerState` |
 | `channel.create` / `channel.update` / `channel.delete` | `name`, `color`, `icon?` / `id`, `patch` / `id` | `MixerState` |
-| `channel.set` | `id`, `settings` (вся цепочка и фейдер) | `MixerState` |
+| `channel.set` | `id`, `settings` (the whole chain and fader) | `MixerState` |
 | `channel.adjust_volume` / `channel.toggle_mute` / `channel.set_default` / `channel.reorder` | `id`, `delta_pct` / `id` / `id` / `ids` | `MixerState` |
 | `apps.move` / `apps.set_managed` / `apps.forget` | `app_key`, `channel` / `app_key`, `managed` / `app_key` | `MixerState` |
-| `apps.icon` | `icon` (имя иконки, app id или бинарь) | `data:` URL или `null` (APP-003) |
-| `hotkeys.get` / `hotkeys.set` | — / `action`, `shortcut` (`null` — снять) | `HotkeysState` |
+| `apps.icon` | `icon` (icon name, app id, binary or an exe path on Windows) | a `data:` URL or `null` (APP-003) |
+| `hotkeys.get` / `hotkeys.set` | — / `action`, `shortcut` (`null` — unbind) | `HotkeysState` |
 | `prefs.get` / `prefs.set` | — / `quantum_frames?` (64/128/256/512), `close_action?` (`tray`/`quit`) | `Preferences` (§9.5) |
+| `doctor.run` / `doctor.fix` | — / `check` | Doctor checks (§9.6) / `null` |
 
-События: `meters` (уровни в dBFS, gain reduction в dB, активность NS), `mic.changed` (любое
-изменение состояния от любого клиента), `calibration.changed` (~10 Гц во время замера и итог)
-`ab.changed` (~10 Гц во время записи и воспроизведения, плюс каждое изменение) и
-`presets.changed` (новый список пресетов), `devices.changed` (список входов после подключения или
-отключения, MIC-002), `prefs.changed`, `hotkeys.changed`, `mixer.changed` (`MixerState` после любого изменения
-каналов, приложений или выходов) и `mixer.meters` (пики каналов и Master вместе с `meters`, пока микшер включён). Ошибка `already_exists` — имя пресета занято. Ошибки: `bad_request`, `protocol_mismatch`,
+Events: `meters` (levels in dBFS, gain reduction in dB, NS activity), `mic.changed` (any state change from
+any client), `calibration.changed` (~10 Hz during the measurement, plus the result), `ab.changed` (~10 Hz
+during recording and playback, plus every change), `presets.changed` (the new preset list),
+`devices.changed` (the input list after a connect or disconnect, MIC-002), `prefs.changed`,
+`hotkeys.changed`, `mixer.changed` (`MixerState` after any change of channels, applications or outputs)
+and `mixer.meters` (channel and Master peaks together with `meters` while the mixer is on). The
+`already_exists` error means the preset name is taken. Errors: `bad_request`, `protocol_mismatch`,
 `invalid_params`, `not_found`, `busy`, `internal`.
 
-TS-типы для UI генерируются из `macafon-ipc` (см. [ui.md](ui.md)).
+TS types for the UI are generated from `macafon-ipc` (see [ui.md](ui.md)).
 
-## Конфиг (`macafon-config`)
+## Config (`macafon-config`)
 
-`$XDG_CONFIG_HOME/macafon/config.toml`, `schema_version = 2`. Версия 1 автоматически обновляется; исходный файл сохраняется как `config.toml.bak`. Секция `[mic]`: `stereo` (по умолчанию `false`), `device`, `fallback_device`, `preset`,
-`muted`, `bypass`, `output_gain_db` и таблицы модулей `[mic.compressor]` и т.д. Отсутствующие
-поля берутся из значений по умолчанию. Пишется атомарно (temp + fsync + rename) через 500 мс
-после последнего изменения и при выходе (CFG-001). Повреждённый, невалидный или более новый
-по схеме файл переименовывается в `config.toml.broken-<unix time>`, демон стартует с
-дефолтами. `MicState.is_default_source` — Macafon Microphone сейчас системный вход по metadata `default.audio.source`
-(MIC-012). `MicState.config_recovery` содержит путь резервной копии и причину для уведомления клиента; UI показывает тост один раз на резервную копию.
+`$XDG_CONFIG_HOME/macafon/config.toml` (`%APPDATA%\Macafon\config.toml` on Windows), `schema_version = 2`.
+Version 1 is upgraded automatically; the original file is kept as `config.toml.bak`. The `[mic]` section:
+`stereo` (default `false`), `device`, `fallback_device`, `preset`, `muted`, `bypass`, `output_gain_db` and
+the module tables `[mic.compressor]` etc. Missing fields take their defaults. It is written atomically
+(temp + fsync + rename) 500 ms after the last change and on exit (CFG-001). A corrupted, invalid or
+newer-schema file is renamed to `config.toml.broken-<unix time>`, and the daemon starts with defaults.
+`MicState.is_default_source` — Macafon Microphone is currently the system input per the
+`default.audio.source` metadata (MIC-012). `MicState.config_recovery` holds the backup path and the reason
+for a client notification; the UI shows a toast once per backup.
 
-Профили `[device_profiles."<stable ID>"]` содержат цепочку, пресет, канал входа и калиброванный
-шумовой порог каждого физического микрофона. ID строится из serial или `device.bus-path` и имени узла;
-если аппаратные свойства отсутствуют, используется имя узла. Профиль загружается также при
-переключении на резервный микрофон и возврате основного. `devices.list` отдаёт `stable_id`
-и тип устройства (`usb`, `builtin`, `headset`, `bluetooth`; отсутствие типа означает неизвестный).
+Profiles `[device_profiles."<stable ID>"]` contain the chain, preset, input channel and calibrated noise
+threshold of each physical microphone. The ID is built from the serial or `device.bus-path` and the node
+name; if hardware properties are missing, the node name is used. A profile is also loaded when switching
+to the fallback microphone and back to the primary. `devices.list` returns `stable_id` and the device type
+(`usb`, `builtin`, `headset`, `bluetooth`; no type means unknown).
 
-Таймер обслуживания живёт всё время работы демона, включая ожидание переподключения
-к PipeWire. Изменения через IPC сохраняются с тем же debounce даже без аудиосервера;
-после его возвращения новая цепочка создаётся с актуальными настройками.
+The maintenance timer lives for the whole daemon run, including while waiting to reconnect to PipeWire.
+Changes over IPC are saved with the same debounce even without an audio server; once it returns, a new
+chain is built with the current settings.
 
-`[audio] quantum_frames` (по умолчанию 128) — `node.latency` узла микрофона и каналов, меняется на лету
-(`pw_filter_update_properties`); граф берёт наименьший запрос, так что другие приложения могут сделать
-quantum меньше. `[ui] quit_on_close = true` — отключение UI-клиента завершает демон, как `daemon.quit`.
+`[audio] quantum_frames` (default 128) is the `node.latency` of the microphone and channel nodes and
+changes live (`pw_filter_update_properties`); the graph takes the smallest request, so other applications
+can make the quantum smaller. `[ui] quit_on_close = true` — a UI client disconnecting ends the daemon, like
+`daemon.quit`.
 
-Флаги `macafond run` (`--input`, `--fallback-input`, `--stereo`, `--preset`, `--engine`, …) перекрывают конфиг на этот запуск;
-последующие изменения через IPC сохраняются вместе с ними. `--config <path>` — другой файл.
+`macafond run` flags (`--input`, `--fallback-input`, `--stereo`, `--preset`, `--engine`, …) override the
+config for this run; later changes over IPC are saved together with them. `--config <path>` — a different
+file.
 
-Отличия от примера в PRD §13: модули лежат в `[mic.<module>]`, а не в `[mic.modules.<module>]`;
-проценты — 0–100, а не доли; правила приложений, микшер и хоткеи появятся в M2.
+Differences from the example in PRD §13: modules live in `[mic.<module>]`, not `[mic.modules.<module>]`;
+percentages are 0–100, not fractions; application rules, the mixer and hotkeys arrive in M2.
 
-## Логи (§13)
+## Logs (§13)
 
-Демон пишет диагностику в stderr и `$XDG_STATE_HOME/macafon/macafond.log`
-(если переменная не задана — `~/.local/state/macafon/macafond.log`). Файл дополняется
-после перезапуска. Ротация по размеру: активный файл и четыре резервных `.1`…`.4`,
-каждый до 2 МиБ; `.1` — самый свежий. Событие переносится целиком в следующий файл,
-если не помещается; отдельное событие длиннее 2 МиБ обрезается. ANSI-кодов в файле нет.
-Новые каталог и файлы создаются с правами 0700 и 0600 соответственно.
+The daemon writes diagnostics to stderr and `$XDG_STATE_HOME/macafon/macafond.log` (if the variable is
+unset — `~/.local/state/macafon/macafond.log`; `%LOCALAPPDATA%\Macafon\macafond.log` on Windows). The file
+is appended to after a restart. Size-based rotation: the active file and four backups `.1`…`.4`, each up
+to 2 MiB; `.1` is the newest. An event moves to the next file entirely if it does not fit; a single event
+longer than 2 MiB is truncated. No ANSI codes in the file. New directories and files are created with
+0700 and 0600 permissions respectively.
 
-`RUST_LOG` задаёт уровень для обоих выходов (по умолчанию `info`). Если файл недоступен,
-демон сообщает об ошибке в stderr и продолжает работать. Запись синхронная, только
-из обычных потоков: в RT-колбэках логирования нет (NFR-S1).
+`RUST_LOG` sets the level for both outputs (default `info`). If the file is not available, the daemon
+reports the error to stderr and keeps running. Writing is synchronous and only from ordinary threads: there
+is no logging in RT callbacks (NFR-S1).
 
-## Калибровка (§6.5)
+## Calibration (§6.5)
 
-`calibration.start` (или `macafon ctl calibrate`) включает копирование сырого сигнала микрофона
-(до Gain) из RT-колбэка в очередь `rtrb` на 1 с; control loop забирает его каждые 100 мс.
-Шаги считаются по сэмплам: 4 с тишины (CAL-001), затем 6 с речи (CAL-002). Состояние:
-`idle` → `measuring {step, progress, step_duration_ms}` → `done {report}` или
-`failed {reason, message}`. После успешного замера настройки сразу применяются как обычное
-изменение (`mic.changed`), измеренный шумовой пол сохраняется в `mic.noise_floor_dbfs`
-(сбрасывается при смене микрофона). Ошибки: `clipped` (CAL-005, настройки не меняются),
-`no_speech`, `disconnected` (микрофон пропал/сменился, PipeWire перезапустился), `stalled`
-(2 с без звука). Повторный запуск — тем же методом (CAL-006).
+`calibration.start` (or `macafon ctl calibrate`) enables copying the raw microphone signal (before Gain)
+from the RT callback into a 1 s `rtrb` queue; the control loop drains it every 100 ms. Steps are counted
+in samples: 4 s of silence (CAL-001), then 6 s of speech (CAL-002). State:
+`idle` → `measuring {step, progress, step_duration_ms}` → `done {report}` or `failed {reason, message}`.
+After a successful measurement the settings are applied right away as an ordinary change (`mic.changed`),
+and the measured noise floor is saved in `mic.noise_floor_dbfs` (reset when the microphone changes).
+Errors: `clipped` (CAL-005, settings unchanged), `no_speech`, `disconnected` (the microphone
+disappeared/changed, PipeWire restarted), `stalled` (2 s without audio). Rerun with the same method
+(CAL-006).
 
-В конфиге `mic.noise_floor_device` хранит устройство, на котором измерен пол: результат
-калибровки резерва не переносится на основной после перезапуска. Для старых конфигов без
-этого поля результат относится к сохранённому основному микрофону.
+In the config `mic.noise_floor_device` stores the device the floor was measured on: a calibration of the
+fallback is not carried over to the primary after a restart. For old configs without this field the
+result belongs to the saved primary microphone.
 
-Анализ — `macafon_dsp::calibration::calibrate`, правила CAL-003 и решения, которых нет в PRD:
+Analysis — `macafon_dsp::calibration::calibrate`, the CAL-003 rules and decisions not in the PRD:
 
-| Что | Решение |
+| What | Decision |
 |---|---|
-| Шумовой пол | Средняя мощность окон 20 мс, кроме самых громких 20% (кашель, щелчок) |
-| Уровень речи | Средняя мощность окон громче пола на 10 dB; меньше 0,6 с таких окон — `no_speech` |
-| Клип | ≥ 3 сэмпла не ниже −0,1 dBFS за всю запись |
-| Gain | −18 dBFS − уровень речи, шаг 0,5 dB, ±24 dB. Пики (−6 dBFS из §6.3.1) не учитываются — их держит лимитер |
-| High-pass | 120 Hz, если ≥ 50% мощности шума ниже 100 Hz и пол выше −75 dBFS; иначе 80 Hz |
-| Noise suppression | Линейно: SNR 40 dB → 40%, 20 dB → 90%; при SNR < 20 dB — `suggest_studio` |
-| Expander | Порог = пол + gain + 6 dB, но не выше речи + gain − 12 dB; ratio/range не меняются |
-| Включение модулей | Gain, HPF, NS, Expander включаются; остальная цепочка, mute и bypass не трогаются |
-| Уровень шума (CAL-004) | По SNR: ≥ 40 dB low, 20–40 medium, < 20 high |
-| SNR «после» | Та же запись прогоняется офлайн через новую цепочку; пол — после 1 с установления |
+| Noise floor | Average power of 20 ms windows, excluding the loudest 20% (a cough, a click) |
+| Speech level | Average power of windows louder than the floor by 10 dB; less than 0.6 s of such windows — `no_speech` |
+| Clip | ≥ 3 samples at or above −0.1 dBFS over the whole recording |
+| Gain | −18 dBFS − speech level, 0.5 dB step, ±24 dB. Peaks (−6 dBFS from §6.3.1) are ignored — the limiter holds them |
+| High-pass | 120 Hz if ≥ 50% of the noise power is below 100 Hz and the floor is above −75 dBFS; otherwise 80 Hz |
+| Noise suppression | Linear: SNR 40 dB → 40%, 20 dB → 90%; with SNR < 20 dB — `suggest_studio` |
+| Expander | Threshold = floor + gain + 6 dB, but not above speech + gain − 12 dB; ratio/range unchanged |
+| Module enabling | Gain, HPF, NS, Expander are enabled; the rest of the chain, mute and bypass are untouched |
+| Noise level (CAL-004) | By SNR: ≥ 40 dB low, 20–40 medium, < 20 high |
+| SNR "after" | The same recording is run offline through the new chain; the floor after 1 s of settling |
 
-## Запись и A/B (§6.4)
+## Recording and A/B (§6.4)
 
-- **Запись (AB-001, AB-007).** Тот же захват сырого сигнала, что у калибровки (поэтому они
-  взаимоисключающие — `busy`). 3–30 с, раньше 3 с остановить нельзя. Края клипа сглаживаются
-  на 10 мс, чтобы шов цикла не щёлкал. Клип хранится только в памяти демона. Если микрофон
-  пропал, запись не короче 3 с сохраняется, иначе отбрасывается.
-- **Воспроизведение (AB-002, AB-003, AB-008).** Отдельный `pw_stream` `macafon_ab`
-  («Macafon A/B test»), моно 48 кГц, создаётся только на время воспроизведения. Цель — `target.object`
-  или выход по умолчанию (подключает WirePlumber). B — собственный экземпляр цепочки
-  (`macafon_engine::ab_player`) со своими метрами; каждое изменение живой цепочки уходит и в него.
-  Mute к тесту не применяется. Основной виртуальный микрофон работает как обычно.
-- **A ⇄ B (AB-004).** Обе стороны считаются всегда; переключение — линейный кроссфейд 20 мс.
-  A задерживается на задержку цепочки B, поэтому позиция общая и переключение не «прыгает».
-- **Loudness match (AB-005), по умолчанию вкл.** Усиление A = √(мощность B / мощность A),
-  мощности усредняются с окном 2 с, ±24 dB, сглаживание 50 мс. Это RMS, не LUFS. После резкой
-  смены громкости B выравнивание сходится за ~5 с — сознательно медленно, чтобы A не «качало»
-  вслед за компрессором.
-- **Waveform (AB-006).** Пики A и B по запросу; B считается офлайн через текущую цепочку
-  с компенсацией задержки (~0,15 с на 10 с клипа с NS).
+- **Recording (AB-001, AB-007).** The same raw signal capture as calibration (so they are mutually
+  exclusive — `busy`). 3–30 s; it cannot be stopped before 3 s. The clip edges are smoothed over 10 ms so
+  that the loop seam does not click. The clip is kept only in the daemon's memory. If the microphone
+  disappears, a recording of at least 3 s is kept, otherwise discarded.
+- **Playback (AB-002, AB-003, AB-008).** A separate `pw_stream` `macafon_ab` ("Macafon A/B test"), mono
+  48 kHz, created only for the duration of playback. The target is `target.object` or the default output
+  (connected by WirePlumber). B is a separate chain instance (`macafon_engine::ab_player`) with its own
+  meters; every change of the live chain goes into it too. Mute does not apply to the test. The main
+  virtual microphone works as usual.
+- **A ⇄ B (AB-004).** Both sides are always computed; switching is a 20 ms linear crossfade. A is delayed by
+  B's chain latency, so the position is shared and switching does not "jump".
+- **Loudness match (AB-005), on by default.** A's gain = √(B power / A power), powers averaged over a 2 s
+  window, ±24 dB, 50 ms smoothing. This is RMS, not LUFS. After an abrupt change of B's loudness the match
+  converges in ~5 s — deliberately slow so that A does not "pump" after the compressor.
+- **Waveform (AB-006).** A and B peaks on request; B is computed offline through the current chain with
+  latency compensation (~0.15 s for a 10 s clip with NS).
 
-## Пользовательские пресеты (§6.3.10, §13)
+## User presets (§6.3.10, §13)
 
-- Файлы `<каталог конфига>/presets/mic/<slug>.json` (рядом с `config.toml`, то есть
-  `$XDG_CONFIG_HOME/macafon/presets/mic`), формат совпадает с экспортным `.macafon-preset.json`:
-  `{schema_version: 1, name, settings}`. Запись атомарная. Загружаются при старте; битые файлы
-  пропускаются с предупреждением в логе и не удаляются. Правки файлов вручную видны после
-  перезапуска демона.
-- Id — `user:<slug>`, slug берётся из имени при создании и не меняется при переименовании.
-- Имена уникальны без учёта регистра среди пользовательских и встроенных пресетов, 1–64
-  символа. Сохранение с занятым именем — ошибка `already_exists`; дублирование и импорт
-  добавляют суффикс « (2)», « (3)»…
-- Встроенные пресеты только для чтения (`update`/`rename`/`delete` → `invalid_params`), их можно
-  дублировать и экспортировать.
-- Mute и bypass в пресет не входят. `MicState.preset_modified` — цепочка отличается от
-  выбранного пресета (UI: бейдж «modified», кнопка Save). Удалённый текущий пресет сбрасывает
-  `preset` в `null`.
-- Импорт/экспорт по IPC передаёт сам документ, а не путь: файлы читает и пишет клиент
-  (UI — через диалог, `macafon ctl presets import|export`).
+- Files `<config directory>/presets/mic/<slug>.json` (next to `config.toml`, that is
+  `$XDG_CONFIG_HOME/macafon/presets/mic`); the format matches the exported `.macafon-preset.json`:
+  `{schema_version: 1, name, settings}`. Writes are atomic. Loaded at startup; broken files are skipped with
+  a warning in the log and not deleted. Manual edits of the files are visible after a daemon restart.
+- The ID is `user:<slug>`; the slug is taken from the name at creation and does not change on rename.
+- Names are unique case-insensitively among user and built-in presets, 1–64 characters. Saving with a taken
+  name is an `already_exists` error; duplicate and import add a " (2)", " (3)"… suffix.
+- Built-in presets are read-only (`update`/`rename`/`delete` → `invalid_params`); they can be duplicated and
+  exported.
+- Mute and bypass are not part of a preset. `MicState.preset_modified` — the chain differs from the selected
+  preset (UI: a "modified" badge, a Save button). Deleting the current preset resets `preset` to `null`.
+- Import/export over IPC passes the document itself, not a path: the client reads and writes files (the UI
+  through a dialog, `macafon ctl presets import|export`).
 
-## Трей (§8.1)
+## Tray (§8.1)
 
-StatusNotifierItem по D-Bus через `ksni` (без GTK и tokio), отдельный поток; `--no-tray`
-отключает. Пункты меню превращаются в обычные запросы к control loop, состояние возвращается
-в трей при каждом `mic.changed`.
+A StatusNotifierItem over D-Bus through `ksni` (no GTK or tokio), in a separate thread; `--no-tray`
+disables it. Menu items become ordinary requests to the control loop; the state is sent back to the tray on
+every `mic.changed`. On Windows the tray uses `tray-icon` (see [windows-m3.md](windows-m3.md)).
 
-- Иконка рисуется в коде (векторно, со сглаживанием, 16/22/32/48 px), ассетов нет:
-  микрофон `--accent`; bypass — контурный; mute — перечёркнут `--danger`; микрофон не
-  подключён — точка `--danger` (BG-002). Состояния различаются формой, не только цветом.
-- Меню (BG-003): `Open Macafon`, `Mute microphone` ✓, `Bypass processing` ✓, `Preset ▸`
-  (встроенные и пользовательские), `Quit Macafon`. `Output device ▸` появится с микшером (M2).
-- Левый клик — открыть UI, средний — mute (BG-004). UI ищется как `macafon` рядом с демоном,
-  затем в `PATH`.
-- Нет хоста трея (панель стартует позже, GNOME без расширения AppIndicator) — демон
-  работает дальше и показывает иконку, когда хост появится. Подсказка BG-007 — задача UI.
-- Подсказка в трее: пресет (и «modified»), mute, bypass, отключённый микрофон.
+- The icon is drawn in code (vector, anti-aliased, 16/22/32/48 px), no assets: the microphone in
+  `--accent`; bypass — outlined; mute — crossed out in `--danger`; microphone not connected — a `--danger`
+  dot (BG-002). States differ by shape, not only by color.
+- Menu (BG-003): `Open Macafon`, `Mute microphone` ✓, `Bypass processing` ✓, `Preset ▸` (built-in and
+  user), `Quit Macafon`. `Output device ▸` comes with the mixer (M2).
+- Left click opens the UI, middle click — mute (BG-004). The UI is looked up as `macafon` next to the
+  daemon, then in `PATH`.
+- No tray host (the panel starts later, GNOME without the AppIndicator extension) — the daemon keeps running
+  and shows the icon when a host appears. The BG-007 hint is a UI task.
+- Tray tooltip: the preset (and "modified"), mute, bypass, a disconnected microphone.
 
-## Автозапуск (§8.2)
+## Autostart (§8.2)
 
-- `packaging/systemd/macafond.service`: `WantedBy`/`PartOf=graphical-session.target` (трею нужна
-  сессия рабочего стола), `After=pipewire.service wireplumber.service`, `Restart=on-failure`,
-  `RestartSec=1` (NFR-S6). Quit из трея завершает демон с кодом 0 — systemd его не поднимает.
-- `autostart.set` включает unit (`systemctl --user enable`), если он установлен и сессия
-  достигает `graphical-session.target`; иначе пишет `$XDG_CONFIG_HOME/autostart/macafond.desktop`
-  с путём к текущему бинарю. Активен только один способ. `MACAFON_NO_SYSTEMD=1` заставляет
-  использовать XDG (тесты, системы без systemd).
-- AS-003: в приватном PipeWire `Macafon Microphone` появляется через 18–31 мс после старта.
-  RSS демона с треем — 13 МБ (NFR-R4).
+- `packaging/systemd/macafond.service`: `WantedBy`/`PartOf=graphical-session.target` (the tray needs a
+  desktop session), `After=pipewire.service wireplumber.service`, `Restart=on-failure`, `RestartSec=1`
+  (NFR-S6). Quit from the tray ends the daemon with code 0 — systemd does not bring it back.
+- `autostart.set` enables the unit (`systemctl --user enable`) if it is installed and the session reaches
+  `graphical-session.target`; otherwise it writes `$XDG_CONFIG_HOME/autostart/macafond.desktop` with the
+  path to the current binary. Only one method is active. `MACAFON_NO_SYSTEMD=1` forces XDG (tests, systems
+  without systemd). On Windows — the `Macafon` value under `HKCU\…\Run` (AS-004).
+- AS-003: in a private PipeWire `Macafon Microphone` appears 18–31 ms after start. Daemon RSS with the
+  tray — 13 MB (NFR-R4).
 
-## Не сделано
-- A/B: предупреждение «выход — колонки» (AB-002) требует списка выходов с типом устройства —
-  появится вместе с выбором выхода; экспорт WAV (AB-007, P2).
-- Восстановление системного микрофона по умолчанию при Quit (BG-005) — вместе с MIC-012.
+## Not done
 
-## Проверка
+- A/B: the "output is speakers" warning (AB-002) needs an output list with device types — it comes with
+  output selection; WAV export (AB-007, P2).
+- Restoring the system default microphone on Quit (BG-005) — together with MIC-012.
+
+## Checks
 
 ```sh
 cargo test -p macafon-engine -p macafon-config -p macafon-ipc
@@ -278,38 +279,38 @@ python3 tools/tests/control-smoke.py
 python3 tools/tests/tray-smoke.py --icons .artifacts/screenshots/tray
 ```
 
-`tray-smoke.py` в приватной D-Bus-сессии через `gdbus` читает свойства SNI, нажимает пункты
-меню (mute, bypass, пресет, средний клик, Quit) и сохраняет иконки состояний в PNG.
+`tray-smoke.py` reads the SNI properties through `gdbus` in a private D-Bus session, clicks menu items
+(mute, bypass, preset, middle click, Quit) and saves the state icons as PNG.
 
-`control-smoke.py` в приватном PipeWire проверяет: отказ второго демона, mute/unmute и gain
-на лету, смену пресета с кроссфейдом и обновлением `ProcessLatency` в графе, метры без
-приложения-потребителя, ошибки протокола, калибровку по синтетической записи (шум −60 dBFS,
-«речь» −24 dBFS) без потребителя, запись и A/B (уровни A, B, B после изменения цепочки на лету,
-выравнивание громкости, waveform, удаление потока), пользовательские пресеты (сохранение, флаг
-modified, повторное имя, экспорт → импорт, дублирование, переименование, удаление), сохранение конфига и его загрузку после перезапуска,
-удаление сокета при выходе. Резервный микрофон проверяется по реальному звуку от двух
-синтетических входов разного уровня: приоритет основного, переключение на резерв и возврат,
-тишина при отключении обоих, прерывание калибровки/записи при смене входа, явное отключение
-входа и сохранение резерва после перезапуска.
-Stereo проверяется по записанным сэмплам: равенство обработанных FL/FR, работа с одним
-подключённым каналом, mute, метры без потребителя, отключение/возврат физического входа,
-сохранение формата в конфиге, восстановление после перезапуска PipeWire и возврат к mono
-через флаг. Во время отключения PipeWire меняется mute: проверяются сохранение конфига
-без завершения демона менее чем за 2 с и цифровая тишина после возвращения сервера.
-Тест `macafon-backend-pipewire` под `assert_no_alloc` проверяет дублирование без
-повторного DSP, частичные подключения, тишину и scratch-обработку без потребителей.
+`control-smoke.py` in a private PipeWire checks: refusal of a second daemon, live mute/unmute and gain, a
+preset change with a crossfade and `ProcessLatency` updated in the graph, meters without a consuming
+application, protocol errors, calibration on a synthetic recording (noise −60 dBFS, "speech" −24 dBFS)
+without a consumer, recording and A/B (levels of A, B, B after a live chain change, loudness matching,
+waveform, stream removal), user presets (save, the modified flag, a duplicate name, export → import,
+duplicate, rename, delete), saving the config and loading it after a restart, removing the socket on exit.
+The fallback microphone is checked with real audio from two synthetic inputs of different levels: the
+primary's priority, switching to the fallback and back, silence when both are disconnected, interrupting
+calibration/recording on an input change, explicitly disconnecting the input and keeping the fallback
+after a restart.
+Stereo is checked on recorded samples: processed FL/FR are equal, a single connected channel works, mute,
+meters without a consumer, physical input disconnect/return, the format saved in the config, recovery after
+a PipeWire restart and the return to mono with the flag. While PipeWire is down, mute is changed: the
+config is saved without the daemon exiting in under 2 s, and there is digital silence after the server
+returns. A `macafon-backend-pipewire` test under `assert_no_alloc` checks duplication without repeated DSP,
+partial connections, silence and scratch processing without consumers.
 
-## Контроль бюджета Studio
+## Studio budget control
 
-Демон подписывается на Profiler PipeWire только при работающем Studio. Длительность
-`finish − awake` своего узла сравнивается с бюджетом `quantum × clock.rate`.
-Три последовательных завершённых цикла выше 80% вызывают переход на Lite, сохранение
-профиля устройства и событие `mic.noise_fallback`. Измерения принимаются на control loop;
-в аудиоколбэк не добавлены часы, системные вызовы или IPC.
+The daemon subscribes to the PipeWire Profiler only while Studio runs. The `finish − awake` duration of our
+own node is compared with the `quantum × clock.rate` budget. Three consecutive completed cycles above 80%
+trigger the switch to Lite, saving the device profile and a `mic.noise_fallback` event. Measurements are
+taken on the control loop; no clocks, system calls or IPC were added to the audio callback.
 
-Позиции часов и timestamp завершения исключают повторное чтение одного цикла.
-Пропуск измерений, смена драйвера и новая подписка сбрасывают последовательность.
-Подписка снимается при остановке потока/выключении Studio; при реконнекте создаётся заново.
-Worker DFN3 продолжает независимо проверять свой бюджет и пропущенные результаты.
-Если Profiler отключён на сервере или отсутствует клиентский модуль, этот worker-детектор
-остаётся активным, но полное время колбэка недоступно.
+Clock positions and the completion timestamp prevent reading the same cycle twice. Skipped measurements, a
+driver change and a new subscription reset the streak. The subscription is removed when the stream stops /
+Studio is turned off, and recreated on reconnect. The DFN3 worker keeps checking its own budget and missed
+results independently. If the Profiler is disabled on the server or the client module is missing, this
+worker detector stays active, but the full callback time is not available.
+
+On Windows the capture thread times the chain per WASAPI packet instead (see
+[windows-m3.md](windows-m3.md)).

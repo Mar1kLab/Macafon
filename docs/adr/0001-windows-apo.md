@@ -1,49 +1,49 @@
-# ADR-0001: обработка микрофона на Windows через APO-плагин, без своего драйвера
+# ADR-0001: Windows microphone processing through an APO plugin, without our own driver
 
-- **Статус:** заменено [ADR-0004](0004-windows-free-vb-cable.md) (2026-10-11)
-- **Дата:** 2026-10-08
-- **Контекст PRD:** [§12.2](../PRD.md#122-windows-m3)
+- **Status:** superseded by [ADR-0004](0004-windows-free-vb-cable.md) (2026-10-11)
+- **Date:** 2026-10-08
+- **PRD context:** [§12.2](../PRD.md#122-windows-m3)
 
-## Контекст
+## Context
 
-На Windows виртуальное аудиоустройство (как `SteelSeries Sonar - Microphone`) требует драйвера режима ядра.
-Чтобы его загружали на обычных системах, нужна подпись Microsoft: EV-сертификат (ежегодная оплата) и
-attestation signing в Microsoft Partner Center. Test-signing не подходит: водяной знак на рабочем столе и
-несовместимость с античитами (Vanguard, FACEIT и др.), а это основная аудитория.
+On Windows a virtual audio device (like `SteelSeries Sonar - Microphone`) requires a kernel-mode driver.
+For it to load on ordinary systems it must be signed by Microsoft: an EV certificate (paid yearly) and
+attestation signing in Microsoft Partner Center. Test-signing is not an option: a desktop watermark and
+incompatibility with anti-cheats (Vanguard, FACEIT, etc.), and gamers are the core audience.
 
-## Рассмотренные варианты
+## Options considered
 
-| Вариант | Стоимость | Итог |
+| Option | Cost | Outcome |
 |---|---|---|
-| Свой подписанный драйвер | EV-сертификат + Partner Center, долгий процесс | Отложен до появления бюджета |
-| Test-signing | 0 | Отклонён: античиты, водяной знак |
-| Бандлинг VB-Cable | Лицензия на распространение VB-Audio | Отклонён для микрофона: чужие имена, платный бандлинг |
-| VB-Cable, установленный пользователем | 0 для нас | Выбран для каналов вывода ([ADR-0002](0002-windows-output-vbcable.md)) |
-| Open-source VirtualDrivers/Virtual-Audio-Driver | 0 | Отклонён: сейчас требует test-signing |
-| **APO-плагин на физическом микрофоне** | 0 (подпись Authenticode через SignPath Foundation) | **Выбран** |
+| Our own signed driver | EV certificate + Partner Center, a long process | Postponed until there is a budget |
+| Test-signing | 0 | Rejected: anti-cheats, watermark |
+| Bundling VB-Cable | VB-Audio redistribution license | Rejected for the microphone: foreign names, paid bundling |
+| VB-Cable installed by the user | 0 for us | Chosen for output channels ([ADR-0002](0002-windows-output-vbcable.md)) |
+| Open-source VirtualDrivers/Virtual-Audio-Driver | 0 | Rejected: currently requires test-signing |
+| **APO plugin on the physical microphone** | 0 (Authenticode signing through SignPath Foundation) | **Chosen** |
 
-## Решение
+## Decision
 
-Обработка микрофона на Windows выполняется APO-плагином (user-mode COM DLL в `audiodg.exe`), который
-регистрируется на capture-эндпоинтах и оборачивает вендорские APO. Демон `macafond` управляет параметрами
-через shared memory; служба `macafon-apo-helper` регистрирует APO на новых устройствах и ремонтирует
-регистрацию после обновлений.
+Microphone processing on Windows is done by an APO plugin (a user-mode COM DLL in `audiodg.exe`) that
+is registered on capture endpoints and wraps the vendor APOs. The `macafond` daemon controls the
+parameters through shared memory; the `macafon-apo-helper` service registers the APO on new devices and
+repairs the registration after updates.
 
-## Последствия
+## Consequences
 
-**Плюсы**
-- Нет затрат на подпись драйвера, нет test-signing.
-- Минимальная задержка: обработка в существующем цикле аудиодвижка Windows, без лишнего прохода через виртуальное устройство.
-- Обработанный звук сразу во всех приложениях, ничего не нужно переключать в Discord/OBS.
-- Общий DSP-код (`macafon-dsp`) с Linux.
+**Pros**
+- No driver signing costs, no test-signing.
+- Minimal latency: processing happens in the existing Windows audio engine cycle, without an extra pass through a virtual device.
+- Processed sound in every application at once, nothing to switch in Discord/OBS.
+- DSP code (`macafon-dsp`) shared with Linux.
 
-**Минусы / ограничения**
-- Нет отдельного устройства «Macafon Microphone»: нельзя дать разным приложениям разную обработку.
-- Нужны права администратора при установке; регистрация может сбрасываться обновлениями (митигируется службой-хелпером).
-- Возможны конфликты с вендорскими APO.
-- APO не решает каналы вывода по приложениям — они сделаны на VB-Cable ([ADR-0002](0002-windows-output-vbcable.md)).
+**Cons / limitations**
+- No separate "Macafon Microphone" device: different applications cannot get different processing.
+- Administrator rights are needed at install time; updates can reset the registration (mitigated by the helper service).
+- Possible conflicts with vendor APOs.
+- An APO does not solve per-application output channels — those use VB-Cable ([ADR-0002](0002-windows-output-vbcable.md)).
 
-## Когда пересмотреть
+## When to revisit
 
-Если появится бюджет на EV-сертификат и attestation signing, или если APO-модель окажется нестабильной
-на заметной доле устройств по итогам M3.
+If a budget for an EV certificate and attestation signing appears, or if the APO model turns out to be
+unstable on a noticeable share of devices after M3.

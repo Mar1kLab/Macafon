@@ -1,48 +1,48 @@
-# ADR-0002: каналы вывода на Windows через VB-Cable, установленный пользователем
+# ADR-0002: Windows output channels through user-installed VB-Cable
 
-- **Статус:** заменено [ADR-0004](0004-windows-free-vb-cable.md) (2026-10-11)
-- **Дата:** 2026-10-08
-- **Контекст PRD:** [§12.2.2](../PRD.md#1222-каналы-вывода-на-windows--vb-cable-установленный-пользователем)
-- **Связано:** [ADR-0001](0001-windows-apo.md) (микрофон через APO, своего драйвера нет)
+- **Status:** superseded by [ADR-0004](0004-windows-free-vb-cable.md) (2026-10-11)
+- **Date:** 2026-10-08
+- **PRD context:** [§12.2.2](../PRD.md#1222-windows-mixer--volume-groups-without-cables) (the section has since been rewritten by ADR-0004)
+- **Related:** [ADR-0001](0001-windows-apo.md) (microphone through an APO, no driver of our own)
 
-## Контекст
+## Context
 
-Каналам вывода (Main / Voice / Music) нужны устройства вывода, которые приложения видят как обычные
-динамики, а Macafon может захватить, обработать и свести. Свой драйвер отложен (ADR-0001). APO на
-устройстве вывода видит только общий микс, поэтому разделить звук по приложениям через APO нельзя.
+Output channels (Main / Voice / Music) need output devices that applications see as ordinary speakers
+and that Macafon can capture, process and mix. Our own driver is postponed (ADR-0001). An APO on an
+output device only sees the final mix, so audio cannot be split per application through an APO.
 
-## Рассмотренные варианты
+## Options considered
 
-| Вариант | Итог |
+| Option | Outcome |
 |---|---|
-| A. Process loopback (`AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK`) + «немое» устройство / обнулённая громкость сессии | Отклонён: неочевидное поведение громкости сессии, нужно «немое» физическое устройство, хрупко |
-| **B. Кабели VB-Audio Virtual Cable, которые пользователь ставит сам** | **Выбран** |
-| C. Только Master EQ/FX через APO, без каналов | Отклонён как основной; оставлен как урезанный режим без кабелей |
-| Бандлинг VB-Cable в инсталлятор | Отклонён сейчас: нужна платная лицензия VB-Audio на распространение |
+| A. Process loopback (`AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK`) + a "mute" device / zeroed session volume | Rejected: non-obvious session volume behavior, needs a "mute" physical device, fragile |
+| **B. VB-Audio Virtual Cable cables installed by the user** | **Chosen** |
+| C. Master EQ/FX only through an APO, no channels | Rejected as the main mode; kept as a reduced mode without cables |
+| Bundling VB-Cable in the installer | Rejected for now: requires a paid VB-Audio redistribution license |
 
-## Решение
+## Decision
 
-Каналы = кабели VB-Audio (VB-Cable, A+B, C+D — до 5 кабелей). Пользователь устанавливает их сам с
-официального сайта (donationware); Macafon находит кабели по hardware ID, назначает приложения на кабели
-через `IAudioPolicyConfig`, захватывает выход кабелей через WASAPI, обрабатывает и выводит в реальное
-устройство. Требования — WIN-CH-001…014 в PRD.
+Channels = VB-Audio cables (VB-Cable, A+B, C+D — up to 5 cables). The user installs them from the
+official site (donationware); Macafon finds the cables by hardware ID, assigns applications to cables
+through `IAudioPolicyConfig`, captures the cable outputs through WASAPI, processes them and plays them
+into the real device. Requirements — WIN-CH-001…014 in the PRD at the time.
 
-## Последствия
+## Consequences
 
-**Плюсы**
-- Бесплатно для проекта, без подписи драйверов.
-- VB-Cable — подписанный и широко распространённый драйвер, совместим с античитами.
-- Та же модель «канал = устройство», что на Linux и в Sonar.
+**Pros**
+- Free for the project, no driver signing.
+- VB-Cable is a signed, widely used driver, compatible with anti-cheats.
+- The same "channel = device" model as on Linux and in Sonar.
 
-**Минусы / ограничения**
-- Лишний шаг установки с перезагрузкой — риск оттока в онбординге.
-- Не больше 5 каналов на Windows.
-- Задержка выше, чем на Linux (буфер кабеля + дополнительный WASAPI-проход).
-- Чужие имена устройств (частично решается переименованием, WIN-CH-011).
-- Если Macafon не работает, звук в кабелях никто не слышит — нужна защита (WIN-CH-007).
-- Зависимость от стороннего проекта.
+**Cons / limitations**
+- An extra installation step with a reboot — a risk of drop-off in onboarding.
+- No more than 5 channels on Windows.
+- Higher latency than on Linux (cable buffer + an extra WASAPI pass).
+- Foreign device names (partly solved by renaming, WIN-CH-011 at the time).
+- If Macafon is not running, nobody hears the sound in the cables — needs protection (WIN-CH-007 at the time).
+- Dependency on a third-party project.
 
-## Когда пересмотреть
+## When to revisit
 
-- Конверсия шага установки VB-Cable в онбординге низкая → переговоры о лицензии на бандлинг.
-- Появляется бюджет на свой подписанный драйвер → виртуальный микрофон и каналы как на Linux.
+- Low conversion of the VB-Cable installation step in onboarding → negotiate a bundling license.
+- A budget for our own signed driver appears → virtual microphone and channels as on Linux.

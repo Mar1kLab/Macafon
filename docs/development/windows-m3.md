@@ -1,229 +1,206 @@
-# Windows M3.0: spike
+# Windows port (M3)
 
-Состояние на 2026-10-16: демон, UI (Tauri) и per-user инсталлятор работают на Windows,
-MVP-путь «установка → VB-CABLE → звук в CABLE Output» собран (см. последний раздел).
-Ниже — история этапов M3.0…M3.6. Стенд: Windows 11 25H2, HyperX SoloCast (USB),
-VB-CABLE 3.3.1.7.
+State as of 2026-10-16: the daemon, the UI (Tauri) and the per-user installer work on Windows; the MVP
+path "install → VB-CABLE → audio in CABLE Output" is in place (see the later sections). Below is the
+history of stages M3.0…M3.6. Test machine: Windows 11 25H2, HyperX SoloCast (USB), VB-CABLE 3.3.1.7.
+
+## M3.0: spike
 
 ```sh
-cargo run --release -p macafon-backend-windows --example spike -- devices    # эндпоинты, hardware ID, периоды
-cargo run --release -p macafon-backend-windows --example spike -- defaults   # default-устройства по ролям
-cargo run --release -p macafon-backend-windows --example spike -- sessions   # аудиосессии приложений
+cargo run --release -p macafon-backend-windows --example spike -- devices    # endpoints, hardware IDs, periods
+cargo run --release -p macafon-backend-windows --example spike -- defaults   # default devices per role
+cargo run --release -p macafon-backend-windows --example spike -- sessions   # application audio sessions
 cargo run --release -p macafon-backend-windows --example spike -- run --input SoloCast --seconds 60
 ```
 
-`run` по умолчанию пишет в `CABLE Input`; `--output '<часть имени>'` выбирает другое устройство,
-`--low-latency` — минимальный период render, `--probe-every-s 10` — замер добавленной задержки.
-`probe <вход> <вход>` сравнивает два устройства захвата (проверка самого замера: вход против
-себя даёт 0,00 мс). `set-default` меняет default-устройство и через несколько секунд
-восстанавливает прежнее.
+`run` writes into `CABLE Input` by default; `--output '<part of a name>'` selects another device,
+`--low-latency` — the minimum render period, `--probe-every-s 10` — a measurement of the added latency.
+`probe <input> <input>` compares two capture devices (a check of the measurement itself: an input against
+itself gives 0.00 ms). `set-default` changes the default device and restores the previous one after a few
+seconds.
 
-## Что сделано
+### What was done
 
-- Обнаружение VB-CABLE по hardware ID адаптера `VBAudioVACWDM` (служба `VBAudioVACMME`),
-  без имён эндпоинтов (WIN-MIC-001). Адаптер — родитель devnode `SWD\MMDEVAPI\<id>`.
-  VB-CABLE 3.3 даёт два render-эндпоинта на одном кабеле: `CABLE Input` (form factor
-  Speakers) и `CABLE In 16ch` (LineLevel); выбирается Speakers. Прочие VB-Audio-устройства
-  помечаются, но не используются.
-- Default-устройства: чтение через `IMMDeviceEnumerator`, запись через `IPolicyConfig`
-  (Windows 7+ vtable) — основа MIC-012/WIN-CH-007. Журнал и восстановление — M3.1.
-- Аудиосессии на всех render-эндпоинтах: процесс, exe, громкость, mute, пик (основа
-  WIN-CH-001/002/004), только чтение.
-- Путь микрофона: WASAPI shared event-driven захват (MMCSS «Pro Audio») → `MicRt` →
-  буфер компенсации дрейфа → WASAPI render, моно дублируется в стерео. Формат 48 кГц float32;
-  ресемплинг и сведение каналов устройства делает Windows (`AUTOCONVERTPCM`). RT-участки
-  под `assert_no_alloc`.
-- `macafon-engine::drift`: SPSC-буфер + кубический ресемплер с PI-регулятором (≈ 20 с,
-  до ±0,5 %). Регулируется суммарная задержка «буфер + очередь render»: render иногда
-  забирает два периода сразу, и регулирование только по буферу давало серии underrun.
-  Цель уровня — буфер render + один период захвата + 2 мс: пакеты захвата приходят раз в
-  период захвата, каким бы коротким ни был период render.
-- Render в минимальном периоде движка (`IAudioClient3::InitializeSharedAudioStream`), если
-  формат микширования устройства 48 кГц float; иначе — обычный путь.
-- Замер добавленной задержки (`probe`, основа WIN-MIC-008): одновременная запись физического
-  микрофона и `CABLE Output`, привязка к QPC-меткам пакетов WASAPI, взаимная корреляция.
-  Оба потока начинаются с одних и тех же сэмплов устройства, поэтому коррелирует даже
-  собственный шум микрофона; результат — сколько приложение теряет, записывая Macafon вместо
-  микрофона (определение NFR-L1/L6).
-- IPC: `macafon-ipc::transport` — на Windows named pipe `\\.\pipe\macafon-<SID>` с
-  защищённым DACL «только текущий пользователь» через `interprocess` (overlapped I/O: события
-  пишутся из другого потока, пока чтение заблокировано). Второй владелец имени отвергается.
-  `Client` и `macafon ctl` перешли на `Endpoint`; на Linux остаётся прежний Unix-сокет.
+- VB-CABLE detection by the hardware ID of the `VBAudioVACWDM` adapter (service `VBAudioVACMME`), without
+  endpoint names (WIN-MIC-001). The adapter is the parent of the `SWD\MMDEVAPI\<id>` devnode. VB-CABLE 3.3
+  provides two render endpoints on one cable: `CABLE Input` (form factor Speakers) and `CABLE In 16ch`
+  (LineLevel); Speakers is chosen. Other VB-Audio devices are flagged but not used.
+- Default devices: read through `IMMDeviceEnumerator`, written through `IPolicyConfig` (the Windows 7+
+  vtable) — the basis of MIC-012/WIN-CH-007. Journal and restore — M3.1.
+- Audio sessions on all render endpoints: process, exe, volume, mute, peak (the basis of
+  WIN-CH-001/002/004), read-only.
+- The microphone path: WASAPI shared event-driven capture (MMCSS "Pro Audio") → `MicRt` → drift
+  compensation buffer → WASAPI render, mono duplicated into stereo. Format 48 kHz float32; Windows does
+  resampling and channel mixing of the device (`AUTOCONVERTPCM`). RT sections under `assert_no_alloc`.
+- `macafon-engine::drift`: an SPSC buffer + a cubic resampler with a PI controller (≈ 20 s, up to ±0.5%).
+  The controlled quantity is the total "buffer + render queue" latency: render sometimes takes two periods
+  at once, and controlling the buffer alone caused bursts of underruns. The level target is the render
+  buffer + one capture period + 2 ms: capture packets arrive once per capture period, however short the
+  render period is.
+- Render at the engine's minimum period (`IAudioClient3::InitializeSharedAudioStream`) if the device mix
+  format is 48 kHz float; otherwise the regular path.
+- Added latency measurement (`probe`, the basis of WIN-MIC-008): simultaneous recording of the physical
+  microphone and `CABLE Output`, aligned to the QPC timestamps of WASAPI packets, cross-correlation. Both
+  streams start from the same device samples, so even the microphone's own noise correlates; the result is
+  how much an application loses by recording Macafon instead of the microphone (the NFR-L1/L6 definition).
+- IPC: `macafon-ipc::transport` — on Windows the named pipe `\\.\pipe\macafon-<SID>` with a protected
+  "current user only" DACL through `interprocess` (overlapped I/O: events are written from another thread
+  while a read is blocked). A second owner of the name is rejected. `Client` and `macafon ctl` moved to
+  `Endpoint`; Linux keeps the Unix socket.
 
-## M3.1: платформенный слой
+### Measurements
 
-- Hot-plug и смена устройств на лету (WIN-MIC-006): потоки захвата и вывода переживают
-  пропажу устройства и смену его формата, переоткрывают его раз в 500 мс; вход и выход
-  переключаются без перезапуска (`MicrophonePipeline::set_input/set_output`). Без микрофона в
-  кабель идёт тишина, без кабеля цепочка и метры продолжают работать (WIN-MIC-001).
-  Проверено переключением HyperX → Steam Streaming Microphone и на несуществующий ID;
-  физическое отключение USB-микрофона ещё не проверялось.
-- Журнал default-устройств (MIC-012, WIN-MIC-005): исходные default по ролям пишутся на
-  диск до изменения и не перезаписываются; восстановление — только там, где default всё ещё
-  наш; если исходное устройство отключено, журнал остаётся до следующего старта.
-- Пути: конфиг `%APPDATA%\Macafon`, состояние и журналы `%LOCALAPPDATA%\Macafon`
+| | Result |
+|---|---|
+| Default WASAPI engine period | 10 ms on all devices; minimum (IAudioClient3): `CABLE Input` 2.67 ms, HyperX 10 ms, `CABLE Output` 10 ms |
+| Safe buffer level | render buffer (22 ms) + period (10 ms); less — underruns in some runs |
+| Added latency, render period 10 ms | **124–138 ms** measured (correlation ≥ 0.96); our own part ≈ 44 ms by components |
+| Added latency, `--low-latency` (2.67 ms) | **82–88 ms** measured (correlation ≥ 0.87); our own part ≈ 28 ms |
+| The rest — the VB-CABLE buffer | ≈ 58–90 ms with the default driver settings; depends on the size of writes into the cable |
+| HyperX ↔ VB-CABLE drift | tens of ppm after settling; more precise after a soak test |
+| Underruns / dropouts | 0 in 40–60 s in both modes |
+
+**NFR-L6 (≤ 20 ms) is not met.** Most of the latency is the VB-CABLE internal buffer (the Max Latency
+setting in `VBCABLE_ControlPanel`, not stored in the registry). The measurement has to be repeated with a
+smaller cable buffer; our own part is limited by the USB microphone's capture period (10 ms) and the render
+buffer. If the target is still unreachable, revisit NFR-L6 in ADR-0004.
+
+Not done in M3.0: measurements with different `VBCABLE_ControlPanel` buffers, a one-hour soak,
+`IPolicyConfig` on Windows 10. The numbers are not in ADR-0004 yet.
+
+## M3.1: platform layer
+
+- Hot-plug and live device changes (WIN-MIC-006): the capture and render threads survive a device
+  disappearing or changing its format and reopen it every 500 ms; input and output switch without a
+  restart (`MicrophonePipeline::set_input/set_output`). Without a microphone the cable gets silence;
+  without the cable the chain and meters keep running (WIN-MIC-001). Checked by switching HyperX → Steam
+  Streaming Microphone and to a non-existent ID; physically unplugging the USB microphone has not been
+  checked yet.
+- Default device journal (MIC-012, WIN-MIC-005): the original defaults per role are written to disk before
+  a change and never overwritten; restore only where the default is still ours; if the original device is
+  disconnected, the journal stays until the next start.
+- Paths: config `%APPDATA%\Macafon`, state and journals `%LOCALAPPDATA%\Macafon`
   (`macafon_config::state_dir`).
-- Общий контракт бэкенда — крейт `macafon-backend` (`MicrophoneHost`, `MixerHost`, `Node`,
-  `PlaybackStream`, `ControlSender`, снимок графа для Doctor). PipeWire-крейт и Windows-крейт
-  реализуют его; демон выбирает платформу в `apps/macafond/src/platform/{linux,windows}.rs`.
-- `macafond` и `macafon` собираются и работают на Windows (2026-10-16). Цикл управления —
-  `macafon-backend-windows::daemon`: опрос хоста раз в 100 мс, пересканирование эндпоинтов раз
-  в секунду (кабель скрыт, WIN-MIC-009), A/B через свой WASAPI-поток, Ctrl+C / закрытие консоли /
-  logoff / shutdown останавливают его после восстановления default (WIN-MIC-005). Сервер
-  управления — named pipe. Лог — `%LOCALAPPDATA%\Macafon\macafond.log`.
-- Каналы как группы громкости (WIN-CH-001…004, 007, 008): приложения из `SessionWatcher`
-  передаются хосту как потоки (по exe), канал и фейдеры берёт существующий `Mixer` демона
-  (`MixerHost::app_mix`), громкость сессии = кривая (канал × приложение × Master). Изменение в
-  микшере Windows становится фейдером приложения; пики приложений идут в метры каналов;
-  выбранный выход становится default render, пока каналы включены; выключение микшера и Quit
-  возвращают громкости и default.
+- The shared backend contract is the `macafon-backend` crate (`MicrophoneHost`, `MixerHost`, `Node`,
+  `PlaybackStream`, `ControlSender`, a graph snapshot for Doctor). The PipeWire and Windows crates implement
+  it; the daemon picks the platform in `apps/macafond/src/platform/{linux,windows}.rs`.
+- `macafond` and `macafon` build and run on Windows. The control loop is
+  `macafon-backend-windows::daemon`: polling the host every 100 ms, rescanning endpoints every second (the
+  cable is hidden, WIN-MIC-009), A/B through its own WASAPI thread; Ctrl+C / console close / logoff /
+  shutdown stop it after restoring the defaults (WIN-MIC-005). The control server is a named pipe. Log —
+  `%LOCALAPPDATA%\Macafon\macafond.log`.
+- Channels as volume groups (WIN-CH-001…004, 007, 008): applications from `SessionWatcher` are passed to the
+  host as streams (by exe), the daemon's existing `Mixer` provides the channel and faders
+  (`MixerHost::app_mix`), session volume = curve (channel × app × Master). A change in the Windows volume
+  mixer becomes the app fader; app peaks feed the channel meters; the chosen output becomes the default
+  render device while channels are on; disabling the mixer and Quit give back volumes and the default.
 
-### Проверено на стенде (Windows 11, HyperX SoloCast, VB-CABLE)
+### Checked on the test machine (Windows 11, HyperX SoloCast, VB-CABLE)
 
-| | Результат |
+| | Result |
 |---|---|
-| Звук в `CABLE Output` (`spike probe`, пресет raw) | задержка 85,5 мс, корреляция 0,997; mute — тишина (корреляция 0,00) |
-| `ctl status / devices / doctor / meters` по named pipe | работают; кабель не виден в списке микрофонов |
-| Смена микрофона на лету (`ctl device`) | HyperX → Steam Streaming Microphone → HyperX без перезапуска |
-| `ctl set-default --confirm` / `restore-default` | `CABLE Output` по всем ролям и обратно |
-| Quit после set-default | default-микрофон восстановлен, журнал удалён |
-| Kill процесса после set-default | журнал остался; следующий старт восстановил default |
-| A/B (`ab record` 3 с, `ab play --device`) | играет, позиция идёт, `ab stop` останавливает |
-| Микшер: `ctl mixer on`, `channel main volume 50` | группировка по exe, Discord/Telegram → voice; сессии 12 % (0,5³); mute канала |
-| `ctl mixer off` | громкости сессий возвращены (журнал остаётся только для завершившихся приложений) |
+| Audio in `CABLE Output` (`spike probe`, raw preset) | latency 85.5 ms, correlation 0.997; mute — silence (correlation 0.00) |
+| `ctl status / devices / doctor / meters` over the named pipe | work; the cable is not in the microphone list |
+| Live microphone change (`ctl device`) | HyperX → Steam Streaming Microphone → HyperX without a restart |
+| `ctl set-default --confirm` / `restore-default` | `CABLE Output` for all roles and back |
+| Quit after set-default | the default microphone restored, the journal removed |
+| Killing the process after set-default | the journal stayed; the next start restored the default |
+| A/B (`ab record` 3 s, `ab play --device`) | plays, the position advances, `ab stop` stops |
+| Mixer: `ctl mixer on`, `channel main volume 50` | grouping by exe, Discord/Telegram → voice; sessions at 12% (0.5³); channel mute |
+| `ctl mixer off` | session volumes given back (the journal stays only for applications that have exited) |
 
-### Иконки приложений (2026-10-16)
+### Application icons
 
-Полный путь exe проходит из сессии через `PlaybackStream.icon_name` в `AppState.icon`
-(APP-003, WIN-CH-001). `apps.icon` извлекает 32×32 иконку через `ExtractIconExW`, рисует
-её в BGRA DIB и возвращает PNG data URL; кэш и TTL промахов сохранены. Используется
-уже имеющийся в lockfile лёгкий `png` (MIT/Apache-2.0), без `image`.
-AppX-манифесты отдельно не читаются: для WindowsApps используется иконка exe, при её
-отсутствии — прежний UI fallback. Системные звуки сохраняют прежнюю псевдо-иконку.
+The full exe path goes from the session through `PlaybackStream.icon_name` into `AppState.icon` (APP-003,
+WIN-CH-001). `apps.icon` extracts a 32×32 icon with `ExtractIconExW`, draws it into a BGRA DIB and returns
+a PNG data URL; the cache and the miss TTL are kept. It uses the light `png` crate (MIT/Apache-2.0) that was
+already in the lockfile, without `image`. AppX manifests are not read: for WindowsApps the exe icon is used,
+and without one — the existing UI fallback. System sounds keep their pseudo-icon.
 
-### Не сделано / ограничения
+### Not done / limitations
 
-- ~~Doctor без проверок кабеля~~, ~~трей и уведомления~~ — сделаны 2026-10-16 (разделы ниже).
-- Метры каналов обновляются раз в 100 мс (опрос пиков сессий).
-- Закрытие консоли, logoff и shutdown не проверялись вручную; у фонового процесса без консоли
-  (будущий `windows`-subsystem) нужен ещё обработчик `WM_QUERYENDSESSION`.
-- ~~Обработка Studio-перегрузки по времени цикла (NFR-S3)~~ — подключена (раздел «NFR-S3» ниже).
-- Часовой soak не проводился.
+- Channel meters update every 100 ms (polling session peaks).
+- Console close, logoff and shutdown were not checked manually.
+- No one-hour soak.
 
-## Замеры
+## M3.4: mixer backend
 
-| | Результат |
-|---|---|
-| Период движка WASAPI по умолчанию | 10 мс у всех устройств; минимальный (IAudioClient3): `CABLE Input` 2,67 мс, HyperX 10 мс, `CABLE Output` 10 мс |
-| Безопасный уровень буфера | буфер render (22 мс) + период (10 мс); меньше — underrun в части запусков |
-| Добавленная задержка, период render 10 мс | **124–138 мс** замер (корреляция ≥ 0,96); своя часть ≈ 44 мс по компонентам |
-| Добавленная задержка, `--low-latency` (2,67 мс) | **82–88 мс** замер (корреляция ≥ 0,87); своя часть ≈ 28 мс |
-| Остаток — буфер VB-CABLE | ≈ 58–90 мс при настройках драйвера по умолчанию; зависит от размера записей в кабель |
-| Дрейф HyperX ↔ VB-CABLE | десятки ppm после установления; точнее после soak-теста |
-| Underrun / выпадения | 0 за 40–60 с в обоих режимах |
+The platform part is in `macafon-backend-windows::mixer`. `SessionWatcher::start(state_dir)` owns a separate
+MTA thread; `apps()` returns groups by exe name (case-insensitive), system sounds — `<system-sounds>`. The
+`IAudioSessionNotification`, `IAudioSessionEvents` and `IMMNotificationClient` subscriptions track new
+sessions, states and devices on all active render endpoints (WIN-CH-001, APP-002/011). The creation callback
+holds a COM reference and passes it through an atomic queue; other callbacks update atomics, with no waiting
+and no disk I/O. Events are available through `try_event()`; COM interfaces are not handed to the caller.
 
-**NFR-L6 (≤ 20 мс) не выполняется.** Основная часть задержки — внутренний буфер VB-CABLE
-(параметр Max Latency в `VBCABLE_ControlPanel`, в реестре не хранится). Нужно повторить замер с
-уменьшенным буфером кабеля; своя часть упирается в период захвата USB-микрофона (10 мс) и
-буфер render. Если и тогда цель недостижима — пересмотреть NFR-L6 в ADR-0004.
+`set_app(exe, MixSettings)` takes channel/app/Master in percent and three mute flags. The curve comes from
+`macafon_dsp::channel::volume_gain`; the setting applies to all sessions of the exe, including future ones
+(WIN-CH-002, APP-005); a session whose first write fails is retried on the next scan. An external event
+context produces `ExternalVolume` with the app fader recomputed backwards, without writing back into the
+session (WIN-CH-003). With a zero channel/Master the app fader cannot be observed: the previous value is
+kept. Meters are polled only on request: the maximum of the app's session peaks and separate
+`output_peaks()` of all devices (WIN-CH-004); choosing channels/output stays with the caller (WIN-CH-009).
 
-## Не сделано в M3.0
+`session-volumes.json` is kept in the given state directory; a write with `sync_all` and an atomic file
+replace precedes every Windows change, and the new value is journaled as `pending` until it is confirmed.
+`restore()` clears the rules and gives back the original volume/mute independently of each other, only
+while the respective value is still ours (the confirmed or the pending one). Restore also runs at start and
+on Drop (WIN-CH-008). With `managed = false` the app's original volume/mute are restored on the next
+control tick (up to 100 ms): `restore_app()` removes the rule for future sessions and gives back only this
+exe's records. Other applications are not affected, external changes are kept. Re-enabling management
+applies the faders again (WIN-CH-008). The restore key is exe + endpoint; the instance ID is a hint for a
+live session. If several sessions of one exe on one endpoint had different original values and their
+instance IDs changed, an unambiguous restore is impossible: the records are kept. Missing sessions also stay
+in the journal until the next start/`restore()`; the `RecoveryPending` event reports their number. One state
+directory must have one owner.
 
-Замер при разных буферах `VBCABLE_ControlPanel`, часовой soak, события сессий
-(`IAudioSessionNotification`), hot-plug, проверка `IPolicyConfig` на Windows 10. Сервер
-демона на named pipe появится вместе с демоном для Windows (M3.1). Цифры пока не внесены в
-ADR-0004.
-
-## M3.4: backend микшера
-
-Платформенная часть в `macafon-backend-windows::mixer` (2026-10-16), без подключения к демону
-и UI. `SessionWatcher::start(state_dir)` владеет отдельным MTA-потоком; `apps()` возвращает
-группы по имени exe (без учёта регистра), системные звуки — `<system-sounds>`. Подписки
-`IAudioSessionNotification`, `IAudioSessionEvents` и `IMMNotificationClient` отслеживают
-новые сессии, состояния и устройства на всех активных render-endpoint (WIN-CH-001, APP-002/011).
-Callback создания удерживает COM-ссылку и передаёт её через атомарную очередь; остальные
-callbacks обновляют атомики, без ожиданий и дискового ввода-вывода. События доступны через
-`try_event()`; COM-интерфейсы вызывающему коду не передаются.
-
-`set_app(exe, MixSettings)` принимает канал/app/Master в процентах и три mute-флага.
-Кривая берётся из `macafon_dsp::channel::volume_gain`; настройка применяется ко всем сессиям
-exe, включая будущие (WIN-CH-002, APP-005). Внешний event-context даёт `ExternalVolume` с
-обратным пересчётом app-фейдера, без ответной записи в сессию (WIN-CH-003). При нулевом
-канале/Master app-фейдер не наблюдаем: сохраняется предыдущее значение. Метры опрашиваются
-только по запросу: максимум пиков сессий приложения и отдельные `output_peaks()` всех
-устройств (WIN-CH-004); выбор каналов/выхода остаётся вызывающему коду (WIN-CH-009).
-
-`session-volumes.json` хранится в переданном каталоге состояния; запись с `sync_all` и
-атомарной заменой файла предшествует изменению Windows. `restore()` очищает правила и
-возвращает исходные volume/mute независимо друг от друга, только пока соответствующее
-значение всё ещё наше. Восстановление также выполняется при старте и Drop (WIN-CH-008).
-При `managed = false` исходные volume/mute приложения восстанавливаются на ближайшем
-тике управления (до 100 мс): `restore_app()` удаляет правило для будущих сессий и возвращает
-только записи этого exe. Другие приложения не затрагиваются, внешние изменения сохраняются.
-Повторное включение управления заново применяет фейдеры (WIN-CH-008).
-Ключ восстановления — exe + endpoint; instance ID служит подсказкой для живой сессии.
-Если несколько сессий одного exe на одном endpoint имели разные исходные значения и их
-instance ID сменились, однозначное восстановление невозможно: записи сохраняются.
-Отсутствующие сессии тоже остаются в журнале до следующего старта/`restore()`; событие
-`RecoveryPending` сообщает их число. Один каталог состояния должен иметь одного владельца.
-
-Ручная команда:
+Manual command:
 
 ```sh
 cargo run -p macafon-backend-windows --example spike -- mixer --seconds 15
 cargo run -p macafon-backend-windows --example spike -- mixer --exe steam.exe --volume 50 --mute --seconds 5
 ```
 
-`--volume` задаёт канал (app/Master = 100%), `--state-dir` выбирает каталог журнала;
-по умолчанию `.artifacts/mixer-state`. Команда выводит группы, события и пики, при штатном
-выходе явно вызывает `restore()`; ошибки восстановления можно увидеть до Drop.
+`--volume` sets the channel (app/Master = 100%), `--state-dir` selects the journal directory; by default
+`.artifacts/mixer-state`. The command prints groups, events and peaks, and calls `restore()` explicitly on a
+normal exit; restore errors are visible before Drop.
 
-Проверено нативно на Windows 11: `cargo fmt`,
-`cargo clippy -p macafon-backend-windows --all-targets -- -D warnings`,
-`cargo test -p macafon-backend-windows` — 7 тестов успешно, включая композицию, инверсию и
-журнал с fake session store. `spike mixer` обнаружил 10 сессий Steam и 12 сессий системных
-звуков; mute применился ко всей группе Steam, снимки до/после восстановления совпали.
-Временный локальный harness с тихим WAV проверил новую активную сессию (пик ≈ 0,00916),
-метр устройства, scalar 0,125 при канале 50%, mute и внешнее изменение scalar 0,064
-→ app 80%. Внешнее значение не перезаписалось при восстановлении. Настройка, заданная до
-создания сессии, применилась автоматически. После выхода harness без Drop следующий
-процесс восстановил `(0,125, mute=true)` в `(1,0, mute=false)` из журнала; тестовая сессия
-и изменённые настройки приложений восстановлены.
+Checked natively on Windows 11: fmt, clippy, tests including composition, inversion and the journal with a
+fake session store. `spike mixer` found 10 Steam sessions and 12 system sound sessions; mute applied to the
+whole Steam group, snapshots before/after restore matched. A temporary local harness with a quiet WAV
+checked a new active session (peak ≈ 0.00916), the device meter, scalar 0.125 at channel 50%, mute and an
+external change of the scalar to 0.064 → app 80%. The external value was not overwritten on restore. A
+setting made before the session was created applied automatically. After the harness exited without Drop,
+the next process restored `(0.125, mute=true)` to `(1.0, mute=false)` from the journal.
 
-Не проверены физический hot-plug устройств, Windows 10 и полная матрица приложений §14.4.
-Выбор/приоритет выхода (WIN-CH-007), иконки (APP-003), UI и подключение к демону в этот
-этап не входят. Эффекты и перенаправление звука не добавлялись (WIN-CH-006/009/010).
+Not checked: physical device hot-plug, Windows 10 and the full application matrix from §14.4. Effects and
+audio redirection were not added (WIN-CH-006/009/010).
 
+## M3: outputs and Doctor facts
 
-## M3: выходы и факты Doctor (2026-10-16)
+`OutputPolicy::scan` takes ordered endpoint IDs and the active devices: it picks the first available render
+device, excluding all endpoints of the base VB-CABLE (WIN-CH-007, OUT-001/002/004, WIN-MIC-009). An explicit
+choice is a list of one ID. All three roles change through `journal::set_default`; the journal is restored
+on Quit/next start only where the default is still ours. Endpoints chosen by applications themselves are
+not changed. An external change of any role while the previous priority endpoint is available returns
+`ManualChange` and pauses the automation until the list's winner changes or an explicit `reset`. A change
+of the device only, without an ID change between scans, cannot be distinguished. Switching to "Follow system
+default" (OUT-003) calls `follow_system_default` (conditionally restores the original roles) and then passes
+an empty list. One journal must have one owner; the journal is restored at start before the policy is created.
 
-Добавлены синхронные API `output` и `diagnostics`, без подключения к демону/UI.
-`OutputPolicy::scan` получает упорядоченные endpoint ID и активные устройства: выбирает
-первый доступный render, исключая все endpoint базового VB-CABLE (WIN-CH-007,
-OUT-001/002/004, WIN-MIC-009). Явный выбор — список из одного ID. Все три роли меняются
-через существующий `journal::set_default`; журнал восстанавливается на Quit/следующем
-старте только там, где default всё ещё наш. Выбранные приложениями endpoint не меняются.
-Внешняя смена любой роли, пока прежний приоритетный endpoint доступен, возвращает
-`ManualChange` и приостанавливает автоматику до изменения победителя списка либо
-явного `reset`. Смена только устройства без изменения ID между сканированиями неразличима.
-Для OUT-003 вызвать `follow_system_default` (условно восстановит исходные роли), затем
-передавать пустой список. Один журнал должен иметь одного владельца; восстановление
-журнала при старте выполняется до создания политики. WIN-CH-008 остаётся в backend микшера.
+Doctor reports the installed and active endpoints of the base cable, separately ignored VB-Audio devices,
+the mix/device format and whether resampling is needed, WASAPI periods, active foreign sessions and default
+render roles on the cable (WIN-MIC-004/007/008). CABLE In 16ch is counted too; idle sessions are excluded,
+muted/zero peak do not exclude the owner of an active stream. `fix_cable_default` picks the available
+original physical render device from the journal, otherwise the first available render device on a
+recognized physical bus (USB/HDAUDIO/PCI/Bluetooth/ACPI), and writes through the journal. Unknown and
+ROOT/SWD software adapters are never picked automatically. Individual format/period read errors are kept in
+the facts.
 
-Doctor сообщает установленные и активные endpoint базового кабеля, отдельно игнорируемые
-VB-Audio устройства, mix/device format и необходимость ресемплинга, периоды WASAPI,
-активные чужие сессии и роли default render на кабеле (WIN-MIC-004/007/008).
-Учитывается также CABLE In 16ch; idle-сессии исключаются, muted/нулевой пик не исключают
-владельца активного потока. `fix_cable_default` выбирает доступный исходный физический
-render из журнала, иначе первый доступный render на распознанной физической шине (USB/HDAUDIO/PCI/Bluetooth/ACPI),
-записывает через журнал. Неизвестные и ROOT/SWD software-адаптеры не выбираются автоматически.
-Частные ошибки чтения формата/периодов сохраняются в фактах.
-
-Рекомендация Max Latency: уменьшить буфер в VBCABLE_ControlPanel, повторить probe и
-проверить выпадения. При настройках по умолчанию вклад кабеля был ≈58–90 мс, полный
-замер при минимальном render-периоде — 82–88 мс (таблица выше). Проверенного численного
-значения Max Latency пока нет; константа Doctor прямо сообщает это. Периоды движка не
-выдаются за фактическую полную задержку. Настройки панели не читаются и не изменяются.
+The Max Latency recommendation: lower the buffer in VBCABLE_ControlPanel, repeat the probe and check for
+dropouts. With the default settings the cable contributed ≈58–90 ms; the full measurement at the minimum
+render period was 82–88 ms (see the table above). There is no verified numeric Max Latency value yet; the
+Doctor constant says so explicitly. Engine periods are not presented as the actual full latency. Panel
+settings are neither read nor changed.
 
 ```sh
 cargo run -p macafon-backend-windows --example spike -- outputs
@@ -231,196 +208,152 @@ cargo run -p macafon-backend-windows --example spike -- outputs --priority '<end
 cargo run -p macafon-backend-windows --example spike -- doctor --input SoloCast
 ```
 
-`outputs` без `--apply` только читает. При применении журнал по умолчанию хранится в
-`.artifacts/output-state`; незавершённый предыдущий запуск восстанавливается перед новым,
-после ожидания выполняется условное восстановление, включая частичную ошибку записи.
+`outputs` without `--apply` only reads. When applying, the journal is kept in `.artifacts/output-state` by
+default; an unfinished previous run is restored before a new one, and after the wait a conditional restore
+runs, including after a partial write error.
 
-Проверено на Windows 11: `cargo fmt`,
-`cargo clippy -p macafon-backend-windows --all-targets -- -D warnings`,
-`cargo test -p macafon-backend-windows` — 12 тестов успешно. Новые fake-тесты покрывают
-приоритеты, отключение/возврат, ручную смену роли, Follow system default, классификацию
-форматов/чужих потоков и одноразовое исправление default с восстановлением.
+A real `spike doctor --input SoloCast`: the cable is installed, 3/3 registered/active endpoints found, other
+VB-Audio — 0. All three checked devices are 48000 Hz, 2 channels; mix — 32 bit, device — 24 bit for CABLE
+Input/Output and 16 bit for the HyperX SoloCast. No resampling needed. Default/min/max periods: CABLE Input
+10/2.67/10 ms, CABLE Output and SoloCast 10/10/10 ms. Initially 0 foreign writers, 0 default roles on the
+cable. An external PowerShell/WinMM harness wrote a quiet tone straight into CABLE Input without changing
+the default: Doctor detected `powershell.exe`, active=true, muted=false, peak≈0.0010. After the harness
+ended, writers were back to 0. `outputs --apply --restore-after-s 1` moved the roles to Realtek Speakers and
+restored the original Console/Multimedia = Sonar Gaming, Communications = Sonar Chat; the final ID snapshot
+matched, the journal was removed.
 
-Реальный `spike doctor --input SoloCast`: кабель установлен, найдено 3/3 зарегистрированных/
-активных endpoint, прочих VB-Audio — 0. Все три проверенных устройства — 48000 Гц, 2 канала;
-mix — 32 бита, device — 24 бита у CABLE Input/Output и 16 бит у HyperX SoloCast.
-Ресемплинг не требуется. Периоды default/min/max: CABLE Input 10/2,67/10 мс,
-CABLE Output и SoloCast 10/10/10 мс. Исходно чужих writers — 0, default-ролей на кабеле — 0.
-Внешний PowerShell/WinMM harness писал тихий тон прямо в CABLE Input без смены default:
-Doctor обнаружил `powershell.exe`, PID 38700, active=true, muted=false, peak≈0,0010.
-После завершения harness writers снова 0. `outputs --apply --restore-after-s 1`
-перевёл роли на Realtek Speakers и восстановил исходные Console/Multimedia = Sonar Gaming,
-Communications = Sonar Chat; итоговый снимок ID совпал, журнал удалён.
+## M3.5: hotkeys and autostart
 
-Физический hot-plug и Windows 10 не проверены. Полная задержка и численный Max Latency
-требуют отдельного probe/настройки панели; подключение API к демону остаётся другой задачей.
+Windows hotkeys (HK-001…003, §12.2.3) are registered by `global-hotkey` on a separate thread with a Win32
+`GetMessageW` loop. The `Accel` translation shared with X11 is kept; rebinding goes through the existing
+channel. Presses and releases reach the control loop, including PTT; rebinding a held key sends a release.
+Registration conflicts show up as an error of the respective action. IPC got `HotkeyBackend::Windows`.
 
-## M3.5: хоткеи и автозапуск
+Autostart (AS-004) reads/changes only the `Macafon` value in
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`: `"<macafond.exe>" run`, without UAC. It is never
+enabled on its own; the IPC method is `windows_run`.
 
-Windows-хоткеи (HK-001…003, §12.2.3) регистрирует `global-hotkey` на отдельном потоке
-с Win32 `GetMessageW` loop. Общий с X11 перевод `Accel` сохранён; переназначение идёт
-через существующий канал. Нажатия и отпускания поступают в control loop, включая PTT;
-переназначение удерживаемой клавиши отправляет отпускание. Конфликты регистрации
-видны в ошибке соответствующего действия. IPC получил `HotkeyBackend::Windows`.
+Manual check on Windows 11: `ctl hotkeys set mic_mute_toggle Ctrl+Alt+F9`, PTT on Ctrl+Alt+F10/F11,
+synthesized through `SendInput`, reading `ctl status`. Mute toggles once per press; PTT releases, including
+rebinding while held. A taken Ctrl+Alt+F12 returns a `bypass_toggle` error. `ctl autostart on/off`
+creates/removes the exact registry command; a repeated `off` succeeds. Linux `control-smoke` and
+`hotkeys-smoke` kept their behavior (XDG autostart, portal, toggle/PTT, presets, volume, OSD). PTT belongs
+to HK-001; HK-005 in the PRD is a sound cue, which was not added here.
 
-Автозапуск (AS-004) читает/меняет только значение `Macafon` в
-`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`: `"<macafond.exe>" run`, без UAC.
-Самостоятельно не включается; IPC-метод — `windows_run`. TS-типы сгенерированы штатным
-Cargo-генератором (`pnpm` отсутствовал в PATH); UI вручную не менялся.
+## M3.5: Windows tray and background shutdown
 
-Ручная проверка Windows 11: `ctl hotkeys set mic_mute_toggle Ctrl+Alt+F9`, PTT на
-Ctrl+Alt+F10/F11, синтез через `SendInput`, чтение `ctl status`. Mute переключается
-один раз на нажатие; PTT отпускается, включая переназначение при удержании. Занятый
-Ctrl+Alt+F12 возвращает ошибку `bypass_toggle`. `ctl autostart on/off` создаёт/удаляет
-точную команду в реестре; повторный `off` успешен. Демон завершён, значение удалено.
+The daemon uses `Shell_NotifyIconW` from the existing `windows` crate, without a new crate and without
+winit/tao. Its own thread owns a hidden window, the message loop, the HICON and the menu. The shared
+procedural ARGB renderer is kept for Linux; Windows builds RT_ICON from it. The normal/mute/bypass/
+disconnected states and the 300 ms transition follow BG-002. The menu mirrors Linux (BG-003), including
+Mixer and radio items for presets/outputs; a left click starts `macafon-ui.exe` (the Tauri `[[bin]]` name
+and the package's `mainBinaryName`) next to the daemon, then from PATH; `macafon.exe` is the CLI and the
+tray does not start it. A middle click toggles mute (BG-004). After an Explorer restart the icon is
+registered again (`TaskbarCreated`). State updates and notifications go through a queue; the control loop
+does not call the Shell.
 
-`cargo fmt --all -- --check` и `cargo test -p macafon-ipc --features ts` (7 тестов) прошли.
-В рабочей ветке clippy/тесты демона блокирует exhaustive match в `doctor.rs`: отсутствует
-ветка `HotkeyBackend::Windows`. По просьбе владельца этот файл не менялся. Для проверки
-использована отдельная временная копия с одной добавленной веткой Doctor: Windows
-clippy с `--all-targets -- -D warnings`, тесты macafond/ipc (10/6) и release-сборка прошли;
-ручная проверка выполнялась её бинарниками. Linux helper в WSL на той же копии прошёл
-fmt, clippy, тесты backend/PipeWire/демона (1/6/11; один ignored), release-сборку.
-Копии `check.sh`/`smoke.sh` направлены на проверочную копию внутри worktree;
-`control-smoke` и `hotkeys-smoke` завершились с exit 0: XDG-автозапуск, portal,
-toggle/PTT, пресеты, громкость и OSD сохранили прежнее поведение.
-PTT относится к HK-001; HK-005 в PRD — звуковой сигнал, который здесь не добавлялся.
+BG-001 and HK-006 on Windows use a balloon of the same icon (`NIF_INFO`), without an AppUserModelID/shortcut
+registration. A new OSD removes the previous one first; several OSDs waiting in the queue are merged into the
+last one. The display time and actual visibility are decided by Windows (including notification settings /
+Do not disturb). With `--no-tray` or an unavailable tray the message stays in the log.
 
-## M3.5: Windows-трей и фоновое завершение
+`macafond.exe` is built with the GUI subsystem in all Windows profiles: HKCU Run and launching from the UI
+do not create a console. At the start of `main`, before clap and logging, `AttachConsole(ATTACH_PARENT_PROCESS)`
+is called: launching from a terminal keeps the device and diagnostic output, and a new console is never
+created. Some shells do not wait for a GUI exe to finish; sequential scripts should use `Start-Process -Wait`
+or wait for the process explicitly.
 
-Демон использует `Shell_NotifyIconW` из существующего `windows`, без нового крейта и
-без winit/tao. Собственный поток владеет скрытым окном, message loop, HICON и меню.
-Общий процедурный ARGB-рендер сохранён для Linux; Windows собирает из него RT_ICON.
-Состояния normal/mute/bypass/disconnected и переход 300 мс соответствуют BG-002.
-Меню повторяет Linux (BG-003), включая Mixer и radio-пункты пресетов/выходов;
-левый клик запускает `macafon-ui.exe` (имя Tauri `[[bin]]` и `mainBinaryName` пакета)
-рядом с демоном, затем из PATH; `macafon.exe` — это CLI, его трей не запускает. Средний
-клик переключает mute (BG-004).
-После перезапуска Explorer иконка регистрируется заново (`TaskbarCreated`).
-Обновления состояния и уведомления передаются очередью; control loop не вызывает Shell.
+The backend creates a separate hidden top-level window even with `--no-tray`. `WM_QUERYENDSESSION` allows
+the shutdown but does not stop audio: a logoff can still be cancelled. `WM_ENDSESSION(TRUE)` sets the same
+stop flag as the console handler and waits up to 4 s for the control loop to stop WASAPI, restore session
+volumes and the default output, and run cleanup with restoring the default microphone and saving the config
+(WIN-MIC-005, WIN-CH-008, BG-005). FINISHED is set after cleanup. If the limit is exceeded, the journals stay
+for a restore at the next start. The console handler is kept for Ctrl+C / closing the terminal. A real
+logoff/shutdown is not triggered automatically so as not to end the user session.
 
-BG-001 и HK-006 на Windows используют balloon того же значка (`NIF_INFO`), без
-AppUserModelID/регистрации shortcut. Новый OSD сначала убирает предыдущий; несколько
-OSD, ожидающих обработки очереди, объединяются до последнего. Время показа и фактическая
-видимость определяются Windows (включая настройки уведомлений/Do not disturb).
-При `--no-tray` или недоступном трее сообщение остаётся в логе.
+Checks: fmt, clippy and tests of `macafond` and `macafon-backend-windows`, a release build; `cargo check -p
+macafond` in Ubuntu/WSL. A targeted test sends the hidden window QUERY, a cancelled ENDSESSION and a
+confirmed ENDSESSION; the last one waits for a simulated cleanup. The release daemon ran with a separate
+config and LOCALAPPDATA inside `.artifacts`: the Shell accepted the icon and the first-close balloon, IPC
+confirmed SoloCast and mute/bypass changes, Quit ended the process, all six default roles matched
+before/after. Visual checks of the tray/menu, launching the UI by a click, the OSD from a physical hotkey and
+a real logoff/shutdown are not confirmed.
 
-`macafond.exe` собирается с GUI-subsystem во всех Windows-профилях: HKCU Run и запуск
-из UI не создают консоль. В начале `main`, до clap и логирования, вызывается
-`AttachConsole(ATTACH_PARENT_PROCESS)`: запуск из терминала сохраняет вывод устройств
-и диагностики, новая консоль никогда не создаётся. Некоторые оболочки не ждут завершения
-GUI-exe; для последовательных скриптов использовать `Start-Process -Wait` или явное
-ожидание процесса. Файловый лог `%LOCALAPPDATA%\Macafon\macafond.log` и ротация не менялись.
+## M3.2, M3.3, M3.6: UI, Doctor and installer
 
-Backend создаёт отдельное скрытое top-level окно и при `--no-tray`.
-`WM_QUERYENDSESSION` разрешает завершение, но не останавливает звук: logoff ещё может
-быть отменён. `WM_ENDSESSION(TRUE)` выставляет тот же stop-флаг, что console handler,
-и ждёт не более 4 с, пока control loop остановит WASAPI, восстановит громкости сессий и
-default output, вызовет cleanup с восстановлением default microphone и сохранением
-конфига (WIN-MIC-005, WIN-CH-008, BG-005). После cleanup выставляется FINISHED.
-При превышении лимита журналы остаются для восстановления при следующем старте.
-Console handler сохранён для Ctrl+C/закрытия терминала. Настоящий logoff/shutdown
-автоматически не запускается, чтобы не завершать пользовательский сеанс.
+**UI bridge.** `apps/macafon-ui/src-tauri/src/bridge.rs` works through `macafon_ipc::transport` (a Unix
+socket or the named pipe `\\.\pipe\macafon-<SID>`) and starts `macafond.exe run` without a console
+(`CREATE_NO_WINDOW`). The release UI build uses the GUI subsystem. The bridge test passes on Windows with a
+fake daemon on a named pipe.
 
-Проверка этого раунда: `cargo fmt --all`,
-`cargo clippy -p macafond -p macafon-backend-windows --all-targets -- -D warnings`,
-`cargo test -p macafond -p macafon-backend-windows` (13 + 13 тестов),
-`cargo build --release -p macafond` — успешно. В Ubuntu/WSL прошёл
-`cargo check -p macafond` с отдельным target-dir. Целевой тест отправляет скрытому окну
-QUERY, отменённый ENDSESSION и подтверждённый ENDSESSION; последний ждёт simulated cleanup.
+**Platform capabilities (M3.2).** `hello` returns `platform` and `capabilities` (`virtual_mic_device`,
+`stereo_option`, `channel_fx`, `graph_quantum`); the UI hides what is unavailable by flags.
+`MicState.virtual_mic_ready` — the cable was found (WIN-MIC-001); the daemon learns it when rescanning
+endpoints. Mock: `?platform=windows`, `&cable=missing`.
 
-Release-демон запускался с отдельными конфигом и LOCALAPPDATA внутри `.artifacts`.
-Shell принял значок и first-close balloon (`shown=true`); IPC подтвердил подключение
-SoloCast и смену mute/bypass. Quit завершил процесс. Все шесть default-ролей до/после
-совпали; существующие сессии сохранили громкость/mute, одна посторонняя msrdc-сессия
-за время проверки исчезла. Микшер и смена default в этом smoke не включались.
-Файловое логирование работало и при запуске без консоли.
+**Microphone and onboarding (M3.3).** An "Install VB-CABLE" step after Welcome (WIN-MIC-002): instructions,
+`Open download page` opens only `https://vb-audio.com/Cable/` (a Tauri command with a fixed URL), a
+donationware note. While there is no cable, the step is remembered in `localStorage` and onboarding
+continues from it after a reboot; once the cable appears, the step shows it is ready. "Use it" and Getting
+Started name `CABLE Output (VB-Audio Virtual Cable)` (WIN-MIC-003; no picture). The Microphone screen without
+a cable shows a banner with an install button; the default microphone toggle is unavailable in that state.
+Quit warns that CABLE Output will go silent (WIN-MIC-005). Mixer: a Channel button instead of EQ/FX, and
+"Channel effects are available on Linux" is shown once (WIN-CH-006); the disabled mixer text describes
+volume groups.
 
-Визуальная проверка трея/меню, запуск UI кликом, OSD через физический хоткей и настоящий
-logoff/shutdown не подтверждены. Computer-use не предоставил окно панели задач, затем был
-остановлен физической клавишей Escape; скриншоты получить не удалось. Дополнительные
-UI-действия после остановки не выполнялись. Тестовый демон завершён, автозапуск не менялся.
+**Doctor.** New checks `vb_cable`, `cable_format`, `cable_writers`, `cable_default_output`, `cable_latency`
+(WIN-MIC-001/004/007/008) from `diagnostics::collect`; they come first. `doctor.fix` for
+`cable_default_output` moves all render roles to a real device (preferably the original one from the mixer
+journal) — this is the user's fix, Quit does not roll it back. `cable_latency` shows the minimum engine
+periods and advice to lower Max Latency; it is not the full latency.
 
-## M3.2, M3.3, M3.6: UI, Doctor и инсталлятор (2026-10-16)
+**Installer (M3.6).** `python tools/package-windows.py` → NSIS
+`target/release/bundle/nsis/Macafon_<version>_x64-setup.exe` (~16 MiB): `installMode = currentUser`, no UAC,
+into `%LOCALAPPDATA%\Macafon`; it contains `macafon-ui.exe`, `macafond.exe`, `macafon.exe` and the licenses.
+VB-CABLE is not included. Hooks (`packaging/windows/hooks.nsh`): before an update `macafon ctl quit`; before
+uninstall `macafond cleanup` — Quit the daemon, restore the default microphone/output and session volumes
+from the journals, remove the Run value. If cleanup fails, the uninstaller asks "Uninstall anyway?"; a
+silent uninstall stops. **Deviation from PRD §12.2.3:** NSIS instead of MSI (WiX), because the Tauri MSI
+installs per machine and needs administrator rights, and "no administrator rights" matters more than the
+format. SignPath signing is not configured.
 
-**Мост UI.** `apps/macafon-ui/src-tauri/src/bridge.rs` работает через
-`macafon_ipc::transport` (Unix-сокет или named pipe `\\.\pipe\macafon-<SID>`) и запускает
-`macafond.exe run` без консоли (`CREATE_NO_WINDOW`). Release-сборка UI — GUI-subsystem.
-Тест моста проходит на Windows с фейковым демоном на named pipe.
+Checked on the test machine: a silent `/S` install without UAC; the installed `macafon-ui.exe` started the
+daemon itself and connected over the named pipe, onboarding showed the VB-CABLE step; `ctl doctor` printed the
+cable checks (all ok, periods 10.0/2.7 ms); a silent uninstall stopped the daemon (`Quit requested` in the
+log), removed the binaries and the Run value. The log and state journals stay in the directory: the install
+directory is the same as `state_dir`.
 
-**Возможности платформы (M3.2).** `hello` отдаёт `platform` и `capabilities`
-(`virtual_mic_device`, `stereo_option`, `channel_fx`, `graph_quantum`); UI скрывает
-недоступное по флагам. `MicState.virtual_mic_ready` — кабель найден (WIN-MIC-001);
-демон узнаёт это при пересканировании эндпоинтов. Mock: `?platform=windows`,
-`&cable=missing`.
+Not checked: `doctor.fix` on a real system (the default output was not moved to the cable so as not to touch
+the test machine's audio; the logic is covered by `fix_cable_default` fake tests), tray menu clicks and a
+real logoff, building `macafon-ui` on Linux (no webkit/dbus-dev in WSL), Windows 10, a clean system without
+VB-CABLE, a one-hour soak, the application matrix.
 
-**Микрофон и онбординг (M3.3).** Шаг «Install VB-CABLE» после Welcome (WIN-MIC-002):
-инструкция, `Open download page` открывает только `https://vb-audio.com/Cable/`
-(команда Tauri с фиксированным URL), пометка donationware. Пока кабеля нет, шаг
-запоминается в `localStorage` и после перезагрузки онбординг продолжается с него;
-когда кабель появился, шаг сам показывает готовность. «Use it» и Getting Started называют
-`CABLE Output (VB-Audio Virtual Cable)` (WIN-MIC-003; картинки нет). Экран Microphone без
-кабеля показывает баннер с кнопкой установки; переключатель default-микрофона в этом
-состоянии недоступен. Quit предупреждает, что CABLE Output замолчит (WIN-MIC-005).
-Mixer: вместо EQ/FX — кнопка Channel, один раз показывается «Channel effects are available
-on Linux» (WIN-CH-006); текст выключенного микшера описывает группы громкости.
+## NFR-S3: Studio overload on Windows
 
-**Doctor.** Новые проверки `vb_cable`, `cable_format`, `cable_writers`,
-`cable_default_output`, `cable_latency` (WIN-MIC-001/004/007/008) из
-`diagnostics::collect`; идут первыми. `doctor.fix` для `cable_default_output` переводит
-все роли render на реальное устройство (предпочтительно исходное из журнала микшера) —
-это исправление пользователя, Quit его не откатывает. `cable_latency` показывает
-минимальные периоды движка и совет уменьшить Max Latency; полной задержкой это не является.
+While NS Studio is on, the capture thread times the chain for every WASAPI packet (`Instant`/QPC, no
+waiting) and puts a "time / packet duration" pair into an `rtrb` queue. Every 100 ms the control loop hands
+the measurements to `MicrophoneHost::processing_budget` — the same path as the PipeWire profiler: > 80% of
+the budget for 3 packets in a row → fallback to Lite and an event in the UI. Enabling the measurement and a
+queue overflow produce a gap sample that resets the streak. Without Studio the measurement is off. Checked by
+a targeted test on the SoloCast (`cargo test -p macafon-backend-windows chain_timings -- --ignored`); a real
+overload was not reproduced on the test machine.
 
-**Инсталлятор (M3.6).** `python tools/package-windows.py` → NSIS
-`target/release/bundle/nsis/Macafon_<версия>_x64-setup.exe` (~16 МиБ): `installMode =
-currentUser`, без UAC, в `%LOCALAPPDATA%\Macafon`; внутри `macafon-ui.exe`, `macafond.exe`,
-`macafon.exe` и лицензии. VB-CABLE не входит. Хуки (`packaging/windows/hooks.nsh`):
-перед обновлением `macafon ctl quit`, перед удалением `macafond cleanup` — Quit демона,
-восстановление default-микрофона/выхода и громкостей сессий из журналов, удаление
-значения Run. **Отклонение от PRD §12.2.3:** вместо MSI (WiX) — NSIS, потому что MSI
-Tauri ставится на машину и требует прав администратора, а требование «без прав
-администратора» важнее формата. Подпись SignPath не настроена.
+## Windows port audit (2026-10-16)
 
-Проверено на стенде: тихая установка `/S` без UAC; установленный `macafon-ui.exe` сам
-запустил демон и подключился по named pipe, онбординг показал шаг VB-CABLE; `ctl doctor`
-вывел проверки кабеля (всё ok, периоды 10,0/2,7 мс); тихое удаление остановило демон
-(`Quit requested` в логе), удалило бинарники и значение Run. В каталоге остаются лог и
-журналы состояния: каталог установки совпадает с `state_dir`.
+Fixed after a bug hunt (WIN-MIC-005, WIN-CH-007/008):
 
-Не проверено: `doctor.fix` на реальной системе (default output на кабель не переводился,
-чтобы не трогать звук стенда; логика покрыта fake-тестами `fix_cable_default`), клики по
-меню трея и настоящий logoff, сборка `macafon-ui` под Linux (в WSL нет webkit/dbus-dev),
-Windows 10, чистая система без VB-CABLE, часовой soak, матрица приложений.
+- The default device and session volume journals write the new value as `pending` before the COM call; on an
+  error or a crash both the previous Macafon value and the new one are restored. The journal is flushed to
+  disk (`sync_all`) before the settings change.
+- A `GetDefaultAudioEndpoint` error is no longer taken as "no default" and no longer erases the journal.
+- `macafond cleanup` waits for the daemon to exit, holds the pipe name until the restore is finished and
+  returns an error if the microphone, output or volumes could not be given back. The uninstaller then asks
+  "Uninstall anyway?"; a silent uninstall stops (`python tools/tests/windows-uninstall-hook.py`).
+- A new session whose settings were not applied gets them on the next scan.
+- Switching to "Follow system default" immediately gives back the default output set by Macafon.
+- No event handles leak on a WASAPI initialization error; the render thread stops if the capture thread did
+  not start.
 
-## NFR-S3: перегрузка Studio на Windows
-
-Пока включён NS Studio, поток захвата замеряет время цепочки на каждый WASAPI-пакет
-(`Instant`/QPC, без ожидания) и кладёт пару «время / длительность пакета» в `rtrb`-очередь.
-Control loop раз в 100 мс передаёт замеры в `MicrophoneHost::processing_budget` — тот же путь,
-что у профайлера PipeWire: > 80 % бюджета 3 пакета подряд → откат на Lite и событие в UI.
-Включение замера и переполнение очереди дают замер-разрыв, который сбрасывает серию.
-Без Studio замер выключен. Проверено целевым тестом на SoloCast
-(`cargo test -p macafon-backend-windows chain_timings -- --ignored`); настоящая перегрузка
-на стенде не воспроизводилась.
-
-## Аудит Windows-порта (2026-10-16)
-
-Исправлено по итогам поиска багов (WIN-MIC-005, WIN-CH-007/008):
-
-- Журналы default-устройств и громкостей сессий пишут новое значение как `pending` до
-  COM-вызова; при ошибке или падении восстанавливается и прежнее значение Macafon, и новое.
-  Журнал сбрасывается на диск (`sync_all`) до смены настроек.
-- Ошибка `GetDefaultAudioEndpoint` больше не принимается за «default нет» и не стирает журнал.
-- `macafond cleanup` ждёт выхода демона, держит имя pipe до конца восстановления и
-  возвращает ошибку, если не удалось вернуть микрофон, выход или громкости. Деинсталлятор
-  в этом случае спрашивает «Uninstall anyway?»; тихое удаление прерывается
-  (`python tools/tests/windows-uninstall-hook.py`).
-- Новая сессия, к которой не применились настройки, получает их при следующем сканировании.
-- Переход на «Follow system default» сразу возвращает default output, выставленный Macafon.
-- Не утекают event-handle при ошибке инициализации WASAPI; поток render останавливается,
-  если поток захвата не стартовал.
-
-Проверено: clippy/тесты `macafon-backend-windows`, `macafond`, `macafon-apps`; release-демон
-с отдельными APPDATA/LOCALAPPDATA — приложения с путями иконок, без предупреждений в логе,
-Quit штатный. Повторное применение к новой сессии без COM не покрыто тестом.
+Checked: clippy/tests of `macafon-backend-windows`, `macafond`, `macafon-apps`; the release daemon with
+separate APPDATA/LOCALAPPDATA — applications with icon paths, no warnings in the log, a normal Quit.
+Re-applying to a new session is not covered by a test (needs real COM).

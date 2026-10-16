@@ -1,146 +1,151 @@
-# AGENTS.md — гайдлайны для агентов и разработчиков Macafon
+# AGENTS.md — guidelines for agents and Macafon developers
 
-Этот файл обязателен к прочтению перед любой работой в репозитории. По вопросам процесса он важнее
-PRD: если PRD упоминает что-то, что здесь запрещено (например, CI на GitHub Actions), действует этот файл.
+Read this file before any work in the repository. On process questions it overrides the PRD: if the
+PRD mentions something this file forbids (for example, CI on GitHub Actions), this file wins.
 
-## 1. Контекст проекта
+## 1. Project context
 
-Macafon — лёгкое open-source приложение на Rust: обработка микрофона (цепочка DSP + виртуальный микрофон)
-и микшер звука по каналам с drag & drop приложений. Linux (PipeWire) первым, Windows вторым.
+Macafon is a lightweight open-source Rust application: microphone processing (DSP chain + virtual
+microphone) and a per-channel audio mixer with drag & drop of applications. Linux (PipeWire) first,
+Windows second.
 
-| Документ | Зачем читать |
+| Document | Why read it |
 |---|---|
-| [docs/PRD.md](docs/PRD.md) | Требования, ID требований (MIC-, DSP-, CH-, APP-, WIN-CH- …), диапазоны параметров, NFR, архитектура |
-| [docs/design/design-system.md](docs/design/design-system.md) | Токены цвета, шрифты, компоненты UI — единственный источник стилей |
-| [docs/adr/](docs/adr/) | Принятые архитектурные решения (Windows только на бесплатном VB-CABLE — ADR-0004) |
-| [docs/research/sonar-analysis.md](docs/research/sonar-analysis.md) | Почему продукт такой |
+| [docs/PRD.md](docs/PRD.md) | Requirements, requirement IDs (MIC-, DSP-, CH-, APP-, WIN-CH- …), parameter ranges, NFRs, architecture |
+| [docs/design/design-system.md](docs/design/design-system.md) | Color tokens, fonts, UI components — the only source of styles |
+| [docs/adr/](docs/adr/) | Accepted architecture decisions (Windows only on the free VB-CABLE — ADR-0004) |
+| [docs/research/sonar-analysis.md](docs/research/sonar-analysis.md) | Why the product is the way it is |
 
-Текущий этап смотри в PRD §5 / §19. Не забегай вперёд: не пиши Windows-код до M3 и функции M4+ без
-прямой просьбы, но закладывай расширяемость там, где PRD это явно требует (например, N виртуальных микрофонов).
+See PRD §5 / §19 for the current stage. Do not run ahead: no Windows code before M3 and no M4+
+features without a direct request, but keep things extensible where the PRD explicitly requires it
+(for example, N virtual microphones).
 
-## 2. Процесс
+## 2. Process
 
-- **GitHub Actions не используем**, пока владелец явно не скажет обратное. Не создавай `.github/workflows/`,
-  не предлагай «добавить CI» как часть задачи. Все проверки запускаются локально.
-- **Без бюрократии.** Не создавай шаблоны issue/PR, CHANGELOG-церемонии, лишние README в каждой папке,
-  документы «на будущее». ADR пишем только для настоящих архитектурных решений (выбор подхода, от которого
-  сложно откатиться) — коротко, по образцу `docs/adr/0001-*.md`.
-- **PRD — источник требований.** Если реализация расходится с PRD или решение в PRD выглядит ошибочным —
-  не меняй поведение молча: сделай по PRD и скажи о проблеме в отчёте, либо спроси до начала работы.
-  При реализации требования упоминай его ID в отчёте (не в коде).
-- **Git.** Conventional Commits на английском (`feat(dsp): add de-esser`, `fix(pw): …`, `docs: …`).
-  Логичные небольшие коммиты. Коммить и пушь, когда владелец об этом просит или это оговорено в задаче.
-  Не переписывай опубликованную историю.
-- **Язык.** Код, идентификаторы, комментарии, коммиты, строки UI — английский. Документация в `docs/` и
-  отчёты владельцу — русский.
+- **No GitHub Actions** until the owner explicitly says otherwise. Do not create `.github/workflows/`
+  and do not propose "adding CI" as part of a task. All checks run locally.
+- **No bureaucracy.** No issue/PR templates, CHANGELOG ceremonies, extra READMEs in every folder or
+  documents "for the future". Write an ADR only for real architecture decisions (choosing an approach
+  that is hard to roll back) — short, following `docs/adr/0001-*.md`.
+- **The PRD is the source of requirements.** If the implementation diverges from the PRD or a PRD
+  decision looks wrong, do not silently change behavior: implement the PRD and raise the problem in
+  the report, or ask before starting. Mention requirement IDs in the report (not in code).
+- **Git.** Conventional Commits in English (`feat(dsp): add de-esser`, `fix(pw): …`, `docs: …`).
+  Small, logical commits. Commit and push when the owner asks or the task says so.
+  Do not rewrite published history.
+- **Language.** Code, identifiers, comments, commits, UI strings and documentation in `docs/` — English.
 
-## 3. Проверки и тесты — целевые, а не «всё подряд»
+## 3. Checks and tests — targeted, not "everything"
 
-Цель — быстро убедиться, что изменённое работает, а не прогонять весь мир на каждую правку.
+The goal is to quickly confirm that what changed works, not to run the whole world on every edit.
 
-**По умолчанию (локальные изменения):**
-- `cargo fmt` и `cargo clippy -p <затронутый крейт> -- -D warnings`.
-- `cargo test -p <затронутый крейт>` или конкретный тест (`cargo test -p macafon-dsp compressor`).
-- Фронтенд: `pnpm -C apps/macafon-ui check` (svelte-check/TS) и только релевантные Vitest-файлы.
-- Новая DSP-математика и исправленный баг → **один целевой тест**, который проверяет именно это
-  (АЧХ фильтра против формулы, статическая кривая компрессора, регресс бага).
+**By default (local changes):**
+- `cargo fmt` and `cargo clippy -p <affected crate> -- -D warnings`.
+- `cargo test -p <affected crate>` or a specific test (`cargo test -p macafon-dsp compressor`).
+- Frontend: `pnpm -C apps/macafon-ui check` (svelte-check/TS) and only the relevant Vitest files.
+- New DSP math or a fixed bug → **one targeted test** that checks exactly that
+  (filter response against the formula, compressor static curve, bug regression).
 
-**Только когда это оправдано:**
-- `cargo test --workspace` — при изменениях в общих крейтах (`macafon-engine`, `macafon-ipc`, `macafon-config`,
-  `macafon-backend`) или API между крейтами.
-- e2e (tauri-driver), soak-тесты, интеграция с headless PipeWire, latency-probe — при изменениях в
-  соответствующей подсистеме (бэкенд PipeWire, RT-путь, роутинг) или когда владелец просит. Не пиши e2e на
-  каждую UI-правку.
-- Бенчмарки (`criterion`) — при изменениях в горячем DSP-коде.
+**Only when justified:**
+- `cargo test --workspace` — for changes in shared crates (`macafon-engine`, `macafon-ipc`,
+  `macafon-config`, `macafon-backend`) or in APIs between crates.
+- e2e (tauri-driver), soak tests, headless PipeWire integration, latency probe — for changes in the
+  corresponding subsystem (PipeWire backend, RT path, routing) or when the owner asks. Do not write
+  e2e tests for every UI edit.
+- Benchmarks (`criterion`) — for changes in hot DSP code.
 
-Не добавляй тесты ради покрытия: без тестов-дубликатов, тривиальных геттеров и огромных снапшотов.
+Do not add tests for coverage: no duplicate tests, trivial getters or huge snapshots.
 
 ## 4. Rust
 
-- Cargo workspace (структура — PRD §11.2), stable toolchain, edition 2024.
-- Ошибки: `thiserror` в библиотеках, `anyhow` в бинарях. Без `unwrap()` вне тестов; `expect("why")` —
-  только для настоящих инвариантов.
-- Логи — `tracing`. `unsafe` — только для FFI/COM/PipeWire с комментарием `// SAFETY:`.
-- Зависимости — минимально. Перед добавлением крейта: нужен ли он, поддерживается ли, совместима ли
-  лицензия с open-source проектом (без проприетарных и сетевых SDK). `macafon-dsp` — без тяжёлых зависимостей.
-- Единицы измерения в именах: `threshold_db`, `freq_hz`, `attack_ms`, `gain_lin`. Диапазоны и значения по
-  умолчанию — строго из таблиц PRD §6.3; держи их в одном месте (описание параметров в `macafon-dsp`), UI и
-  конфиг берут их оттуда.
+- Cargo workspace (layout — PRD §11.2), stable toolchain, edition 2024.
+- Errors: `thiserror` in libraries, `anyhow` in binaries. No `unwrap()` outside tests; `expect("why")`
+  only for real invariants.
+- Logging — `tracing`. `unsafe` only for FFI/COM/PipeWire, with a `// SAFETY:` comment.
+- Keep dependencies minimal. Before adding a crate: is it needed, is it maintained, is the license
+  compatible with an open-source project (no proprietary or network SDKs). `macafon-dsp` — no heavy
+  dependencies.
+- Units in names: `threshold_db`, `freq_hz`, `attack_ms`, `gain_lin`. Ranges and defaults strictly from
+  the PRD §6.3 tables; keep them in one place (parameter descriptions in `macafon-dsp`), UI and config
+  take them from there.
 
-### 4.1 Real-time аудио — жёсткие правила
+### 4.1 Real-time audio — hard rules
 
-Нарушение этих правил = треск и xrun, поэтому они важнее удобства кода.
+Breaking these rules means crackles and xruns, so they matter more than code convenience.
 
-- В `process()` / колбэках data loop / WASAPI-потоках **запрещены**: аллокации (включая `Vec::push`, `format!`,
-  `Box::new`, `clone()` владеющих типов), мьютексы и любое ожидание, системные вызовы, логирование, IPC, паники.
-- Вся память выделяется в `prepare()` / при сборке цепочки вне RT-потока.
-- UI/демон → RT: только lock-free (`atomic`, `rtrb`), смена цепочки — атомарный swap, старая цепочка
-  освобождается вне RT-потока.
-- Параметры сглаживаются (без щелчков), денормалы flush-to-zero, NaN/Inf санитизируются на выходе цепочки.
-- Модуль сообщает свою задержку (`latency_samples`); выключенный модуль — 0 CPU и 0 задержки.
-- Новый DSP-модуль или изменение RT-пути → прогон его тестов под `assert_no_alloc`.
+- In `process()` / data loop callbacks / WASAPI threads the following are **forbidden**: allocations
+  (including `Vec::push`, `format!`, `Box::new`, `clone()` of owning types), mutexes and any waiting,
+  system calls, logging, IPC, panics.
+- All memory is allocated in `prepare()` / while building the chain outside the RT thread.
+- UI/daemon → RT: lock-free only (`atomic`, `rtrb`); a chain change is an atomic swap, the old chain is
+  freed outside the RT thread.
+- Parameters are smoothed (no clicks), denormals flushed to zero, NaN/Inf sanitized at the chain output.
+- A module reports its latency (`latency_samples`); a disabled module costs 0 CPU and 0 latency.
+- A new DSP module or an RT path change → run its tests under `assert_no_alloc`.
 
-## 5. Фронтенд (Tauri v2 + Svelte 5)
+## 5. Frontend (Tauri v2 + Svelte 5)
 
-- Svelte 5 (runes), TypeScript strict, Vite, pnpm.
-- Стили — **только** токены из `docs/design/design-system.md` (CSS-переменные). Никаких произвольных hex,
-  радиусов, теней, шрифтов. Только тёмная тема. `border-radius: 0`.
-- Шрифты бандлятся локально, никаких запросов в сеть (CDN, Google Fonts, аналитика).
-- Строки UI — через i18n-слой (сейчас только `en`), не хардкодом в разметке.
-- UI ничего не знает об аудио напрямую — только IPC к демону. Типы протокола — из `macafon-ipc`
-  (генерация TS-типов), не дублировать руками.
-- **Mock-режим демона** обязателен: UI должен запускаться в обычном браузере (`pnpm -C apps/macafon-ui dev`
-  с мок-бэкендом, отдающим правдоподобные устройства, приложения и живые метры). Это нужно для разработки
-  и скриншотов.
-- Доступность из PRD §9.8 (клавиатура, ARIA для слайдеров) — сразу, а не «потом».
+- Svelte 5 (runes), strict TypeScript, Vite, pnpm.
+- Styles — **only** tokens from `docs/design/design-system.md` (CSS variables). No arbitrary hex values,
+  radii, shadows or fonts. Dark theme only. `border-radius: 0`.
+- Fonts are bundled locally, no network requests (CDN, Google Fonts, analytics).
+- UI strings go through the i18n layer (only `en` for now), not hardcoded in markup.
+- The UI knows nothing about audio directly — only IPC to the daemon. Protocol types come from
+  `macafon-ipc` (TS type generation), never duplicated by hand.
+- **Daemon mock mode** is mandatory: the UI must run in a regular browser
+  (`pnpm -C apps/macafon-ui dev` with a mock backend serving plausible devices, apps and live meters).
+  It is needed for development and screenshots.
+- Accessibility from PRD §9.8 (keyboard, ARIA for sliders) — right away, not "later".
 
-## 6. Скриншоты в конце раунда
+## 6. Screenshots at the end of a round
 
-**Если в раунде менялся UI** — в финальном отчёте приложи скриншоты изменённых экранов/состояний.
-Если UI не менялся — скриншоты не нужны.
+**If the UI changed in the round**, attach screenshots of the changed screens/states to the final
+report. If the UI did not change, no screenshots are needed.
 
-- Запусти UI в mock-режиме, окно 1180×760 (размер по умолчанию из PRD).
-- Снимай только то, что изменилось: экран целиком + крупный план компонента, если правка мелкая;
-  важные состояния (hover/drag/disabled/ошибка) — отдельными кадрами, если они менялись.
-- Сохраняй в `.artifacts/screenshots/<YYYY-MM-DD>-<тема>-<экран>.png` (папка в `.gitignore`, в git не коммитим)
-  и встраивай в отчёт по абсолютному пути.
-- Если снять скриншот не удалось — так и скажи в отчёте и почему.
+- Run the UI in mock mode, window 1180×760 (the default size from the PRD).
+- Capture only what changed: the full screen plus a close-up of the component if the edit is small;
+  important states (hover/drag/disabled/error) as separate frames if they changed.
+- Save to `.artifacts/screenshots/<YYYY-MM-DD>-<topic>-<screen>.png` (the folder is in `.gitignore`,
+  never committed) and embed them in the report by absolute path.
+- If a screenshot could not be taken, say so in the report and why.
 
-## 7. Отчёт в конце раунда
+## 7. End-of-round report
 
-Коротко, по-русски:
-1. Что сделано (с ID требований PRD).
-2. Как проверено — какие команды запускались и их результат. Не запускал — так и напиши.
-3. Скриншоты (только если менялся UI).
-4. Что не сделано / известные проблемы / вопросы владельцу.
+Short:
+1. What was done (with PRD requirement IDs).
+2. How it was checked — which commands were run and their results. Not run — say so.
+3. Screenshots (only if the UI changed).
+4. What was not done / known issues / questions for the owner.
 
-## 8. Запрещено без явного разрешения владельца
+## 8. Forbidden without the owner's explicit permission
 
-- GitHub Actions и любой облачный CI.
-- Телеметрия, аналитика, сетевые запросы (кроме opt-in проверки обновлений из PRD).
-- Root/администраторские действия в рантайме сверх описанного в PRD (на Windows их нет, кроме опции WIN-MIC-010).
-- Изменение системных аудио-настроек пользователя без восстановления исходного состояния.
-- Встраивание VB-Cable или других сторонних драйверов в инсталлятор.
-- Смена стека (Tauri, Svelte, PipeWire API) или принятых ADR.
+- GitHub Actions and any cloud CI.
+- Telemetry, analytics, network requests (except the opt-in update check from the PRD).
+- Root/administrator actions at runtime beyond what the PRD describes (none on Windows, except the
+  WIN-MIC-010 option).
+- Changing the user's system audio settings without restoring the original state.
+- Bundling VB-Cable or other third-party drivers into the installer.
+- Changing the stack (Tauri, Svelte, PipeWire API) or accepted ADRs.
 
-## 9. Команды
+## 9. Commands
 
 ```sh
 cargo fmt
 cargo clippy -p <crate> -- -D warnings
 cargo test -p <crate> [filter]
 cargo build --release -p macafond -p macafon-cli
-target/release/macafond run --input '<node.name>'   # демон (PipeWire + сокет управления)
-target/release/macafon ctl status                   # управление демоном
-python3 tools/tests/pipewire-smoke.py             # приватный PipeWire: задержка, mute, рестарты
-python3 tools/tests/wireplumber-routing.py        # приватный WirePlumber: роутинг
-python3 tools/tests/mixer-smoke.py                # приватный WirePlumber: каналы, приложения, выходы
-python3 tools/tests/hotkeys-smoke.py              # фейковый портал GlobalShortcuts: хоткеи, OSD
-python3 tools/tests/control-smoke.py              # управление на лету, конфиг, протокол
-python3 tools/tests/tray-smoke.py                 # трей через приватную D-Bus-сессию
-pnpm -C apps/macafon-ui dev              # UI в браузере с mock-демоном
-pnpm -C apps/macafon-ui tauri dev        # UI в Tauri с реальным демоном
+target/release/macafond run --input '<node.name>'   # daemon (PipeWire + control socket)
+target/release/macafon ctl status                   # control the daemon
+python3 tools/tests/pipewire-smoke.py             # private PipeWire: latency, mute, restarts
+python3 tools/tests/wireplumber-routing.py        # private WirePlumber: routing
+python3 tools/tests/mixer-smoke.py                # private WirePlumber: channels, apps, outputs
+python3 tools/tests/hotkeys-smoke.py              # fake GlobalShortcuts portal: hotkeys, OSD
+python3 tools/tests/control-smoke.py              # live control, config, protocol
+python3 tools/tests/tray-smoke.py                 # tray over a private D-Bus session
+python tools/tests/windows-uninstall-hook.py      # Windows: uninstaller stops on a failed restore
+pnpm -C apps/macafon-ui dev              # UI in a browser with the mock daemon
+pnpm -C apps/macafon-ui tauri dev        # UI in Tauri with the real daemon
 pnpm -C apps/macafon-ui check            # svelte-check / TypeScript
-pnpm -C apps/macafon-ui gen:ipc          # перегенерировать TS-типы из macafon-ipc/macafon-dsp
-python tools/package-windows.py          # Windows: per-user NSIS-инсталлятор (pnpm через corepack)
+pnpm -C apps/macafon-ui gen:ipc          # regenerate TS types from macafon-ipc/macafon-dsp
+python tools/package-windows.py          # Windows: per-user NSIS installer (pnpm via corepack)
 ```

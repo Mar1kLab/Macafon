@@ -1,138 +1,144 @@
 # M1: UI (Tauri v2 + Svelte 5)
 
-Состояние на 2026-10-12. Готовы онбординг, экраны Microphone и Mixer, калибровка, панель TEST (A/B)
-и Settings. Импорт/экспорт пресетов через файловый диалог — следующий шаг. Микшер — [mixer.md](mixer.md).
+State as of 2026-10-12. Onboarding, the Microphone and Mixer screens, calibration, the TEST (A/B) panel
+and Settings are ready. Preset import/export through a file dialog is the next step. Mixer —
+[mixer.md](mixer.md).
 
-Mock-транспорт (`src/lib/ipc/mock.ts`) управляет подключением, микрофоном, пресетами,
-калибровкой и A/B. В `src/lib/ipc/mock/` вынесены данные устройств и приложений (`fixtures`),
-чистые функции (`helpers`), синтетические сигналы (`signals`) и отдельный микшер (`mixer`).
-Микшер владеет каналами, приложениями и метрами, использует сгенерированные IPC-типы
-и отдаёт копии состояния для ответов и событий.
+The mock transport (`src/lib/ipc/mock.ts`) handles the connection, microphone, presets, calibration and
+A/B. `src/lib/ipc/mock/` holds the device and application data (`fixtures`), pure functions
+(`helpers`), synthetic signals (`signals`) and a separate mixer (`mixer`). The mixer owns the channels,
+applications and meters, uses the generated IPC types and hands out copies of its state for replies
+and events.
 
-## Запуск
+## Running
 
 ```sh
 pnpm -C apps/macafon-ui install
-pnpm -C apps/macafon-ui dev            # браузер, mock-демон: http://127.0.0.1:1420
-pnpm -C apps/macafon-ui tauri dev      # окно Tauri с настоящим демоном
+pnpm -C apps/macafon-ui dev            # browser, mock daemon: http://127.0.0.1:1420
+pnpm -C apps/macafon-ui tauri dev      # Tauri window with the real daemon
 pnpm -C apps/macafon-ui tauri build --no-bundle   # target/release/macafon-ui
 ```
 
-`macafon` без аргументов запускает `macafon-ui` (рядом с бинарём или из `PATH`) — так его открывают
-трей (BG-004) и ярлык. Второй запуск фокусирует уже открытое окно (BG-006, `tauri-plugin-single-instance`).
-Закрытие окна завершает процесс UI, звук остаётся в демоне (BG-001).
+`macafon` without arguments starts `macafon-ui` (next to the binary or from `PATH`) — this is how the
+tray (BG-004) and the launcher open it. A second launch focuses the already open window (BG-006,
+`tauri-plugin-single-instance`). Closing the window ends the UI process; audio stays in the daemon (BG-001).
 
-На этой машине нет системных WebKitGTK/GTK: заголовки и `.so` лежат в том же user-local sysroot,
-что и PipeWire (`. ~/.cache/macafon-sysroot/env.sh`). Сборка и тесты работают; запустить окно здесь
-нельзя — WebKit ищет свои процессы по зашитому пути `/usr/lib/.../webkit2gtk-4.1`, а user namespaces
-для подмены пути запрещены. UI проверяется в браузере на mock-демоне, мост — тестами (ниже).
+On the Linux development machine there are no system WebKitGTK/GTK packages: the headers and `.so` files
+live in the same user-local sysroot as PipeWire (`. ~/.cache/macafon-sysroot/env.sh`). Building and tests
+work; the window cannot be started there — WebKit looks for its processes at the hardcoded path
+`/usr/lib/.../webkit2gtk-4.1`, and user namespaces for overriding the path are not allowed. The UI is
+checked in a browser against the mock daemon, the bridge by tests (below).
 
-## Устройство
+## Structure
 
 ```
-Svelte (runes) ──DaemonClient──► Transport ─┬─ TauriTransport ─invoke/event─► src-tauri/bridge.rs ─► macafond.sock
-                                            └─ MockTransport (браузер; ?daemon=down — демон недоступен,
-                                                              ?mic=disconnected — микрофон отключён,
-                                                              ?config=recovered — конфиг сброшен,
-                                                              ?overload — Studio → Lite)
+Svelte (runes) ──DaemonClient──► Transport ─┬─ TauriTransport ─invoke/event─► src-tauri/bridge.rs ─► macafond.sock / named pipe
+                                            └─ MockTransport (browser; ?daemon=down — daemon unavailable,
+                                                              ?mic=disconnected — microphone disconnected,
+                                                              ?config=recovered — config reset,
+                                                              ?overload — Studio → Lite,
+                                                              ?platform=windows[&cable=missing] — Windows)
 ```
 
-- `src/lib/ipc/protocol.ts` и `dsp.ts` **генерируются** из Rust (`ts-rs` за фичей `ts`, по умолчанию
-  выключена — демон её не тянет): типы протокола, диапазоны и значения по умолчанию из `params.rs`,
-  кривые макросов, характеры EQ и встроенные пресеты. Руками не править:
-  `pnpm -C apps/macafon-ui gen:ipc`. `cargo test -p macafon-ipc --features ts` падает, если файлы устарели.
-- `client.ts`: типизированный `call(method, params)`; таблица результатов проверяется на полноту
-  против сгенерированного `Request` — новый метод протокола не скомпилируется, пока его не добавят.
-- `state/daemon.svelte.ts`: зеркало состояния демона. Правка цепочки — оптимистично локально, затем
-  `mic.set`; пока запрос в полёте, новые правки копятся и отправляется только последняя (не больше
-  одного запроса одновременно). Эхо `mic.changed` во время своих правок не перетирает слайдер.
-  Undo/Redo (DSP-008): правки ближе 600 мс — один шаг, глубина 100, mute/bypass не откатываются.
-- Метры (MTR-004, NFR-R7): подписка 60 Гц только пока окно видимо (`visibilitychange`). Кадры лежат
-  вне реактивности (`state/meters.ts`), canvas-метры рисуются в одном общем `requestAnimationFrame`.
-  Баллистика из дизайн-системы: peak-hold 1 с, спад 20 дБ/с, клип «залипает» на 2 с.
-- `bridge.rs`: один поток владеет соединением — handshake `hello`, ответы сопоставляются по `id`,
-  события и статус уходят в WebView (`daemon://event`, `daemon://status`). Если сокета нет —
-  один раз запускает `macafond run` (рядом с бинарём или из `PATH`, отдельная группа процессов, чтобы
-  демон пережил UI) и ждёт 4 с (§9.7). Потерянное соединение не перезапускает демон (после Quit
-  из трея он должен остаться выключенным; упавший поднимет systemd) — через 4 с экран «offline»
-  с Retry. `Quit Macafon` в Settings останавливает демон и закрывает UI (BG-005).
+- `src/lib/ipc/protocol.ts` and `dsp.ts` are **generated** from Rust (`ts-rs` behind the `ts` feature,
+  off by default — the daemon does not pull it in): protocol types, ranges and defaults from
+  `params.rs`, macro curves, EQ characters and built-in presets. Do not edit by hand:
+  `pnpm -C apps/macafon-ui gen:ipc`. `cargo test -p macafon-ipc --features ts` fails if the files are stale.
+- `client.ts`: a typed `call(method, params)`; the result table is checked for completeness against the
+  generated `Request` — a new protocol method will not compile until it is added.
+- `state/daemon.svelte.ts`: a mirror of the daemon state. A chain edit is applied optimistically locally,
+  then `mic.set`; while a request is in flight, new edits accumulate and only the last one is sent (never
+  more than one request at a time). The `mic.changed` echo during our own edits does not overwrite the
+  slider. Undo/Redo (DSP-008): edits closer than 600 ms are one step, depth 100, mute/bypass are not undone.
+- Meters (MTR-004, NFR-R7): a 60 Hz subscription only while the window is visible (`visibilitychange`).
+  Frames live outside reactivity (`state/meters.ts`); canvas meters are drawn in one shared
+  `requestAnimationFrame`. Ballistics from the design system: 1 s peak hold, 20 dB/s fall, clip sticks for 2 s.
+- `bridge.rs`: one thread owns the connection — the `hello` handshake, replies are matched by `id`,
+  events and status go to the WebView (`daemon://event`, `daemon://status`). If there is no socket, it
+  starts `macafond run` once (next to the binary or from `PATH`, in a separate process group so that the
+  daemon outlives the UI; without a console window on Windows) and waits 4 s (§9.7). A lost connection
+  does not restart the daemon (after Quit from the tray it must stay off; a crashed one is brought back by
+  systemd) — after 4 s an "offline" screen with Retry. `Quit Macafon` in Settings stops the daemon and
+  closes the UI (BG-005).
 
-## Онбординг (§9.2)
+## Onboarding (§9.2)
 
-Полноэкранный поток вместо основного окна, пока в `localStorage` WebView нет `macafon.onboarding=done`.
-Шесть шагов: Welcome → Microphone → Calibrate → Result → Use it → Background; «Skip setup» в шапке
-завершает поток без побочных эффектов, Settings → Setup guide запускает его снова.
+A full-screen flow instead of the main window while the WebView's `localStorage` has no
+`macafon.onboarding=done`. Six steps: Welcome → Microphone → Calibrate → Result → Use it → Background
+(on Windows an Install VB-CABLE step follows Welcome); "Skip setup" in the header ends the flow without
+side effects, Settings → Setup guide starts it again.
 
-- Microphone: живые метры всех входов (`devices.subscribe` только пока шаг открыт), список обновляется
-  раз в 2 с. Пока пользователь не выбрал сам, выбирается вход, дольше всех слышащий речь
-  (выше −45 dBFS, 0,5 с); `mic.set_device` — только по Next.
-- Calibrate/Result: те же `CalibrationProgress` / `CalibrationResult`, что в диалоге. Result встраивает
-  панель TEST; «Listen A/B» записывает клип, «Fine-tune» проводит через шаги 5–6 и после Done
-  открывает экран Microphone.
-  Без калибровки шаг Result пропускается.
-- Use it: переключатель системного default (`mic.set_default_source` с `confirmed: true` / `restore`),
-  подсказки для Discord, OBS, Zoom (MIC-015).
-- Background: «Start with system» включён по умолчанию и применяется только по Done (AS-001).
+- Microphone: live meters of all inputs (`devices.subscribe` only while the step is open), the list is
+  refreshed every 2 s. Until the user chooses, the input that has heard speech the longest
+  (above −45 dBFS, 0.5 s) is selected; `mic.set_device` only on Next.
+- Calibrate/Result: the same `CalibrationProgress` / `CalibrationResult` as in the dialog. Result embeds
+  the TEST panel; "Listen A/B" records a clip, "Fine-tune" leads through steps 5–6 and after Done opens
+  the Microphone screen. Without calibration the Result step is skipped.
+- Use it: the system default toggle (`mic.set_default_source` with `confirmed: true` / `restore`),
+  hints for Discord, OBS, Zoom (MIC-015).
+- Background: "Start with system" is on by default and applied only on Done (AS-001).
 
-## Понятность для новичка
+## Clarity for beginners
 
-- Блок «Getting started» на экране Microphone: калибровка (отмечается выполненной), запись и
-  сравнение, выбор «Macafon Microphone» в приложениях + отключить их шумодав (US-2/3/5, MIC-015).
-  Скрывается кнопкой «Got it» (флаг в `localStorage` WebView).
-- Пока калибровки не было, кнопка Calibrate — главная (инвертированная). «Listen A/B» в итоге
-  калибровки сразу запускает запись в панели TEST.
-- Баннеры состояния: микрофон не выбран, отключён (MIC-005), обработка выключена (Bypass) с
-  кнопкой «Turn on», клип на входе.
-- Видимые подписи без жаргона: Before/After вместо Raw/Processed, Match volume, Cut и Noise вместо
-  GR/NS, Mic вместо RAW; у метров, Bypass, Mute, Latency — однострочные подсказки при наведении.
-  Индикатор CLIP появляется только при клипе.
-- Save в шапке виден только когда пресет изменён.
+- A "Getting started" block on the Microphone screen: calibration (marked as done), recording and
+  comparing, selecting "Macafon Microphone" in applications + turning off their noise suppression
+  (US-2/3/5, MIC-015). Hidden with "Got it" (a flag in the WebView's `localStorage`).
+- Until calibration has been done, the Calibrate button is the primary (inverted) one. "Listen A/B" in
+  the calibration result starts recording in the TEST panel right away.
+- State banners: microphone not selected, disconnected (MIC-005), processing off (Bypass) with a
+  "Turn on" button, input clipping.
+- Visible captions without jargon: Before/After instead of Raw/Processed, Match volume, Cut and Noise
+  instead of GR/NS, Mic instead of RAW; meters, Bypass, Mute and Latency have one-line hover hints.
+  The CLIP indicator appears only on clipping.
+- Save in the header is visible only when the preset has changed.
 
-## Экран Mixer (§9.4)
+## Mixer screen (§9.4)
 
-- Колонка канала: полоса цвета, чипы приложений, вертикальный фейдер (стрелки ±1%, PageUp/Down ±10%,
-  двойной клик — 100%) со стерео-метром, % и dB, `M` / `EQ●` / `FX●`. Боковая панель: EQ с пресетами
-  по категориям, FX (Bypass канала, NS, Compressor Amount, Limiter Ceiling), настройки канала.
-- Перенос приложения: HTML5 drag & drop (фишка с наклоном 2°, цель подсвечивается цветом и тиками),
-  клавиши 1…8 на сфокусированной фишке, контекстное меню (Move to, Don't manage, Forget).
-- Правки канала оптимистичны и сливаются (как у микрофона): одновременно не больше одного `channel.set`
-  на канал. Метры `mixer.meters` идут вместе с `meters` по той же подписке.
-- Mock: `?screen=mixer`, `?mixer=off` — микшер ещё не включён.
-- Quit в Settings — с подтверждением.
+- A channel column: a color bar, application chips, a vertical fader (arrows ±1%, PageUp/Down ±10%,
+  double click — 100%) with a stereo meter, % and dB, `M` / `EQ●` / `FX●`. Side panel: EQ with presets
+  by category, FX (channel Bypass, NS, Compressor Amount, Limiter Ceiling), channel settings. On Windows
+  there are no EQ/FX: a Channel button instead (WIN-CH-006).
+- Moving an application: HTML5 drag & drop (a chip tilted 2°, the target is highlighted with its color
+  and ticks), keys 1…8 on a focused chip, a context menu (Move to, Don't manage, Forget).
+- Channel edits are optimistic and merged (like the microphone): never more than one `channel.set` per
+  channel at a time. `mixer.meters` meters come with `meters` on the same subscription.
+- Mock: `?screen=mixer`, `?mixer=off` — the mixer is not enabled yet.
+- Quit in Settings asks for confirmation.
 
-## Макросы и CUSTOM (DSP-002)
+## Macros and CUSTOM (DSP-002)
 
-В `ChainSettings` нет положения главного слайдера — UI выводит его из параметров, обращая кривые
-`macafon_dsp::settings::macros` (они экспортируются в `dsp.ts`). Если параметры не совпадают ни с
-одним положением слайдера — модуль `CUSTOM`, слайдер заблокирован, есть «Reset to simple».
+`ChainSettings` has no main slider position — the UI derives it from the parameters by inverting the
+`macafon_dsp::settings::macros` curves (they are exported to `dsp.ts`). If the parameters match no slider
+position, the module is `CUSTOM`, the slider is locked, and "Reset to simple" is offered.
 
-| Модуль | Главный слайдер | Как определяется |
+| Module | Main slider | How it is determined |
 |---|---|---|
-| Gain, High-pass, NS, Limiter | Сам параметр (gain, частота, intensity, ceiling) | Всегда простой режим |
-| Expander | Sensitivity | По ratio; range и времена должны совпасть. **Порог не сравнивается**: калибровка ставит его по шумовому полу (CAL-003), и модуль не должен из-за этого становиться CUSTOM. Движение слайдера ставит порог от пола после Gain (пол из калибровки + gain) или от −56 dBFS без калибровки |
-| Compressor | Amount | По порогу; ratio, attack, release, knee, auto makeup, RMS должны совпасть |
-| De-esser | Intensity | По порогу; частота, max reduction, split-band. Listen не учитывается |
-| EQ | Character + Amount | 5 полос раскладки по умолчанию с усилениями характера × Amount; любая правка полос — CUSTOM |
+| Gain, High-pass, NS, Limiter | The parameter itself (gain, frequency, intensity, ceiling) | Always simple mode |
+| Expander | Sensitivity | By ratio; range and times must match. **The threshold is not compared**: calibration sets it from the noise floor (CAL-003), and the module must not become CUSTOM because of that. Moving the slider sets the threshold relative to the floor after Gain (calibrated floor + gain) or relative to −56 dBFS without calibration |
+| Compressor | Amount | By threshold; ratio, attack, release, knee, auto makeup, RMS must match |
+| De-esser | Intensity | By threshold; frequency, max reduction, split-band. Listen is ignored |
+| EQ | Character + Amount | The 5 bands of the default layout with the character's gains × Amount; any band edit makes it CUSTOM |
 
-`macros.test.ts` проверяет обратное отображение на встроенных пресетах из Rust — если TS-зеркало
-разойдётся с `from_amount`/`from_sensitivity`, тест упадёт.
+`macros.test.ts` checks the inverse mapping on the built-in presets from Rust — if the TS mirror diverges
+from `from_amount`/`from_sensitivity`, the test fails.
 
-## Отклонения и пробелы
+## Deviations and gaps
 
-- Импорт/экспорт пресетов (P1) в UI нет — нужен файловый диалог (`tauri-plugin-dialog`); в CLI есть.
-- BG-001: подсказку при первом закрытии показывает демон системным уведомлением (см. mixer.md).
+- No preset import/export (P1) in the UI — it needs a file dialog (`tauri-plugin-dialog`); the CLI has it.
+- BG-001: the hint on the first window close is shown by the daemon as a system notification (see mixer.md).
 
-## Проверка
+## Checks
 
 ```sh
-pnpm -C apps/macafon-ui check                       # svelte-check + TypeScript strict
-pnpm -C apps/macafon-ui test                        # Vitest: макросы против пресетов, АЧХ EQ
-cargo test -p macafon-ipc --features ts             # TS-файлы актуальны
-cargo test -p macafon-ui                            # мост против фейкового демона
-pnpm -C apps/macafon-ui screenshots ../../.artifacts/screenshots [сценарий…]   # при запущенном dev
+pnpm -C apps/macafon-ui check                       # svelte-check + strict TypeScript
+pnpm -C apps/macafon-ui test                        # Vitest: macros against presets, EQ response
+cargo test -p macafon-ipc --features ts             # TS files are up to date
+cargo test -p macafon-ui                            # the bridge against a fake daemon
+pnpm -C apps/macafon-ui screenshots ../../.artifacts/screenshots [scenario…]   # with dev running
 ```
 
-Тест моста поднимает фейковый демон на Unix-сокете: ответы в другом порядке, событие между ними,
-ошибка демона, пропажа демона с незавершённым вызовом, переход в `unavailable` без запуска второго
-демона. Разово мост проверен и против настоящего `macafond` в приватном PipeWire: handshake, вызовы,
-60 кадров метров за 2 с при 30 Гц, маппинг ошибок, `daemon.quit` → `unavailable`.
+The bridge test starts a fake daemon on a Unix socket (a named pipe on Windows): replies out of order, an
+event between them, a daemon error, the daemon disappearing with a pending call, the switch to
+`unavailable` without starting a second daemon. The bridge was also checked once against a real
+`macafond` in a private PipeWire: handshake, calls, 60 meter frames in 2 s at 30 Hz, error mapping,
+`daemon.quit` → `unavailable`.

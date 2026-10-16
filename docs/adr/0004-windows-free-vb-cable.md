@@ -1,61 +1,64 @@
-# ADR-0004: Windows только на бесплатном VB-CABLE: кабель — виртуальному микрофону, каналы — группы громкости
+# ADR-0004: Windows only on the free VB-CABLE: the cable for the virtual microphone, channels as volume groups
 
-- **Статус:** принято
-- **Дата:** 2026-10-11
-- **Контекст PRD:** [§12.2](../PRD.md#122-windows-m3), план — [§19.1](../PRD.md#191-план-порта-на-windows-m3)
-- **Заменяет:** [ADR-0001](0001-windows-apo.md) (APO-плагин), [ADR-0002](0002-windows-output-vbcable.md) (каналы на кабелях VB-Audio)
+- **Status:** accepted
+- **Date:** 2026-10-11
+- **PRD context:** [§12.2](../PRD.md#122-windows-m3), plan — [§19.1](../PRD.md#191-windows-port-plan-m3)
+- **Supersedes:** [ADR-0001](0001-windows-apo.md) (APO plugin), [ADR-0002](0002-windows-output-vbcable.md) (channels on VB-Audio cables)
 
-## Контекст
+## Context
 
-Владелец решил, что Windows-версия использует драйвер VB-Audio везде, где нужно виртуальное устройство, и
-должна быть рассчитана на **бесплатную** версию — VB-CABLE с одним кабелем (`CABLE Input` → `CABLE Output`).
-Кабели A+B и C+D выдаются только после доната. Своего драйвера по-прежнему нет: подпись требует
-EV-сертификата и attestation, а test-signing несовместим с античитами.
+The owner decided that the Windows version uses the VB-Audio driver wherever a virtual device is needed,
+and must be designed for the **free** version — VB-CABLE with a single cable (`CABLE Input` →
+`CABLE Output`). The A+B and C+D cables are only provided after a donation. There is still no driver of
+our own: signing requires an EV certificate and attestation, and test-signing is incompatible with
+anti-cheats.
 
-Один кабель передаёт звук в одну сторону. Если в него одновременно пишут обработанный микрофон и
-приложения, звук смешивается, поэтому кабель можно отдать только одной функции.
+One cable carries audio in one direction. If the processed microphone and applications write into it at
+the same time, the audio is mixed, so the cable can serve only one function.
 
-## Рассмотренные варианты
+## Options considered
 
-| Вариант | Итог |
+| Option | Outcome |
 |---|---|
-| **A. Кабель — виртуальному микрофону; каналы — группы громкости аудиосессий без эффектов** | **Выбран**: микрофон — главная функция продукта, на Windows он работает как на Linux (отдельное устройство, A/B и калибровка из демона) |
-| B. Кабель — микшеру (Master EQ/FX); микрофон через APO | Отклонён: APO сложен (COM в `audiodg.exe`, служба ремонта, античиты), а Master EQ для пользователя менее ценен, чем обработанный микрофон |
-| C. Пользователь выбирает назначение кабеля в онбординге | Отклонён: две ветки реализации и тестирования, путаница в UI |
-| D. Требовать A+B / C+D для каналов (ADR-0002) | Отклонён: противоречит требованию работать на бесплатной версии |
-| E. APO-плагин для микрофона (ADR-0001) | Отклонён владельцем: только VB-CABLE |
+| **A. The cable for the virtual microphone; channels as audio session volume groups without effects** | **Chosen**: the microphone is the product's main feature, and on Windows it works as on Linux (a separate device, A/B and calibration from the daemon) |
+| B. The cable for the mixer (Master EQ/FX); the microphone through an APO | Rejected: an APO is complex (COM in `audiodg.exe`, a repair service, anti-cheats), and Master EQ is less valuable to the user than a processed microphone |
+| C. The user chooses the cable's purpose in onboarding | Rejected: two implementation and test branches, confusing UI |
+| D. Require A+B / C+D for channels (ADR-0002) | Rejected: contradicts the requirement to work on the free version |
+| E. An APO plugin for the microphone (ADR-0001) | Rejected by the owner: VB-CABLE only |
 
-## Решение
+## Decision
 
-- Демон захватывает физический микрофон через WASAPI, обрабатывает цепочкой `macafon-dsp` и выводит в
-  `CABLE Input`; приложения выбирают `CABLE Output` — это «Macafon Microphone». Дрейф часов микрофона и
-  кабеля компенсируется адаптивным ресемплингом. Требования WIN-MIC-001…010.
-- Микшер на Windows — каналы как группы приложений: громкость и mute их аудиосессий
-  (`ISimpleAudioVolume`), метры сессий, до 8 каналов. Эффектов на канал и Master нет. Требования
-  WIN-CH-001…010.
-- Пользователь ставит VB-CABLE сам с официального сайта; Macafon его не распространяет и не скачивает.
-- Нет APO, службы-хелпера и прав администратора: MSI для текущего пользователя.
+- The daemon captures the physical microphone through WASAPI, processes it with the `macafon-dsp` chain
+  and plays it into `CABLE Input`; applications select `CABLE Output` — this is the "Macafon Microphone".
+  The clock drift between the microphone and the cable is compensated by adaptive resampling.
+  Requirements WIN-MIC-001…010.
+- The Windows mixer has channels as application groups: the volume and mute of their audio sessions
+  (`ISimpleAudioVolume`), session meters, up to 8 channels. No effects on channels or Master.
+  Requirements WIN-CH-001…010.
+- The user installs VB-CABLE from the official site; Macafon neither redistributes nor downloads it.
+- No APO, no helper service, no administrator rights: a per-user installer (implemented as a per-user
+  NSIS installer, see [windows-m3.md](../development/windows-m3.md)).
 
-## Последствия
+## Consequences
 
-**Плюсы**
-- Обработанный микрофон — отдельное устройство, как на Linux и в Sonar; общий код цепочки, A/B и калибровки.
-- Простая установка без системных компонентов; нет конфликтов с вендорскими APO и рисков с античитами
-  от DLL в `audiodg.exe`.
-- Работает на бесплатной версии VB-CABLE.
+**Pros**
+- The processed microphone is a separate device, as on Linux and in Sonar; shared chain, A/B and calibration code.
+- Simple installation without system components; no conflicts with vendor APOs and no anti-cheat risks
+  from a DLL in `audiodg.exe`.
+- Works on the free version of VB-CABLE.
 
-**Минусы / ограничения**
-- Задержка микрофона выше, чем на Linux: два WASAPI-прохода и буфер кабеля (NFR-L6, замер в M3.0).
-- Один виртуальный микрофон: M4 (несколько микрофонов, Stream mix) на Windows недоступен.
-- На Windows нет EQ/FX каналов и Master.
-- Без запущенного Macafon `CABLE Output` молчит; системное имя устройства чужое.
-- Кабель может оказаться занят другими программами (OBS, VoiceMeeter) — нужен контроль в Doctor.
-- Зависимость от стороннего драйвера.
+**Cons / limitations**
+- Higher microphone latency than on Linux: two WASAPI passes and the cable buffer (NFR-L6, measured in M3.0).
+- One virtual microphone: M4 (several microphones, Stream mix) is not available on Windows.
+- No channel or Master EQ/FX on Windows.
+- Without Macafon running, `CABLE Output` is silent; the system device name is foreign.
+- The cable may be taken by other programs (OBS, VoiceMeeter) — Doctor has to watch for it.
+- Dependency on a third-party driver.
 
-## Когда пересмотреть
+## When to revisit
 
-- По итогам M3.0, если задержка VB-CABLE не укладывается в NFR-L6 при разумном буфере.
-- Если появится способ дать эффекты на канал без дополнительных кабелей (например, WASAPI process loopback
-  с предсказуемой громкостью сессий) — WIN-CH-010.
-- Если появится бюджет на свой подписанный драйвер — несколько виртуальных микрофонов и каналы с
-  эффектами, как на Linux.
+- After M3.0, if the VB-CABLE latency does not fit NFR-L6 with a reasonable buffer.
+- If a way appears to provide per-channel effects without extra cables (for example, WASAPI process
+  loopback with predictable session volume) — WIN-CH-010.
+- If a budget for our own signed driver appears — several virtual microphones and channels with effects,
+  as on Linux.

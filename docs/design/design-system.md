@@ -1,81 +1,81 @@
-# Macafon — дизайн-система
+# Macafon — design system
 
-> Часть [PRD Macafon](../PRD.md). Основа — визуальный язык [getartcraft.com/apps](https://getartcraft.com/apps)
-> (токены сняты с production CSS сайта), адаптированный под аудио-утилиту. **Только тёмная тема.**
+> Part of the [Macafon PRD](../PRD.md). Based on the visual language of [getartcraft.com/apps](https://getartcraft.com/apps)
+> (tokens taken from the site's production CSS), adapted for an audio utility. **Dark theme only.**
 
-## 1. Принципы
+## 1. Principles
 
-1. **Инструмент, а не игрушка.** Эстетика «лабораторного прибора» / HUD: моноширинные метки,
-   тонкие линии, перекрестья-«тики» по углам, нумерация разделов `01 / MICROPHONE`.
-2. **Минимализм с акцентом.** Почти монохромная палитра; цвет появляется только там, где несёт
-   смысл: цвет канала, активный модуль, уровень сигнала, предупреждение.
-3. **Креатив в деталях.** Курсивный serif (Instrument Serif) для одного слова в заголовке
-   («Your voice, *refined*.»), «живые» метры, слайдеры-линейки с делениями, мягкие микроанимации.
-4. **Острые углы.** `border-radius: 0` у компонентов UI (как на ArtCraft). Утверждённый логотип — исключение: округлые контуры и концы линий. Разделение — 1px линии, не тени.
-5. **Звук виден.** Любой модуль, который меняет сигнал, показывает это визуально (метр, gain reduction,
-   кривая EQ).
+1. **A tool, not a toy.** A "lab instrument" / HUD aesthetic: monospaced labels, thin lines,
+   crosshair "ticks" in the corners, section numbering `01 / MICROPHONE`.
+2. **Minimalism with an accent.** An almost monochrome palette; color appears only where it carries
+   meaning: channel color, active module, signal level, warning.
+3. **Creativity in the details.** An italic serif (Instrument Serif) for one word in a heading
+   ("Your voice, *refined*."), "live" meters, ruler sliders with ticks, gentle micro-animations.
+4. **Sharp corners.** `border-radius: 0` on UI components (as on ArtCraft). The approved logo is the exception: rounded contours and line caps. Separation by 1px lines, not shadows.
+5. **Sound is visible.** Every module that changes the signal shows it visually (meter, gain reduction,
+   EQ curve).
 
-## 2. Цветовые токены (dark)
+## 2. Color tokens (dark)
 
 ```css
 :root {
   color-scheme: dark;
-  /* Поверхности */
-  --bg:            #121316;  /* фон окна */
-  --bg-raised:     #101014;  /* карточки модулей, панели */
-  --bg-sunken:     #060607;  /* поля ввода, треки слайдеров, бейджи, метры */
-  /* Текст */
-  --ink:           #f2f1ee;  /* основной текст */
-  --ink-strong:    #ffffff;  /* заголовки, значения */
-  --muted:         #f2f1ee99;/* вторичный текст */
-  --faint:         #f2f1ee61;/* подписи, плейсхолдеры, неактивные деления */
-  /* Линии */
-  --line:          #f2f1ee26;/* границы карточек, разделители */
-  --line-strong:   #f2f1ee66;/* тики-перекрестья, фокус, hover-границы */
-  /* Акцент и состояния */
-  --accent:        #2d81ff;  /* основной акцент (кнопки, активные переключатели) */
-  --accent-ink:    #74aaff;  /* акцентный текст/иконки на тёмном */
-  --danger:        #ff6259;  /* клиппинг, mute, ошибки */
-  --invert-bg:     #ffffff;  /* инвертированная кнопка (primary CTA) */
+  /* Surfaces */
+  --bg:            #121316;  /* window background */
+  --bg-raised:     #101014;  /* module cards, panels */
+  --bg-sunken:     #060607;  /* inputs, slider tracks, badges, meters */
+  /* Text */
+  --ink:           #f2f1ee;  /* main text */
+  --ink-strong:    #ffffff;  /* headings, values */
+  --muted:         #f2f1ee99;/* secondary text */
+  --faint:         #f2f1ee61;/* captions, placeholders, inactive ticks */
+  /* Lines */
+  --line:          #f2f1ee26;/* card borders, dividers */
+  --line-strong:   #f2f1ee66;/* crosshair ticks, focus, hover borders */
+  /* Accent and states */
+  --accent:        #2d81ff;  /* main accent (buttons, active toggles) */
+  --accent-ink:    #74aaff;  /* accent text/icons on dark */
+  --danger:        #ff6259;  /* clipping, mute, errors */
+  --invert-bg:     #ffffff;  /* inverted button (primary CTA) */
   --invert-fg:     #0b0b0c;
-  --scanline:      #ffffff06;/* фоновая «скан-линия»/сетка */
+  --scanline:      #ffffff06;/* background "scanline"/grid */
 }
 ```
 
-### 2.1 Цвета модулей и каналов
+### 2.1 Module and channel colors
 
-Палитра `--app` / `--app-ink` с ArtCraft. `--app` — заливки (полоса канала, заполнение метра, точки EQ),
-`--app-ink` — текст/иконки на тёмном фоне.
+The `--app` / `--app-ink` palette from ArtCraft. `--app` — fills (channel bar, meter fill, EQ points),
+`--app-ink` — text/icons on a dark background.
 
-| Токен | `--app` | `--app-ink` (dark) | Назначение по умолчанию |
+| Token | `--app` | `--app-ink` (dark) | Default use |
 |---|---|---|---|
-| blue | `#2f7bf5` | `#7fb0ff` | Канал **Main**, модуль Gain |
-| violet | `#8b5cf6` | `#b69cff` | Канал **Voice**, модуль Noise Suppression |
-| pink | `#e0368f` | `#ff7ab8` | Канал **Music**, модуль De-esser |
-| orange | `#e8573f` | `#ff8a70` | Модуль Limiter, пользовательский канал |
-| amber | `#f2a516` | `#ffc14d` | Модуль Compressor, предупреждения (уровень −6…0 dBFS) |
-| teal | `#12a58a` | `#3fd6b8` | Модуль EQ, «сигнал в норме» |
-| lime | `#7bb51c` | `#a6e04a` | Модуль Expander/Gate, HPF |
+| blue | `#2f7bf5` | `#7fb0ff` | **Main** channel, Gain module |
+| violet | `#8b5cf6` | `#b69cff` | **Voice** channel, Noise Suppression module |
+| pink | `#e0368f` | `#ff7ab8` | **Music** channel, De-esser module |
+| orange | `#e8573f` | `#ff8a70` | Limiter module, user channel |
+| amber | `#f2a516` | `#ffc14d` | Compressor module, warnings (level −6…0 dBFS) |
+| teal | `#12a58a` | `#3fd6b8` | EQ module, "signal OK" |
+| lime | `#7bb51c` | `#a6e04a` | Expander/Gate module, HPF |
 
-Пользовательские каналы выбирают цвет из этой же палитры (7 цветов).
+User channels pick their color from the same palette (7 colors).
 
-### 2.2 Шкала метров
+### 2.2 Meter scale
 
-- `−∞…−18 dBFS` — `--app-ink` текущего модуля/канала (приглушённо, 60% opacity)
+- `−∞…−18 dBFS` — `--app-ink` of the current module/channel (dimmed, 60% opacity)
 - `−18…−6 dBFS` — `--app-ink` 100%
 - `−6…−1 dBFS` — amber `#ffc14d`
-- `> −1 dBFS / клип` — `--danger`, индикатор клипа «залипает» на 2 с
+- `> −1 dBFS / clip` — `--danger`; the clip indicator "sticks" for 2 s
 
-## 3. Типографика
+## 3. Typography
 
-Шрифты бандлятся в приложение (все под SIL OFL 1.1), без загрузки из сети.
+Fonts are bundled with the application (all under SIL OFL 1.1), never loaded from the network.
 
-| Роль | Шрифт | Параметры |
+| Role | Font | Parameters |
 |---|---|---|
-| Display (заголовки экранов, имена каналов) | **Archivo** | 600–700, `letter-spacing: -0.03em`, 24–40px |
-| Body (описания, настройки) | **Inter** | 400/500, 13–14px, `line-height: 1.5` |
-| HUD-метки, значения параметров, бейджи | **Geist Mono** | 500, 11px, `uppercase`, `letter-spacing: 0.15em` (метки) / 0.1em (бейджи 10px); значения — 12–13px, tabular-nums |
-| Акцент-слово | **Instrument Serif** italic | Одно слово в заголовке экрана/онбординга |
+| Display (screen titles, channel names) | **Archivo** | 600–700, `letter-spacing: -0.03em`, 24–40px |
+| Body (descriptions, settings) | **Inter** | 400/500, 13–14px, `line-height: 1.5` |
+| HUD labels, parameter values, badges | **Geist Mono** | 500, 11px, `uppercase`, `letter-spacing: 0.15em` (labels) / 0.1em (10px badges); values — 12–13px, tabular-nums |
+| Accent word | **Instrument Serif** italic | One word in a screen/onboarding heading |
 
 ```css
 .hud-label { font-family: var(--font-mono); font-size: .6875rem; font-weight: 500;
@@ -85,63 +85,61 @@
              background: var(--bg-sunken); }
 ```
 
-## 4. Сетка, отступы, формы
+## 4. Grid, spacing, shapes
 
-- Базовая единица `4px` (`--spacing: .25rem`), отступы карточек 24px (`p-6`), на широком окне 32px.
-- Минимальный размер окна 960×640, по умолчанию 1180×760. Сайдбар навигации 64px (иконки) с HUD-подписями при hover.
-- `border-radius: 0` у всех элементов, кроме: кружков-точек EQ, «пилюль» фишек приложений (тоже 0 — прямоугольные фишки с иконкой).
-- Границы 1px `--line`; hover — `--line-strong`; focus-visible — 1px `--accent` + outline offset 2px.
-- **Тики (crosshair):** 11×11px перекрестья `--line-strong` в углах активной карточки / выделенной области (как `.tick` на ArtCraft).
-- **Фон окна:** едва заметная сетка 24px из `--scanline` — ощущение «миллиметровки» прибора.
+- Base unit `4px` (`--spacing: .25rem`), card padding 24px (`p-6`), 32px on a wide window.
+- Minimum window size 960×640, default 1180×760. A 64px navigation sidebar (icons) with HUD captions on hover.
+- `border-radius: 0` on all elements except the round EQ points; application chips are rectangular too (also 0, with an icon).
+- 1px `--line` borders; hover — `--line-strong`; focus-visible — 1px `--accent` + outline offset 2px.
+- **Ticks (crosshair):** 11×11px `--line-strong` crosshairs in the corners of the active card / selected area (like `.tick` on ArtCraft).
+- **Window background:** a barely visible 24px grid of `--scanline` — the feel of an instrument's graph paper.
 
-## 5. Движение
+## 5. Motion
 
-- Базовая анимация: `150ms cubic-bezier(.4,0,.2,1)`; появление/hover карточек: `300ms ease-out`.
-- Hover фишки приложения: `translateY(-4px)` + `drop-shadow(0 6px 14px rgba(0,0,0,.28))` (иконки на ArtCraft).
-- Drag & drop: поднятая фишка следует за курсором с лёгким наклоном (2°), целевой канал подсвечивается
-  рамкой своего `--app` цвета и тиками по углам.
-- Метры — 60 fps, peak-hold 1 с, плавный спад 20 дБ/с.
-- Учитываем `prefers-reduced-motion`: отключаем наклон, translate и анимацию появления.
+- Base animation: `150ms cubic-bezier(.4,0,.2,1)`; card appearance/hover: `300ms ease-out`.
+- Application chip hover: `translateY(-4px)` + `drop-shadow(0 6px 14px rgba(0,0,0,.28))` (the icons on ArtCraft).
+- Drag & drop: the lifted chip follows the cursor with a slight tilt (2°); the target channel is highlighted
+  with a border in its `--app` color and corner ticks.
+- Meters — 60 fps, 1 s peak hold, a smooth 20 dB/s fall.
+- Respect `prefers-reduced-motion`: disable the tilt, translate and appearance animation.
 
-## 6. Компоненты
+## 6. Components
 
-| Компонент | Описание |
+| Component | Description |
 |---|---|
-| **Module card** | Карточка модуля цепочки: номер (`03`), HUD-название, переключатель on/off, главный слайдер, мини-метр gain reduction, кнопка `ADVANCED ▾`. Выключенный модуль — 40% opacity контента, рамка остаётся |
-| **Ruler slider** | Горизонтальный слайдер-«линейка»: трек `--bg-sunken`, деления (каждые 10%, крупные каждые 50%), заполнение цветом модуля, значение моноширинным справа. Двойной клик — сброс к дефолту, колесо — шаг, Shift+колесо — точный шаг, клик по значению — ввод с клавиатуры |
-| **Fader** | Вертикальный фейдер канала (такой же стиль линейки), шкала в дБ/процентах |
-| **Meter** | Вертикальный/горизонтальный сегментированный (2px сегменты с зазором 1px) — «приборный» вид |
-| **EQ graph** | Canvas/WebGL: сетка частот (лог), кривая суммарного отклика 2px `--app-ink`, заливка под кривой 8% opacity, точки полос (перетаскивание: X — частота, Y — gain, колесо — Q) |
-| **App chip** | Прямоугольная фишка: иконка приложения 20px, имя, мини-индикатор активности (пульсирует, когда приложение играет звук) |
-| **Channel strip** | Колонка канала: цветная полоса сверху 3px, имя Archivo, фишки приложений, фейдер, метр, кнопки `M`, `EQ`, `FX` |
-| **Device picker** | Выпадающий список устройств, у каждого микрофона — живой мини-метр уровня (видно, какой микрофон «слышит») |
-| **Transport (A/B)** | Кнопки `● REC`, `▶ LOOP`, переключатель `A ⇄ B` (крупный, инвертированный стиль `--invert-bg`) |
-| **Toast** | Нижний правый угол, рамка `--line`, HUD-заголовок |
+| **Module card** | A chain module card: number (`03`), HUD name, on/off toggle, main slider, gain reduction mini meter, `ADVANCED ▾` button. A disabled module — content at 40% opacity, the border stays |
+| **Ruler slider** | A horizontal "ruler" slider: `--bg-sunken` track, ticks (every 10%, major every 50%), fill in the module color, monospaced value on the right. Double click — reset to default, wheel — step, Shift+wheel — fine step, clicking the value — keyboard entry |
+| **Fader** | A vertical channel fader (the same ruler style), scale in dB/percent |
+| **Meter** | Vertical/horizontal, segmented (2px segments with a 1px gap) — an "instrument" look |
+| **EQ graph** | Canvas/WebGL: frequency grid (log), a 2px `--app-ink` curve of the total response, an 8% opacity fill under the curve, band points (drag: X — frequency, Y — gain, wheel — Q) |
+| **App chip** | A rectangular chip: 20px application icon, name, a mini activity indicator (pulses while the application plays audio) |
+| **Channel strip** | A channel column: a 3px colored bar on top, Archivo name, application chips, fader, meter, `M`, `EQ`, `FX` buttons |
+| **Device picker** | A device dropdown; every microphone has a live mini level meter (you can see which microphone "hears") |
+| **Transport (A/B)** | `● REC`, `▶ LOOP` buttons, an `A ⇄ B` toggle (large, inverted `--invert-bg` style) |
+| **Toast** | Bottom right corner, `--line` border, HUD heading |
 
-## 7. Иконки
+## 7. Icons
 
-[Lucide](https://lucide.dev) (как на ArtCraft), stroke 1.5px, 16/20px. Иконки приложений — из системы
-(Linux: `application.icon-name` / `.desktop` файл, Windows: иконка exe).
+[Lucide](https://lucide.dev) (as on ArtCraft), 1.5px stroke, 16/20px. Application icons come from the
+system (Linux: `application.icon-name` / `.desktop` file, Windows: the exe icon).
 
-### 7.1 Логотип Macafon
+### 7.1 Macafon logo
 
-Утверждён вариант **Retro**: округлый микрофон с пятью линиями решётки, винтами подвеса,
-двойной стойкой и овальным основанием. Мастер — `assets/branding/macafon.svg`.
-Экспорт: `python3 tools/design/generate-logo.py` (Pillow, fontTools, системные librsvg и Cairo;
-зависимости UI должны быть установлены локально для чтения Archivo).
-Готовые SVG/PNG, ICO/ICNS, favicon, Linux hicolor и данные для UI/трея хранятся в репозитории;
-для сборки и работы приложения генератор и его зависимости не нужны.
+The approved variant is **Retro**: a rounded microphone with five grille lines, mount screws, a double
+stand and an oval base. The master is `assets/branding/macafon.svg`.
+Export: `python3 tools/design/generate-logo.py` (Pillow, fontTools, system librsvg and Cairo; the UI
+dependencies must be installed locally to read Archivo).
+The ready SVG/PNG, ICO/ICNS, favicon, Linux hicolor and data for the UI/tray are stored in the repository;
+the generator and its dependencies are not needed to build or run the application.
 
-Рабочее положение — вертикальное, `--ink-strong`; mute/bypass — красный `--danger`, весь
-микрофон плавно изгибается как резиновый. Bypass дополнительно обозначается знаком паузы,
-ошибка подключения — красной точкой (BG-002). Переход занимает 300 мс (`--dur-card`),
-не повторяется в покое и при быстром переключении продолжается из текущего положения.
-UI учитывает `prefers-reduced-motion`. В трее 16/22 px используется более толстый,
-упрощённый контур с двумя линиями решётки. Белые, чёрные и красные версии логотипа имеют
-прозрачный фон; иконка запуска — белая на квадратной подложке `--bg`.
+The working position is upright, `--ink-strong`; mute/bypass — red `--danger`, and the whole microphone
+bends smoothly like rubber. Bypass is additionally marked with a pause sign, a connection error with a red
+dot (BG-002). The transition takes 300 ms (`--dur-card`), does not repeat at rest and continues from the
+current position on fast toggling. The UI respects `prefers-reduced-motion`. In the 16/22 px tray a
+thicker, simplified outline with two grille lines is used. The white, black and red versions of the logo
+have a transparent background; the launcher icon is white on a square `--bg` backing.
 
-## 8. Тон текста UI
+## 8. UI text tone
 
-Английский, короткий, без восклицательных знаков. Метки — существительные в HUD-стиле
-(`NOISE SUPPRESSION`, `THRESHOLD`), подсказки — одна строка простым языком
-(«Cuts low rumble from desk bumps and fans»).
+English, short, no exclamation marks. Labels are HUD-style nouns (`NOISE SUPPRESSION`, `THRESHOLD`),
+hints are one line of plain language ("Cuts low rumble from desk bumps and fans").

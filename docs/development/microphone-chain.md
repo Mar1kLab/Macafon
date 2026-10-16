@@ -1,86 +1,85 @@
-# M1: цепочка обработки микрофона
+# M1: microphone processing chain
 
-Состояние на 2026-10-11. Цепочка подключена к демону, IPC, конфигу, калибровке и A/B.
-Визуальная часть UI в этом раунде не изменялась.
+State as of 2026-10-11. The chain is connected to the daemon, IPC, config, calibration and A/B.
+The visual part of the UI did not change in this round.
 
-## Что есть
+## What exists
 
-- Восемь модулей в фиксированном порядке PRD §6.3: Gain → High-pass → NS Lite/Studio → Expander/Gate →
-  EQ → Compressor → De-esser → Limiter → Output gain. Выключенный модуль не создаётся
-  (0 CPU, 0 задержки, DSP-005). Global bypass (MIC-014) и mute (MIC-013).
-- Диапазоны и значения по умолчанию — `macafon_dsp::params`, единый источник для CLI/UI/конфига.
-- Фильтры — TPT SVF (Simper), отклики совпадают с прототипами RBJ после билинейного
-  преобразования (тест ±0,1 dB, EQ-003). HPF — Butterworth 12/24 dB/oct.
-- `MicrophoneProcessor::retune` меняет непрерывные параметры и mute без аллокаций,
-  со сглаживанием 10 мс (DSP-003). Включение/выключение модулей, bypass, движок NS и
-  look-ahead лимитера меняют топологию или задержку — возвращается `RebuildRequired`,
-  новый процессор собирается вне RT (NFR-S2).
-- Метры без блокировок (`Telemetry`): пик до Gain (клип на входе, MIC-G1), пик/RMS входа и
-  выхода, gain reduction экспандера/компрессора/де-эссера/лимитера, активность NS
-  (MTR-001…003, DSP-004).
-- Шесть встроенных пресетов §6.3.10; в демоне `macafond run --preset <name>`, по умолчанию Natural.
+- Eight modules in the fixed PRD §6.3 order: Gain → High-pass → NS Lite/Studio → Expander/Gate →
+  EQ → Compressor → De-esser → Limiter → Output gain. A disabled module is not created
+  (0 CPU, 0 latency, DSP-005). Global bypass (MIC-014) and mute (MIC-013).
+- Ranges and defaults live in `macafon_dsp::params`, the single source for CLI/UI/config.
+- Filters are TPT SVF (Simper); responses match the RBJ prototypes after the bilinear transform
+  (test ±0.1 dB, EQ-003). HPF — Butterworth 12/24 dB/oct.
+- `MicrophoneProcessor::retune` changes continuous parameters and mute without allocations,
+  with 10 ms smoothing (DSP-003). Enabling/disabling modules, bypass, the NS engine and the
+  limiter look-ahead change the topology or latency — `RebuildRequired` is returned and a new
+  processor is built outside the RT thread (NFR-S2).
+- Lock-free meters (`Telemetry`): peak before Gain (input clip, MIC-G1), input and output peak/RMS,
+  gain reduction of the expander/compressor/de-esser/limiter, NS activity (MTR-001…003, DSP-004).
+- Six built-in presets from §6.3.10; in the daemon `macafond run --preset <name>`, Natural by default.
 
-## Решения, которых нет в PRD
+## Decisions not in the PRD
 
-| Что | Решение |
+| What | Decision |
 |---|---|
-| Expander, макро Sensitivity | Порог = шумовой пол + 30 dB (0%) → +6 dB (50%) → пол (100%). Ratio 1:1.5 → 1:3 → 1:6, Range −15 → −30 → −50 dB. Без калибровки шумовой пол −56 dBFS, поэтому 50% даёт порог −50 dBFS из таблицы |
-| Expander, гистерезис/hold | Открывается на пороге, закрывается ниже `порог − hysteresis` после hold |
-| Compressor, макро Amount | Threshold −10 → −35 dBFS линейно; Ratio кусочно-линейно 2:1 → 3:1 (40%) → 6:1, чтобы 40% совпадало с дефолтами таблицы |
-| Compressor, auto makeup | Компенсирует статическое ослабление на уровне речи −18 dBFS (цель калибровки CAL-003) |
-| Compressor, RMS-детектор | Окно 10 мс. Auto release адаптируется к длительности ослабления |
-| De-esser, Intensity | Порог −10 dBFS (0%) → −50 dBFS (100%), ratio 4:1, атака 0,5 мс, релиз 40 мс |
-| De-esser, split-band | Динамический bell по той же полосе, что и детектор (band-pass, Q 1): на центральной частоте ослабление ровно равно gain reduction, вдали — 1 |
-| Limiter без look-ahead | Атака 0,2 мс, ослабление до `ceiling − 0,5 dB`, затем мягкий клиппер tanh: выход никогда не превышает ceiling |
-| Характеры EQ (dB при Amount 100%) | Полосы LS 120 / 250 / 1k / 4k / HS 10k: Clarity −2/−3/0/+3/+2, Warmth +3/+1,5/0/−1/−2, Broadcast +2/−2/0/+2/+3, Presence 0/−1/+1/+4/+1, Thin mic fix +4/+2/0/−1/0 |
-| Studio NS | Встроенная модель DeepFilterNet3, отдельный worker с фиксированными SPSC-кадрами. При перегрузке — переход на Lite и событие IPC; модель не загружается из сети |
+| Expander, Sensitivity macro | Threshold = noise floor + 30 dB (0%) → +6 dB (50%) → floor (100%). Ratio 1:1.5 → 1:3 → 1:6, Range −15 → −30 → −50 dB. Without calibration the noise floor is −56 dBFS, so 50% gives the −50 dBFS threshold from the table |
+| Expander, hysteresis/hold | Opens at the threshold, closes below `threshold − hysteresis` after hold |
+| Compressor, Amount macro | Threshold −10 → −35 dBFS linearly; Ratio piecewise linear 2:1 → 3:1 (40%) → 6:1, so that 40% matches the table defaults |
+| Compressor, auto makeup | Compensates the static attenuation at a −18 dBFS speech level (calibration target CAL-003) |
+| Compressor, RMS detector | 10 ms window. Auto release adapts to the attenuation duration |
+| De-esser, Intensity | Threshold −10 dBFS (0%) → −50 dBFS (100%), ratio 4:1, attack 0.5 ms, release 40 ms |
+| De-esser, split-band | A dynamic bell on the same band as the detector (band-pass, Q 1): at the center frequency the attenuation equals the gain reduction exactly, far away it is 1 |
+| Limiter without look-ahead | Attack 0.2 ms, attenuation down to `ceiling − 0.5 dB`, then a soft tanh clipper: the output never exceeds the ceiling |
+| EQ characters (dB at Amount 100%) | Bands LS 120 / 250 / 1k / 4k / HS 10k: Clarity −2/−3/0/+3/+2, Warmth +3/+1.5/0/−1/−2, Broadcast +2/−2/0/+2/+3, Presence 0/−1/+1/+4/+1, Thin mic fix +4/+2/0/−1/0 |
+| Studio NS | Embedded DeepFilterNet3 model, a separate worker with fixed SPSC frames. On overload — switch to Lite and an IPC event; the model is never loaded from the network |
 
-Проценты макро хранятся в диапазоне 0–100, как в таблицах PRD; пример конфига в PRD §13
-использует доли 0–1 — пересчёт будет в `macafon-config`.
+Macro percentages are stored in the 0–100 range, as in the PRD tables; the config example in PRD §13
+uses 0–1 fractions — the conversion will live in `macafon-config`.
 
-## Замечания к PRD
+## Notes on the PRD
 
-- §6.3.4: «Range и Ratio растут вместе со строгостью», но 100% Sensitivity по тексту — порог у
-  шумового пола (самый мягкий режим), а пресет Noisy Room ставит 70%. Сейчас порог опускается,
-  а ratio/range растут вместе со слайдером. Нужна формулировка направления слайдера.
-- §11.4: цепочка описана как `Vec<Box<dyn Processor>>`. Порядок в 1.0 фиксирован, поэтому
-  модули хранятся как поля с `Option`: без виртуальных вызовов и аллокаций при выключении.
-  Перестановка модулей (DSP-009, P2) потребует переделки.
+- §6.3.4: "Range and Ratio grow with strictness", but per the text 100% Sensitivity is a threshold at
+  the noise floor (the softest mode), while the Noisy Room preset sets 70%. Currently the threshold
+  goes down while ratio/range go up with the slider. The slider direction needs a clear definition.
+- §11.4: the chain is described as `Vec<Box<dyn Processor>>`. The order is fixed in 1.0, so modules
+  are stored as `Option` fields: no virtual calls and no allocations when disabled. Reordering modules
+  (DSP-009, P2) will require a rework.
 
-## Производительность
+## Performance
 
-`cargo bench -p macafon-dsp --bench microphone`, release, блок 128 сэмплов (с генерацией синуса
-~0,57 мкс):
+`cargo bench -p macafon-dsp --bench microphone`, release, 128-sample block (sine generation
+~0.57 µs):
 
-| Цепочка | Время на блок | Доля одного ядра при 48 кГц |
+| Chain | Time per block | Share of one core at 48 kHz |
 |---|---|---|
-| Raw | 0,57 мкс | — |
-| Broadcast без NS | 9,11 мкс | ≈ 0,34% |
-| Natural (с NS Lite) | 48,9 мкс | ≈ 1,83% |
-| Auto release, без NS | 9,23 мкс | ≈ 0,35% |
-| Метры, без NS | 9,88 мкс | ≈ 0,37% |
+| Raw | 0.57 µs | — |
+| Broadcast without NS | 9.11 µs | ≈ 0.34% |
+| Natural (with NS Lite) | 48.9 µs | ≈ 1.83% |
+| Auto release, without NS | 9.23 µs | ≈ 0.35% |
+| Meters, without NS | 9.88 µs | ≈ 0.37% |
 
-Это микробенчмарк DSP на локальном стенде, а не подтверждение NFR-R1…R3 для всего демона.
+This is a DSP micro-benchmark on a local machine, not a confirmation of NFR-R1…R3 for the whole daemon.
 
-Огибающие «прилипают» к цели вместо экспоненциального ухода в денормалы: без FTZ
-(тесты, бенчмарки) экспандер иначе замедлялся в 6 раз. В RT-потоке FTZ/DAZ всё равно включает
-PipeWire.
+Envelopes "snap" to the target instead of decaying exponentially into denormals: without FTZ
+(tests, benchmarks) the expander was otherwise 6× slower. In the RT thread PipeWire enables FTZ/DAZ
+anyway.
 
-## Проверка
+## Checks
 
 ```sh
 cargo test -p macafon-dsp
 cargo bench -p macafon-dsp --bench microphone -- --sample-size 10 --measurement-time 1 --warm-up-time 1
-python3 tools/tests/pipewire-smoke.py   # включает прогон пресета Natural через граф
+python3 tools/tests/pipewire-smoke.py   # includes a run of the Natural preset through the graph
 ```
 
-## Дополнения M1
+## M1 additions
 
-Выходная телеметрия включает LUFS short-term (K-weighting, окно 3 с), удерживаемый пик и
-защёлки клипа. DSP/engine тестируют RT-проход под `assert_no_alloc`. Три звуковые фикстуры
-с настоящей речью и шумами проверяют Natural, Broadcast и Noisy Room против сохранённых
-выходных отсчётов. Это регрессия вычислений, а не оценка качества на слух.
+Output telemetry includes short-term LUFS (K-weighting, 3 s window), the held peak and clip
+latches. DSP/engine test the RT pass under `assert_no_alloc`. Three audio fixtures with real speech
+and noise check Natural, Broadcast and Noisy Room against stored output samples. This is a
+computation regression, not a listening-quality assessment.
 
-Задержка Lite: 960 отсчётов (20 мс) до графа; цель NFR-L2 пока не выполнена.
-Studio: 2400 отсчётов (50 мс), включая модель и worker-адаптер. Отключённый NS — 0.
-Физический loopback, субъективное прослушивание и suspend/resume требуют отдельного стенда.
+Lite latency: 960 samples (20 ms) before the graph; the NFR-L2 target is not met yet.
+Studio: 2400 samples (50 ms), including the model and the worker adapter. Disabled NS — 0.
+Physical loopback, subjective listening and suspend/resume need a separate test machine.

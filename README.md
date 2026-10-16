@@ -6,8 +6,7 @@
 </p>
 
 <p align="center">
-  <b>Lightweight, open-source microphone processing and per-app audio mixer for Linux and Windows.</b><br>
-  Think SteelSeries Sonar — lighter, faster to set up, and not tied to one OS or one brand of headset.
+  <b>Lightweight, open-source microphone processing and per-app audio mixer for Linux and Windows.</b>
 </p>
 
 <p align="center">
@@ -134,7 +133,6 @@ audio code.
 | [Daemon, protocol and config](docs/development/daemon.md) | IPC methods, config, calibration, A/B |
 | [Microphone chain](docs/development/microphone-chain.md) · [Mixer](docs/development/mixer.md) · [UI](docs/development/ui.md) | Implementation notes |
 | [Windows port](docs/development/windows-m3.md) | WASAPI path, measurements, installer |
-| [Sonar analysis](docs/research/sonar-analysis.md) | Why the product looks the way it does |
 
 ## License
 

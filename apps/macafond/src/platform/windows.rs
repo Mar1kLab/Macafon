@@ -223,13 +223,12 @@ pub fn print_devices() -> Result<()> {
 /// `macafond cleanup` for the uninstaller (§12.2.3): Quit a running daemon (it restores on
 /// its way out), restore whatever a crash left in the journals, remove the Run value.
 pub fn cleanup() -> Result<()> {
-    if let Some(endpoint) = Endpoint::for_current_user() {
-        if let Ok((mut client, _)) = macafon_ipc::Client::connect(&endpoint, "macafond-cleanup") {
-            // The daemon may exit before its reply is written.
-            drop(client.call(macafon_ipc::Request::DaemonQuit));
-            wait_for_daemon_exit(&endpoint, std::time::Duration::from_secs(10))?;
-        }
+    let endpoint = endpoint()?;
+    if let Ok((mut client, _)) = macafon_ipc::Client::connect(&endpoint, "macafond-cleanup") {
+        // The daemon may exit before its reply is written.
+        drop(client.call(macafon_ipc::Request::DaemonQuit));
     }
+    let _ownership = claim_cleanup_pipe(&endpoint, std::time::Duration::from_secs(10))?;
     let state_dir = state_dir().map_err(anyhow::Error::msg)?;
     win::restore_all(&state_dir).context("cannot restore system audio settings")?;
     crate::autostart::set(false).map_err(anyhow::Error::msg)?;
@@ -248,6 +247,16 @@ fn wait_for_daemon_exit(endpoint: &Endpoint, timeout: std::time::Duration) -> Re
     Ok(())
 }
 
+fn claim_cleanup_pipe(
+    endpoint: &Endpoint,
+    timeout: std::time::Duration,
+) -> Result<macafon_ipc::transport::Listener> {
+    wait_for_daemon_exit(endpoint, timeout)?;
+    // Keep startup and a second cleanup out until all journal writes have finished.
+    macafon_ipc::transport::Listener::bind(endpoint)
+        .context("cannot claim daemon pipe for exclusive audio recovery")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,5 +268,15 @@ mod tests {
         assert!(wait_for_daemon_exit(&endpoint, std::time::Duration::ZERO).is_err());
         drop(listener);
         assert!(wait_for_daemon_exit(&endpoint, std::time::Duration::ZERO).is_ok());
+    }
+
+    #[test]
+    fn cleanup_holds_the_single_instance_name_until_recovery_finishes() {
+        let endpoint = Endpoint::pipe(format!("macafon-cleanup-owner-test-{}", std::process::id()));
+        let owner =
+            claim_cleanup_pipe(&endpoint, std::time::Duration::ZERO).expect("claim recovery");
+        assert!(macafon_ipc::transport::Listener::bind(&endpoint).is_err());
+        drop(owner);
+        assert!(macafon_ipc::transport::Listener::bind(&endpoint).is_ok());
     }
 }

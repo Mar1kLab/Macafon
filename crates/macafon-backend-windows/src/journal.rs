@@ -219,7 +219,8 @@ fn write(path: &Path, document: &Document) -> Result<(), Error> {
     }
     let temporary = path.with_extension("json.tmp");
     let mut file = std::fs::File::create(&temporary).map_err(|error| io(&temporary, error))?;
-    file.write_all(&bytes).map_err(|error| io(&temporary, error))?;
+    file.write_all(&bytes)
+        .map_err(|error| io(&temporary, error))?;
     file.sync_all().map_err(|error| io(&temporary, error))?;
     drop(file);
     std::fs::rename(&temporary, path).map_err(|error| io(path, error))

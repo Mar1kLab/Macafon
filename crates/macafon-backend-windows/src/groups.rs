@@ -23,6 +23,8 @@ pub(crate) struct VolumeGroups {
     refresh: bool,
     output: OutputPolicy,
     output_journal: PathBuf,
+    /// No output chosen: the system default is the user's (OUT-001 "Follow system default").
+    following_system: bool,
 }
 
 impl VolumeGroups {
@@ -45,6 +47,7 @@ impl VolumeGroups {
             refresh: true,
             output: OutputPolicy::default(),
             output_journal,
+            following_system: false,
         }
     }
 
@@ -145,6 +148,20 @@ impl VolumeGroups {
             return;
         }
         let priority: Vec<String> = host.output_device().into_iter().collect();
+        if priority.is_empty() {
+            // Switching to Follow system default gives back the default Macafon set.
+            if !self.following_system {
+                match self
+                    .output
+                    .follow_system_default(&mut SystemDefaults, &self.output_journal)
+                {
+                    Ok(()) => self.following_system = true,
+                    Err(error) => tracing::warn!(%error, "Cannot restore the default output"),
+                }
+            }
+            return;
+        }
+        self.following_system = false;
         match self.output.scan(
             &priority,
             endpoints,
@@ -168,6 +185,7 @@ impl VolumeGroups {
             }
         }
         self.applied.clear();
+        self.following_system = false;
         if let Err(error) = self
             .output
             .follow_system_default(&mut SystemDefaults, &self.output_journal)

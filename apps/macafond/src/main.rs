@@ -1,3 +1,5 @@
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod ab;
 #[cfg(target_os = "linux")]
 mod autostart;
@@ -213,6 +215,12 @@ fn run(args: RunArgs) -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
+        // SAFETY: attaches only to an existing parent console, never creates a window.
+        let _ = unsafe { AttachConsole(ATTACH_PARENT_PROCESS) };
+    }
     let cli = Cli::parse();
     logging::init();
     match cli.command.unwrap_or(Command::Run(RunArgs::default())) {

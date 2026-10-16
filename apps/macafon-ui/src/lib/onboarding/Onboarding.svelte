@@ -1,7 +1,8 @@
 <script lang="ts">
   // First-run flow (PRD §9.2): welcome → pick the mic by voice → calibrate → result with A/B →
-  // use it in apps (system default) → background start. Every step can be skipped; Settings
-  // runs it again. Nothing changes on the system without an explicit switch (AS-001).
+  // use it in apps (system default) → background start. Windows adds "Install VB-CABLE" after
+  // welcome (WIN-MIC-002). Every step can be skipped; Settings runs it again. Nothing changes
+  // on the system without an explicit switch (AS-001).
   import { onDestroy, tick, untrack } from 'svelte';
   import Logo from '../components/Logo.svelte';
   import Ticks from '../components/Ticks.svelte';
@@ -14,11 +15,15 @@
   import { daemon } from '../state';
   import { deviceMeterBus } from '../state/meters';
   import { t, type MessageKey } from '../i18n';
+  import { openVbCablePage } from '../ipc/tauri';
 
   let { onfinish }: { onfinish: (fineTune: boolean) => void } = $props();
 
-  const STEPS = ['welcome', 'mic', 'calibrate', 'result', 'use', 'mixer', 'background'] as const;
-  type Step = (typeof STEPS)[number];
+  const ALL_STEPS = ['welcome', 'cable', 'mic', 'calibrate', 'result', 'use', 'mixer', 'background'] as const;
+  type Step = (typeof ALL_STEPS)[number];
+  /** The VB-CABLE step survives the reboot its installer asks for (WIN-MIC-002). */
+  const RESUME_KEY = 'macafon.onboarding.resume';
+  const CABLE_STEPS = ['unzip', 'run', 'install', 'reboot'] as const;
   /** A level above this counts as speech when picking the microphone by voice. */
   const SPEECH_DBFS = -45;
   /** Half a second of speech picks a microphone. */
@@ -30,10 +35,25 @@
     music: 'mixer.previews.music',
   };
 
-  let step = $state<Step>('welcome');
+  let step = $state<Step>(localStorage.getItem(RESUME_KEY) === 'cable' ? 'cable' : 'welcome');
   let heading: HTMLHeadingElement | undefined = $state();
-  const index = $derived(STEPS.indexOf(step));
+  const STEPS = $derived(ALL_STEPS.filter((item) => item !== 'cable' || daemon.windows));
+  const index = $derived(Math.max(0, STEPS.indexOf(step)));
   const mic = $derived(daemon.mic);
+  const cableReady = $derived(mic?.virtual_mic_ready ?? false);
+
+  $effect(() => {
+    if (step === 'cable' && !cableReady) localStorage.setItem(RESUME_KEY, 'cable');
+    else localStorage.removeItem(RESUME_KEY);
+  });
+
+  async function openDownloadPage() {
+    try {
+      await openVbCablePage();
+    } catch (error) {
+      daemon.fail(error);
+    }
+  }
 
   // --- Pick your mic ------------------------------------------------------------------------
 
@@ -122,6 +142,8 @@
     defaultBusy = false;
   }
 
+  onDestroy(() => localStorage.removeItem(RESUME_KEY));
+
   async function done() {
     const autostart = daemon.autostart;
     if (autostart && autostart.enabled !== startWithSystem) {
@@ -157,6 +179,7 @@
 
   const titles: Record<Step, [MessageKey, MessageKey]> = {
     welcome: ['onboarding.welcomeTitle', 'onboarding.welcomeAccent'],
+    cable: ['onboarding.cableTitle', 'onboarding.cableAccent'],
     mic: ['onboarding.micTitle', 'onboarding.micAccent'],
     calibrate: ['onboarding.calibrateTitle', 'onboarding.calibrateAccent'],
     result: ['onboarding.resultTitle', 'onboarding.resultAccent'],
@@ -189,6 +212,19 @@
 
         {#if step === 'welcome'}
           <p class="lead">{t('onboarding.welcomeBody')}</p>
+        {:else if step === 'cable'}
+          {#if cableReady}
+            <p class="lead">{t('onboarding.cableReady')}</p>
+          {:else}
+            <p class="lead">{t('onboarding.cableBody')}</p>
+            <ol class="howto">
+              {#each CABLE_STEPS as item, i (item)}
+                <li><span class="n">{String(i + 1).padStart(2, '0')}</span>{t(`onboarding.cableSteps.${item}`)}</li>
+              {/each}
+            </ol>
+            <p class="note">{t('onboarding.cableDonation')}</p>
+            <p class="note waiting" role="status">{t('onboarding.cableWaiting')}</p>
+          {/if}
         {:else if step === 'mic'}
           <p class="lead">{t('onboarding.micBody')}</p>
           {#if daemon.devices.length === 0}
@@ -230,13 +266,18 @@
             <p class="lead">{t('onboarding.resultSkipped')}</p>
           {/if}
         {:else if step === 'use'}
-          <p class="lead">{t('onboarding.useBody')}</p>
+          <p class="lead">{daemon.windows ? t('onboarding.useBodyWindows') : t('onboarding.useBody')}</p>
           <div class="row">
             <div>
               <p class="name">{t('onboarding.makeDefault')}</p>
               <p class="note">{t('onboarding.makeDefaultHint')}</p>
             </div>
-            <Toggle checked={systemDefault} disabled={defaultBusy} label={t('onboarding.makeDefault')} onchange={setSystemDefault} />
+            <Toggle
+              checked={systemDefault}
+              disabled={defaultBusy || daemon.cableMissing}
+              label={t('onboarding.makeDefault')}
+              onchange={setSystemDefault}
+            />
           </div>
           <ul class="apps">
             {#each APPS as app (app)}
@@ -256,7 +297,7 @@
               </li>
             {/each}
           </ul>
-          <p class="note">{t('mixer.offNote')}</p>
+          <p class="note">{daemon.windows ? t('mixer.offNoteWindows') : t('mixer.offNote')}</p>
         {:else}
           <p class="lead">{t('onboarding.backgroundBody')}</p>
           <div class="row">
@@ -278,6 +319,9 @@
     <span class="spacer"></span>
     {#if step === 'welcome'}
       <button class="btn invert" onclick={() => forward()}>{t('onboarding.getStarted')}</button>
+    {:else if step === 'cable' && !cableReady}
+      <button class="btn" onclick={() => forward()}>{t('onboarding.skip')}</button>
+      <button class="btn invert" onclick={openDownloadPage}>{t('onboarding.cableOpen')}</button>
     {:else if step === 'calibrate'}
       {#if calibrationStarted && cal.state === 'measuring'}
         <button class="btn" onclick={cancelCalibration}>{t('calibration.cancel')}</button>
@@ -446,6 +490,35 @@
 
   .failed {
     color: var(--danger);
+  }
+
+  .howto {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    border: 1px solid var(--line);
+  }
+
+  .howto li {
+    display: flex;
+    gap: 12px;
+    padding: 10px 16px;
+    font-size: 13px;
+    color: var(--ink);
+  }
+
+  .howto li + li {
+    border-top: 1px solid var(--line);
+  }
+
+  .howto .n {
+    font-family: var(--font-mono);
+    color: var(--accent);
+  }
+
+  .waiting {
+    color: var(--app-amber-ink);
   }
 
   .devices {

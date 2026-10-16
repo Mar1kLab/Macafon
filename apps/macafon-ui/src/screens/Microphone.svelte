@@ -20,6 +20,7 @@
   import { SAMPLE_RATE_HZ } from '../lib/ipc/dsp';
   import { samplesToMs } from '../lib/dsp/format';
   import { t } from '../lib/i18n';
+  import { openVbCablePage } from '../lib/ipc/tauri';
 
   const mic = $derived(daemon.mic);
   let calibrating = $state(false);
@@ -94,6 +95,13 @@
       </span>
       <LevelMeter label={t('mic.output')} hint={t('mic.outputHint')} peakKey="output_peak_dbfs" rmsKey="output_rms_dbfs" color="teal" />
     </div>
+    {#if daemon.cableMissing}
+      <p class="banner danger" role="status">
+        <strong>{t('mic.cableMissing')}.</strong>
+        {t('mic.cableMissingBody')}
+        <button class="btn small" onclick={() => void openVbCablePage().catch((error) => daemon.fail(error))}>{t('mic.cableInstall')}</button>
+      </p>
+    {/if}
     {#if !mic.device}
       <p class="banner" role="status">{t('mic.bannerNoDevice')}</p>
     {:else if !mic.input_connected}

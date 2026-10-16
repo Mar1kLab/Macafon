@@ -18,6 +18,14 @@ export function isTauri(): boolean {
   return '__TAURI_INTERNALS__' in window;
 }
 
+/** The official VB-CABLE download page in the user's browser (WIN-MIC-002). */
+export const VB_CABLE_URL = 'https://vb-audio.com/Cable/';
+
+export async function openVbCablePage(): Promise<void> {
+  if (isTauri()) await invoke('open_vb_cable_page');
+  else window.open(VB_CABLE_URL, '_blank', 'noopener');
+}
+
 export class TauriTransport implements Transport {
   async call(method: string, params: unknown): Promise<unknown> {
     try {

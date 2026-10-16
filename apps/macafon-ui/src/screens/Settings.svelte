@@ -131,7 +131,7 @@
       <div class="row">
         <div>
           <p class="name">{t('settings.quit')}</p>
-          <p class="hint">{t('settings.quitHint')}</p>
+          <p class="hint">{daemon.windows ? t('settings.quitHintWindows') : t('settings.quitHint')}</p>
         </div>
         <button class="btn" onclick={() => (confirmQuit = true)}>{t('settings.quit')}</button>
       </div>
@@ -171,9 +171,9 @@
             <p class="name">{t('settings.systemDefault')}</p>
             <p class="hint">{t('settings.systemDefaultHint')}</p>
           </div>
-          <Toggle checked={mic.is_default_source} label={t('settings.systemDefault')} onchange={setDefault} />
+          <Toggle checked={mic.is_default_source} disabled={daemon.cableMissing} label={t('settings.systemDefault')} onchange={setDefault} />
         </div>
-        {#if prefs}
+        {#if prefs && (daemon.hello?.capabilities.graph_quantum ?? true)}
           <div class="row">
             <div>
               <p class="name">{t('settings.quantum')}</p>
@@ -191,9 +191,9 @@
         <div class="row">
           <div>
             <p class="name">{t('settings.format')}</p>
-            <p class="hint">{t('settings.formatHint')}</p>
+            <p class="hint">{daemon.windows ? t('settings.formatHintWindows') : t('settings.formatHint')}</p>
           </div>
-          <span class="badge">{mic.stereo ? t('settings.stereo') : t('settings.mono')} · 48 kHz · float32</span>
+          <span class="badge">{mic.stereo || daemon.windows ? t('settings.stereo') : t('settings.mono')} · 48 kHz · float32</span>
         </div>
       </section>
     {/if}
@@ -271,7 +271,7 @@
 </div>
 
 <Dialog open={confirmQuit} title={t('settings.quitConfirmTitle')} onclose={() => (confirmQuit = false)}>
-  <p class="confirm">{t('settings.quitConfirm')}</p>
+  <p class="confirm">{daemon.windows ? t('settings.quitConfirmWindows') : t('settings.quitConfirm')}</p>
   {#snippet actions()}
     <button class="btn" onclick={() => (confirmQuit = false)}>{t('common.cancel')}</button>
     <button

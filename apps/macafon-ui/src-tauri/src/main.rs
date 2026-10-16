@@ -50,6 +50,27 @@ async fn daemon_call(
     result
 }
 
+/// The official VB-CABLE page (WIN-MIC-002). Only this fixed URL can be opened, in the
+/// user's browser; Macafon itself never downloads the driver.
+const VB_CABLE_URL: &str = "https://vb-audio.com/Cable/";
+
+#[tauri::command]
+fn open_vb_cable_page() -> Result<(), BridgeError> {
+    let opener = if cfg!(windows) {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    std::process::Command::new(opener)
+        .arg(VB_CABLE_URL)
+        .spawn()
+        .map(drop)
+        .map_err(|error| BridgeError {
+            code: "internal".into(),
+            message: format!("cannot open {VB_CABLE_URL}: {error}"),
+        })
+}
+
 #[tauri::command]
 fn daemon_status(bridge: tauri::State<'_, Bridge>) -> Status {
     bridge.status()
@@ -89,7 +110,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             daemon_call,
             daemon_status,
-            daemon_retry
+            daemon_retry,
+            open_vb_cable_page
         ])
         .run(tauri::generate_context!());
     if let Err(error) = result {

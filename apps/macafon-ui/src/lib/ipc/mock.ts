@@ -3,7 +3,8 @@
 // `?daemon=down` simulates a daemon that cannot be started, `?mic=disconnected` an unplugged
 // microphone, `?config=recovered` a config reset at startup, `?overload` a Studio overload,
 // `?mixer=off` a mixer that is not turned on yet, `?hotkeys=unavailable` a desktop without a
-// global shortcut service.
+// global shortcut service. `?platform=windows` acts like the Windows daemon (VB-CABLE, no
+// channel effects); add `&cable=missing` for a system without VB-CABLE.
 
 import { DaemonError, type DaemonStatus, type Transport } from './client';
 import { BUILTIN_PRESETS } from './dsp';
@@ -13,6 +14,8 @@ import type {
   CalibrationReport,
   CalibrationState,
   ChainSettings,
+  DoctorCheck,
+  DoctorReport,
   Event,
   HotkeyBinding,
   HotkeysState,
@@ -60,6 +63,8 @@ export class MockTransport implements Transport {
   private status: DaemonStatus = { state: 'connecting' };
   private query = new URLSearchParams(location.search);
   private down = this.query.get('daemon') === 'down';
+  private windows = this.query.get('platform') === 'windows';
+  private cableMissing = this.windows && this.query.get('cable') === 'missing';
 
   private settings: ChainSettings = clone(BUILTIN_PRESETS[1]!.settings);
   private preset: string | null = BUILTIN_PRESETS[1]!.id;
@@ -71,7 +76,7 @@ export class MockTransport implements Transport {
   private userPresets = new Map<string, { name: string; settings: ChainSettings }>();
   private isDefaultSource = false;
   private prefs: Preferences = { quantum_frames: 128, close_action: 'tray' };
-  private autostart: AutostartState = { enabled: true, method: 'systemd' };
+  private autostart: AutostartState = { enabled: true, method: this.windows ? 'windows_run' : 'systemd' };
   private shortcuts = new Map<string, string>([
     ['mic_mute_toggle', 'Ctrl+Alt+M'],
     ['push_to_talk', 'F9'],
@@ -171,7 +176,7 @@ export class MockTransport implements Transport {
       active_device: this.connected ? this.device : null,
       input_connected: this.connected && this.device !== null,
       is_default_source: this.isDefaultSource,
-      virtual_mic_ready: true,
+      virtual_mic_ready: !this.cableMissing,
       latency_samples: latencySamples(this.settings),
       noise_floor_dbfs: this.noiseFloor,
     };
@@ -187,6 +192,39 @@ export class MockTransport implements Transport {
     this.emit({ event: 'presets.changed', data: this.presets() });
   }
 
+  /** The system output sits on the cable until `doctor.fix` (WIN-MIC-004). */
+  private cableDefaultOutput = true;
+
+  private windowsDoctor(): DoctorReport {
+    const cable: DoctorCheck[] = this.cableMissing
+      ? [{ id: 'vb_cable', status: 'error', values: [] }]
+      : [
+          { id: 'vb_cable', status: 'ok', values: [] },
+          { id: 'cable_format', status: 'ok', values: [] },
+          { id: 'cable_writers', status: 'warning', values: ['obs64.exe'] },
+          this.cableDefaultOutput
+            ? { id: 'cable_default_output', status: 'warning', values: [], fixable: true }
+            : { id: 'cable_default_output', status: 'ok', values: [] },
+          { id: 'cable_latency', status: 'info', values: ['10.0', '2.7'] },
+        ];
+    return {
+      daemon_version: VERSION,
+      pipewire_version: null,
+      session_manager: null,
+      quantum: 480,
+      sample_rate_hz: 48000,
+      checks: [
+        ...cable,
+        this.connected
+          ? { id: 'microphone_input', status: 'ok', values: [DEVICES[0]!.description] }
+          : { id: 'microphone_input', status: 'error', values: [DEVICES[0]!.description] },
+        this.mixer.state.enabled ? { id: 'mixer', status: 'ok', values: ['Speakers (Realtek(R) Audio)'] } : { id: 'mixer', status: 'info', values: [] },
+        { id: 'processing', status: 'ok', values: ['480', '48000', '0'] },
+        { id: 'hotkeys', status: 'ok', values: ['Windows'] },
+      ],
+    };
+  }
+
   private hotkeys(): HotkeysState {
     const actions = [
       ...GLOBAL_HOTKEYS,
@@ -194,7 +232,7 @@ export class MockTransport implements Transport {
     ];
     const portal = this.query.get('hotkeys') !== 'unavailable';
     return {
-      backend: portal ? 'portal' : 'unavailable',
+      backend: portal ? (this.windows ? 'windows' : 'portal') : 'unavailable',
       bindings: actions.map(
         (action): HotkeyBinding => ({
           action,
@@ -248,8 +286,13 @@ export class MockTransport implements Transport {
         return {
           protocol: 1,
           daemon_version: VERSION,
-          platform: 'linux',
-          capabilities: { virtual_mic_device: true, stereo_option: true, channel_fx: true, graph_quantum: true },
+          platform: this.windows ? 'windows' : 'linux',
+          capabilities: {
+            virtual_mic_device: !this.windows,
+            stereo_option: !this.windows,
+            channel_fx: !this.windows,
+            graph_quantum: !this.windows,
+          },
         };
       case 'daemon.quit':
         this.setStatus(this.unavailable());
@@ -295,6 +338,7 @@ export class MockTransport implements Transport {
         return this.micChanged();
       case 'mic.set_default_source':
         if (p.confirmed !== true) throw new DaemonError('invalid_params', 'explicit confirmation is required');
+        if (this.cableMissing) throw new DaemonError('internal', 'VB-CABLE is not installed');
         // PipeWire reports the new default a moment later, as a metadata change.
         setTimeout(() => {
           this.isDefaultSource = true;
@@ -391,6 +435,7 @@ export class MockTransport implements Transport {
         return svg ? `data:image/svg+xml;base64,${btoa(svg)}` : null;
       }
       case 'doctor.run':
+        if (this.windows) return this.windowsDoctor();
         return {
           daemon_version: VERSION,
           pipewire_version: '1.6.2',
@@ -416,6 +461,9 @@ export class MockTransport implements Transport {
               : { id: 'hotkeys', status: 'ok', values: ['portal'] },
           ],
         };
+      case 'doctor.fix':
+        this.cableDefaultOutput = false;
+        return null;
       case 'devices.list':
         return clone(DEVICES);
       case 'devices.subscribe':

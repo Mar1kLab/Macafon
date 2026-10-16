@@ -3,6 +3,7 @@
   // dismissal is a UI preference, kept in the WebView's local storage.
   import { Check } from '@lucide/svelte';
   import { t } from '../i18n';
+  import { daemon } from '../state';
 
   let { calibrated, oncalibrate }: { calibrated: boolean; oncalibrate: () => void } = $props();
 
@@ -24,7 +25,7 @@
         <button class="link" onclick={oncalibrate}>{t('mic.tipStep1')}</button>
       </li>
       <li><span class="n">2</span>{t('mic.tipStep2')}</li>
-      <li><span class="n">3</span><span>{t('mic.tipStep3')}<small>{t('mic.tipStep3Note')}</small></span></li>
+      <li><span class="n">3</span><span>{daemon.windows ? t('mic.tipStep3Windows') : t('mic.tipStep3')}<small>{t('mic.tipStep3Note')}</small></span></li>
     </ol>
     <button class="btn small" onclick={dismiss}>{t('mic.tipDismiss')}</button>
   </section>

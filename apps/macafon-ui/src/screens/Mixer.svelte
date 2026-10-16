@@ -32,6 +32,15 @@
   let newName = $state('');
   let newColor = $state('orange');
 
+  /** WIN-CH-006: explain once why channels have no EQ/FX here. */
+  const FX_NOTE_KEY = 'macafon.mixer.channelFxNote';
+  $effect(() => {
+    if (mixer?.enabled && !daemon.channelFx && localStorage.getItem(FX_NOTE_KEY) !== 'shown') {
+      localStorage.setItem(FX_NOTE_KEY, 'shown');
+      daemon.toast(t('mixer.channelFxLinux'), { message: t('mixer.channelFxLinuxBody') });
+    }
+  });
+
   const drawerChannel = $derived(drawer && mixer?.channels.find((c) => c.id === drawer!.id));
   const outputOptions = $derived([
     { value: null as string | null, label: t('mixer.followDefault') },
@@ -154,7 +163,7 @@
               </li>
             {/each}
           </ul>
-          <p class="note">{t('mixer.offNote')}</p>
+          <p class="note">{daemon.windows ? t('mixer.offNoteWindows') : t('mixer.offNote')}</p>
           <button class="btn invert" onclick={() => daemon.setMixer(daemon.client.call('mixer.set_enabled', { enabled: true }))}>{t('mixer.enable')}</button>
         </section>
       </div>

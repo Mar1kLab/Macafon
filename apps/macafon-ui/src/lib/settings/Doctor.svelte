@@ -5,6 +5,7 @@
   import { daemon } from '../state';
   import { t, type MessageKey } from '../i18n';
   import type { DoctorCheck, DoctorCheckId, DoctorReport } from '../ipc/protocol';
+  import { openVbCablePage } from '../ipc/tauri';
 
   let { onnavigate, onmakedefault }: { onnavigate: (screen: 'microphone' | 'mixer') => void; onmakedefault: () => void } =
     $props();
@@ -42,6 +43,15 @@
       return { label: 'doctor.fixMicrophone', action: () => onnavigate('microphone') };
     }
     if (id === 'microphone_used' && check.status === 'info') return { label: 'doctor.fixDefault', action: onmakedefault };
+    if (check.fixable) {
+      return {
+        label: id === 'cable_default_output' ? 'doctor.fixCableOutput' : 'doctor.run',
+        action: () => void daemon.run(daemon.client.call('doctor.fix', { check: id })).then(run),
+      };
+    }
+    if (id === 'vb_cable' && check.status === 'error') {
+      return { label: 'doctor.fixCable', action: () => void openVbCablePage().catch((error) => daemon.fail(error)) };
+    }
     if (id === 'mixer' && check.status === 'info') {
       return {
         label: 'doctor.fixMixer',
@@ -54,10 +64,12 @@
   /** Versions, statuses and numbers only: names of devices and apps stay private. */
   async function copy() {
     if (!report) return;
-    const numeric = new Set<DoctorCheckId>(['pipewire', 'session_manager', 'processing', 'xruns']);
+    const numeric = new Set<DoctorCheckId>(['pipewire', 'session_manager', 'processing', 'xruns', 'cable_latency']);
     const lines = [
       `Macafon ${report.daemon_version} (UI ${__APP_VERSION__})`,
-      `PipeWire ${report.pipewire_version ?? '?'} · ${report.session_manager?.replace(/\s*\(.*\)/, '') ?? 'no session manager'}`,
+      daemon.windows
+        ? 'Windows · VB-CABLE'
+        : `PipeWire ${report.pipewire_version ?? '?'} · ${report.session_manager?.replace(/\s*\(.*\)/, '') ?? 'no session manager'}`,
       `Quantum ${report.quantum ?? '?'} @ ${report.sample_rate_hz ?? '?'} Hz`,
       `Mixer ${daemon.mixer?.enabled ? 'on' : 'off'}, ${daemon.mixer?.channels.length ?? 0} channels`,
       ...report.checks.map((check) => {

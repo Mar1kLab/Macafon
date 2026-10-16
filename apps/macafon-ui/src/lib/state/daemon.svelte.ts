@@ -93,6 +93,16 @@ export class DaemonStore {
     return this.hello?.platform === 'windows';
   }
 
+  /** EQ and effects on channels and Master (WIN-CH-006: none on Windows). */
+  get channelFx(): boolean {
+    return this.hello?.capabilities.channel_fx ?? true;
+  }
+
+  /** Windows without VB-CABLE: processing runs, but no app can hear it (WIN-MIC-001). */
+  get cableMissing(): boolean {
+    return this.windows && this.mic !== null && !this.mic.virtual_mic_ready;
+  }
+
   retry(): void {
     this.client.transport.retry();
   }

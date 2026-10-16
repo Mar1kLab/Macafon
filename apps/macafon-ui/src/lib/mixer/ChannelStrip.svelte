@@ -187,12 +187,17 @@
       title={t('mixer.mute')}
       onclick={() => daemon.editChannel(channel.id, (settings) => (settings.muted = !settings.muted))}>M</button
     >
-    <button class="btn small" title={t('mixer.eqHint')} onclick={() => onpanel('eq')}>
-      EQ{#if eqOn}<span class="active-dot" aria-label={t('mixer.active')}></span>{/if}
-    </button>
-    <button class="btn small" title={t('mixer.fxHint')} onclick={() => onpanel('fx')}>
-      FX{#if fxOn}<span class="active-dot" aria-label={t('mixer.active')}></span>{/if}
-    </button>
+    {#if daemon.channelFx}
+      <button class="btn small" title={t('mixer.eqHint')} onclick={() => onpanel('eq')}>
+        EQ{#if eqOn}<span class="active-dot" aria-label={t('mixer.active')}></span>{/if}
+      </button>
+      <button class="btn small" title={t('mixer.fxHint')} onclick={() => onpanel('fx')}>
+        FX{#if fxOn}<span class="active-dot" aria-label={t('mixer.active')}></span>{/if}
+      </button>
+    {:else}
+      <!-- WIN-CH-006: a channel is a volume group on Windows; only its own settings remain. -->
+      <button class="btn small" title={t('mixer.channelFxLinuxBody')} onclick={() => onpanel('channel')}>{t('mixer.panels.channel')}</button>
+    {/if}
   </footer>
 </section>
 

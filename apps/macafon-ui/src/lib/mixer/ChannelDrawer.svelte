@@ -33,7 +33,9 @@
   let confirmDelete = $state(false);
   const s = $derived(channel.settings);
   const amount = $derived(compressorAmount(s.compressor));
-  const PANELS: Panel[] = ['eq', 'fx', 'channel'];
+  const PANELS = $derived<Panel[]>(daemon.channelFx ? ['eq', 'fx', 'channel'] : ['channel']);
+  /** Without channel effects (WIN-CH-006) every panel request shows the channel settings. */
+  const shown = $derived<Panel>(daemon.channelFx ? panel : 'channel');
 
   const edit = (change: (settings: ChannelSettings) => void) => daemon.editChannel(channel.id, change);
   /** A band edit leaves the preset (CFX-002): the dropdown shows Custom. */
@@ -78,7 +80,7 @@
     <h2>{channel.name}</h2>
     <div class="tabs" role="tablist">
       {#each PANELS as item (item)}
-        <button role="tab" aria-selected={panel === item} class:selected={panel === item} onclick={() => onpanel(item)}>
+        <button role="tab" aria-selected={shown === item} class:selected={shown === item} onclick={() => onpanel(item)}>
           {t(`mixer.panels.${item}`)}
         </button>
       {/each}
@@ -87,7 +89,7 @@
   </header>
 
   <div class="body">
-    {#if panel === 'eq'}
+    {#if shown === 'eq'}
       <div class="row">
         <span class="hud-label">{t('mixer.eq')}</span>
         <Toggle checked={s.eq.enabled} color={channel.color} label={t('mixer.eq')} onchange={(on) => edit((x) => (x.eq.enabled = on))} />
@@ -122,7 +124,7 @@
         }}
       />
       <p class="help">{t('eq.graphHelp')}</p>
-    {:else if panel === 'fx'}
+    {:else if shown === 'fx'}
       <div class="row module">
         <div>
           <p class="name">{t('mixer.bypass')}</p>

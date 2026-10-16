@@ -8,6 +8,7 @@
 use crate::Error;
 use crate::devices::{DataFlow, EndpointRole};
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Current default per role and the way to change it; the system one is [`SystemDefaults`].
@@ -217,7 +218,10 @@ fn write(path: &Path, document: &Document) -> Result<(), Error> {
         std::fs::create_dir_all(parent).map_err(|error| io(parent, error))?;
     }
     let temporary = path.with_extension("json.tmp");
-    std::fs::write(&temporary, bytes).map_err(|error| io(&temporary, error))?;
+    let mut file = std::fs::File::create(&temporary).map_err(|error| io(&temporary, error))?;
+    file.write_all(&bytes).map_err(|error| io(&temporary, error))?;
+    file.sync_all().map_err(|error| io(&temporary, error))?;
+    drop(file);
     std::fs::rename(&temporary, path).map_err(|error| io(path, error))
 }
 

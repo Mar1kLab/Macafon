@@ -4,7 +4,7 @@ pkgver=0.1.0
 pkgrel=1
 pkgdesc='Microphone processing with a virtual microphone'
 arch=('x86_64')
-url='https://github.com/Mar1kLab/micEQ'
+url='https://github.com/Mar1kLab/Macafon'
 license=('GPL-3.0-only')
 depends=('pipewire>=1.0' 'wireplumber>=0.5' 'webkit2gtk-4.1' 'gtk3' 'libsoup3')
 makedepends=('rust' 'clang' 'pkgconf' 'pnpm' 'python' 'git')

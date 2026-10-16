@@ -2,7 +2,7 @@ pkgbase = macafon
 	pkgdesc = Microphone processing with a virtual microphone
 	pkgver = 0.1.0
 	pkgrel = 1
-	url = https://github.com/Mar1kLab/micEQ
+	url = https://github.com/Mar1kLab/Macafon
 	install = macafon.install
 	arch = x86_64
 	license = GPL-3.0-only
@@ -18,7 +18,7 @@ pkgbase = macafon
 	depends = gtk3
 	depends = libsoup3
 	conflicts = macafon-bin
-	source = macafon::git+https://github.com/Mar1kLab/micEQ.git#tag=v0.1.0
+	source = macafon::git+https://github.com/Mar1kLab/Macafon.git#tag=v0.1.0
 	source = macafon.install
 	sha256sums = SKIP
 	sha256sums = 74e9851c13270d960dd44f1743c616416a64e70adcf57c93a776a3ac07e62e9c

@@ -77,7 +77,7 @@ def configuration(stage, triple):
             "active": True,
             "targets": ["deb", "rpm", "appimage"],
             "publisher": "Mar1kLab",
-            "homepage": "https://github.com/Mar1kLab/micEQ",
+            "homepage": "https://github.com/Mar1kLab/Macafon",
             "category": "Music",
             "license": "GPL-3.0-only",
             "licenseFile": str(ROOT / "LICENSE"),
@@ -130,7 +130,7 @@ pkgver={version}
 pkgrel=1
 pkgdesc='Microphone processing with a virtual microphone'
 arch=('x86_64')
-url='https://github.com/Mar1kLab/micEQ'
+url='https://github.com/Mar1kLab/Macafon'
 license=('GPL-3.0-only')
 depends=('pipewire>=1.0' 'wireplumber>=0.5' 'webkit2gtk-4.1' 'gtk3' 'libsoup3')
 makedepends=('libarchive')

@@ -42,7 +42,7 @@ def configuration(stage, triple):
             "active": True,
             "targets": ["nsis"],
             "publisher": "Mar1kLab",
-            "homepage": "https://github.com/Mar1kLab/micEQ",
+            "homepage": "https://github.com/Mar1kLab/Macafon",
             "category": "Music",
             "license": "GPL-3.0-only",
             "licenseFile": str(ROOT / "LICENSE"),

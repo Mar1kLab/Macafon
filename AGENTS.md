@@ -142,4 +142,5 @@ pnpm -C apps/macafon-ui dev              # UI в браузере с mock-дем
 pnpm -C apps/macafon-ui tauri dev        # UI в Tauri с реальным демоном
 pnpm -C apps/macafon-ui check            # svelte-check / TypeScript
 pnpm -C apps/macafon-ui gen:ipc          # перегенерировать TS-типы из macafon-ipc/macafon-dsp
+python tools/package-windows.py          # Windows: per-user NSIS-инсталлятор (pnpm через corepack)
 ```

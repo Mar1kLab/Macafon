@@ -89,3 +89,21 @@ AppImage требует установленного PipeWire ≥1.0 и его �
 | Иконки приложений на реальном DE (APP-003) | Ручной прогон | Нужен стенд; на этом проверены только htop/btop/vim/snap |
 | Настоящие порталы KDE/GNOME/Hyprland, X11-захват | Стенд с DE | Нужен стенд |
 | Discord/Spotify/Flatpak/Electron в каналах (§14.4) | Ручной прогон | Нужен стенд |
+
+## Windows (M3), 2026-10-16
+
+Стенд: Windows 11 25H2, HyperX SoloCast, VB-CABLE 3.3.1.7. Подробности —
+[windows-m3.md](../development/windows-m3.md).
+
+| Проверка | Команда / способ | Результат |
+|---|---|---|
+| Rust | `cargo clippy -p macafond -p macafon-ipc -p macafon-backend-windows -p macafon-ui --all-targets -- -D warnings`; `cargo test` тех же крейтов | Пройдены |
+| UI | `corepack pnpm -C apps/macafon-ui check`; `vitest run` | Пройдены |
+| Инсталлятор | `python tools/package-windows.py` | NSIS собран, 16 МиБ |
+| Установка без UAC / запуск / удаление | `setup.exe /S`, `macafon-ui.exe`, `uninstall.exe /S` | Пройдены; удаление вызывает `macafond cleanup` |
+| Онбординг на чистой системе: установка VB-CABLE → перезагрузка → звук в Discord | Ручной прогон | Нужна чистая VM |
+| Windows 10 22H2, `IPolicyConfig` | Ручной прогон | Нужен стенд |
+| Задержка NFR-L6 ≤ 20 мс | `spike probe` с уменьшенным Max Latency | Не выполняется: 82–138 мс при буфере VB-CABLE по умолчанию |
+| Часовой soak | `spike run --seconds 3600` | Не проводился |
+| Матрица §19.1: USB/Realtek/Bluetooth; Discord, OBS, Zoom, Teams, Telegram, игры с античитами | Ручной прогон | Не проводилась |
+| Подпись Authenticode (SignPath) | — | Не настроена |

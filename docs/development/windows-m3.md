@@ -1,8 +1,9 @@
 # Windows M3.0: spike
 
-Состояние на 2026-10-15. Начат M3.0 из PRD §19.1. Демон на Windows пока не собирается;
-готовы платформенные части в `crates/macafon-backend-windows` и утилита
-`examples/spike.rs`. Стенд: Windows 11 25H2, HyperX SoloCast (USB), VB-CABLE 3.3.1.7.
+Состояние на 2026-10-16: демон, UI (Tauri) и per-user инсталлятор работают на Windows,
+MVP-путь «установка → VB-CABLE → звук в CABLE Output» собран (см. последний раздел).
+Ниже — история этапов M3.0…M3.6. Стенд: Windows 11 25H2, HyperX SoloCast (USB),
+VB-CABLE 3.3.1.7.
 
 ```sh
 cargo run --release -p macafon-backend-windows --example spike -- devices    # эндпоинты, hardware ID, периоды
@@ -93,10 +94,7 @@ cargo run --release -p macafon-backend-windows --example spike -- run --input So
 
 ### Не сделано / ограничения
 
-- Doctor на Windows показывает только общие проверки; проверки кабеля, форматов, чужих сессий
-  и задержки (`diagnostics.rs`) ещё не выведены в протокол — нужны новые `DoctorCheckId` и
-  строки UI (M3.3).
-- Трей и уведомления — M3.5 (хоткеи и автозапуск готовы, см. ниже).
+- ~~Doctor без проверок кабеля~~, ~~трей и уведомления~~ — сделаны 2026-10-16 (разделы ниже).
 - Неуправляемое приложение (`managed = false`) сохраняет последнюю выставленную громкость до
   выключения микшера или Quit: у `SessionWatcher` нет восстановления одного приложения.
 - Метры каналов обновляются раз в 100 мс (опрос пиков сессий).
@@ -284,8 +282,9 @@ PTT относится к HK-001; HK-005 в PRD — звуковой сигна�
 Общий процедурный ARGB-рендер сохранён для Linux; Windows собирает из него RT_ICON.
 Состояния normal/mute/bypass/disconnected и переход 300 мс соответствуют BG-002.
 Меню повторяет Linux (BG-003), включая Mixer и radio-пункты пресетов/выходов;
-левый клик запускает `macafon-ui.exe` (имя Tauri `[[bin]]`), затем `macafon.exe`,
-сначала рядом с демоном, затем в PATH; средний переключает mute (BG-004).
+левый клик запускает `macafon-ui.exe` (имя Tauri `[[bin]]` и `mainBinaryName` пакета)
+рядом с демоном, затем из PATH; `macafon.exe` — это CLI, его трей не запускает. Средний
+клик переключает mute (BG-004).
 После перезапуска Explorer иконка регистрируется заново (`TaskbarCreated`).
 Обновления состояния и уведомления передаются очередью; control loop не вызывает Shell.
 
@@ -330,3 +329,55 @@ SoloCast и смену mute/bypass. Quit завершил процесс. Все
 logoff/shutdown не подтверждены. Computer-use не предоставил окно панели задач, затем был
 остановлен физической клавишей Escape; скриншоты получить не удалось. Дополнительные
 UI-действия после остановки не выполнялись. Тестовый демон завершён, автозапуск не менялся.
+
+## M3.2, M3.3, M3.6: UI, Doctor и инсталлятор (2026-10-16)
+
+**Мост UI.** `apps/macafon-ui/src-tauri/src/bridge.rs` работает через
+`macafon_ipc::transport` (Unix-сокет или named pipe `\\.\pipe\macafon-<SID>`) и запускает
+`macafond.exe run` без консоли (`CREATE_NO_WINDOW`). Release-сборка UI — GUI-subsystem.
+Тест моста проходит на Windows с фейковым демоном на named pipe.
+
+**Возможности платформы (M3.2).** `hello` отдаёт `platform` и `capabilities`
+(`virtual_mic_device`, `stereo_option`, `channel_fx`, `graph_quantum`); UI скрывает
+недоступное по флагам. `MicState.virtual_mic_ready` — кабель найден (WIN-MIC-001);
+демон узнаёт это при пересканировании эндпоинтов. Mock: `?platform=windows`,
+`&cable=missing`.
+
+**Микрофон и онбординг (M3.3).** Шаг «Install VB-CABLE» после Welcome (WIN-MIC-002):
+инструкция, `Open download page` открывает только `https://vb-audio.com/Cable/`
+(команда Tauri с фиксированным URL), пометка donationware. Пока кабеля нет, шаг
+запоминается в `localStorage` и после перезагрузки онбординг продолжается с него;
+когда кабель появился, шаг сам показывает готовность. «Use it» и Getting Started называют
+`CABLE Output (VB-Audio Virtual Cable)` (WIN-MIC-003; картинки нет). Экран Microphone без
+кабеля показывает баннер с кнопкой установки; переключатель default-микрофона в этом
+состоянии недоступен. Quit предупреждает, что CABLE Output замолчит (WIN-MIC-005).
+Mixer: вместо EQ/FX — кнопка Channel, один раз показывается «Channel effects are available
+on Linux» (WIN-CH-006); текст выключенного микшера описывает группы громкости.
+
+**Doctor.** Новые проверки `vb_cable`, `cable_format`, `cable_writers`,
+`cable_default_output`, `cable_latency` (WIN-MIC-001/004/007/008) из
+`diagnostics::collect`; идут первыми. `doctor.fix` для `cable_default_output` переводит
+все роли render на реальное устройство (предпочтительно исходное из журнала микшера) —
+это исправление пользователя, Quit его не откатывает. `cable_latency` показывает
+минимальные периоды движка и совет уменьшить Max Latency; полной задержкой это не является.
+
+**Инсталлятор (M3.6).** `python tools/package-windows.py` → NSIS
+`target/release/bundle/nsis/Macafon_<версия>_x64-setup.exe` (~16 МиБ): `installMode =
+currentUser`, без UAC, в `%LOCALAPPDATA%\Macafon`; внутри `macafon-ui.exe`, `macafond.exe`,
+`macafon.exe` и лицензии. VB-CABLE не входит. Хуки (`packaging/windows/hooks.nsh`):
+перед обновлением `macafon ctl quit`, перед удалением `macafond cleanup` — Quit демона,
+восстановление default-микрофона/выхода и громкостей сессий из журналов, удаление
+значения Run. **Отклонение от PRD §12.2.3:** вместо MSI (WiX) — NSIS, потому что MSI
+Tauri ставится на машину и требует прав администратора, а требование «без прав
+администратора» важнее формата. Подпись SignPath не настроена.
+
+Проверено на стенде: тихая установка `/S` без UAC; установленный `macafon-ui.exe` сам
+запустил демон и подключился по named pipe, онбординг показал шаг VB-CABLE; `ctl doctor`
+вывел проверки кабеля (всё ok, периоды 10,0/2,7 мс); тихое удаление остановило демон
+(`Quit requested` в логе), удалило бинарники и значение Run. В каталоге остаются лог и
+журналы состояния: каталог установки совпадает с `state_dir`.
+
+Не проверено: `doctor.fix` на реальной системе (default output на кабель не переводился,
+чтобы не трогать звук стенда; логика покрыта fake-тестами `fix_cable_default`), клики по
+меню трея и настоящий logoff, сборка `macafon-ui` под Linux (в WSL нет webkit/dbus-dev),
+Windows 10, чистая система без VB-CABLE, часовой soak, матрица приложений.

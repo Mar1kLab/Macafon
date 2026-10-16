@@ -13,6 +13,7 @@ use crate::com::ComGuard;
 use crate::wasapi::{HNS_PER_SECOND, ProAudioThread, Stream};
 use assert_no_alloc::assert_no_alloc;
 use macafon_engine::{DriftReader, DriftStats, DriftWriter, MicRt, drift_buffer};
+use rtrb::{Consumer, Producer, RingBuffer};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
@@ -31,6 +32,8 @@ const RETRY_INTERVAL: Duration = Duration::from_millis(500);
 const DEFAULT_PERIOD_HNS: i64 = 100_000;
 /// Largest capture packet handled in one piece; WASAPI packets are one period (≤ 1 s).
 const MAX_PACKET_FRAMES: usize = macafon_dsp::SAMPLE_RATE_HZ as usize;
+/// Chain timings queued for the control loop: several seconds of 10 ms packets.
+const BUDGET_QUEUE: usize = 1024;
 
 #[derive(Debug, Clone, Default)]
 pub struct MicrophoneConfig {
@@ -124,6 +127,10 @@ struct Shared {
     capture: StreamState,
     render: StreamState,
     counters: Counters,
+    /// Time the chain while Studio needs overload detection (NFR-S3).
+    measure_budget: AtomicBool,
+    /// Measurements were lost to a full queue; the next read reports a gap.
+    budget_gap: AtomicBool,
 }
 
 /// Snapshot for the spike report and, later, Doctor (WIN-MIC-008).
@@ -172,8 +179,24 @@ impl PipelineReport {
     }
 }
 
+/// One capture packet: chain processing time against the packet's duration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BudgetSample {
+    pub elapsed_ns: u64,
+    pub budget_ns: u64,
+}
+
+impl BudgetSample {
+    /// A sampling gap: resets the host's over-budget streak.
+    pub const GAP: Self = Self {
+        elapsed_ns: 0,
+        budget_ns: 1,
+    };
+}
+
 pub struct MicrophonePipeline {
     shared: Arc<Shared>,
+    budget: Consumer<BudgetSample>,
     threads: Vec<JoinHandle<Result<(), Error>>>,
     drift: Arc<DriftStats>,
     chain_latency_samples: u32,
@@ -184,6 +207,7 @@ impl MicrophonePipeline {
     /// Start both threads. Missing devices are not an error: each side keeps retrying.
     pub fn start(config: &MicrophoneConfig, processor: MicRt) -> Result<Self, Error> {
         let (writer, reader) = drift_buffer(1);
+        let (budget_producer, budget) = RingBuffer::new(BUDGET_QUEUE);
         let drift = reader.stats();
         let shared = Arc::new(Shared {
             input: Selection::new(config.input_id.clone()),
@@ -204,10 +228,11 @@ impl MicrophonePipeline {
         let state = shared.clone();
         let buffer_hns = render.buffer_hns;
         threads.push(spawn("macafon-capture", move || {
-            capture_thread(&state, buffer_hns, processor, writer)
+            capture_thread(&state, buffer_hns, processor, writer, budget_producer)
         })?);
         Ok(Self {
             shared,
+            budget,
             threads,
             drift,
             chain_latency_samples,
@@ -236,6 +261,25 @@ impl MicrophonePipeline {
     /// Current capture period, ms; 0 while no microphone is open.
     pub fn capture_period_ms(&self) -> f64 {
         self.shared.capture.period_hns.load(Ordering::Relaxed) as f64 / 10_000.0
+    }
+
+    /// Start or stop timing the chain on the capture thread (NFR-S3). Turning it on reports a
+    /// gap first, so a streak never spans an unmeasured stretch.
+    pub fn set_budget_monitoring(&self, enabled: bool) {
+        if !self.shared.measure_budget.swap(enabled, Ordering::AcqRel) && enabled {
+            self.shared.budget_gap.store(true, Ordering::Release);
+        }
+    }
+
+    /// Hand queued chain timings, oldest first, to `observe`; a lost stretch arrives as
+    /// [`BudgetSample::GAP`].
+    pub fn drain_budget(&mut self, mut observe: impl FnMut(BudgetSample)) {
+        if self.shared.budget_gap.swap(false, Ordering::AcqRel) {
+            observe(BudgetSample::GAP);
+        }
+        while let Ok(sample) = self.budget.pop() {
+            observe(sample);
+        }
     }
 
     /// False once a thread has stopped on an unrecoverable error.
@@ -366,6 +410,7 @@ fn capture_thread(
     buffer_hns: i64,
     mut processor: MicRt,
     mut writer: DriftWriter,
+    mut budget: Producer<BudgetSample>,
 ) -> Result<(), Error> {
     let _com = ComGuard::new()?;
     let _mmcss = ProAudioThread::register();
@@ -413,8 +458,20 @@ fn capture_thread(
                         if flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0 {
                             counters.discontinuities.fetch_add(1, Ordering::Relaxed);
                         }
+                        let measure = shared.measure_budget.load(Ordering::Relaxed);
+                        // QueryPerformanceCounter: user-mode on current hardware, no wait.
+                        let started = measure.then(Instant::now);
                         assert_no_alloc(|| {
                             processor.process(block);
+                            if let Some(started) = started {
+                                let sample = BudgetSample {
+                                    elapsed_ns: started.elapsed().as_nanos() as u64,
+                                    budget_ns: frames_ns(count),
+                                };
+                                if budget.push(sample).is_err() {
+                                    shared.budget_gap.store(true, Ordering::Release);
+                                }
+                            }
                             // Without a cable nothing drains the buffer; keep it from filling.
                             if output {
                                 writer.write(block);
@@ -530,6 +587,52 @@ fn render_thread(
     Ok(())
 }
 
+/// Duration of `frames` at the engine rate.
+fn frames_ns(frames: usize) -> u64 {
+    frames as u64 * 1_000_000_000 / macafon_dsp::SAMPLE_RATE_HZ as u64
+}
+
 fn to_frames(hns: i64) -> i64 {
     (hns as f64 * RATE_HZ / HNS_PER_SECOND).ceil() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::devices::{DataFlow, EndpointRole, default_device};
+    use macafon_dsp::Telemetry;
+    use macafon_dsp::settings::ChainSettings;
+
+    #[test]
+    #[ignore = "needs a default capture device"]
+    fn chain_timings_cover_capture_packets() {
+        let _com = ComGuard::new().expect("COM");
+        let input = default_device(DataFlow::Capture, EndpointRole::Console)
+            .expect("default capture")
+            .expect("a capture device");
+        let telemetry = Arc::new(Telemetry::default());
+        let (_control, processor) =
+            macafon_engine::microphone(&ChainSettings::default(), telemetry).expect("chain");
+        let config = MicrophoneConfig {
+            input_id: Some(input),
+            ..MicrophoneConfig::default()
+        };
+        let mut pipeline = MicrophonePipeline::start(&config, processor).expect("pipeline");
+        pipeline.set_budget_monitoring(true);
+        std::thread::sleep(Duration::from_millis(600));
+        let mut samples = Vec::new();
+        pipeline.drain_budget(|sample| samples.push(sample));
+        pipeline.stop().expect("stop");
+
+        assert_eq!(samples.first(), Some(&BudgetSample::GAP));
+        let packets = &samples[1..];
+        assert!(packets.len() >= 10, "{} packets", packets.len());
+        // Each packet's budget is its duration: one capture period, ≤ 1 s.
+        assert!(
+            packets
+                .iter()
+                .all(|s| s.budget_ns > 0 && s.budget_ns <= 1_000_000_000)
+        );
+        assert!(packets.iter().all(|s| s.elapsed_ns < s.budget_ns));
+    }
 }

@@ -189,6 +189,16 @@ impl LoopState {
         if self.pipeline.is_none() && self.restart_at.is_none_or(|at| Instant::now() >= at) {
             self.start_session(host)?;
         }
+        if let Some(pipeline) = &mut self.pipeline {
+            // NFR-S3: the chain's time per capture packet, like the PipeWire profiler.
+            let measure = host.needs_processing_budget();
+            pipeline.set_budget_monitoring(measure);
+            if measure {
+                pipeline.drain_budget(|sample| {
+                    host.processing_budget(sample.elapsed_ns, sample.budget_ns);
+                });
+            }
+        }
         if let Some(pipeline) = &self.pipeline {
             let wanted = host.input().filter(|id| self.is_input(id));
             if wanted != self.input {

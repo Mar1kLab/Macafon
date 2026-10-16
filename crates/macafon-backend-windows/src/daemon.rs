@@ -446,10 +446,23 @@ pub fn fix_cable_default_output(state_dir: &Path) -> Result<(), Error> {
 pub fn restore_all(state_dir: &Path) -> Result<(), Error> {
     let _com = ComGuard::new().map_err(platform)?;
     let microphone = restore_default_microphone(state_dir);
-    // Starting the groups restores the output journal and the session volumes; dropping them
-    // restores whatever is still Macafon's.
-    drop(VolumeGroups::start(state_dir));
-    microphone
+    let output = journal::restore(
+        &mut SystemDefaults,
+        &journal::journal_path(state_dir, DataFlow::Render),
+    );
+    // Starting the watcher restores the sessions that are running now; the journal keeps the
+    // rest for when their apps return.
+    let sessions = crate::mixer::SessionWatcher::start(state_dir).and_then(|w| w.restore());
+    // Try everything, then report the first failure so the uninstaller can stop.
+    let output = output.map_err(platform);
+    let sessions = sessions.map_err(platform);
+    for error in [&microphone, &output, &sessions]
+        .into_iter()
+        .filter_map(|result| result.as_ref().err())
+    {
+        tracing::warn!(%error, "Cannot restore system audio settings");
+    }
+    microphone.and(output).and(sessions)
 }
 
 /// Real output devices for the A/B player and the output picker (WIN-MIC-009).

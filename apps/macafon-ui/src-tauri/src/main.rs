@@ -1,6 +1,9 @@
 //! Macafon UI (Tauri v2). Closing the window ends this process; audio keeps running in macafond
 //! (BG-001). A second launch focuses the existing window (BG-006).
 
+// Release builds on Windows open no console window next to the UI.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod bridge;
 
 use bridge::{Bridge, BridgeError, Sink, Status};
@@ -73,9 +76,13 @@ fn main() {
             }
         }))
         .setup(|app| {
-            let socket = macafon_ipc::socket_path().ok_or("XDG_RUNTIME_DIR is not set")?;
-            let bridge =
-                Bridge::start(socket, AppSink(app.handle().clone()), bridge::launch_daemon);
+            let endpoint = macafon_ipc::Endpoint::for_current_user()
+                .ok_or("cannot find the daemon endpoint for the current user")?;
+            let bridge = Bridge::start(
+                endpoint,
+                AppSink(app.handle().clone()),
+                bridge::launch_daemon,
+            );
             app.manage(bridge);
             Ok(())
         })

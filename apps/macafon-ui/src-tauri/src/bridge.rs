@@ -2,18 +2,18 @@
 //! it sends protocol requests through `call` and receives events and connection status.
 //!
 //! One background thread owns the connection: it connects (starting `macafond` once if the
-//! socket is missing, §9.7), performs the `hello` handshake, reads replies and events, and
-//! reconnects after the daemon restarts (systemd brings it back within 2 s, NFR-S6).
+//! socket or pipe is missing, §9.7), performs the `hello` handshake, reads replies and events,
+//! and reconnects after the daemon restarts (systemd brings it back within 2 s, NFR-S6).
 
-use macafon_ipc::{PROTOCOL_VERSION, read_protocol_line};
+use macafon_ipc::transport::{self, RecvHalf, SendHalf};
+use macafon_ipc::{Endpoint, PROTOCOL_VERSION, read_protocol_line};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 #[cfg(test)]
 use std::io::BufRead;
 use std::io::{BufReader, Write};
-use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -60,7 +60,7 @@ pub trait Sink: Send + Sync + 'static {
 type Reply = mpsc::Sender<Result<Value, BridgeError>>;
 
 struct Connection {
-    writer: UnixStream,
+    writer: SendHalf,
     pending: HashMap<u64, Reply>,
     next_id: u64,
 }
@@ -76,7 +76,7 @@ struct Shared {
     state: Mutex<State>,
     wake: Condvar,
     sink: Box<dyn Sink>,
-    socket: PathBuf,
+    endpoint: Endpoint,
     launcher: Box<dyn Fn() -> Result<(), String> + Send + Sync>,
 }
 
@@ -104,9 +104,9 @@ pub struct Bridge {
 }
 
 impl Bridge {
-    /// Start the connector thread. `launcher` starts the daemon when the socket is missing.
+    /// Start the connector thread. `launcher` starts the daemon when the endpoint is missing.
     pub fn start(
-        socket: PathBuf,
+        endpoint: Endpoint,
         sink: impl Sink,
         launcher: impl Fn() -> Result<(), String> + Send + Sync + 'static,
     ) -> Self {
@@ -118,7 +118,7 @@ impl Bridge {
             }),
             wake: Condvar::new(),
             sink: Box::new(sink),
-            socket,
+            endpoint,
             launcher: Box::new(launcher),
         });
         let thread_shared = shared.clone();
@@ -187,7 +187,7 @@ fn connector(shared: &Shared) {
         let deadline = Instant::now() + CONNECT_WINDOW;
         let mut launch_error = None;
         let stream = loop {
-            match UnixStream::connect(&shared.socket) {
+            match transport::connect(&shared.endpoint) {
                 Ok(stream) => break Some(stream),
                 Err(_) if may_launch => {
                     may_launch = false;
@@ -201,8 +201,8 @@ fn connector(shared: &Shared) {
             std::thread::sleep(CONNECT_POLL);
         };
         match stream {
-            Some(stream) => {
-                let result = serve(shared, stream);
+            Some((reader, writer)) => {
+                let result = serve(shared, reader, writer);
                 // After a lost connection, give systemd time instead of starting a second
                 // daemon; after Quit the UI stays offline until Retry.
                 may_launch = false;
@@ -217,8 +217,8 @@ fn connector(shared: &Shared) {
                 }
             }
             None => {
-                let reason = launch_error
-                    .unwrap_or_else(|| format!("no daemon socket at {}", shared.socket.display()));
+                let reason =
+                    launch_error.unwrap_or_else(|| format!("no daemon at {}", shared.endpoint));
                 unavailable(shared, reason);
                 may_launch = true;
             }
@@ -239,7 +239,7 @@ fn unavailable(shared: &Shared, reason: String) {
     state.retry = false;
 }
 
-fn read_line(reader: &mut BufReader<UnixStream>) -> Result<Option<Value>, String> {
+fn read_line(reader: &mut BufReader<RecvHalf>) -> Result<Option<Value>, String> {
     let Some(line) = read_protocol_line(reader).map_err(|error| error.to_string())? else {
         return Ok(None);
     };
@@ -249,9 +249,8 @@ fn read_line(reader: &mut BufReader<UnixStream>) -> Result<Option<Value>, String
 }
 
 /// Handshake, then dispatch replies and events until the daemon goes away.
-fn serve(shared: &Shared, stream: UnixStream) -> Result<(), String> {
-    let mut reader = BufReader::new(stream.try_clone().map_err(|error| error.to_string())?);
-    let mut writer = stream;
+fn serve(shared: &Shared, reader: RecvHalf, mut writer: SendHalf) -> Result<(), String> {
+    let mut reader = BufReader::new(reader);
     let hello = json!({
         "id": 0,
         "method": "hello",
@@ -289,7 +288,7 @@ fn serve(shared: &Shared, stream: UnixStream) -> Result<(), String> {
     result
 }
 
-fn dispatch(shared: &Shared, reader: &mut BufReader<UnixStream>) -> Result<(), String> {
+fn dispatch(shared: &Shared, reader: &mut BufReader<RecvHalf>) -> Result<(), String> {
     while let Some(mut message) = read_line(reader)? {
         if message.get("event").is_some() {
             shared.sink.event(message);
@@ -322,19 +321,25 @@ fn dispatch(shared: &Shared, reader: &mut BufReader<UnixStream>) -> Result<(), S
 
 /// `macafond` next to the UI binary, else on PATH; detached so it outlives the UI (BG-001).
 pub fn launch_daemon() -> Result<(), String> {
-    use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
+    let name = if cfg!(windows) {
+        "macafond.exe"
+    } else {
+        "macafond"
+    };
     let sibling = std::env::current_exe()
         .ok()
-        .and_then(|exe| Some(exe.parent()?.join("macafond")))
+        .and_then(|exe| Some(exe.parent()?.join(name)))
         .filter(|path| path.is_file());
-    let program = sibling.unwrap_or_else(|| Path::new("macafond").to_path_buf());
-    let mut child = Command::new(&program)
+    let program = sibling.unwrap_or_else(|| Path::new(name).to_path_buf());
+    let mut command = Command::new(&program);
+    command
         .arg("run")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .process_group(0)
+        .stderr(Stdio::null());
+    detach(&mut command);
+    let mut child = command
         .spawn()
         .map_err(|error| format!("cannot start {}: {error}", program.display()))?;
     tracing::info!(program = %program.display(), "started macafond");
@@ -348,10 +353,24 @@ pub fn launch_daemon() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(unix)]
+fn detach(command: &mut std::process::Command) {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+}
+
+/// No console window, and Ctrl+C in the UI's terminal does not reach the daemon.
+#[cfg(windows)]
+fn detach(command: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::net::UnixListener;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct Channel(Mutex<mpsc::Sender<Result<Value, Status>>>);
@@ -366,10 +385,62 @@ mod tests {
         }
     }
 
-    fn socket_path() -> PathBuf {
+    fn unique_name() -> String {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!("macafon-bridge-{}-{n}.sock", std::process::id()))
+        format!("macafon-bridge-{}-{n}", std::process::id())
+    }
+
+    /// A fake daemon endpoint; `accept` returns the connection halves, and dropping the
+    /// listener makes the endpoint unreachable again.
+    #[cfg(unix)]
+    struct FakeDaemon {
+        listener: std::os::unix::net::UnixListener,
+        path: std::path::PathBuf,
+    }
+
+    #[cfg(unix)]
+    impl FakeDaemon {
+        fn bind() -> (Self, Endpoint) {
+            let path = std::env::temp_dir().join(format!("{}.sock", unique_name()));
+            let listener =
+                std::os::unix::net::UnixListener::bind(&path).expect("bind the fake daemon");
+            (
+                Self {
+                    listener,
+                    path: path.clone(),
+                },
+                Endpoint::socket(path),
+            )
+        }
+
+        fn accept(&self) -> (RecvHalf, SendHalf) {
+            let (stream, _) = self.listener.accept().expect("bridge connects");
+            (stream.try_clone().expect("clone"), stream)
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for FakeDaemon {
+        fn drop(&mut self) {
+            drop(std::fs::remove_file(&self.path));
+        }
+    }
+
+    #[cfg(windows)]
+    struct FakeDaemon(transport::Listener);
+
+    #[cfg(windows)]
+    impl FakeDaemon {
+        fn bind() -> (Self, Endpoint) {
+            let endpoint = Endpoint::pipe(unique_name());
+            let listener = transport::Listener::bind(&endpoint).expect("bind the fake daemon");
+            (Self(listener), endpoint)
+        }
+
+        fn accept(&self) -> (RecvHalf, SendHalf) {
+            self.0.accept().expect("bridge connects")
+        }
     }
 
     fn wait_status(
@@ -389,15 +460,13 @@ mod tests {
     /// a request still pending; the bridge matches replies by id and fails the leftover call.
     #[test]
     fn matches_replies_by_id_forwards_events_and_fails_pending_calls() {
-        let path = socket_path();
-        let listener = UnixListener::bind(&path).expect("bind the fake daemon");
+        let (listener, endpoint) = FakeDaemon::bind();
         let launched = Arc::new(AtomicUsize::new(0));
         let daemon = std::thread::spawn(move || {
-            let (stream, _) = listener.accept().expect("bridge connects");
-            let mut reader = BufReader::new(stream.try_clone().expect("clone"));
-            let mut writer = stream;
+            let (reader, mut writer) = listener.accept();
+            let mut reader = BufReader::new(reader);
             let mut line = String::new();
-            let mut read = |reader: &mut BufReader<UnixStream>| -> Value {
+            let mut read = |reader: &mut BufReader<RecvHalf>| -> Value {
                 line.clear();
                 reader.read_line(&mut line).expect("request");
                 serde_json::from_str(&line).expect("JSON request")
@@ -430,10 +499,11 @@ mod tests {
             writeln!(writer, r#"{{"id":{},"result":{{"ok":1}}}}"#, first["id"])
                 .expect("first reply");
             // `third` never gets an answer: the daemon goes away.
+            drop(listener);
             third["id"].as_u64().expect("numeric id")
         });
         let (events, sink) = mpsc::channel();
-        let bridge = Bridge::start(path.clone(), Channel(Mutex::new(events)), {
+        let bridge = Bridge::start(endpoint, Channel(Mutex::new(events)), {
             let launched = launched.clone();
             move || {
                 launched.fetch_add(1, Ordering::Relaxed);
@@ -466,12 +536,11 @@ mod tests {
         };
         assert_eq!(event["event"], "meters");
         daemon.join().expect("fake daemon");
-        drop(std::fs::remove_file(&path));
         assert_eq!(
             third.recv_timeout(CALL_TIMEOUT).expect("third fails"),
             Err(BridgeError::unavailable())
         );
-        // Without a socket the bridge reports the daemon unavailable; it did not launch one
+        // Without an endpoint the bridge reports the daemon unavailable; it did not launch one
         // because it was reachable at start.
         wait_status(&sink, |status| matches!(status, Status::Unavailable { .. }));
         assert_eq!(launched.load(Ordering::Relaxed), 0);

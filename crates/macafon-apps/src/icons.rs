@@ -2,6 +2,10 @@
 //! `.desktop` files (`Icon=`) and the icon themes, and is handed to the UI as a `data:` URL —
 //! the WebView cannot read files outside its bundle.
 
+#[cfg(windows)]
+#[path = "icons_windows.rs"]
+mod windows;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -68,7 +72,11 @@ impl IconResolver {
         {
             return url.clone();
         }
-        let url = self.find(name).and_then(|path| encode(&path));
+        #[cfg(windows)]
+        let native = windows::data_url(name);
+        #[cfg(not(windows))]
+        let native: Option<String> = None;
+        let url = native.or_else(|| self.find(name).and_then(|path| encode(&path)));
         self.cache
             .insert(name.to_owned(), (url.clone(), Instant::now()));
         url

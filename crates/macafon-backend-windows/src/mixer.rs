@@ -74,6 +74,8 @@ pub struct App {
     /// Lowercase executable file name, or [`SYSTEM_SOUNDS`]. Unknown protected processes
     /// use a PID-scoped pseudo key, never one shared "unknown application" group.
     pub exe: String,
+    /// Full executable path used to resolve the application icon.
+    pub executable: Option<String>,
     pub session_count: usize,
     pub active: bool,
     pub app_pct: f32,
@@ -110,6 +112,7 @@ enum Command {
     Apps(Sender<Result<Vec<App>, Error>>),
     Peaks(Sender<Result<Vec<OutputPeak>, Error>>),
     Set(String, MixSettings, Sender<Result<(), Error>>),
+    RestoreApp(String, Sender<Result<(), Error>>),
     Restore(Sender<Result<(), Error>>),
     Stop,
 }
@@ -178,6 +181,11 @@ impl SessionWatcher {
     pub fn set_app(&self, exe: &str, settings: MixSettings) -> Result<(), Error> {
         self.request(|reply| Command::Set(exe.to_lowercase(), settings, reply))
     }
+    /// Stop managing this executable (including future sessions), and conditionally
+    /// restore its original volume/mute. Failed or absent sessions remain journaled.
+    pub fn restore_app(&self, exe: &str) -> Result<(), Error> {
+        self.request(|reply| Command::RestoreApp(exe.to_lowercase(), reply))
+    }
     pub fn restore(&self) -> Result<(), Error> {
         self.request(Command::Restore)
     }
@@ -202,6 +210,7 @@ impl Drop for SessionWatcher {
 }
 
 struct LiveSession {
+    executable: Option<String>,
     key: Key,
     instance: String,
     control: IAudioSessionControl2,
@@ -325,10 +334,15 @@ impl Worker {
                     continue;
                 }
                 let pid = control.GetProcessId().unwrap_or(0);
-                let exe = if control.IsSystemSoundsSession() == S_OK {
+                let system = control.IsSystemSoundsSession() == S_OK;
+                let executable = (!system)
+                    .then(|| crate::sessions::executable(pid))
+                    .flatten();
+                let exe = if system {
                     SYSTEM_SOUNDS.into()
                 } else {
-                    crate::sessions::executable(pid)
+                    executable
+                        .as_deref()
                         .and_then(|p| p.rsplit('\\').next().map(str::to_lowercase))
                         .unwrap_or_else(|| format!("<process-{pid}>"))
                 };
@@ -343,6 +357,7 @@ impl Worker {
                 control.RegisterAudioSessionNotification(&callback)?;
                 added.push(instance.clone());
                 self.sessions.push(LiveSession {
+                    executable,
                     key: Key { exe, endpoint },
                     instance,
                     volume,
@@ -369,7 +384,11 @@ impl Worker {
             }
             let observed = f32::from_bits(bits as u32);
             let muted = bits & (1 << 32) != 0;
-            let settings = self.settings.entry(session.key.exe.clone()).or_default();
+            let mut settings = self
+                .settings
+                .get(&session.key.exe)
+                .copied()
+                .unwrap_or_default();
             settings.app_pct = app_volume(
                 observed,
                 settings.channel_pct,
@@ -378,6 +397,10 @@ impl Worker {
             );
             if !settings.channel_muted && !settings.master_muted {
                 settings.app_muted = muted;
+            }
+            // Observing an unmanaged app must not install a rule for future sessions.
+            if let Some(remembered) = self.settings.get_mut(&session.key.exe) {
+                *remembered = settings;
             }
             let _ = self.events.send(MixerEvent::ExternalVolume {
                 exe: session.key.exe.clone(),
@@ -450,12 +473,16 @@ impl Worker {
                         });
                 let app = apps.entry(session.key.exe.clone()).or_insert(App {
                     exe: session.key.exe.clone(),
+                    executable: session.executable.clone(),
                     session_count: 0,
                     active: false,
                     app_pct: settings.app_pct,
                     muted: true,
                     peak: 0.0,
                 });
+                if app.executable.is_none() {
+                    app.executable = session.executable.clone();
+                }
                 app.session_count += 1;
                 app.active |= session.control.GetState()? == AudioSessionStateActive;
                 app.muted &= session.volume.GetMute()?.as_bool();
@@ -536,6 +563,12 @@ impl Worker {
                             result = Err(e);
                         }
                     }
+                    let _ = reply.send(result);
+                }
+                Ok(Command::RestoreApp(exe, reply)) => {
+                    self.settings.remove(&exe);
+                    let result = journal.restore_app(self, &exe);
+                    self.report_pending(journal);
                     let _ = reply.send(result);
                 }
                 Ok(Command::Restore(reply)) => {

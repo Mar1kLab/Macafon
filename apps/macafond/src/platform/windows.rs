@@ -227,16 +227,37 @@ pub fn cleanup() -> Result<()> {
         if let Ok((mut client, _)) = macafon_ipc::Client::connect(&endpoint, "macafond-cleanup") {
             // The daemon may exit before its reply is written.
             drop(client.call(macafon_ipc::Request::DaemonQuit));
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-            while macafon_ipc::transport::connect(&endpoint).is_ok()
-                && std::time::Instant::now() < deadline
-            {
-                std::thread::sleep(std::time::Duration::from_millis(200));
-            }
+            wait_for_daemon_exit(&endpoint, std::time::Duration::from_secs(10))?;
         }
     }
     let state_dir = state_dir().map_err(anyhow::Error::msg)?;
     win::restore_all(&state_dir).context("cannot restore system audio settings")?;
     crate::autostart::set(false).map_err(anyhow::Error::msg)?;
     Ok(())
+}
+
+fn wait_for_daemon_exit(endpoint: &Endpoint, timeout: std::time::Duration) -> Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+    while macafon_ipc::transport::connect(endpoint).is_ok() {
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "macafond is still running; cannot restore its journals concurrently"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cleanup_refuses_to_restore_while_the_daemon_still_owns_the_pipe() {
+        let endpoint = Endpoint::pipe(format!("macafon-cleanup-test-{}", std::process::id()));
+        let listener = macafon_ipc::transport::Listener::bind(&endpoint).expect("fake daemon");
+        assert!(wait_for_daemon_exit(&endpoint, std::time::Duration::ZERO).is_err());
+        drop(listener);
+        assert!(wait_for_daemon_exit(&endpoint, std::time::Duration::ZERO).is_ok());
+    }
 }

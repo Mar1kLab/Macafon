@@ -95,7 +95,17 @@ impl VolumeGroups {
         }
         for (exe, stream) in &self.streams {
             let Some(mix) = host.app_mix(stream) else {
-                // Not managed: left as it is until the mixer turns off or Macafon quits.
+                if self.applied.contains_key(exe) {
+                    match watcher.restore_app(exe) {
+                        Ok(()) => {
+                            self.applied.remove(exe);
+                            self.muted.remove(exe);
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, app = %exe, "Cannot restore app volume")
+                        }
+                    }
+                }
                 continue;
             };
             let settings = settings(mix, self.muted.get(exe).copied().unwrap_or(false));

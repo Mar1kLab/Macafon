@@ -112,6 +112,7 @@ enum Command {
     Apps(Sender<Result<Vec<App>, Error>>),
     Peaks(Sender<Result<Vec<OutputPeak>, Error>>),
     Set(String, MixSettings, Sender<Result<(), Error>>),
+    RestoreApp(String, Sender<Result<(), Error>>),
     Restore(Sender<Result<(), Error>>),
     Stop,
 }
@@ -179,6 +180,11 @@ impl SessionWatcher {
     /// future sessions. Group/channel membership remains the caller's responsibility.
     pub fn set_app(&self, exe: &str, settings: MixSettings) -> Result<(), Error> {
         self.request(|reply| Command::Set(exe.to_lowercase(), settings, reply))
+    }
+    /// Stop managing this executable (including future sessions), and conditionally
+    /// restore its original volume/mute. Failed or absent sessions remain journaled.
+    pub fn restore_app(&self, exe: &str) -> Result<(), Error> {
+        self.request(|reply| Command::RestoreApp(exe.to_lowercase(), reply))
     }
     pub fn restore(&self) -> Result<(), Error> {
         self.request(Command::Restore)
@@ -378,7 +384,11 @@ impl Worker {
             }
             let observed = f32::from_bits(bits as u32);
             let muted = bits & (1 << 32) != 0;
-            let settings = self.settings.entry(session.key.exe.clone()).or_default();
+            let mut settings = self
+                .settings
+                .get(&session.key.exe)
+                .copied()
+                .unwrap_or_default();
             settings.app_pct = app_volume(
                 observed,
                 settings.channel_pct,
@@ -387,6 +397,10 @@ impl Worker {
             );
             if !settings.channel_muted && !settings.master_muted {
                 settings.app_muted = muted;
+            }
+            // Observing an unmanaged app must not install a rule for future sessions.
+            if let Some(remembered) = self.settings.get_mut(&session.key.exe) {
+                *remembered = settings;
             }
             let _ = self.events.send(MixerEvent::ExternalVolume {
                 exe: session.key.exe.clone(),
@@ -549,6 +563,12 @@ impl Worker {
                             result = Err(e);
                         }
                     }
+                    let _ = reply.send(result);
+                }
+                Ok(Command::RestoreApp(exe, reply)) => {
+                    self.settings.remove(&exe);
+                    let result = journal.restore_app(self, &exe);
+                    self.report_pending(journal);
                     let _ = reply.send(result);
                 }
                 Ok(Command::Restore(reply)) => {

@@ -75,9 +75,24 @@ impl Journal {
     }
 
     pub fn restore(&mut self, store: &mut impl SessionStore) -> Result<(), Error> {
+        self.restore_matching(store, None)
+    }
+
+    pub fn restore_app(&mut self, store: &mut impl SessionStore, exe: &str) -> Result<(), Error> {
+        self.restore_matching(store, Some(exe))
+    }
+
+    fn restore_matching(
+        &mut self,
+        store: &mut impl SessionStore,
+        exe: Option<&str>,
+    ) -> Result<(), Error> {
         let sessions = store.list()?;
         let mut completed = Vec::new();
         for (index, entry) in self.entries.iter().enumerate() {
+            if exe.is_some_and(|exe| entry.key.exe != exe) {
+                continue;
+            }
             let exact = sessions
                 .iter()
                 .any(|s| s.key == entry.key && s.instance == entry.instance);
@@ -162,6 +177,64 @@ mod tests {
                 .value = value;
             Ok(())
         }
+    }
+
+    #[test]
+    fn unmanaged_app_restores_only_its_sessions_and_can_be_managed_again() {
+        let dir = std::env::temp_dir().join(format!("macafon-unmanaged-{}", std::process::id()));
+        let original = Value {
+            volume: 0.8,
+            muted: false,
+        };
+        let ours = Value {
+            volume: 0.125,
+            muted: true,
+        };
+        let mut store = Fake(
+            ["browser.exe", "player.exe"]
+                .into_iter()
+                .enumerate()
+                .map(|(i, exe)| StoredSession {
+                    key: Key {
+                        exe: exe.into(),
+                        endpoint: "speakers".into(),
+                    },
+                    instance: i.to_string(),
+                    value: original,
+                })
+                .collect(),
+        );
+        let mut journal = Journal::open(&dir).expect("journal");
+        for session in &mut store.0 {
+            journal.record(session, ours).expect("record");
+            session.value = ours;
+        }
+        journal
+            .restore_app(&mut store, "browser.exe")
+            .expect("unmanage");
+        assert_eq!(store.0[0].value, original);
+        assert_eq!(store.0[1].value, ours);
+        assert_eq!(journal.pending(), 1);
+
+        // Re-managing starts a new journal entry from the restored session value.
+        journal.record(&store.0[0], ours).expect("manage again");
+        store.0[0].value = ours;
+        // A subsequent external volume change must survive; our mute is restored.
+        store.0[0].value.volume = 0.6;
+        journal
+            .restore_app(&mut store, "browser.exe")
+            .expect("unmanage again");
+        assert_eq!(
+            store.0[0].value,
+            Value {
+                volume: 0.6,
+                muted: false
+            }
+        );
+        assert_eq!(store.0[1].value, ours);
+        journal.restore(&mut store).expect("cleanup");
+        assert_eq!(store.0[1].value, original);
+        assert_eq!(journal.pending(), 0);
     }
 
     #[test]

@@ -2,371 +2,376 @@
 
 | | |
 |---|---|
-| **Продукт** | Macafon — обработка микрофона и микшер звука по каналам с виртуальными устройствами |
-| **Версия документа** | 1.1 (draft) |
-| **Дата** | 2026-10-08 |
-| **Статус** | На согласовании |
-| **Платформы** | Linux (PipeWire ≥ 1.0) — первая; Windows 10/11 — вторая фаза (виртуальный микрофон на бесплатном VB-CABLE, без своего драйвера) |
-| **Лицензия** | Open-source, бесплатно: GPL-3.0-only для приложения, MIT/Apache-2.0 для `macafon-dsp` |
-| **Связанные документы** | [Анализ SteelSeries Sonar](research/sonar-analysis.md) · [Дизайн-система](design/design-system.md) |
+| **Product** | Macafon — microphone processing and a per-channel audio mixer with virtual devices |
+| **Document version** | 1.1 (draft) |
+| **Date** | 2026-10-08 |
+| **Status** | Under review |
+| **Platforms** | Linux (PipeWire ≥ 1.0) — first; Windows 10/11 — second phase (virtual microphone on the free VB-CABLE, no driver of our own) |
+| **License** | Open source, free: GPL-3.0-only for the application, MIT/Apache-2.0 for `macafon-dsp` |
+| **Related documents** | [SteelSeries Sonar analysis](research/sonar-analysis.md) · [Design system](design/design-system.md) |
 
 ---
 
-## Содержание
+## Contents
 
-1. [Резюме](#1-резюме)
-2. [Проблема](#2-проблема)
-3. [Цели и не-цели](#3-цели-и-не-цели)
-4. [Пользователи и сценарии](#4-пользователи-и-сценарии)
-5. [Объём релизов](#5-объём-релизов)
-6. [Функциональные требования — микрофон](#6-функциональные-требования--микрофон)
-7. [Функциональные требования — каналы вывода](#7-функциональные-требования--каналы-вывода)
-8. [Фоновая работа, трей, автозапуск, горячие клавиши](#8-фоновая-работа-трей-автозапуск-горячие-клавиши)
-9. [UX и экраны](#9-ux-и-экраны)
-10. [Нефункциональные требования](#10-нефункциональные-требования)
-11. [Архитектура](#11-архитектура)
-12. [Платформенная реализация](#12-платформенная-реализация)
-13. [Хранение конфигурации и пресеты](#13-хранение-конфигурации-и-пресеты)
-14. [Тестирование и качество](#14-тестирование-и-качество)
-15. [Дистрибуция](#15-дистрибуция)
-16. [Риски](#16-риски)
-17. [Открытые вопросы](#17-открытые-вопросы)
-18. [Метрики успеха](#18-метрики-успеха)
+1. [Summary](#1-summary)
+2. [Problem](#2-problem)
+3. [Goals and non-goals](#3-goals-and-non-goals)
+4. [Users and scenarios](#4-users-and-scenarios)
+5. [Release scope](#5-release-scope)
+6. [Functional requirements — microphone](#6-functional-requirements--microphone)
+7. [Functional requirements — output channels](#7-functional-requirements--output-channels)
+8. [Background operation, tray, autostart, hotkeys](#8-background-operation-tray-autostart-hotkeys)
+9. [UX and screens](#9-ux-and-screens)
+10. [Non-functional requirements](#10-non-functional-requirements)
+11. [Architecture](#11-architecture)
+12. [Platform implementation](#12-platform-implementation)
+13. [Configuration storage and presets](#13-configuration-storage-and-presets)
+14. [Testing and quality](#14-testing-and-quality)
+15. [Distribution](#15-distribution)
+16. [Risks](#16-risks)
+17. [Open questions](#17-open-questions)
+18. [Success metrics](#18-success-metrics)
 19. [Roadmap](#19-roadmap)
-20. [Глоссарий](#20-глоссарий)
+20. [Glossary](#20-glossary)
 
 ---
 
-## 1. Резюме
+## 1. Summary
 
-Macafon — лёгкое нативное приложение на Rust, которое:
+Macafon is a lightweight native Rust application that:
 
-1. **Делает голос чистым.** Берёт физический микрофон, прогоняет через студийную цепочку
-   (Gain → High-pass → AI-шумодав → Downward expander → EQ → Compressor → De-esser → Limiter)
-   и отдаёт результат в системный **виртуальный микрофон `Macafon Microphone`**, который пользователь
-   выбирает в Discord, OBS, играх или как системный по умолчанию.
-2. **Раскладывает звук по каналам.** Создаёт виртуальные устройства вывода (каналы `Main`, `Voice`,
-   `Music` + пользовательские), у каждого своя громкость, EQ и эффекты. Приложения автоматически
-   появляются в интерфейсе и перетаскиваются между каналами drag & drop.
-3. **Не мешает.** Работает в фоне как демон с иконкой в трее, стартует с системой, UI выгружается
-   из памяти при закрытии окна. Задержка обработки микрофона — единицы миллисекунд.
+1. **Makes your voice clean.** It takes the physical microphone, runs it through a studio chain
+   (Gain → High-pass → AI noise suppression → Downward expander → EQ → Compressor → De-esser → Limiter)
+   and outputs the result into a system **virtual microphone `Macafon Microphone`**, which the user
+   selects in Discord, OBS, games or as the system default.
+2. **Splits audio into channels.** It creates virtual output devices (channels `Main`, `Voice`,
+   `Music` + user channels), each with its own volume, EQ and effects. Applications appear in the
+   interface automatically and are dragged between channels with drag & drop.
+3. **Stays out of the way.** It runs in the background as a daemon with a tray icon, starts with the
+   system, and the UI unloads from memory when the window is closed. Microphone processing latency is a
+   few milliseconds.
 
-Продукт повторяет сильные стороны SteelSeries Sonar (простота, D&D, пресеты) и закрывает
-его слабости (только Windows, тяжёлый хост, задержка, нестабильность, ограниченная цепочка микрофона).
+The product repeats the strengths of SteelSeries Sonar (simplicity, D&D, presets) and fixes its
+weaknesses (Windows only, a heavy host, latency, instability, a limited microphone chain).
 
-## 2. Проблема
+## 2. Problem
 
-- Дешёвые и средние микрофоны в реальной комнате звучат плохо: гул, шум вентилятора, клавиатура,
-  свист «с», скачки громкости. Встроенные шумодавы Discord/Zoom работают по-разному в каждом приложении
-  и не настраиваются.
-- Готовые решения либо привязаны к железу/экосистеме (Sonar, Wave Link, NVIDIA Broadcast), либо слишком
-  сложные (VoiceMeeter, EasyEffects), либо платные/облачные (Krisp).
-- **На Linux** нет аналога Sonar вообще: есть мощный EasyEffects и графовые редакторы PipeWire, но нет
-  простого «микшера по категориям» с D&D и нормальным онбордингом.
-- Пользователю нужна одна лёгкая программа, а не связка из 3–4 утилит.
+- Cheap and mid-range microphones sound bad in a real room: hum, fan noise, keyboard, whistling "s",
+  volume jumps. The built-in noise suppression of Discord/Zoom works differently in every application and
+  cannot be tuned.
+- Existing solutions are either tied to hardware/an ecosystem (Sonar, Wave Link, NVIDIA Broadcast), too
+  complex (VoiceMeeter, EasyEffects), or paid/cloud-based (Krisp).
+- **On Linux** there is no Sonar equivalent at all: there is the powerful EasyEffects and PipeWire graph
+  editors, but no simple "mixer by category" with D&D and proper onboarding.
+- The user needs one light program, not a bundle of 3–4 utilities.
 
-## 3. Цели и не-цели
+## 3. Goals and non-goals
 
-### 3.1 Цели продукта
+### 3.1 Product goals
 
-| # | Цель | Как измеряем |
+| # | Goal | How we measure |
 |---|---|---|
-| G1 | Новичок настраивает хороший звук микрофона за ≤ 2 минуты | Время прохождения онбординга в юзабилити-тестах (n ≥ 5) |
-| G2 | Обработка микрофона практически не добавляет задержку | Добавленная задержка ≤ 3 мс без AI-шумодава, ≤ 13 мс с RNNoise (см. §10.1) |
-| G3 | Приложение незаметно в фоне | CPU демона < 1% ядра без AI, RAM < 40 МБ; UI закрыт → 0 МБ |
-| G4 | Звук никогда «не ломается» | 0 xrun за 1 ч soak-теста; при падении/выходе Macafon звук автоматически возвращается на реальные устройства |
-| G5 | Роутинг приложений проще, чем в Sonar | D&D + автодетект + запоминание правил; 100% приложений-тестов (§14.4) корректно перемещаются |
+| G1 | A beginner sets up good microphone sound in ≤ 2 minutes | Onboarding completion time in usability tests (n ≥ 5) |
+| G2 | Microphone processing adds practically no latency | Added latency ≤ 3 ms without AI noise suppression, ≤ 13 ms with RNNoise (see §10.1) |
+| G3 | The application is unnoticeable in the background | Daemon CPU < 1% of a core without AI, RAM < 40 MB; UI closed → 0 MB |
+| G4 | Audio never "breaks" | 0 xruns in a 1 h soak test; when Macafon crashes/exits, audio automatically returns to real devices |
+| G5 | Application routing is simpler than in Sonar | D&D + auto-detection + remembered rules; 100% of the test applications (§14.4) move correctly |
 
-### 3.2 Не-цели (out of scope для 1.0)
+### 3.2 Non-goals (out of scope for 1.0)
 
 - macOS.
-- ASIO, профессиональный многоканальный роутинг-матрица уровня VoiceMeeter/Helvum.
-- Хостинг сторонних плагинов (VST3/CLAP/LV2) — roadmap.
-- Пространственный звук (HRTF/Spatial) — roadmap.
-- Отдельный стрим-микс (Streamer mode) и ducking — roadmap.
-- Несколько виртуальных микрофонов — roadmap (архитектура закладывается сразу).
-- Live-мониторинг (слышать себя в реальном времени) и спектроанализатор — roadmap.
-- Аккаунты, облако, телеметрия, реклама — **никогда** (только opt-in краш-репорты в будущем).
-- Локализация UI — только английский в 1.0 (строки сразу через i18n-слой, чтобы не переписывать).
-- Светлая тема.
+- ASIO, a professional multichannel routing matrix on the level of VoiceMeeter/Helvum.
+- Hosting third-party plugins (VST3/CLAP/LV2) — roadmap.
+- Spatial audio (HRTF/Spatial) — roadmap.
+- A separate stream mix (Streamer mode) and ducking — roadmap.
+- Several virtual microphones — roadmap (the architecture allows for it from the start).
+- Live monitoring (hearing yourself in real time) and a spectrum analyzer — roadmap.
+- Accounts, cloud, telemetry, ads — **never** (only opt-in crash reports in the future).
+- UI localization — English only in 1.0 (strings go through an i18n layer from the start to avoid a rewrite).
+- A light theme.
 
-## 4. Пользователи и сценарии
+## 4. Users and scenarios
 
-### 4.1 Персоны
+### 4.1 Personas
 
-| Персона | Описание | Главное ожидание |
+| Persona | Description | Main expectation |
 |---|---|---|
-| **Геймер** (основная) | Играет с друзьями в Discord, микрофон гарнитуры/USB, шумная клавиатура | «Чтобы меня не слышали с клавиатурой и было громко-ровно; игра тише, друзья громче» |
-| **Удалёнщик** | Созвоны в Zoom/Meet/Telegram, ноутбук или USB-микрофон, кухня/опенспейс | «Чтобы не было слышно ребёнка и пылесоса; включил и забыл» |
-| **Начинающий стример/подкастер** | OBS, недорогой XLR/USB-микрофон | «Чтобы звучало как у больших стримеров без изучения звукорежиссуры» |
-| **Linux-энтузиаст** | Переехал с Windows, не хватает Sonar/VoiceMeeter | «Нормальный GUI вместо правки конфигов PipeWire» |
+| **Gamer** (primary) | Plays with friends in Discord, a headset/USB microphone, a noisy keyboard | "So they don't hear my keyboard and I sound loud and even; the game quieter, friends louder" |
+| **Remote worker** | Calls in Zoom/Meet/Telegram, a laptop or USB microphone, a kitchen/open space | "So nobody hears the kid and the vacuum cleaner; turn it on and forget it" |
+| **Beginner streamer/podcaster** | OBS, an inexpensive XLR/USB microphone | "To sound like the big streamers without learning sound engineering" |
+| **Linux enthusiast** | Moved from Windows, misses Sonar/VoiceMeeter | "A proper GUI instead of editing PipeWire configs" |
 
-### 4.2 Ключевые сценарии (user stories)
+### 4.2 Key scenarios (user stories)
 
-- **US-1.** Как пользователь, я при первом запуске выбираю свой микрофон из списка, где видно, какой
-  микрофон сейчас «слышит» меня, чтобы не гадать по названиям.
-- **US-2.** Как новичок, я прохожу автокалибровку (помолчать / сказать фразу), и Macafon сам выставляет
-  усиление, порог гейта и силу шумодава.
-- **US-3.** Как пользователь, я записываю 10 секунд своего голоса и переключаю A/B (до/после), двигая
-  слайдеры и сразу слыша результат на лупе.
-- **US-4.** Как пользователь, я двигаю один слайдер «интенсивности» у каждого модуля, а если хочу —
-  раскрываю «Advanced» и правлю все параметры.
-- **US-5.** Как пользователь, я выбираю `Macafon Microphone` в Discord/OBS/как системный микрофон и
-  закрываю окно — обработка продолжает работать из трея.
-- **US-6.** Как пользователь, я вижу все приложения, которые играют звук, и перетаскиваю Discord в канал
-  Voice, Spotify — в Music; в следующий раз они попадут туда автоматически.
-- **US-7.** Как пользователь, я ставлю громкость Main 30%, Voice 50%, включаю на Voice шумодав + компрессор +
-  лимитер, чтобы собеседники звучали ровно и чисто.
-- **US-8.** Как пользователь, я жму горячую клавишу, чтобы замьютить микрофон, и вижу это в трее.
-- **US-9.** Как пользователь, я меняю наушники на колонки в Macafon один раз, и все каналы переезжают на новое
-  устройство.
-- **US-10.** Как пользователь, если Macafon закрыт или упал, звук в системе продолжает работать.
+- **US-1.** As a user, on first launch I choose my microphone from a list that shows which microphone
+  "hears" me right now, so I don't have to guess by name.
+- **US-2.** As a beginner, I go through auto-calibration (stay silent / say a phrase), and Macafon sets
+  the gain, the gate threshold and the noise suppression strength itself.
+- **US-3.** As a user, I record 10 seconds of my voice and switch A/B (before/after), moving sliders and
+  hearing the result on a loop immediately.
+- **US-4.** As a user, I move one "intensity" slider per module, and if I want to, I open "Advanced" and
+  edit all the parameters.
+- **US-5.** As a user, I select `Macafon Microphone` in Discord/OBS/as the system microphone and close the
+  window — processing keeps running from the tray.
+- **US-6.** As a user, I see all applications that play audio and drag Discord into the Voice channel and
+  Spotify into Music; next time they land there automatically.
+- **US-7.** As a user, I set Main to 30% and Voice to 50%, and enable noise suppression + compressor +
+  limiter on Voice so that the other side sounds even and clean.
+- **US-8.** As a user, I press a hotkey to mute the microphone and see it in the tray.
+- **US-9.** As a user, I switch from headphones to speakers in Macafon once, and all channels move to the
+  new device.
+- **US-10.** As a user, if Macafon is closed or has crashed, audio in the system keeps working.
 
-### 4.3 Эталонный сценарий вывода (из брифа)
+### 4.3 Reference output scenario (from the brief)
 
-| Канал | Приложения | Громкость | Обработка |
+| Channel | Applications | Volume | Processing |
 |---|---|---|---|
-| 1 · **Main** | игры, браузер, всё остальное (канал по умолчанию) | 30% | EQ выкл |
-| 2 · **Voice** | Discord, Telegram, TeamSpeak, Zoom | 50% | EQ вкл, шумодав, компрессор, лимитер |
-| 3 · **Music** | Apple Music / Cider, Spotify, Яндекс Музыка | — | EQ вкл (музыкальный пресет) |
+| 1 · **Main** | games, browser, everything else (the default channel) | 30% | EQ off |
+| 2 · **Voice** | Discord, Telegram, TeamSpeak, Zoom | 50% | EQ on, noise suppression, compressor, limiter |
+| 3 · **Music** | Apple Music / Cider, Spotify, Yandex Music | — | EQ on (music preset) |
 
-## 5. Объём релизов
+## 5. Release scope
 
-Приоритеты: **P0** — обязательно для релиза, **P1** — желательно, может сдвинуться на минорный релиз,
+Priorities: **P0** — required for the release, **P1** — desirable, may move to a minor release,
 **P2** — roadmap.
 
-| Релиз | Платформа | Содержание |
+| Release | Platform | Content |
 |---|---|---|
-| **M0 · Spike** | Linux | Техническая проверка: виртуальный источник PipeWire, замер задержки, RNNoise/DeepFilterNet в RT-потоке, роутинг потока приложения через metadata. Без UI. |
-| **M1 · MVP «Микрофон»** | Linux | Вся цепочка микрофона, онбординг с калибровкой, запись + A/B, пресеты, виртуальный микрофон, демон + трей + автозапуск, базовые метры |
-| **M2 · 1.0 «Микшер»** | Linux | Каналы вывода, автодетект и D&D приложений, громкость/EQ/FX на канал, выбор выходного устройства, горячие клавиши, Doctor-диагностика |
-| **M3 · 1.x «Windows»** | Windows 10 22H2+/11 | Виртуальный микрофон на бесплатном VB-CABLE, который ставит пользователь (§12.2.1); микшер — группы громкости приложений без эффектов (§12.2.2); трей/автозапуск, инсталлятор без прав администратора |
-| **M4+** | обе | См. [Roadmap](#19-roadmap) |
+| **M0 · Spike** | Linux | A technical check: a PipeWire virtual source, latency measurement, RNNoise/DeepFilterNet in the RT thread, routing an application stream through metadata. No UI. |
+| **M1 · MVP "Microphone"** | Linux | The whole microphone chain, onboarding with calibration, recording + A/B, presets, the virtual microphone, daemon + tray + autostart, basic meters |
+| **M2 · 1.0 "Mixer"** | Linux | Output channels, auto-detection and D&D of applications, per-channel volume/EQ/FX, output device selection, hotkeys, Doctor diagnostics |
+| **M3 · 1.x "Windows"** | Windows 10 22H2+/11 | A virtual microphone on the free VB-CABLE installed by the user (§12.2.1); the mixer as application volume groups without effects (§12.2.2); tray/autostart, an installer without administrator rights |
+| **M4+** | both | See [Roadmap](#19-roadmap) |
 
 ---
 
-## 6. Функциональные требования — микрофон
+## 6. Functional requirements — microphone
 
-### 6.1 Выбор устройства
+### 6.1 Device selection
 
-| ID | Требование | Приоритет |
+| ID | Requirement | Priority |
 |---|---|---|
-| MIC-001 | Список всех физических устройств ввода с человекочитаемым именем (`node.description`), иконкой типа (USB/встроенный/гарнитура/Bluetooth) | P0 |
-| MIC-002 | У каждого устройства в списке — живой мини-метр уровня, чтобы пользователь видел, какой микрофон его слышит. Метры опрашиваются только пока список открыт. Список обновляется при подключении/отключении устройств событием демона, без опроса из UI | P0 |
-| MIC-003 | Собственные виртуальные устройства Macafon и мониторы (`*.monitor`) исключены из списка | P0 |
-| MIC-004 | Выбор канала входа для многоканальных интерфейсов: `Left`, `Right`, `Mix (L+R)`. По умолчанию — автодетект канала с сигналом при калибровке | P1 |
-| MIC-005 | Hot-plug: при отключении выбранного микрофона виртуальный микрофон продолжает существовать и выдаёт тишину; тост «Microphone disconnected»; при повторном подключении — автоматический возврат без действий пользователя | P0 |
-| MIC-006 | Резервный микрофон: опционально второй по приоритету (например, встроенный), на который переключаемся при отключении основного | P1 |
-| MIC-007 | Профиль настроек привязан к физическому микрофону (по стабильному ID: `device.bus-path`/serial + имя). Смена микрофона загружает его профиль | P1 |
+| MIC-001 | A list of all physical input devices with a human-readable name (`node.description`) and a type icon (USB/built-in/headset/Bluetooth) | P0 |
+| MIC-002 | Every device in the list has a live mini level meter so the user sees which microphone hears them. Meters are polled only while the list is open. The list updates on device connect/disconnect through a daemon event, without polling from the UI | P0 |
+| MIC-003 | Macafon's own virtual devices and monitors (`*.monitor`) are excluded from the list | P0 |
+| MIC-004 | Input channel selection for multichannel interfaces: `Left`, `Right`, `Mix (L+R)`. By default the channel with signal is auto-detected during calibration | P1 |
+| MIC-005 | Hot-plug: when the selected microphone is disconnected, the virtual microphone keeps existing and outputs silence; a "Microphone disconnected" toast; on reconnect — an automatic return with no user action | P0 |
+| MIC-006 | Fallback microphone: an optional second-priority one (for example, the built-in one) to switch to when the primary disconnects | P1 |
+| MIC-007 | A settings profile is bound to the physical microphone (by a stable ID: `device.bus-path`/serial + name). Changing the microphone loads its profile | P1 |
 
-### 6.2 Виртуальный микрофон
+### 6.2 Virtual microphone
 
-| ID | Требование | Приоритет |
+| ID | Requirement | Priority |
 |---|---|---|
-| MIC-010 | В системе существует устройство ввода `Macafon Microphone` всё время, пока работает демон (даже при отключённом физическом микрофоне) | P0 |
-| MIC-011 | Формат: 48 кГц, float32, моно (опция «stereo» дублирует моно в 2 канала для приложений, которые плохо работают с моно) | P0 |
-| MIC-012 | Кнопка «Set as system default» (с подтверждением) — делает `Macafon Microphone` микрофоном по умолчанию; исходный default запоминается и восстанавливается при выключении Macafon / удалении. Демон сообщает, является ли `Macafon Microphone` текущим default, — UI показывает состояние (переключатель), а не две кнопки | P0 |
-| MIC-013 | Mute микрофона (UI, трей, хоткей): выдаётся цифровая тишина, физический микрофон не трогается. Индикатор mute в трее | P0 |
-| MIC-014 | Global Bypass: цепочка выключается целиком (сигнал проходит с Gain = 0 dB), для мгновенного сравнения в реальном звонке | P0 |
-| MIC-015 | Подсказка в онбординге и на экране микрофона: «Turn off noise suppression / echo cancellation / auto gain in Discord, Zoom…» со ссылкой на инструкции, т.к. двойная обработка ухудшает звук | P1 |
+| MIC-010 | The input device `Macafon Microphone` exists in the system for as long as the daemon runs (even with the physical microphone disconnected) | P0 |
+| MIC-011 | Format: 48 kHz, float32, mono (a "stereo" option duplicates mono into 2 channels for applications that handle mono poorly) | P0 |
+| MIC-012 | A "Set as system default" button (with confirmation) makes `Macafon Microphone` the default microphone; the original default is remembered and restored when Macafon is turned off / uninstalled. The daemon reports whether `Macafon Microphone` is the current default — the UI shows the state (a toggle), not two buttons | P0 |
+| MIC-013 | Microphone mute (UI, tray, hotkey): digital silence is output, the physical microphone is not touched. A mute indicator in the tray | P0 |
+| MIC-014 | Global Bypass: the whole chain is turned off (the signal passes with Gain = 0 dB), for instant comparison in a real call | P0 |
+| MIC-015 | A hint in onboarding and on the microphone screen: "Turn off noise suppression / echo cancellation / auto gain in Discord, Zoom…" with a link to instructions, because double processing makes the sound worse | P1 |
 
-### 6.3 Цепочка обработки
+### 6.3 Processing chain
 
-Порядок фиксированный (в 1.0), выбран по практике вокального продакшна:
+The order is fixed (in 1.0) and follows vocal production practice:
 
 ```
 Mic ─► [1 Gain] ─► [2 High-pass] ─► [3 Noise Suppression] ─► [4 Expander/Gate] ─► [5 EQ]
     ─► [6 Compressor] ─► [7 De-esser] ─► [8 Limiter] ─► [Output Gain] ─► Macafon Microphone
 ```
 
-Почему так: HPF до шумодава убирает гул, который мешает нейросети; expander после шумодава работает по
-уже очищенному остатку; EQ до компрессора, чтобы компрессор реагировал на сформированный тембр;
-de-esser после компрессора, т.к. компрессия подчёркивает сибилянты; limiter последним как защита от клипа.
+Why: an HPF before noise suppression removes hum that confuses the neural network; the expander after
+noise suppression works on the already cleaned residue; EQ before the compressor so that the compressor
+reacts to the shaped timbre; the de-esser after the compressor, because compression emphasizes
+sibilants; the limiter last as clipping protection.
 
-**Общие требования к модулям:**
+**General module requirements:**
 
-| ID | Требование | Приоритет |
+| ID | Requirement | Priority |
 |---|---|---|
-| DSP-001 | У каждого модуля: переключатель on/off, **один главный слайдер** (интенсивность/чувствительность, 0–100%) и раскрывающийся блок **Advanced** со всеми параметрами | P0 |
-| DSP-002 | Главный слайдер — «макро»: детерминированно отображается в набор параметров Advanced (таблицы ниже). Изменение любого Advanced-параметра вручную переводит модуль в режим `CUSTOM` (бейдж), главный слайдер блокируется с кнопкой «Reset to simple» | P0 |
-| DSP-003 | Все изменения параметров применяются без щелчков и артефактов: сглаживание параметров (≥ 10 мс, линейное/экспоненциальное), пересчёт коэффициентов фильтров без разрывов | P0 |
-| DSP-004 | Модули с динамикой (Expander, Compressor, De-esser, Limiter) показывают gain reduction в реальном времени | P0 |
-| DSP-005 | Выключенный модуль полностью исключается из обработки (0 CPU) и не добавляет задержки | P0 |
-| DSP-006 | Внутренняя частота дискретизации — 48 кГц. Если устройство работает на 44.1/96 кГц — ресемплинг силами PipeWire (адаптер), не в нашем коде | P0 |
-| DSP-007 | Вся обработка — 32-bit float, моно | P0 |
-| DSP-008 | Двойной клик по слайдеру — сброс к значению по умолчанию; Undo/Redo (Ctrl+Z / Ctrl+Shift+Z) для изменений параметров, глубина ≥ 50 | P1 |
-| DSP-009 | Возможность менять порядок модулей drag & drop (Advanced-режим) | P2 |
+| DSP-001 | Every module has an on/off toggle, **one main slider** (intensity/sensitivity, 0–100%) and an expandable **Advanced** block with all parameters | P0 |
+| DSP-002 | The main slider is a "macro": it maps deterministically to a set of Advanced parameters (tables below). Changing any Advanced parameter by hand switches the module to `CUSTOM` mode (a badge); the main slider is locked with a "Reset to simple" button | P0 |
+| DSP-003 | All parameter changes apply without clicks or artifacts: parameter smoothing (≥ 10 ms, linear/exponential), filter coefficients recomputed without discontinuities | P0 |
+| DSP-004 | Dynamics modules (Expander, Compressor, De-esser, Limiter) show gain reduction in real time | P0 |
+| DSP-005 | A disabled module is fully excluded from processing (0 CPU) and adds no latency | P0 |
+| DSP-006 | The internal sample rate is 48 kHz. If a device runs at 44.1/96 kHz, PipeWire resamples (adapter), not our code | P0 |
+| DSP-007 | All processing is 32-bit float, mono | P0 |
+| DSP-008 | Double-clicking a slider resets it to the default; Undo/Redo (Ctrl+Z / Ctrl+Shift+Z) for parameter changes, depth ≥ 50 | P1 |
+| DSP-009 | Reordering modules with drag & drop (Advanced mode) | P2 |
 
-#### 6.3.1 Gain (входное усиление)
+#### 6.3.1 Gain (input gain)
 
-| Параметр | Диапазон | По умолчанию | Примечание |
+| Parameter | Range | Default | Note |
 |---|---|---|---|
-| Gain | −24 … +24 dB | 0 dB (или по калибровке) | Главный слайдер, шаг 0.5 dB |
-| Auto (кнопка) | — | — | Калибровка: целевой уровень речи ≈ −18 dBFS RMS / пики ≈ −6 dBFS |
+| Gain | −24 … +24 dB | 0 dB (or from calibration) | Main slider, 0.5 dB step |
+| Auto (button) | — | — | Calibration: target speech level ≈ −18 dBFS RMS / peaks ≈ −6 dBFS |
 
-Требования: MIC-G1 (P0) — метр входа до и после Gain, индикатор клипа на входе (клип **до** нашей
-обработки нельзя исправить → подсказка «Lower your mic level in system settings»).
+Requirements: MIC-G1 (P0) — an input meter before and after Gain, an input clip indicator (clipping
+**before** our processing cannot be fixed → the hint "Lower your mic level in system settings").
 
-#### 6.3.2 High-pass (обрезка низа)
+#### 6.3.2 High-pass (low cut)
 
-| Параметр | Диапазон | По умолчанию |
+| Parameter | Range | Default |
 |---|---|---|
-| Frequency (главный) | 20 … 300 Hz | 80 Hz |
+| Frequency (main) | 20 … 300 Hz | 80 Hz |
 | Slope | 12 / 24 dB/oct | 24 dB/oct |
 
-Реализация: каскад биквадов Butterworth (TPT/SVF-форма для стабильной модуляции). Нулевая алгоритмическая задержка.
+Implementation: a cascade of Butterworth biquads (TPT/SVF form for stable modulation). Zero algorithmic latency.
 
-#### 6.3.3 Noise Suppression (AI-шумодав)
+#### 6.3.3 Noise Suppression (AI)
 
-| Параметр | Диапазон | По умолчанию | Примечание |
+| Parameter | Range | Default | Note |
 |---|---|---|---|
-| Engine | `Lite` (RNNoise) / `Studio` (DeepFilterNet 3) | Lite | Переключение без перезапуска, с кроссфейдом 50 мс |
-| Intensity (главный) | 0 … 100% | 70% | Lite: wet/dry микс + порог VAD; Studio: `attenuation limit` 0 … 100 dB |
-| Voice activity threshold (Lite, Advanced) | 0 … 100% | 50% | При вероятности голоса ниже порога — дополнительное ослабление |
-| Post-filter (Studio, Advanced) | on/off | on | Пост-фильтр DeepFilterNet для лучшего подавления в паузах |
+| Engine | `Lite` (RNNoise) / `Studio` (DeepFilterNet 3) | Lite | Switching without a restart, with a 50 ms crossfade |
+| Intensity (main) | 0 … 100% | 70% | Lite: wet/dry mix + VAD threshold; Studio: `attenuation limit` 0 … 100 dB |
+| Voice activity threshold (Lite, Advanced) | 0 … 100% | 50% | Extra attenuation when the voice probability is below the threshold |
+| Post-filter (Studio, Advanced) | on/off | on | The DeepFilterNet post-filter for better suppression in pauses |
 
-Требования:
-- NS-001 (P0) Lite = [`nnnoiseless`](https://github.com/jneem/nnnoiseless) (порт RNNoise на Rust), кадр 10 мс @ 48 кГц.
-- NS-002 (P0) Studio = DeepFilterNet 3 (Rust-крейт `deep_filter` с `tract`), модель встроена в бинарь/ресурсы, без сети. Если CPU не успевает (детектор перегрузки, §10.3) — автоматический откат на Lite с тостом.
-- NS-003 (P0) В UI рядом с выбором движка честно указана добавляемая задержка (`+10 ms` / `+~40 ms`) и нагрузка (`LOW CPU` / `MED CPU`).
-- NS-004 (P1) Подавление щелчков клавиатуры/мыши (аналог Impact NR в Sonar) — проверить качество RNNoise/DFN на кликах; при недостаточном качестве — отдельный транзиентный подавитель (P2).
+Requirements:
+- NS-001 (P0) Lite = [`nnnoiseless`](https://github.com/jneem/nnnoiseless) (a Rust port of RNNoise), 10 ms frame @ 48 kHz.
+- NS-002 (P0) Studio = DeepFilterNet 3 (the Rust crate `deep_filter` with `tract`), the model is embedded in the binary/resources, no network. If the CPU cannot keep up (the overload detector, §10.3) — an automatic fallback to Lite with a toast.
+- NS-003 (P0) The UI honestly shows the added latency (`+10 ms` / `+~40 ms`) and load (`LOW CPU` / `MED CPU`) next to the engine choice.
+- NS-004 (P1) Keyboard/mouse click suppression (like Impact NR in Sonar) — check the quality of RNNoise/DFN on clicks; if insufficient, a separate transient suppressor (P2).
 
 #### 6.3.4 Downward Expander / Gate
 
-| Параметр | Диапазон | По умолчанию |
+| Parameter | Range | Default |
 |---|---|---|
-| Sensitivity (главный) | 0 … 100% | 50% (→ порог = шумовой пол + 6 dB после калибровки) |
+| Sensitivity (main) | 0 … 100% | 50% (→ threshold = noise floor + 6 dB after calibration) |
 | Threshold | −80 … −10 dBFS | −50 dBFS |
 | Ratio | 1:1.5 … 1:10, ∞ (= gate) | 1:3 |
-| Range (макс. ослабление) | −80 … 0 dB | −30 dB |
+| Range (max attenuation) | −80 … 0 dB | −30 dB |
 | Attack | 0.1 … 50 ms | 2 ms |
 | Hold | 0 … 500 ms | 80 ms |
 | Release | 10 … 1000 ms | 150 ms |
 | Hysteresis | 0 … 12 dB | 4 dB |
 
-Макро: Sensitivity 0% → порог высоко (мягко пропускает только громкую речь), 100% → порог у самого
-шумового пола. Range и Ratio растут вместе со «строгостью». Детектор — RMS-огибающая 5 мс, sidechain
-HPF 100 Гц (чтобы гул не открывал гейт). На графике — горизонтальная линия порога поверх метра входа,
-её можно перетаскивать мышью.
+Macro: Sensitivity 0% → a high threshold (gently lets only loud speech through), 100% → the threshold at
+the noise floor itself. Range and Ratio grow with "strictness". The detector is a 5 ms RMS envelope with a
+100 Hz sidechain HPF (so hum does not open the gate). The graph shows a horizontal threshold line over the
+input meter that can be dragged with the mouse.
 
-#### 6.3.5 EQ (параметрический)
+#### 6.3.5 EQ (parametric)
 
-| Параметр | Значения |
+| Parameter | Values |
 |---|---|
-| Полосы | до 10, по умолчанию 5 (Low shelf 120 Hz, Bell 250 Hz, Bell 1 kHz, Bell 4 kHz, High shelf 10 kHz — все 0 dB) |
-| Типы | Bell, Low shelf, High shelf, Low cut, High cut, Notch |
+| Bands | up to 10, 5 by default (Low shelf 120 Hz, Bell 250 Hz, Bell 1 kHz, Bell 4 kHz, High shelf 10 kHz — all 0 dB) |
+| Types | Bell, Low shelf, High shelf, Low cut, High cut, Notch |
 | Frequency | 20 Hz … 20 kHz |
 | Gain | −18 … +18 dB |
 | Q | 0.1 … 10 |
 | Output gain | −12 … +12 dB |
 
-- EQ-001 (P0) Интерактивный график: кривая суммарной АЧХ, перетаскивание точек (X — частота, Y — gain, колесо/Alt+drag — Q), двойной клик по пустому месту — новая полоса, правый клик — тип/удалить.
-- EQ-002 (P0) Простой режим (главный «слайдер» EQ): пресеты-характеры — `Flat`, `Clarity`, `Warmth`, `Broadcast`, `Presence`, `Thin mic fix` + слайдер `Amount 0–100%`, масштабирующий gain всех полос пресета.
-- EQ-003 (P0) Биквады по формулам RBJ Audio EQ Cookbook, SVF-реализация, нулевая алгоритмическая задержка (минимально-фазовый EQ).
-- EQ-004 (P2) Наложение спектра реального сигнала на график.
+- EQ-001 (P0) An interactive graph: the total frequency response curve, dragging points (X — frequency, Y — gain, wheel/Alt+drag — Q), double-clicking an empty area adds a band, right click — type/delete.
+- EQ-002 (P0) Simple mode (the EQ's main "slider"): character presets — `Flat`, `Clarity`, `Warmth`, `Broadcast`, `Presence`, `Thin mic fix` + an `Amount 0–100%` slider that scales the gain of all preset bands.
+- EQ-003 (P0) Biquads per the RBJ Audio EQ Cookbook formulas, an SVF implementation, zero algorithmic latency (a minimum-phase EQ).
+- EQ-004 (P2) An overlay of the real signal's spectrum on the graph.
 
 #### 6.3.6 Compressor
 
-| Параметр | Диапазон | По умолчанию |
+| Parameter | Range | Default |
 |---|---|---|
-| Amount (главный) | 0 … 100% | 40% |
+| Amount (main) | 0 … 100% | 40% |
 | Threshold | −60 … 0 dBFS | −20 dBFS |
 | Ratio | 1:1 … 20:1 | 3:1 |
 | Attack | 0.1 … 100 ms | 5 ms |
-| Release | 10 … 1000 ms | 80 ms (+ опция Auto release) |
+| Release | 10 … 1000 ms | 80 ms (+ an Auto release option) |
 | Knee | 0 … 12 dB | 6 dB |
 | Makeup | Auto / −12 … +24 dB | Auto |
 | Detector | Peak / RMS | RMS |
 
-Макро: Amount двигает threshold вниз (−10 → −35 dBFS) и ratio вверх (2:1 → 6:1), auto-makeup
-компенсирует громкость, чтобы при A/B сравнивался характер, а не громкость. Feed-forward, без look-ahead.
+Macro: Amount moves the threshold down (−10 → −35 dBFS) and the ratio up (2:1 → 6:1); auto makeup
+compensates the loudness so that A/B compares character, not loudness. Feed-forward, no look-ahead.
 
 #### 6.3.7 De-esser
 
-| Параметр | Диапазон | По умолчанию |
+| Parameter | Range | Default |
 |---|---|---|
-| Intensity (главный) | 0 … 100% | 40% |
+| Intensity (main) | 0 … 100% | 40% |
 | Frequency | 3 … 12 kHz | 6.5 kHz |
-| Threshold | −60 … 0 dBFS | авто из Intensity |
+| Threshold | −60 … 0 dBFS | automatic from Intensity |
 | Max reduction | 0 … 18 dB | 8 dB |
 | Mode | Split-band / Wideband | Split-band |
-| Listen (Advanced) | on/off | off — слушать только sidechain-полосу, чтобы найти частоту «с» |
+| Listen (Advanced) | on/off | off — listen to the sidechain band only, to find the "s" frequency |
 
-Split-band — динамический high-shelf/bell на частоте (без look-ahead), детектор — band-pass sidechain.
+Split-band is a dynamic high-shelf/bell at the frequency (no look-ahead); the detector is a band-pass sidechain.
 
 #### 6.3.8 Limiter
 
-| Параметр | Диапазон | По умолчанию |
+| Parameter | Range | Default |
 |---|---|---|
-| Ceiling (главный) | −12 … 0 dBFS | −1 dBFS |
+| Ceiling (main) | −12 … 0 dBFS | −1 dBFS |
 | Release | 1 … 500 ms | 50 ms |
 | Look-ahead | 0 / 1 / 2 / 5 ms | **0 ms** |
 
-По умолчанию — limiter без look-ahead (быстрая атака + мягкий клиппер на последних 0.5 dB),
-чтобы не добавлять задержку. Look-ahead > 0 — опция для максимального качества (явно указана добавляемая задержка).
+By default the limiter has no look-ahead (a fast attack + a soft clipper on the last 0.5 dB) so as not to
+add latency. Look-ahead > 0 is an option for maximum quality (with the added latency shown explicitly).
 
 #### 6.3.9 Output Gain
 
-−24 … +12 dB, по умолчанию 0. Выходной метр с LUFS-short-term (P1) — подсказка «целевая громкость голоса для Discord ≈ −18…−14 LUFS».
+−24 … +12 dB, default 0. An output meter with short-term LUFS (P1) — the hint "target voice loudness for
+Discord ≈ −18…−14 LUFS".
 
-#### 6.3.10 Встроенные пресеты микрофона
+#### 6.3.10 Built-in microphone presets
 
-| Пресет | Суть |
+| Preset | Essence |
 |---|---|
-| **Natural** (по умолчанию) | HPF 80, Lite NS 60%, Expander 40%, EQ Flat, Comp 30%, De-ess 30%, Limiter −1 |
+| **Natural** (default) | HPF 80, Lite NS 60%, Expander 40%, EQ Flat, Comp 30%, De-ess 30%, Limiter −1 |
 | **Discord Clear** | HPF 100, Lite NS 80%, Expander 60%, EQ Clarity 50%, Comp 50%, De-ess 40%, Limiter −1 |
 | **Noisy Room** | HPF 120, Studio NS 90%, Expander 70%, EQ Presence 40%, Comp 50%, Limiter −1 |
 | **Broadcast** | HPF 80, Lite NS 50%, Expander 40%, EQ Broadcast 70%, Comp 65%, De-ess 50%, Limiter −1 |
 | **Warm Podcast** | HPF 70, Lite NS 50%, EQ Warmth 60%, Comp 55%, De-ess 45%, Limiter −1.5 |
-| **Raw** | Всё выключено кроме Gain |
+| **Raw** | Everything off except Gain |
 
-Пресеты пользователя: сохранить / переименовать / дублировать / удалить / экспорт и импорт `.macafon-preset.json`. Встроенные пресеты read-only (при изменении — «Save as new»). P0 — сохранение/выбор, P1 — импорт/экспорт.
+User presets: save / rename / duplicate / delete / export and import `.macafon-preset.json`. Built-in
+presets are read-only (on change — "Save as new"). P0 — save/select, P1 — import/export.
 
-### 6.4 Тест звука: запись + A/B
+### 6.4 Sound test: recording + A/B
 
-Главный инструмент настройки в 1.0 (live-мониторинг — roadmap).
+The main tuning tool in 1.0 (live monitoring is on the roadmap).
 
-| ID | Требование | Приоритет |
+| ID | Requirement | Priority |
 |---|---|---|
-| AB-001 | Кнопка `REC` записывает **сырой** сигнал с физического микрофона (до цепочки), длительность 3–30 с (по умолчанию 10 с, остановка кнопкой). Обратный отсчёт 3-2-1 и подсказка «Say something, then stay silent for 2 seconds» | P0 |
-| AB-002 | `LOOP PLAY` воспроизводит запись по кругу в выбранное устройство прослушивания (по умолчанию — текущий выход, рекомендуются наушники; предупреждение, если выход — колонки) | P0 |
-| AB-003 | Запись при воспроизведении прогоняется **через текущую цепочку в реальном времени** отдельным экземпляром процессора — любые изменения слайдеров слышны сразу | P0 |
-| AB-004 | Переключатель `A ⇄ B` (клавиша `Space` при фокусе на окне, `Tab`/`B` — альтернатива): A = сырой сигнал, B = обработанный. Переключение без щелчка (кроссфейд 20 мс), позиция воспроизведения общая | P0 |
-| AB-005 | Loudness match (по умолчанию вкл): A автоматически выравнивается по громкости с B, чтобы «громче» не казалось «лучше» | P1 |
-| AB-006 | Визуализация записи: waveform A и B наложением, кликом можно перемотать | P1 |
-| AB-007 | Запись хранится только в памяти; опция «Export WAV» (A и B) для отправки в баг-репорт / сравнения | P2 |
-| AB-008 | Во время записи/воспроизведения основной виртуальный микрофон продолжает работать как обычно | P0 |
+| AB-001 | The `REC` button records the **raw** signal from the physical microphone (before the chain), 3–30 s long (10 s by default, stop with the button). A 3-2-1 countdown and the hint "Say something, then stay silent for 2 seconds" | P0 |
+| AB-002 | `LOOP PLAY` plays the recording in a loop into the selected monitoring device (the current output by default, headphones recommended; a warning if the output is speakers) | P0 |
+| AB-003 | During playback the recording is run **through the current chain in real time** by a separate processor instance — any slider change is heard immediately | P0 |
+| AB-004 | An `A ⇄ B` switch (the `Space` key when the window has focus, `Tab`/`B` as an alternative): A = the raw signal, B = processed. Switching without a click (20 ms crossfade), a shared playback position | P0 |
+| AB-005 | Loudness match (on by default): A is automatically matched in loudness to B so that "louder" does not seem "better" | P1 |
+| AB-006 | Recording visualization: A and B waveforms overlaid, click to seek | P1 |
+| AB-007 | The recording is kept only in memory; an "Export WAV" option (A and B) for a bug report / comparison | P2 |
+| AB-008 | During recording/playback the main virtual microphone keeps working as usual | P0 |
 
-### 6.5 Калибровка (авто-настройка)
+### 6.5 Calibration (auto-setup)
 
-| ID | Требование | Приоритет |
+| ID | Requirement | Priority |
 |---|---|---|
-| CAL-001 | Шаг 1: «Stay silent» — 4 с, замер шумового пола (RMS, спектр шума) | P0 |
-| CAL-002 | Шаг 2: «Read this sentence» — фраза на экране (~6 с), замер уровня речи и пиков | P0 |
-| CAL-003 | По результатам: Gain → речь к ≈ −18 dBFS RMS; порог Expander = шумовой пол + 6 dB (не выше речи − 12 dB); NS intensity по SNR (SNR > 40 dB → 40%, < 20 dB → 90% и предложение Studio); HPF по наличию энергии шума < 100 Гц | P0 |
-| CAL-004 | Итоговый экран: SNR до/после, «уровень шума: low/medium/high», что именно настроено (список с иконками модулей) и кнопка «Listen A/B» | P0 |
-| CAL-005 | Клип на входе при калибровке → предупреждение и инструкция снизить уровень в системе/на интерфейсе, калибровку можно повторить | P0 |
-| CAL-006 | Калибровку можно запустить повторно с экрана микрофона | P0 |
+| CAL-001 | Step 1: "Stay silent" — 4 s, measuring the noise floor (RMS, noise spectrum) | P0 |
+| CAL-002 | Step 2: "Read this sentence" — a phrase on screen (~6 s), measuring the speech level and peaks | P0 |
+| CAL-003 | From the results: Gain → speech at ≈ −18 dBFS RMS; Expander threshold = noise floor + 6 dB (not above speech − 12 dB); NS intensity by SNR (SNR > 40 dB → 40%, < 20 dB → 90% and a Studio suggestion); HPF by the presence of noise energy < 100 Hz | P0 |
+| CAL-004 | A result screen: SNR before/after, "noise level: low/medium/high", exactly what was set (a list with module icons) and a "Listen A/B" button | P0 |
+| CAL-005 | Input clipping during calibration → a warning and instructions to lower the level in the system/on the interface; calibration can be repeated | P0 |
+| CAL-006 | Calibration can be run again from the microphone screen | P0 |
 
-### 6.6 Метры
+### 6.6 Meters
 
-| ID | Требование | Приоритет |
+| ID | Requirement | Priority |
 |---|---|---|
-| MTR-001 | Метр входа (после Gain) и выхода (после Output gain): peak + RMS, peak-hold, индикатор клипа | P0 |
-| MTR-002 | Gain reduction у Expander, Compressor, De-esser, Limiter | P0 |
-| MTR-003 | Индикатор активности NS (насколько сейчас подавляется) | P1 |
-| MTR-004 | Метры обновляются 60 Гц, только пока окно видимо (иначе демон не шлёт данные) | P0 |
+| MTR-001 | An input meter (after Gain) and an output meter (after Output gain): peak + RMS, peak hold, a clip indicator | P0 |
+| MTR-002 | Gain reduction for Expander, Compressor, De-esser, Limiter | P0 |
+| MTR-003 | An NS activity indicator (how much is being suppressed right now) | P1 |
+| MTR-004 | Meters update at 60 Hz, only while the window is visible (otherwise the daemon sends no data) | P0 |
 
 ---
 
-## 7. Функциональные требования — каналы вывода
+## 7. Functional requirements — output channels
 
-### 7.1 Модель
+### 7.1 Model
 
-- **Канал** = виртуальное устройство вывода (`Macafon Main`, `Macafon Voice`, `Macafon Music`, …) + своя цепочка
-  обработки + фейдер. Все каналы сводятся в общий **Master** и выводятся на одно реальное **устройство вывода**.
-- Каждое приложение (аудиопоток) назначено ровно одному каналу. Новые приложения попадают в
-  **канал по умолчанию** (Main).
+- **Channel** = a virtual output device (`Macafon Main`, `Macafon Voice`, `Macafon Music`, …) + its own
+  processing chain + a fader. All channels are mixed into a shared **Master** and played into one real
+  **output device**.
+- Every application (audio stream) is assigned to exactly one channel. New applications land in the
+  **default channel** (Main).
 
 ```
 Firefox ─┐                      ┌──────────────────────────────┐
@@ -378,140 +383,144 @@ Cider ─────► Macafon Music ──────►│ Music: vol 70%  
                                  └──────────────────────────────┘
 ```
 
-### 7.2 Каналы
+### 7.2 Channels
 
-| ID | Требование | Приоритет |
+| ID | Requirement | Priority |
 |---|---|---|
-| CH-001 | При первом включении микшера создаются 3 канала: **Main** (blue, default), **Voice** (violet), **Music** (pink) | P0 |
-| CH-002 | Пользователь может создать канал (до 8 всего, на Windows тоже — WIN-CH-005), переименовать, выбрать цвет (палитра из 7) и иконку, удалить (кроме канала по умолчанию; приложения удалённого канала переезжают в default) | P0 |
-| CH-003 | Любой канал можно назначить каналом по умолчанию | P1 |
-| CH-004 | Фейдер громкости 0–100% (отображение в % и dB, кривая громкости — кубическая, как у PulseAudio/PipeWire), mute, solo (P1) | P0 |
-| CH-005 | Метр канала (стерео, peak) | P0 |
-| CH-006 | Master: фейдер, mute, метр, выбор выходного устройства | P0 |
-| CH-007 | Изменение порядка каналов перетаскиванием | P1 |
-| CH-008 | Громкость отдельного приложения внутри канала (клик по фишке → мини-слайдер) | P1 |
-| CH-009 | Включение/выключение микшера целиком (если пользователю нужен только микрофон). По умолчанию в M2 при первом запуске предлагается в онбординге, а не включается молча | P0 |
+| CH-001 | When the mixer is first enabled, 3 channels are created: **Main** (blue, default), **Voice** (violet), **Music** (pink) | P0 |
+| CH-002 | The user can create a channel (up to 8 in total, on Windows too — WIN-CH-005), rename it, choose a color (a palette of 7) and an icon, delete it (except the default channel; the deleted channel's applications move to the default) | P0 |
+| CH-003 | Any channel can be made the default channel | P1 |
+| CH-004 | A volume fader 0–100% (shown in % and dB, a cubic volume curve as in PulseAudio/PipeWire), mute, solo (P1) | P0 |
+| CH-005 | A channel meter (stereo, peak) | P0 |
+| CH-006 | Master: fader, mute, meter, output device selection | P0 |
+| CH-007 | Reordering channels by dragging | P1 |
+| CH-008 | The volume of an individual application inside a channel (click a chip → a mini slider) | P1 |
+| CH-009 | Turning the whole mixer on/off (if the user only needs the microphone). In M2 it is offered in onboarding on first launch, not enabled silently | P0 |
 
-### 7.3 Обработка на канал
+### 7.3 Per-channel processing
 
-Цепочка канала (стерео): `EQ → Noise Suppression → Compressor → Limiter → Volume`. Все модули
-выключены по умолчанию, кроме тех, что задаёт шаблон канала.
+The channel chain (stereo): `EQ → Noise Suppression → Compressor → Limiter → Volume`. All modules are off
+by default, except those set by the channel template.
 
-| ID | Требование | Приоритет |
+| ID | Requirement | Priority |
 |---|---|---|
-| CFX-001 | 10-полосный параметрический EQ (тот же компонент, что у микрофона) с пресетами | P0 |
-| CFX-002 | Пресеты EQ по категориям: Voice (`Voice Clarity`, `Bass Cut`, `Warm Voice`), Music (`Bass+`, `V-Shape`, `Vocal`, `Rock`, `Electronic`, `Classical`, `Podcast`), Game (`Footsteps`, `Immersive`, `Competitive`) | P0 |
-| CFX-003 | Noise Suppression на канал (RNNoise, по каналам L/R или моно-даунмикс для Voice) — для очистки голоса собеседников | P0 |
-| CFX-004 | Compressor и Limiter на канал (те же модули, стерео-линк) | P0 |
-| CFX-005 | Шаблон канала Voice по умолчанию: EQ `Voice Clarity` вкл, NS 60% вкл, Compressor 40% вкл, Limiter −3 dBFS вкл, громкость 50% | P0 |
-| CFX-006 | Шаблон Main: всё выкл, громкость 30%. Music: EQ `Flat` вкл (пользователь выбирает пресет), громкость 70% | P0 |
-| CFX-007 | Bypass канала (все FX выкл одним кликом) | P1 |
-| CFX-008 | Loudness normalization канала (выравнивание громкости разных приложений) | P2 |
+| CFX-001 | A 10-band parametric EQ (the same component as the microphone's) with presets | P0 |
+| CFX-002 | EQ presets by category: Voice (`Voice Clarity`, `Bass Cut`, `Warm Voice`), Music (`Bass+`, `V-Shape`, `Vocal`, `Rock`, `Electronic`, `Classical`, `Podcast`), Game (`Footsteps`, `Immersive`, `Competitive`) | P0 |
+| CFX-003 | Per-channel Noise Suppression (RNNoise, per L/R channel or a mono downmix for Voice) — to clean up the other side's voice | P0 |
+| CFX-004 | Per-channel Compressor and Limiter (the same modules, stereo-linked) | P0 |
+| CFX-005 | The default Voice channel template: EQ `Voice Clarity` on, NS 60% on, Compressor 40% on, Limiter −3 dBFS on, volume 50% | P0 |
+| CFX-006 | The Main template: everything off, volume 30%. Music: EQ `Flat` on (the user picks a preset), volume 70% | P0 |
+| CFX-007 | Channel bypass (all FX off with one click) | P1 |
+| CFX-008 | Channel loudness normalization (evening out the loudness of different applications) | P2 |
 
-### 7.4 Приложения: автодетект и drag & drop
+### 7.4 Applications: auto-detection and drag & drop
 
-| ID | Требование | Приоритет |
+| ID | Requirement | Priority |
 |---|---|---|
-| APP-001 | Демон отслеживает все аудиопотоки воспроизведения в реальном времени (появление/исчезновение без опроса) | P0 |
-| APP-002 | Поток группируется в **приложение** по ключу: `application.process.binary` → Flatpak `pipewire.access.portal.app_id`/`application.id` → `application.name`. Несколько потоков одного приложения (вкладки браузера, Discord-голос + уведомления) = одна фишка | P0 |
-| APP-003 | Фишка приложения: иконка (из `application.icon-name` или `.desktop`-файла по binary/app_id), читаемое имя, индикатор «сейчас звучит» | P0 |
-| APP-004 | Drag & drop фишки в другой канал → все потоки приложения перемещаются **мгновенно и без прерывания звука** (без перезапуска приложения) | P0 |
-| APP-005 | Правило запоминается: при следующем запуске приложения его потоки сразу попадают в назначенный канал (до появления звука в неправильном канале) | P0 |
-| APP-006 | Встроенная база «известных приложений» для автоклассификации **при первом появлении** (до ручного переноса): Discord, Vesktop, Telegram, TeamSpeak, Mumble, Zoom, Slack, Teams, Element → Voice; Spotify, Cider (Apple Music), Яндекс Музыка, Tidal, Rhythmbox, Strawberry, Amberol, Deezer → Music; всё остальное → Main. Автоклассификация отключаема | P0 |
-| APP-007 | Неактивные (не звучащие сейчас) приложения с правилами показываются в канале приглушённо; фильтр «Show inactive» | P1 |
-| APP-008 | Альтернатива D&D: контекстное меню фишки «Move to → канал», клавиатура (фокус фишки + `1…8`) — доступность | P0 |
-| APP-009 | Приложения, которые сами выбрали конкретное устройство вывода (не default), всё равно перехватываются правилом, если пользователь перетащил их; опция «Don't manage this app» исключает приложение из Macafon | P1 |
-| APP-010 | Браузерные вкладки: в 1.0 браузер — одно приложение. Разделение по вкладкам/сайтам — roadmap (P2) | P2 |
-| APP-011 | Системные звуки (`media.role = event`/`notification`) — отдельная псевдо-фишка «System sounds», по умолчанию в Main | P1 |
+| APP-001 | The daemon tracks all playback audio streams in real time (appearance/disappearance without polling) | P0 |
+| APP-002 | A stream is grouped into an **application** by key: `application.process.binary` → Flatpak `pipewire.access.portal.app_id`/`application.id` → `application.name`. Several streams of one application (browser tabs, Discord voice + notifications) = one chip | P0 |
+| APP-003 | An application chip: an icon (from `application.icon-name` or a `.desktop` file by binary/app_id), a readable name, a "playing now" indicator | P0 |
+| APP-004 | Dragging a chip into another channel moves all of the application's streams **instantly and without interrupting audio** (without restarting the application) | P0 |
+| APP-005 | The rule is remembered: next time the application starts, its streams land in the assigned channel right away (before audio plays in the wrong channel) | P0 |
+| APP-006 | A built-in "known applications" database for auto-classification **on first appearance** (before a manual move): Discord, Vesktop, Telegram, TeamSpeak, Mumble, Zoom, Slack, Teams, Element → Voice; Spotify, Cider (Apple Music), Yandex Music, Tidal, Rhythmbox, Strawberry, Amberol, Deezer → Music; everything else → Main. Auto-classification can be turned off | P0 |
+| APP-007 | Inactive (not playing now) applications with rules are shown dimmed in their channel; a "Show inactive" filter | P1 |
+| APP-008 | Alternatives to D&D: a chip context menu "Move to → channel", the keyboard (chip focus + `1…8`) — accessibility | P0 |
+| APP-009 | Applications that chose a specific output device themselves (not the default) are still taken over by a rule if the user dragged them; the "Don't manage this app" option excludes an application from Macafon | P1 |
+| APP-010 | Browser tabs: in 1.0 a browser is one application. Splitting by tabs/sites — roadmap (P2) | P2 |
+| APP-011 | System sounds (`media.role = event`/`notification`) — a separate "System sounds" pseudo-chip, in Main by default | P1 |
 
-### 7.5 Устройство вывода
+### 7.5 Output device
 
-| ID | Требование | Приоритет |
+| ID | Requirement | Priority |
 |---|---|---|
-| OUT-001 | Выбор реального устройства вывода в шапке микшера; все каналы переезжают сразу | P0 |
-| OUT-002 | Приоритетный список устройств (например, `USB DAC → Headset → Speakers`): при отключении активного — переход на следующее доступное, при подключении более приоритетного — возврат. Без «сброса на динамики при логине» | P0 |
-| OUT-003 | Опция «Follow system default» — выходное устройство = системный default (до включения Macafon) | P1 |
-| OUT-004 | Каналы Macafon не появляются в списке устройств вывода самого Macafon | P0 |
-| OUT-005 | `Macafon Main` назначается системным default sink при включении микшера (иначе новые приложения пойдут мимо Macafon); исходный default запоминается и восстанавливается при выключении микшера/выходе | P0 |
+| OUT-001 | Choosing the real output device in the mixer header; all channels move at once | P0 |
+| OUT-002 | A device priority list (for example, `USB DAC → Headset → Speakers`): when the active one disconnects — switch to the next available one; when a higher-priority one connects — switch back. No "reset to speakers at login" | P0 |
+| OUT-003 | A "Follow system default" option — the output device = the system default (from before Macafon was enabled) | P1 |
+| OUT-004 | Macafon channels do not appear in Macafon's own output device list | P0 |
+| OUT-005 | `Macafon Main` becomes the system default sink when the mixer is enabled (otherwise new applications would bypass Macafon); the original default is remembered and restored when the mixer is disabled / on exit | P0 |
 
 ---
 
-## 8. Фоновая работа, трей, автозапуск, горячие клавиши
+## 8. Background operation, tray, autostart, hotkeys
 
-### 8.1 Фон и трей
+### 8.1 Background and tray
 
-| ID | Требование | Приоритет |
+| ID | Requirement | Priority |
 |---|---|---|
-| BG-001 | Закрытие окна (×) скрывает UI в трей, **процесс UI завершается** (WebView выгружается); обработка звука продолжается в демоне. При первом закрытии **демон** показывает системное уведомление (freedesktop Notifications) «Macafon keeps running in the tray»: процесс UI к этому моменту завершён и показать тост сам не может | P0 |
-| BG-002 | Иконка в трее с состояниями: normal (белый вертикальный микрофон) / mic muted (красный, с мультяшным изгибом всего корпуса) / bypass (такой же изгиб + знак паузы) / error (изгиб + точка `--danger`). При смене состояния — короткий плавный переход; в UI с `prefers-reduced-motion` — сразу конечное положение. Дизайн Retro утверждён владельцем | P0 |
-| BG-003 | Меню трея: `Open Macafon`, `Mute microphone` ✓, `Bypass processing` ✓, `Preset ▸` (список), `Output device ▸`, `Quit Macafon` | P0 |
-| BG-004 | Левый клик по иконке — открыть/сфокусировать UI; средний клик — mute микрофона (P1) | P0 |
-| BG-005 | `Quit` останавливает демон: виртуальные устройства исчезают, системные default-устройства восстанавливаются, потоки приложений возвращаются на реальные устройства | P0 |
-| BG-006 | Single instance: повторный запуск `macafon` фокусирует существующее окно | P0 |
-| BG-007 | GNOME без расширения AppIndicator: детектируем отсутствие SNI-хоста и показываем один раз инструкцию (установить «AppIndicator and KStatusNotifierItem Support») + возможность управлять через повторный запуск приложения | P1 |
+| BG-001 | Closing the window (×) hides the UI to the tray, **the UI process ends** (the WebView unloads); audio processing continues in the daemon. On the first close **the daemon** shows a system notification (freedesktop Notifications) "Macafon keeps running in the tray": by then the UI process has ended and cannot show a toast itself | P0 |
+| BG-002 | A tray icon with states: normal (a white upright microphone) / mic muted (red, with a cartoonish bend of the whole body) / bypass (the same bend + a pause sign) / error (bend + a `--danger` dot). A short smooth transition on state change; in the UI with `prefers-reduced-motion` — the final position right away. The Retro design is approved by the owner | P0 |
+| BG-003 | The tray menu: `Open Macafon`, `Mute microphone` ✓, `Bypass processing` ✓, `Preset ▸` (list), `Output device ▸`, `Quit Macafon` | P0 |
+| BG-004 | Left click on the icon opens/focuses the UI; middle click mutes the microphone (P1) | P0 |
+| BG-005 | `Quit` stops the daemon: virtual devices disappear, system default devices are restored, application streams return to real devices | P0 |
+| BG-006 | Single instance: launching `macafon` again focuses the existing window | P0 |
+| BG-007 | GNOME without the AppIndicator extension: detect the missing SNI host and show instructions once (install "AppIndicator and KStatusNotifierItem Support") + the ability to control it by relaunching the application | P1 |
 
-### 8.2 Автозапуск
+### 8.2 Autostart
 
-| ID | Требование | Приоритет |
+| ID | Requirement | Priority |
 |---|---|---|
-| AS-001 | Опция «Start with system»: в онбординге — явный чекбокс, включённый по умолчанию, применяется по `Done`. Если онбординг пропущен, автозапуск не меняется молча — его включают в Settings | P0 |
-| AS-002 | Linux: демон — `systemd --user` сервис `macafond.service` (`Restart=on-failure`, `After=pipewire.service wireplumber.service`); fallback для систем без systemd user session — XDG autostart `.desktop` | P0 |
-| AS-003 | Старт без окна (только трей), время до готовности виртуального микрофона после старта PipeWire ≤ 1 с | P0 |
-| AS-004 | Windows (M3): `HKCU\…\Run` для демона, без UAC; включён по умолчанию после онбординга, т.к. без демона `CABLE Output` молчит (WIN-MIC-005) | P0 (M3) |
+| AS-001 | A "Start with system" option: in onboarding — an explicit checkbox, on by default, applied on `Done`. If onboarding is skipped, autostart is not changed silently — it is enabled in Settings | P0 |
+| AS-002 | Linux: the daemon is a `systemd --user` service `macafond.service` (`Restart=on-failure`, `After=pipewire.service wireplumber.service`); a fallback for systems without a systemd user session — an XDG autostart `.desktop` | P0 |
+| AS-003 | Start without a window (tray only); time until the virtual microphone is ready after PipeWire starts ≤ 1 s | P0 |
+| AS-004 | Windows (M3): `HKCU\…\Run` for the daemon, no UAC; on by default after onboarding, because without the daemon `CABLE Output` is silent (WIN-MIC-005) | P0 (M3) |
 
-### 8.3 Горячие клавиши
+### 8.3 Hotkeys
 
-| ID | Требование | Приоритет |
+| ID | Requirement | Priority |
 |---|---|---|
-| HK-001 | Глобальные действия: Toggle mic mute, Push-to-talk (держать = включён), Push-to-mute, Toggle bypass, Next/Previous preset, Volume up/down для каждого канала, Mute канала | P0 |
-| HK-002 | Назначение в Settings → Hotkeys: запись сочетания нажатием, проверка конфликтов внутри Macafon | P0 |
-| HK-003 | Wayland: через `xdg-desktop-portal` **GlobalShortcuts** (KDE Plasma, GNOME 48+, Hyprland). X11: через XGrab (крейт `global-hotkey`). Хоткеи регистрирует **демон**, а не UI, чтобы работали при закрытом окне | P0 |
-| HK-004 | Fallback для окружений без портала: CLI `macafon ctl mic mute toggle` / `macafon ctl preset next` / `macafon ctl channel voice volume +5` — пользователь назначает их в настройках DE; в UI показывается готовая команда для копирования | P0 |
-| HK-005 | Звуковой сигнал (тихий «клик») при mute/unmute — опция | P1 |
-| HK-006 | OSD-уведомление при смене пресета/громкости через хоткей (desktop notification) | P1 |
+| HK-001 | Global actions: Toggle mic mute, Push-to-talk (hold = on), Push-to-mute, Toggle bypass, Next/Previous preset, Volume up/down for each channel, channel Mute | P0 |
+| HK-002 | Assignment in Settings → Hotkeys: recording a shortcut by pressing it, conflict checks within Macafon | P0 |
+| HK-003 | Wayland: through `xdg-desktop-portal` **GlobalShortcuts** (KDE Plasma, GNOME 48+, Hyprland). X11: through XGrab (the `global-hotkey` crate). Hotkeys are registered by **the daemon**, not the UI, so they work with the window closed | P0 |
+| HK-004 | A fallback for environments without a portal: CLI `macafon ctl mic mute toggle` / `macafon ctl preset next` / `macafon ctl channel voice volume +5` — the user binds them in the DE settings; the UI shows a ready command to copy | P0 |
+| HK-005 | A sound cue (a quiet "click") on mute/unmute — an option | P1 |
+| HK-006 | An OSD notification on preset/volume change through a hotkey (a desktop notification) | P1 |
 
 ---
 
-## 9. UX и экраны
+## 9. UX and screens
 
-Визуальный язык — [дизайн-система](design/design-system.md). Окно 1180×760 по умолчанию, мин. 960×640.
+The visual language is the [design system](design/design-system.md). The window is 1180×760 by default,
+960×640 minimum.
 
-### 9.1 Карта навигации
+### 9.1 Navigation map
 
 ```
 ┌──────┬──────────────────────────────────────────────────────────┐
-│ ◉ Mic│  (Онбординг — модальный полноэкранный поток при 1-м запуске) │
+│ ◉ Mic│  (Onboarding — a modal full-screen flow on first launch)  │
 │ ≡ Mix│                                                           │
-│      │                     контент экрана                         │
+│      │                     screen content                         │
 │ ⚙ Set│                                                           │
 └──────┴──────────────────────────────────────────────────────────┘
- сайдбар 64px: Microphone · Mixer · Settings ; внизу — статус демона (точка) и CPU %
+ 64px sidebar: Microphone · Mixer · Settings ; at the bottom — daemon status (a dot) and CPU %
 ```
 
-### 9.2 Онбординг (первый запуск, M1)
+### 9.2 Onboarding (first launch, M1)
 
-1. **Welcome.** Заголовок «Your voice, *refined*.» (Archivo + Instrument Serif italic), одна строка
-   описания, кнопка `Get started`.
-2. **Pick your mic.** Список микрофонов с живыми метрами («Say something — the active mic will light up»).
-   Автовыбор устройства с наибольшим уровнем речи.
-3. **Calibrate.** Два шага (тишина → фраза) с крупным круговым индикатором прогресса и waveform.
-4. **Result.** SNR до/после, применённый пресет, кнопки `Listen A/B` (открывает транспорт A/B прямо в шаге) и `Fine-tune`.
-   `Fine-tune` не обрывает онбординг: шаги 5–6 всё равно показываются (выбор микрофона в приложениях и
-   автозапуск нельзя терять), а после `Done` открывается экран Microphone вместо последнего экрана.
-5. **Use it.** «Select **Macafon Microphone** in your apps», переключатель `Make it the system default`,
-   карточки-подсказки для Discord / OBS / Zoom (с напоминанием отключить их собственный шумодав).
-6. **Run in background.** Чекбокс `Start with system` (AS-001). Кнопка `Done`. Отдельного «Start minimized to
-   tray» нет: при автозапуске стартует только демон с треем (AS-003), окно UI не открывается никогда.
+1. **Welcome.** The heading "Your voice, *refined*." (Archivo + Instrument Serif italic), one line of
+   description, a `Get started` button.
+2. **Pick your mic.** A list of microphones with live meters ("Say something — the active mic will light
+   up"). The device with the highest speech level is selected automatically.
+3. **Calibrate.** Two steps (silence → a phrase) with a large circular progress indicator and a waveform.
+4. **Result.** SNR before/after, the applied preset, `Listen A/B` (opens the A/B transport right in the
+   step) and `Fine-tune` buttons. `Fine-tune` does not cut onboarding short: steps 5–6 are still shown
+   (choosing the microphone in applications and autostart must not be lost), and after `Done` the
+   Microphone screen opens instead of the last screen.
+5. **Use it.** "Select **Macafon Microphone** in your apps", a `Make it the system default` toggle, hint
+   cards for Discord / OBS / Zoom (with a reminder to turn off their own noise suppression).
+6. **Run in background.** A `Start with system` checkbox (AS-001). A `Done` button. There is no separate
+   "Start minimized to tray": on autostart only the daemon with the tray starts (AS-003), the UI window
+   never opens.
 
-В M2 добавляется шаг **Mixer**: «Split your sound into channels?» → превью трёх каналов → `Enable mixer` / `Skip`.
+M2 adds a **Mixer** step: "Split your sound into channels?" → a preview of three channels →
+`Enable mixer` / `Skip`.
 
-На Windows (M3) после Welcome — шаг **Install VB-CABLE**, если кабель не найден (WIN-MIC-002); шаг «Use it»
-называет устройство `CABLE Output (VB-Audio Virtual Cable)` (WIN-MIC-003); шаг Mixer объясняет, что каналы
-на Windows управляют громкостью приложений без эффектов (WIN-CH-006).
+On Windows (M3), after Welcome comes an **Install VB-CABLE** step if the cable is not found (WIN-MIC-002);
+the "Use it" step names the device `CABLE Output (VB-Audio Virtual Cable)` (WIN-MIC-003); the Mixer step
+explains that channels on Windows control application volume without effects (WIN-CH-006).
 
-Каждый шаг можно пропустить; онбординг повторно доступен из Settings.
+Every step can be skipped; onboarding is available again from Settings.
 
-### 9.3 Экран Microphone
+### 9.3 Microphone screen
 
 ```
 ┌─ 01 / MICROPHONE ───────────────────────────────────────────────────────────────┐
@@ -534,13 +543,13 @@ Cider ─────► Macafon Music ──────►│ Music: vol 70%  
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- Карточки — в порядке сигнала (номера 01–08 = позиция в цепочке), между ними тонкие линии-«провода».
-- EQ занимает двойную ширину; клик по карточке EQ разворачивает график на всю ширину.
-- Панель TEST закреплена внизу — она всегда под рукой во время настройки.
-- Advanced раскрывается внутри карточки (аккордеон), остальные карточки сдвигаются плавно.
-- Hover на любой параметр → однострочная подсказка простым языком.
+- Cards follow the signal order (numbers 01–08 = position in the chain), with thin "wire" lines between them.
+- EQ takes double width; clicking the EQ card expands the graph to full width.
+- The TEST panel is pinned at the bottom — it is always at hand while tuning.
+- Advanced expands inside the card (an accordion); the other cards move smoothly.
+- Hovering any parameter shows a one-line hint in plain language.
 
-### 9.4 Экран Mixer (M2)
+### 9.4 Mixer screen (M2)
 
 ```
 ┌─ 02 / MIXER ───────────────────────────────────────── OUTPUT [🎧 Arctis Nova ▾] ─┐
@@ -558,144 +567,144 @@ Cider ─────► Macafon Music ──────►│ Music: vol 70%  
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- Фишки приложений перетаскиваются между колонками; при перетаскивании целевая колонка подсвечивается
-  цветом канала и тиками по углам. Отпускание вне колонки — отмена.
-- `EQ` / `FX` открывают боковую панель (drawer) справа с EQ-графиком и модулями канала (те же карточки,
-  что у микрофона). Точка `●` на кнопке = модуль активен.
-- Новое приложение появляется в канале с короткой анимацией «вспышки» цветом канала.
-- Микрофон в микшере не отображается (у него свой экран) — в отличие от Sonar, где Mic — пятый канал.
+- Application chips are dragged between columns; while dragging, the target column is highlighted with
+  the channel color and corner ticks. Dropping outside a column cancels.
+- `EQ` / `FX` open a drawer on the right with the EQ graph and the channel's modules (the same cards as
+  the microphone's). A `●` dot on the button = the module is active.
+- A new application appears in its channel with a short "flash" animation in the channel color.
+- The microphone is not shown in the mixer (it has its own screen) — unlike Sonar, where Mic is the fifth channel.
 
 ### 9.5 Settings
 
-| Раздел | Содержимое |
+| Section | Contents |
 |---|---|
 | General | Start with system, Close button behaviour (tray / quit), Check for updates (GitHub releases, opt-in), Re-run onboarding |
-| Audio | Preferred quantum (64 / 128 / 256 / 512 frames; по умолчанию 128 = 2.7 мс), Output device priority list, Mic fallback device, Mono/Stereo virtual mic |
-| Hotkeys | Список действий, назначение сочетаний, статус бэкенда (Portal / X11 / Unavailable → CLI-команды) |
-| Doctor | Диагностика (§9.6) |
-| About | Версия, лицензии сторонних компонентов (RNNoise, DeepFilterNet, шрифты), ссылки на GitHub |
+| Audio | Preferred quantum (64 / 128 / 256 / 512 frames; 128 = 2.7 ms by default), Output device priority list, Mic fallback device, Mono/Stereo virtual mic |
+| Hotkeys | A list of actions, shortcut assignment, backend status (Portal / X11 / Unavailable → CLI commands) |
+| Doctor | Diagnostics (§9.6) |
+| About | Version, third-party licenses (RNNoise, DeepFilterNet, fonts), GitHub links |
 
-### 9.6 Doctor (диагностика)
+### 9.6 Doctor (diagnostics)
 
-Самопроверка с понятными исправлениями «в один клик» (аналог One-Click Fix в Sonar, но прозрачный):
+A self-check with clear one-click fixes (like One-Click Fix in Sonar, but transparent):
 
-- PipeWire/WirePlumber запущены, версии ≥ требуемых.
-- Виртуальные узлы Macafon существуют и связаны с нужными устройствами.
-- `Macafon Microphone` используется хотя бы одним приложением (подсказка, если нет).
-- Обнаружена двойная обработка (например, EasyEffects или NoiseTorch тоже на этом микрофоне).
-- Xruns / перегрузки DSP за последние 10 минут, текущий quantum, DSP-нагрузка.
-- Хоткеи: доступен ли портал.
-- Кнопка `Copy diagnostic report` (текст, без персональных данных, для GitHub issue).
+- PipeWire/WirePlumber are running, versions ≥ the required ones.
+- Macafon's virtual nodes exist and are linked to the right devices.
+- `Macafon Microphone` is used by at least one application (a hint if not).
+- Double processing detected (for example, EasyEffects or NoiseTorch also on this microphone).
+- Xruns / DSP overloads in the last 10 minutes, the current quantum, DSP load.
+- Hotkeys: whether the portal is available.
+- A `Copy diagnostic report` button (text, without personal data, for a GitHub issue).
 
-### 9.7 Состояния и ошибки
+### 9.7 States and errors
 
-| Ситуация | Поведение UI |
+| Situation | UI behavior |
 |---|---|
-| Демон не запущен | UI автоматически запускает его; если не удалось — экран с причиной и кнопкой Retry |
-| PipeWire недоступен | Полноэкранное сообщение «PipeWire not found» + ссылка на инструкцию |
-| Микрофон отключён | Карточка устройства в состоянии `DISCONNECTED`, тост, обработка ждёт |
-| DSP-перегрузка | Тост «Audio processing overloaded — switched Noise Suppression to Lite» |
-| Клип на входе | Красный индикатор на метре IN + подсказка |
+| The daemon is not running | The UI starts it automatically; if that fails — a screen with the reason and a Retry button |
+| PipeWire unavailable | A full-screen "PipeWire not found" message + a link to instructions |
+| Microphone disconnected | The device card in the `DISCONNECTED` state, a toast, processing waits |
+| DSP overload | A toast "Audio processing overloaded — switched Noise Suppression to Lite" |
+| Input clipping | A red indicator on the IN meter + a hint |
 
-### 9.8 Доступность
+### 9.8 Accessibility
 
-- Полная навигация с клавиатуры (Tab-порядок по цепочке, стрелки двигают слайдеры, PageUp/Down — крупный шаг).
-- Контраст текста ≥ 4.5:1 (`--ink` и `--muted` на `--bg` проходят), не передавать смысл только цветом
-  (mute = иконка + цвет).
-- ARIA-роли для слайдеров (`role="slider"`, `aria-valuetext="−18 dB"`).
-- Масштаб UI 90–150% (Ctrl +/−).
+- Full keyboard navigation (Tab order follows the chain, arrows move sliders, PageUp/Down — a large step).
+- Text contrast ≥ 4.5:1 (`--ink` and `--muted` on `--bg` pass); meaning is never conveyed by color alone
+  (mute = icon + color).
+- ARIA roles for sliders (`role="slider"`, `aria-valuetext="−18 dB"`).
+- UI scale 90–150% (Ctrl +/−).
 
 ---
 
-## 10. Нефункциональные требования
+## 10. Non-functional requirements
 
-### 10.1 Задержка
+### 10.1 Latency
 
-**«Ноль задержки» физически недостижим**, но цель — чтобы Macafon не добавлял ничего сверх одного
-цикла аудиографа и алгоритмической задержки выбранных модулей.
+**"Zero latency" is physically impossible**, but the goal is that Macafon adds nothing beyond one audio
+graph cycle and the algorithmic latency of the selected modules.
 
-| Компонент | Добавляемая задержка |
+| Component | Added latency |
 |---|---|
-| Буферизация (обработка в том же цикле графа PipeWire, quantum 128 @ 48 кГц) | 0 доп. циклов; сам цикл 2.67 мс — общий для любой цепочки PipeWire |
-| Gain, HPF, Expander, EQ, Compressor, De-esser, Limiter (0 ms look-ahead) | **0 мс** (sample-by-sample, минимально-фазовые) |
-| Noise Suppression Lite (RNNoise) | **10 мс** (кадр 480 сэмплов) |
-| Noise Suppression Studio (DeepFilterNet 3) | **≈ 40 мс** (кадр + look-ahead модели); уточняется в M0 |
-| Limiter look-ahead (опция) | 1 / 2 / 5 мс |
+| Buffering (processing in the same PipeWire graph cycle, quantum 128 @ 48 kHz) | 0 extra cycles; the cycle itself, 2.67 ms, is shared by any PipeWire chain |
+| Gain, HPF, Expander, EQ, Compressor, De-esser, Limiter (0 ms look-ahead) | **0 ms** (sample by sample, minimum-phase) |
+| Noise Suppression Lite (RNNoise) | **10 ms** (a 480-sample frame) |
+| Noise Suppression Studio (DeepFilterNet 3) | **≈ 40 ms** (frame + model look-ahead); refined in M0 |
+| Limiter look-ahead (option) | 1 / 2 / 5 ms |
 
-**Требования:**
+**Requirements:**
 
-| ID | Требование | Целевое значение |
+| ID | Requirement | Target |
 |---|---|---|
-| NFR-L1 | Добавленная задержка виртуального микрофона без NS (сверх прямого подключения приложения к физическому микрофону) | ≤ 3 мс при quantum 128 |
-| NFR-L2 | То же с NS Lite | ≤ 13 мс |
-| NFR-L3 | Каналы вывода без NS | ≤ 1 quantum (≤ 3 мс при 128) |
-| NFR-L4 | Задержка каждой цепочки сообщается в граф PipeWire (`latency` param), чтобы приложения могли её компенсировать | — |
-| NFR-L5 | UI показывает фактическую суммарную задержку цепочки (`LATENCY 10.0 ms` в шапке экрана) | — |
-| NFR-L6 | Windows: задержка виртуального микрофона без NS (захват WASAPI + цепочка + буфер VB-CABLE + вывод) | ≤ 20 мс при рекомендованном буфере кабеля; уточняется в M3.0 |
+| NFR-L1 | Added latency of the virtual microphone without NS (beyond connecting an application directly to the physical microphone) | ≤ 3 ms at quantum 128 |
+| NFR-L2 | The same with NS Lite | ≤ 13 ms |
+| NFR-L3 | Output channels without NS | ≤ 1 quantum (≤ 3 ms at 128) |
+| NFR-L4 | The latency of each chain is reported to the PipeWire graph (the `latency` param) so applications can compensate for it | — |
+| NFR-L5 | The UI shows the actual total chain latency (`LATENCY 10.0 ms` in the screen header) | — |
+| NFR-L6 | Windows: virtual microphone latency without NS (WASAPI capture + chain + VB-CABLE buffer + output) | ≤ 20 ms with the recommended cable buffer; refined in M3.0 |
 
-Метод замера — §14.3.
+Measurement method — §14.3.
 
-### 10.2 Ресурсы
+### 10.2 Resources
 
-| ID | Метрика | Цель |
+| ID | Metric | Target |
 |---|---|---|
-| NFR-R1 | CPU демона: микрофон, цепочка без NS, 3 канала без FX | < 1% одного ядра (эталон: Ryzen 5 3600 / i5-10400) |
-| NFR-R2 | CPU: + NS Lite на микрофоне и на Voice-канале | < 3% |
-| NFR-R3 | CPU: + NS Studio на микрофоне | < 10% |
-| NFR-R4 | RAM демона | < 40 МБ (+ ~15 МБ при загруженной модели DeepFilterNet) |
-| NFR-R5 | RAM UI (окно открыто) | < 200 МБ; окно закрыто — процесс UI завершён |
-| NFR-R6 | Размер установки | < 30 МБ (без WebView-рантайма системы) |
-| NFR-R7 | Нулевая активность в простое: метры/спектр не вычисляются и не отправляются, пока UI закрыт | — |
+| NFR-R1 | Daemon CPU: microphone, chain without NS, 3 channels without FX | < 1% of one core (reference: Ryzen 5 3600 / i5-10400) |
+| NFR-R2 | CPU: + NS Lite on the microphone and on the Voice channel | < 3% |
+| NFR-R3 | CPU: + NS Studio on the microphone | < 10% |
+| NFR-R4 | Daemon RAM | < 40 MB (+ ~15 MB with the DeepFilterNet model loaded) |
+| NFR-R5 | UI RAM (window open) | < 200 MB; window closed — the UI process has ended |
+| NFR-R6 | Install size | < 30 MB (without the system WebView runtime) |
+| NFR-R7 | Zero activity when idle: meters/spectrum are neither computed nor sent while the UI is closed | — |
 
-### 10.3 Надёжность и real-time безопасность
+### 10.3 Reliability and real-time safety
 
-| ID | Требование |
+| ID | Requirement |
 |---|---|
-| NFR-S1 | В аудиопотоке: никаких аллокаций, мьютексов, системных вызовов, логирования, IPC. Проверяется `assert_no_alloc` в debug/CI-сборках |
-| NFR-S2 | Параметры из UI → аудиопоток через lock-free структуры (атомики / SPSC ring buffer `rtrb`); смена пресета — подготовка нового состояния вне RT-потока и атомарная подмена указателя |
-| NFR-S3 | Детектор перегрузки: если время обработки > 80% бюджета цикла 3 цикла подряд — деградация (Studio → Lite NS), событие в UI |
-| NFR-S4 | Защита от NaN/Inf/денормалов: flush-to-zero (FTZ/DAZ) в RT-потоке, санитайзер на выходе каждой цепочки (NaN → 0 и сброс состояния модуля) |
-| NFR-S5 | Soak-тест: 1 ч без xrun по вине Macafon при quantum 128 на эталонной машине |
-| NFR-S6 | Падение демона → systemd перезапускает его ≤ 2 с; в промежутке потоки приложений автоматически уходят на реальные устройства (PipeWire/WirePlumber fallback) |
-| NFR-S7 | Падение UI никогда не влияет на звук |
-| NFR-S8 | Восстановление после suspend/resume, перезапуска PipeWire, смены устройств — без участия пользователя |
-| NFR-S9 | Демон работает без root-прав; RT-приоритет — через механизмы PipeWire (RTKit / `rlimits`) для data-loop |
+| NFR-S1 | In the audio thread: no allocations, mutexes, system calls, logging or IPC. Checked with `assert_no_alloc` in debug/test builds |
+| NFR-S2 | Parameters from the UI → the audio thread through lock-free structures (atomics / the `rtrb` SPSC ring buffer); a preset change prepares the new state outside the RT thread and swaps a pointer atomically |
+| NFR-S3 | Overload detector: if processing time > 80% of the cycle budget for 3 cycles in a row — degrade (Studio → Lite NS), an event in the UI |
+| NFR-S4 | Protection against NaN/Inf/denormals: flush-to-zero (FTZ/DAZ) in the RT thread, a sanitizer at the output of every chain (NaN → 0 and a module state reset) |
+| NFR-S5 | Soak test: 1 h without xruns caused by Macafon at quantum 128 on the reference machine |
+| NFR-S6 | Daemon crash → systemd restarts it within ≤ 2 s; in between, application streams automatically move to real devices (PipeWire/WirePlumber fallback) |
+| NFR-S7 | A UI crash never affects audio |
+| NFR-S8 | Recovery after suspend/resume, a PipeWire restart, device changes — without user involvement |
+| NFR-S9 | The daemon runs without root; RT priority comes through PipeWire mechanisms (RTKit / `rlimits`) for the data loop |
 
-### 10.4 Приватность и безопасность
+### 10.4 Privacy and security
 
-- Никакой телеметрии и сетевых запросов, кроме opt-in проверки обновлений (GitHub Releases API).
-- Записи A/B — только в памяти, удаляются при закрытии UI.
-- IPC-сокет демона доступен только текущему пользователю (`$XDG_RUNTIME_DIR/macafon/macafond.sock`, права 0600).
-- Модели нейросетей поставляются в пакете, проверяются по хешу.
+- No telemetry and no network requests, except the opt-in update check (GitHub Releases API).
+- A/B recordings are kept in memory only and deleted when the UI closes.
+- The daemon's IPC socket is accessible only to the current user (`$XDG_RUNTIME_DIR/macafon/macafond.sock`, permissions 0600).
+- Neural network models ship in the package and are verified by hash.
 
-### 10.5 Совместимость (Linux)
+### 10.5 Compatibility (Linux)
 
-| Компонент | Минимум |
+| Component | Minimum |
 |---|---|
-| PipeWire | 1.0 (тест-матрица: 1.0.x, 1.2.x, последняя) |
+| PipeWire | 1.0 (test matrix: 1.0.x, 1.2.x, latest) |
 | WirePlumber | 0.5 |
-| Сессия | Wayland и X11 |
-| DE (тестируем) | KDE Plasma 6, GNOME 46+, Hyprland, Cinnamon |
-| Дистрибутивы (тестируем) | Ubuntu 24.04 / 26.04, Fedora 42+, Arch, Debian 13, Linux Mint 22 |
-| Архитектуры | x86_64 (P0), aarch64 (P1) |
-| WebView | WebKitGTK 4.1 (зависимость Tauri) |
+| Session | Wayland and X11 |
+| DE (tested) | KDE Plasma 6, GNOME 46+, Hyprland, Cinnamon |
+| Distributions (tested) | Ubuntu 24.04 / 26.04, Fedora 42+, Arch, Debian 13, Linux Mint 22 |
+| Architectures | x86_64 (P0), aarch64 (P1) |
+| WebView | WebKitGTK 4.1 (a Tauri dependency) |
 
 ---
 
-## 11. Архитектура
+## 11. Architecture
 
-### 11.1 Процессы
+### 11.1 Processes
 
 ```
 ┌───────────────────────────────┐        IPC (Unix socket / named pipe)       ┌─────────────────────────┐
-│ macafond  (демон, всегда в фоне) │◄───────────────────────────────────────────►│ macafon  (UI, по запросу) │
-│                                │  JSON-RPC-подобный протокол:                 │ Tauri v2 + Svelte 5     │
-│  ┌──────────────┐  ┌─────────┐ │  · команды (set_param, move_app, …)         │ WebKitGTK / WebView2    │
-│  │ Control loop │  │ Tray    │ │  · события (devices_changed, app_added, …)  │ Завершается при закрытии│
-│  │ (tokio)      │  │ (SNI)   │ │  · поток метров 60 Гц (только по подписке)   └─────────────────────────┘
+│ macafond  (daemon, always on)  │◄───────────────────────────────────────────►│ macafon  (UI, on demand)  │
+│                                │  a JSON-RPC-like protocol:                   │ Tauri v2 + Svelte 5     │
+│  ┌──────────────┐  ┌─────────┐ │  · commands (set_param, move_app, …)        │ WebKitGTK / WebView2    │
+│  │ Control loop │  │ Tray    │ │  · events (devices_changed, app_added, …)   │ Exits when closed       │
+│  │ (tokio)      │  │ (SNI)   │ │  · a 60 Hz meter stream (subscription only)  └─────────────────────────┘
 │  └──────┬───────┘  └─────────┘ │                                               ┌─────────────────────────┐
 │         │ lock-free            │◄──────────────────────────────────────────────│ macafon ctl (CLI)         │
-│  ┌──────▼─────────────────────┐ │                                               │ хоткеи DE, скрипты      │
+│  ┌──────▼─────────────────────┐ │                                               │ DE hotkeys, scripts     │
 │  │ Audio engine (RT data loop)│ │                                               └─────────────────────────┘
 │  │ mic chain · channel chains │ │
 │  │ A/B player                 │ │
@@ -708,249 +717,254 @@ Cider ─────► Macafon Music ──────►│ Music: vol 70%  
 └─────────────────────────────────┘
 ```
 
-**Почему два процесса:** демон должен быть минимальным и неубиваемым (звук важнее UI); WebView весит
-100+ МБ и не нужен 99% времени. Трей живёт в демоне (на Linux — чистый D-Bus StatusNotifierItem через
-крейт `ksni`, без GTK), поэтому закрытие UI не убирает иконку.
+**Why two processes:** the daemon must be minimal and unkillable (audio matters more than the UI); the
+WebView weighs 100+ MB and is not needed 99% of the time. The tray lives in the daemon (on Linux — a pure
+D-Bus StatusNotifierItem through the `ksni` crate, without GTK), so closing the UI does not remove the icon.
 
-### 11.2 Структура репозитория (Cargo workspace)
+### 11.2 Repository layout (Cargo workspace)
 
 ```
 Macafon/
 ├─ crates/
-│  ├─ macafon-dsp/            # Чистый DSP: биквады, динамика, лимитер, EQ, обёртки RNNoise/DFN.
-│  │                        # Без зависимостей от платформы, без аллокаций в process(). Бенчмарки criterion.
-│  ├─ macafon-engine/         # Граф цепочек, состояние параметров, lock-free обмен, A/B-плеер, метры
-│  ├─ macafon-backend/        # trait AudioBackend + общие типы устройств/потоков
-│  ├─ macafon-backend-pipewire/   # Реализация для Linux (pipewire-rs)
-│  ├─ macafon-backend-windows/    # (M3) WASAPI, VB-CABLE, аудиосессии, IPolicyConfig (крейт `windows`)
-│  ├─ macafon-ipc/            # Протокол (serde-типы, версия протокола), клиент/сервер
-│  ├─ macafon-config/         # Схема конфигурации, миграции, пресеты
-│  └─ macafon-apps/           # Классификация приложений, база известных приложений, поиск иконок
+│  ├─ macafon-dsp/            # Pure DSP: biquads, dynamics, limiter, EQ, RNNoise/DFN wrappers.
+│  │                        # No platform dependencies, no allocations in process(). criterion benchmarks.
+│  ├─ macafon-engine/         # The chain graph, parameter state, lock-free exchange, A/B player, meters
+│  ├─ macafon-backend/        # trait AudioBackend + shared device/stream types
+│  ├─ macafon-backend-pipewire/   # The Linux implementation (pipewire-rs)
+│  ├─ macafon-backend-windows/    # (M3) WASAPI, VB-CABLE, audio sessions, IPolicyConfig (the `windows` crate)
+│  ├─ macafon-ipc/            # Protocol (serde types, protocol version), client/server
+│  ├─ macafon-config/         # Configuration schema, migrations, presets
+│  └─ macafon-apps/           # Application classification, known-application database, icon lookup
 ├─ apps/
-│  ├─ macafond/               # Демон: engine + backend + IPC server + tray + hotkeys
+│  ├─ macafond/               # Daemon: engine + backend + IPC server + tray + hotkeys
 │  ├─ macafon-ui/             # Tauri v2 (src-tauri) + Svelte 5 + TypeScript (src)
 │  └─ macafon-cli/            # `macafon ctl …`
-├─ packaging/               # deb, rpm, AUR PKGBUILD, AppImage, systemd unit, .desktop, иконки
-├─ docs/                    # PRD, дизайн, ADR
-└─ tools/latency-probe/     # Утилита замера задержки (§14.3)
+├─ packaging/               # deb, rpm, AUR PKGBUILD, AppImage, systemd unit, .desktop, icons, Windows NSIS hooks
+├─ docs/                    # PRD, design, ADRs
+└─ tools/latency-probe/     # Latency measurement utility (§14.3)
 ```
 
-### 11.3 Ключевые зависимости
+### 11.3 Key dependencies
 
-| Назначение | Крейт / технология |
+| Purpose | Crate / technology |
 |---|---|
 | PipeWire | `pipewire` (pipewire-rs), `libspa` |
 | AI NS Lite | `nnnoiseless` |
-| AI NS Studio | `deep_filter` (DeepFilterNet, inference на `tract`) |
-| Lock-free | `rtrb`, `atomic_float`, `arc-swap` (вне RT) |
+| AI NS Studio | `deep_filter` (DeepFilterNet, inference on `tract`) |
+| Lock-free | `rtrb`, `atomic_float`, `arc-swap` (outside RT) |
 | Async/control | `tokio` |
-| IPC | `serde` + `serde_json` (MVP; бинарный формат при необходимости), `interprocess` |
-| Конфиг | `toml`, `serde`, `directories` |
-| Windows (M3) | `windows` (WASAPI, Core Audio, COM), `rubato` (компенсация дрейфа часов) |
-| Трей | Linux: `ksni`; Windows: `tray-icon` |
-| Хоткеи | `ashpd` (xdg-portal GlobalShortcuts), `global-hotkey` (X11/Windows) |
-| UI | Tauri v2, Svelte 5, TypeScript, Vite; Canvas 2D для EQ/метров |
-| Логи | `tracing` (вне RT-потока) |
-| RT-проверки | `assert_no_alloc` |
-| FFT (спектр, калибровка) | `realfft` |
+| IPC | `serde` + `serde_json` (MVP; a binary format if needed), `interprocess` |
+| Config | `toml`, `serde`, `directories` |
+| Windows (M3) | `windows` (WASAPI, Core Audio, COM), `rubato` (clock drift compensation) |
+| Tray | Linux: `ksni`; Windows: `tray-icon` |
+| Hotkeys | `ashpd` (xdg-portal GlobalShortcuts), `global-hotkey` (X11/Windows) |
+| UI | Tauri v2, Svelte 5, TypeScript, Vite; Canvas 2D for EQ/meters |
+| Logging | `tracing` (outside the RT thread) |
+| RT checks | `assert_no_alloc` |
+| FFT (spectrum, calibration) | `realfft` |
 
-### 11.4 Аудио-движок
+### 11.4 Audio engine
 
-- Блочная обработка: `process(&mut self, buf: &mut [f32])` на блоках quantum-размера; модули с
-  фиксированным кадром (RNNoise 480 сэмплов) работают через внутренний FIFO и сообщают свою задержку.
-- Каждый модуль реализует trait:
+- Block processing: `process(&mut self, buf: &mut [f32])` on quantum-sized blocks; modules with a fixed
+  frame (RNNoise, 480 samples) work through an internal FIFO and report their latency.
+- Every module implements a trait:
   ```rust
   pub trait Processor: Send {
-      fn prepare(&mut self, sample_rate: u32, max_block: usize, channels: usize); // вне RT, может аллоцировать
-      fn process(&mut self, io: &mut AudioBlock);  // RT: без аллокаций
+      fn prepare(&mut self, sample_rate: u32, max_block: usize, channels: usize); // outside RT, may allocate
+      fn process(&mut self, io: &mut AudioBlock);  // RT: no allocations
       fn latency_samples(&self) -> u32;
       fn reset(&mut self);
-      fn set_param(&mut self, id: ParamId, value: f32); // вызывается в RT из очереди, применяется со сглаживанием
-      fn telemetry(&self) -> ModuleTelemetry;           // gain reduction, активность — читается атомиками
+      fn set_param(&mut self, id: ParamId, value: f32); // called in RT from the queue, applied with smoothing
+      fn telemetry(&self) -> ModuleTelemetry;           // gain reduction, activity — read through atomics
   }
   ```
-- Цепочка = `Vec<Box<dyn Processor>>`, собирается вне RT-потока; подмена — атомарный swap + освобождение
-  старой цепочки в не-RT потоке (через «мусорную» очередь).
-- Метры: RT-поток пишет peak/RMS в атомики; control loop читает 60 Гц и шлёт подписанным клиентам.
-- A/B-плеер: отдельный экземпляр цепочки микрофона, синхронизированный по параметрам с основной;
-  работает в том же data loop, выход — отдельный playback-поток на устройство прослушивания.
+- Chain = `Vec<Box<dyn Processor>>`, built outside the RT thread; the swap is atomic, and the old chain is
+  freed in a non-RT thread (through a "garbage" queue).
+- Meters: the RT thread writes peak/RMS into atomics; the control loop reads them at 60 Hz and sends them
+  to subscribed clients.
+- A/B player: a separate microphone chain instance whose parameters are synchronized with the main one;
+  it runs in the same data loop, and its output is a separate playback stream to the monitoring device.
 
-### 11.5 IPC-протокол (эскиз)
+### 11.5 IPC protocol (sketch)
 
 ```jsonc
-// UI → демон
+// UI → daemon
 {"id":1,"method":"mic.set_param","params":{"module":"compressor","param":"amount","value":0.55}}
 {"id":2,"method":"apps.move","params":{"app_key":"bin:discord","channel":"voice"}}
 {"id":3,"method":"meters.subscribe","params":{"targets":["mic.in","mic.out","ch.*"],"hz":60}}
-// демон → UI (события)
+// daemon → UI (events)
 {"event":"apps.added","data":{"app_key":"bin:spotify","name":"Spotify","icon":"spotify","channel":"music","active":true}}
 {"event":"meters","data":{"mic.in":[-21.3,-30.1],"mic.out":[-16.0,-22.4],"mic.gr.compressor":-4.1}}
 ```
 
-Версия протокола в handshake; UI несовместимой версии получает понятную ошибку (важно при обновлениях).
+The protocol version is part of the handshake; a UI of an incompatible version gets a clear error
+(important during updates). The implemented protocol is described in
+[daemon.md](development/daemon.md).
 
 ---
 
-## 12. Платформенная реализация
+## 12. Platform implementation
 
 ### 12.1 Linux / PipeWire (M0–M2)
 
-**Виртуальный микрофон:**
-- Предпочтительно: один узел `pw_filter` с входными портами (линкуются с физическим микрофоном) и
-  выходными, `media.class = "Audio/Source/Virtual"`, `node.name = "macafon_mic"`,
-  `node.description = "Macafon Microphone"`. Обработка in-place в одном цикле графа → нет лишней буферизации.
-- Fallback (если filter-узел как источник ведёт себя некорректно в каких-то версиях): пара потоков
-  capture (`Stream/Input/Audio`, target = физический микрофон) + source (`Audio/Source`) в одном
-  процессе/драйвере графа, связь через SPSC-буфер в 1 quantum.
-- Выбор — по итогам M0 spike с замерами.
-- Линковка с физическим микрофоном — явно (`target.object` / ручные линки через registry), с
-  `node.dont-reconnect`-логикой под нашим контролем, чтобы WirePlumber не «перецеплял» вход.
+**Virtual microphone:**
+- Preferred: one `pw_filter` node with input ports (linked to the physical microphone) and output ports,
+  `media.class = "Audio/Source/Virtual"`, `node.name = "macafon_mic"`,
+  `node.description = "Macafon Microphone"`. In-place processing in one graph cycle → no extra buffering.
+- Fallback (if a filter node as a source misbehaves in some versions): a pair of streams, capture
+  (`Stream/Input/Audio`, target = the physical microphone) + source (`Audio/Source`), in one process/graph
+  driver, joined by a 1-quantum SPSC buffer.
+- The choice follows the M0 spike with measurements.
+- Linking to the physical microphone is explicit (`target.object` / manual links through the registry),
+  with `node.dont-reconnect` logic under our control so that WirePlumber does not "relink" the input.
 
-**Каналы вывода:**
-- Узел на канал: `media.class = "Audio/Sink"`, `node.name = "macafon_ch_<id>"`, `node.description = "Macafon <Name>"`,
-  стерео. Выход каждого канала → внутренний микс → один playback-поток на реальное устройство (меньше
-  узлов в графе, общий Master) — или по playback-потоку на канал с микшированием в PipeWire. **Решение —
-  [ADR-0003](adr/0003-linux-channels-pw-filter-sinks.md):** узел `pw_filter` `Audio/Sink` на канал, выходы
-  линкуются к устройству, сведение делает PipeWire, Master — множитель внутри каналов.
-- Перемещение потоков приложений: установка `target.object` для узла потока через `metadata` (`default`
-  metadata object, как делают `pavucontrol`/`pw-metadata`), WirePlumber перецепляет поток без его
-  перезапуска. Правило «приложение → канал» применяется при появлении потока в registry (до первого
-  буфера, насколько это возможно; при гонке — мгновенный переезд).
-- Default sink: `default.configured.audio.sink` в metadata → `macafon_ch_main` при включении микшера;
-  восстановление при выключении.
-- Отслеживание потоков: registry-события для `media.class = "Stream/Output/Audio"`, свойства
+**Output channels:**
+- A node per channel: `media.class = "Audio/Sink"`, `node.name = "macafon_ch_<id>"`,
+  `node.description = "Macafon <Name>"`, stereo. Each channel's output → an internal mix → one playback
+  stream to the real device (fewer nodes in the graph, a shared Master) — or a playback stream per channel
+  with mixing in PipeWire. **Decision — [ADR-0003](adr/0003-linux-channels-pw-filter-sinks.md):** a
+  `pw_filter` `Audio/Sink` node per channel, the outputs are linked to the device, PipeWire does the mixing,
+  Master is a multiplier inside the channels.
+- Moving application streams: setting `target.object` for the stream node through `metadata` (the
+  `default` metadata object, as `pavucontrol`/`pw-metadata` do); WirePlumber relinks the stream without
+  restarting it. The "application → channel" rule is applied when the stream appears in the registry
+  (before the first buffer as far as possible; in a race — an instant move).
+- Default sink: `default.configured.audio.sink` in the metadata → `macafon_ch_main` when the mixer is
+  enabled; restored when it is disabled.
+- Stream tracking: registry events for `media.class = "Stream/Output/Audio"`, the properties
   `application.name`, `application.process.binary`, `application.process.id`, `application.icon-name`,
   `pipewire.access.portal.app_id`, `media.role`.
 
-**Почему не модули PipeWire/LV2 (filter-chain):** конфигурация через файлы и перезапуск, нет удобного
-обмена метрами и параметрами в реальном времени, нельзя встроить DeepFilterNet/A/B. Свой процесс даёт
-полный контроль и работает на любом дистрибутиве без установки системных конфигов.
+**Why not PipeWire/LV2 modules (filter-chain):** configuration through files and restarts, no convenient
+real-time exchange of meters and parameters, DeepFilterNet/A/B cannot be embedded. Our own process gives
+full control and works on any distribution without installing system configs.
 
-**Риск-проверки M0:** версии WirePlumber, по-разному реагирующие на `target.object`; приложения с
-`node.dont-reconnect=true`; Flatpak-приложения; Chromium/Electron (Discord) с несколькими потоками;
-поведение при `systemctl --user restart pipewire`.
+**M0 risk checks:** WirePlumber versions reacting differently to `target.object`; applications with
+`node.dont-reconnect=true`; Flatpak applications; Chromium/Electron (Discord) with several streams;
+behavior on `systemctl --user restart pipewire`.
 
 ### 12.2 Windows (M3)
 
-> **Решение ([ADR-0004](adr/0004-windows-free-vb-cable.md), заменяет ADR-0001 и ADR-0002):** на Windows
-> Macafon опирается **только на бесплатный [VB-CABLE](https://vb-audio.com/Cable/)** от VB-Audio — один
-> виртуальный кабель (`CABLE Input` → `CABLE Output`). Своего драйвера, APO-плагина и службы-хелпера нет.
-> Платные/донатные A+B и C+D не используются и не рекламируются: всё должно работать на одном
-> бесплатном кабеле. Пользователь ставит VB-CABLE сам с официального сайта; Macafon его не распространяет,
-> не встраивает в инсталлятор и не скачивает.
+> **Decision ([ADR-0004](adr/0004-windows-free-vb-cable.md), supersedes ADR-0001 and ADR-0002):** on Windows
+> Macafon relies **only on the free [VB-CABLE](https://vb-audio.com/Cable/)** by VB-Audio — one virtual
+> cable (`CABLE Input` → `CABLE Output`). There is no driver, APO plugin or helper service of our own. The
+> paid/donation A+B and C+D cables are neither used nor advertised: everything must work on the one free
+> cable. The user installs VB-CABLE from the official site; Macafon does not redistribute it, does not
+> bundle it in the installer and does not download it.
 
-Один кабель передаёт звук в одну сторону, поэтому он целиком отдан под **виртуальный микрофон** — главную
-функцию продукта. Микшер на Windows работает без кабелей: каналы — это **группы громкости приложений**
-поверх аудиосессий Windows (§12.2.2).
+One cable carries audio in one direction, so it is given entirely to the **virtual microphone** — the
+product's main feature. The Windows mixer works without cables: channels are **application volume groups**
+on top of Windows audio sessions (§12.2.2).
 
-#### 12.2.1 Микрофон — виртуальный микрофон на VB-CABLE
+#### 12.2.1 Microphone — the virtual microphone on VB-CABLE
 
 ```
-Физический mic ─► WASAPI capture ─► macafond: цепочка §6.3 ─► WASAPI render ─► CABLE Input
-                                         ▲ метры / A/B / калибровка                │ VB-CABLE
-                                         │                                         ▼
-                                   macafon (UI)              Discord / OBS / Zoom ◄─ CABLE Output = «Macafon Microphone»
+Physical mic ─► WASAPI capture ─► macafond: chain §6.3 ─► WASAPI render ─► CABLE Input
+                                         ▲ meters / A/B / calibration               │ VB-CABLE
+                                         │                                          ▼
+                                   macafon (UI)              Discord / OBS / Zoom ◄─ CABLE Output = "Macafon Microphone"
 ```
 
-| Задача | Решение |
+| Task | Solution |
 |---|---|
-| Обнаружение кабеля | По hardware ID / драйверу VB-Audio, **не по имени** эндпоинта (имена локализуются и переименовываются). Точные ID — в M3.0 spike. Нужен ровно один кабель VB-CABLE; если найдено несколько VB-Audio устройств (у пользователя есть A+B и т. п.), Macafon использует только базовый `VB-CABLE` |
-| Захват | WASAPI shared, event-driven, с физического микрофона; формат движка (float32, 1–2 канала). При не-48 кГц — ресемплер на входе цепочки (RNNoise/DFN работают на 48 кГц) |
-| Вывод | WASAPI shared, event-driven, в `CABLE Input`; моно дублируется в L/R (кабель стерео) |
-| Дрейф часов | Микрофон и кабель тактируются разными часами. Между захватом и выводом — кольцевой буфер с адаптивным ресемплингом (компенсация дрейфа ±0,1 %), без щелчков и накопления задержки |
-| RT-поток | Обработка в потоке захвата (MMCSS «Pro Audio»), без аллокаций и блокировок (§4.1 AGENTS, NFR-S1…S4); поток вывода только читает кольцевой буфер |
-| Mute / Bypass | В цепочке, как на Linux: mute — цифровая тишина в кабель, bypass — Gain = 0 dB |
-| A/B и калибровка | Сырой сигнал доступен в демоне (захват свой), поэтому §6.4/§6.5 — как на Linux, без обходных путей |
-| NS Studio | DeepFilterNet в демоне, как на Linux; при перегрузке — откат на Lite (NFR-S3) |
-| Default-микрофон (MIC-012) | `CABLE Output` делается микрофоном по умолчанию (роли Console и Communications) через `IPolicyConfig`, как в EarTrumpet/SoundSwitch; исходные default запоминаются в журнале и восстанавливаются при Quit / выключении / удалении. Прав администратора не требуется |
-| Подпись | Authenticode для exe и инсталлятора — SignPath Foundation (бесплатно для OSS). Подпись драйверов не нужна: VB-CABLE подписан VB-Audio |
+| Cable detection | By the VB-Audio hardware ID / driver, **not by the endpoint name** (names are localized and renamed). Exact IDs — in the M3.0 spike. Exactly one VB-CABLE cable is needed; if several VB-Audio devices are found (the user has A+B, etc.), Macafon uses only the base `VB-CABLE` |
+| Capture | WASAPI shared, event-driven, from the physical microphone; the engine format (float32, 1–2 channels). For non-48 kHz — a resampler at the chain input (RNNoise/DFN run at 48 kHz) |
+| Output | WASAPI shared, event-driven, into `CABLE Input`; mono is duplicated into L/R (the cable is stereo) |
+| Clock drift | The microphone and the cable run on different clocks. Between capture and output — a ring buffer with adaptive resampling (drift compensation ±0.1%), without clicks and without accumulating latency |
+| RT thread | Processing in the capture thread (MMCSS "Pro Audio"), without allocations or locks (AGENTS §4.1, NFR-S1…S4); the output thread only reads the ring buffer |
+| Mute / Bypass | In the chain, as on Linux: mute — digital silence into the cable, bypass — Gain = 0 dB |
+| A/B and calibration | The raw signal is available in the daemon (its own capture), so §6.4/§6.5 work as on Linux, without workarounds |
+| NS Studio | DeepFilterNet in the daemon, as on Linux; on overload — fallback to Lite (NFR-S3) |
+| Default microphone (MIC-012) | `CABLE Output` becomes the default microphone (the Console and Communications roles) through `IPolicyConfig`, as in EarTrumpet/SoundSwitch; the original defaults are remembered in a journal and restored on Quit / shutdown / uninstall. No administrator rights needed |
+| Signing | Authenticode for the exe and installer — SignPath Foundation (free for OSS). No driver signing needed: VB-CABLE is signed by VB-Audio |
 
-**Требования:**
+**Requirements:**
 
-| ID | Требование | Приоритет |
+| ID | Requirement | Priority |
 |---|---|---|
-| WIN-MIC-001 | Без установленного VB-CABLE обработка микрофона недоступна: экран Microphone и онбординг показывают шаг установки (WIN-MIC-002); метры, калибровка и A/B при этом работают (обработка идёт, но выводить некуда) | P0 |
-| WIN-MIC-002 | Онбординг-шаг «Install VB-CABLE» (после Welcome): объяснение «Macafon uses the free VB-CABLE driver as your processed microphone», кнопка `Open download page` (официальный сайт VB-Audio), инструкция (распаковать → `VBCABLE_Setup_x64.exe` от администратора → перезагрузка), пометка, что это donationware и автора стоит поддержать. После перезагрузки Macafon продолжает онбординг с этого шага | P0 |
-| WIN-MIC-003 | В UI кабель называется **Macafon Microphone**; в шаге «Use it» — подсказка: «In Discord, OBS, Zoom select **CABLE Output (VB-Audio Virtual Cable)**» с картинкой, т.к. системное имя устройства остаётся чужим | P0 |
-| WIN-MIC-004 | Кабель — собственность Macafon: если в `CABLE Input` пишет другое приложение (OBS, игра, VoiceMeeter) или системный default render указывает на кабель, звук смешается с микрофоном. Doctor обнаруживает чужие сессии на `CABLE Input` и default render на кабеле и предлагает исправление в один клик (вернуть default render на реальное устройство) | P0 |
-| WIN-MIC-005 | Защита от «пропавшего микрофона»: если Macafon не работает, `CABLE Output` отдаёт тишину. При Quit и выключении — восстановление исходного default-микрофона; диалог Quit предупреждает, что приложения, выбравшие кабель явно, останутся без звука. Автозапуск (AS-004) включён по умолчанию | P0 |
-| WIN-MIC-006 | Hot-plug (MIC-005): кабель продолжает существовать, при отключении физического микрофона в него идёт тишина; при подключении — автоматический возврат, как на Linux | P0 |
-| WIN-MIC-007 | Формат кабеля: 48 кГц. Doctor проверяет формат `CABLE Input`/`CABLE Output` и физического микрофона, предупреждает о ресемплинге и показывает, где поменять формат в настройках звука Windows | P0 |
-| WIN-MIC-008 | Задержка: Doctor показывает фактическую задержку (захват + цепочка + буфер кабеля + вывод) и рекомендованный размер внутреннего буфера VB-CABLE (`VBCABLE_ControlPanel`). Цель — NFR-L6 | P0 |
-| WIN-MIC-009 | Кабель скрыт в UI Macafon: не показывается в выборе физического микрофона (MIC-003) и в списке устройств вывода (OUT-004) | P0 |
-| WIN-MIC-010 | Опция «Rename to Macafon Microphone»: одноразовое действие с запросом UAC переименовывает эндпоинт `CABLE Output` в `Macafon Microphone`; исходное имя сохраняется и восстанавливается при удалении Macafon | P2 |
+| WIN-MIC-001 | Without VB-CABLE installed, microphone processing is unavailable: the Microphone screen and onboarding show the installation step (WIN-MIC-002); meters, calibration and A/B still work (processing runs, but there is nowhere to output) | P0 |
+| WIN-MIC-002 | An "Install VB-CABLE" onboarding step (after Welcome): the explanation "Macafon uses the free VB-CABLE driver as your processed microphone", an `Open download page` button (the official VB-Audio site), instructions (unpack → `VBCABLE_Setup_x64.exe` as administrator → reboot), a note that it is donationware and the author deserves support. After the reboot Macafon continues onboarding from this step | P0 |
+| WIN-MIC-003 | In the UI the cable is called **Macafon Microphone**; the "Use it" step has the hint "In Discord, OBS, Zoom select **CABLE Output (VB-Audio Virtual Cable)**" with a picture, because the system device name stays foreign | P0 |
+| WIN-MIC-004 | The cable belongs to Macafon: if another application (OBS, a game, VoiceMeeter) writes into `CABLE Input`, or the system default render device points at the cable, the audio mixes with the microphone. Doctor detects foreign sessions on `CABLE Input` and a default render on the cable and offers a one-click fix (move the default render back to a real device) | P0 |
+| WIN-MIC-005 | Protection against a "missing microphone": if Macafon is not running, `CABLE Output` delivers silence. On Quit and shutdown the original default microphone is restored; the Quit dialog warns that applications that chose the cable explicitly will be left without audio. Autostart (AS-004) is on by default | P0 |
+| WIN-MIC-006 | Hot-plug (MIC-005): the cable keeps existing; when the physical microphone disconnects, silence goes into it; on reconnect — an automatic return, as on Linux | P0 |
+| WIN-MIC-007 | Cable format: 48 kHz. Doctor checks the format of `CABLE Input`/`CABLE Output` and the physical microphone, warns about resampling and shows where to change the format in the Windows sound settings | P0 |
+| WIN-MIC-008 | Latency: Doctor shows the actual latency (capture + chain + cable buffer + output) and the recommended size of the VB-CABLE internal buffer (`VBCABLE_ControlPanel`). Target — NFR-L6 | P0 |
+| WIN-MIC-009 | The cable is hidden in the Macafon UI: it is not shown in the physical microphone choice (MIC-003) or in the output device list (OUT-004) | P0 |
+| WIN-MIC-010 | A "Rename to Macafon Microphone" option: a one-time action with a UAC prompt renames the `CABLE Output` endpoint to `Macafon Microphone`; the original name is saved and restored when Macafon is uninstalled | P2 |
 
-**Отличия от Linux:**
+**Differences from Linux:**
 
-| Требование | Linux | Windows |
+| Requirement | Linux | Windows |
 |---|---|---|
-| MIC-010 Виртуальный микрофон | `Macafon Microphone` создаёт демон | `CABLE Output` от VB-CABLE; существует, пока установлен драйвер, без Macafon — тишина |
-| MIC-011 Формат | Моно / опция стерео | Стерео (дубль моно), формат задаёт кабель |
-| Задержка без NS | ≤ 3 мс (NFR-L1) | Выше: два WASAPI-прохода + буфер кабеля (NFR-L6) |
-| Несколько виртуальных микрофонов (M4) | Да | Нет — бесплатный VB-CABLE один |
+| MIC-010 Virtual microphone | The daemon creates `Macafon Microphone` | `CABLE Output` from VB-CABLE; exists while the driver is installed, silent without Macafon |
+| MIC-011 Format | Mono / a stereo option | Stereo (duplicated mono), the cable sets the format |
+| Latency without NS | ≤ 3 ms (NFR-L1) | Higher: two WASAPI passes + the cable buffer (NFR-L6) |
+| Several virtual microphones (M4) | Yes | No — the free VB-CABLE is a single cable |
 
-#### 12.2.2 Микшер на Windows — группы громкости без кабелей
+#### 12.2.2 Windows mixer — volume groups without cables
 
-Кабелей для каналов нет, поэтому звук приложений не проходит через Macafon. Канал на Windows — это группа
-приложений с общим фейдером и mute: Macafon управляет громкостью их аудиосессий Windows. Модель каналов,
-правила, автоклассификация, D&D и хоткеи — те же, что на Linux; эффектов на канал и на Master нет.
+There are no cables for channels, so application audio does not pass through Macafon. A channel on Windows
+is a group of applications with a shared fader and mute: Macafon controls the volume of their Windows audio
+sessions. The channel model, rules, auto-classification, D&D and hotkeys are the same as on Linux; there are
+no effects on channels or Master.
 
 ```
-Discord ─┐ сессия × (Voice 50% × app 100% × Master 100%)
-Firefox ─┼─ сессия × (Main 30% × …)            ──► реальное устройство вывода (Windows сводит само)
-Cider   ─┘ сессия × (Music 70% × …)
+Discord ─┐ session × (Voice 50% × app 100% × Master 100%)
+Firefox ─┼─ session × (Main 30% × …)            ──► the real output device (Windows mixes it itself)
+Cider   ─┘ session × (Music 70% × …)
 ```
 
-| ID | Требование | Приоритет |
+| ID | Requirement | Priority |
 |---|---|---|
-| WIN-CH-001 | Автодетект приложений — `IAudioSessionManager2` + `IAudioSessionNotification` на всех устройствах вывода; группировка по exe (APP-002), иконки из exe / AppX-манифеста (APP-003); системные звуки — псевдо-фишка (APP-011) | P0 |
-| WIN-CH-002 | Громкость сессии = кубическая кривая (`канал × приложение × Master`) через `ISimpleAudioVolume`; mute канала/Master — mute сессий. Изменение применяется ко всем сессиям приложения, включая новые (APP-005) | P0 |
-| WIN-CH-003 | Изменение громкости приложения в микшере громкости Windows (или самим приложением) Macafon распознаёт по `IAudioSessionEvents::OnSimpleVolumeChanged` (свой event-context GUID отличает собственные изменения) и принимает как новую громкость приложения (CH-008), а не перезаписывает | P0 |
-| WIN-CH-004 | Метры: `IAudioMeterInformation` сессий; метр канала — максимум пиков его приложений (CH-005), Master — метр устройства вывода | P0 |
-| WIN-CH-005 | Число каналов — до 8, как на Linux (кабели для каналов не нужны) | P0 |
-| WIN-CH-006 | На Windows у каналов и Master **нет EQ/FX** (CFX-001…007): кнопки EQ/FX скрыты, в панели канала — вкладка Channel; UI один раз объясняет «Channel effects are available on Linux» | P0 |
-| WIN-CH-007 | Устройство вывода (OUT-001…003): смена системного default render через `IPolicyConfig`; приоритетный список (OUT-002) — Macafon переключает default при подключении/отключении. Приложения, которые сами выбрали устройство, не трогаются | P0 |
-| WIN-CH-008 | Восстановление: исходные громкости и mute сессий, изменённые Macafon, сохраняются в журнале и возвращаются при выключении микшера, Quit, падении демона (при следующем старте) и удалении | P0 |
-| WIN-CH-009 | Нельзя перенаправить приложение «в канал» на уровне звука — канал не меняет устройство приложения. Перенос фишки меняет только то, каким фейдером управляется приложение | P0 |
-| WIN-CH-010 | Эффекты на канал без дополнительных кабелей (например, WASAPI process loopback) — вне 1.x; пересматривается в ADR-0004 | P2 |
+| WIN-CH-001 | Application auto-detection — `IAudioSessionManager2` + `IAudioSessionNotification` on all output devices; grouping by exe (APP-002), icons from the exe / AppX manifest (APP-003); system sounds — a pseudo-chip (APP-011) | P0 |
+| WIN-CH-002 | Session volume = a cubic curve (`channel × application × Master`) through `ISimpleAudioVolume`; channel/Master mute — session mute. A change applies to all of the application's sessions, including new ones (APP-005) | P0 |
+| WIN-CH-003 | A change of an application's volume in the Windows volume mixer (or by the application itself) is recognized by Macafon through `IAudioSessionEvents::OnSimpleVolumeChanged` (its own event-context GUID tells its own changes apart) and accepted as the application's new volume (CH-008), not overwritten | P0 |
+| WIN-CH-004 | Meters: session `IAudioMeterInformation`; a channel meter is the maximum of its applications' peaks (CH-005), Master is the output device meter | P0 |
+| WIN-CH-005 | Up to 8 channels, as on Linux (channels need no cables) | P0 |
+| WIN-CH-006 | On Windows channels and Master have **no EQ/FX** (CFX-001…007): the EQ/FX buttons are hidden, the channel panel has a Channel tab; the UI explains once "Channel effects are available on Linux" | P0 |
+| WIN-CH-007 | Output device (OUT-001…003): changing the system default render device through `IPolicyConfig`; the priority list (OUT-002) — Macafon switches the default on connect/disconnect. Applications that chose a device themselves are left alone | P0 |
+| WIN-CH-008 | Recovery: the original session volumes and mutes changed by Macafon are saved in a journal and given back when the mixer is disabled, on Quit, after a daemon crash (on the next start) and on uninstall | P0 |
+| WIN-CH-009 | An application cannot be redirected "into a channel" at the audio level — a channel does not change the application's device. Moving a chip only changes which fader controls the application | P0 |
+| WIN-CH-010 | Per-channel effects without extra cables (for example, WASAPI process loopback) — outside 1.x; revisited in ADR-0004 | P2 |
 
-**Ограничения варианта (принимаются):** один виртуальный микрофон; задержка микрофона выше, чем на Linux;
-чужое имя устройства в приложениях (до WIN-MIC-010); на Windows нет эффектов на каналы и Master; без
-запущенного Macafon `CABLE Output` молчит; зависимость от стороннего драйвера.
+**Accepted limitations of this approach:** one virtual microphone; higher microphone latency than on Linux;
+a foreign device name in applications (until WIN-MIC-010); no channel or Master effects on Windows;
+`CABLE Output` is silent without Macafon running; dependency on a third-party driver.
 
-#### 12.2.3 Прочее
+#### 12.2.3 Other
 
-| Задача | Решение |
+| Task | Solution |
 |---|---|
-| Трей / автозапуск | `tray-icon`; автозапуск демона при логоне через `HKCU\…\Run` (без UAC) (AS-004) |
-| IPC | Named pipe `\\.\pipe\macafon-<user SID>` с ACL текущего пользователя вместо Unix-сокета |
-| Хоткеи | `global-hotkey` (RegisterHotKey), включая события отпускания для push-to-talk |
-| Инсталлятор | MSI (WiX) через Tauri bundler, **установка для текущего пользователя без прав администратора** (служб и системных компонентов нет). VB-CABLE в инсталлятор **не** входит (WIN-MIC-002) |
-| Удаление | Восстанавливает default-устройства и громкости сессий из журналов (WIN-MIC-005, WIN-CH-008); VB-CABLE не удаляет — подсказывает, как удалить его самостоятельно |
-| Свой драйвер виртуальных устройств | Отложен; пересматривается при бюджете на подпись (тогда — несколько виртуальных mic и каналы с эффектами, как на Linux) |
+| Tray / autostart | `tray-icon`; daemon autostart at logon through `HKCU\…\Run` (no UAC) (AS-004) |
+| IPC | The named pipe `\\.\pipe\macafon-<user SID>` with a current-user ACL instead of a Unix socket |
+| Hotkeys | `global-hotkey` (RegisterHotKey), including release events for push-to-talk |
+| Installer | MSI (WiX) through the Tauri bundler, **a per-user install without administrator rights** (no services or system components). VB-CABLE is **not** part of the installer (WIN-MIC-002). Implemented as a per-user NSIS installer, because the Tauri MSI installs per machine ([windows-m3.md](development/windows-m3.md)) |
+| Uninstall | Restores default devices and session volumes from the journals (WIN-MIC-005, WIN-CH-008); does not remove VB-CABLE — explains how to remove it yourself |
+| Our own virtual device driver | Postponed; revisited if there is a budget for signing (then several virtual mics and channels with effects, as on Linux) |
 
 
 ---
 
-## 13. Хранение конфигурации и пресеты
+## 13. Configuration storage and presets
 
-| Что | Где (Linux) | Формат |
+| What | Where (Linux) | Format |
 |---|---|---|
-| Основной конфиг | `$XDG_CONFIG_HOME/macafon/config.toml` | TOML, поле `schema_version`, автоматические миграции + бэкап `config.toml.bak` перед миграцией |
-| Пользовательские пресеты микрофона | `$XDG_CONFIG_HOME/macafon/presets/mic/*.json` | JSON (`.macafon-preset.json` при экспорте) |
-| Пресеты EQ каналов | `$XDG_CONFIG_HOME/macafon/presets/eq/*.json` | JSON |
-| Правила приложений | В `config.toml`, секция `[[apps.rules]]` (`key`, `channel`, `managed`) | TOML |
-| Логи | `$XDG_STATE_HOME/macafon/macafond.log` (ротация 5 × 2 МБ) | text |
-| Сокет | `$XDG_RUNTIME_DIR/macafon/macafond.sock` | — |
+| Main config | `$XDG_CONFIG_HOME/macafon/config.toml` | TOML, a `schema_version` field, automatic migrations + a `config.toml.bak` backup before migrating |
+| User microphone presets | `$XDG_CONFIG_HOME/macafon/presets/mic/*.json` | JSON (`.macafon-preset.json` on export) |
+| Channel EQ presets | `$XDG_CONFIG_HOME/macafon/presets/eq/*.json` | JSON |
+| Application rules | In `config.toml`, the `[[apps.rules]]` section (`key`, `channel`, `managed`) | TOML |
+| Logs | `$XDG_STATE_HOME/macafon/macafond.log` (rotation 5 × 2 MB) | text |
+| Socket | `$XDG_RUNTIME_DIR/macafon/macafond.sock` | — |
 
 Windows — `%APPDATA%\Macafon\…`, `%LOCALAPPDATA%\Macafon\logs`.
 
-Требования:
-- CFG-001 (P0) Запись конфига атомарная (temp + rename), с debounce 500 мс после последнего изменения.
-- CFG-002 (P0) Повреждённый конфиг → загрузка дефолтов + сохранение испорченного файла как `config.toml.broken-<ts>` + тост.
-- CFG-003 (P1) Конфиг человекочитаемый и документированный (для энтузиастов, dotfiles).
+Requirements:
+- CFG-001 (P0) Config writes are atomic (temp + rename), with a 500 ms debounce after the last change.
+- CFG-002 (P0) A corrupted config → load the defaults + keep the broken file as `config.toml.broken-<ts>` + a toast.
+- CFG-003 (P1) The config is human-readable and documented (for enthusiasts, dotfiles).
 
-Пример:
+Example:
 ```toml
 schema_version = 1
 
@@ -990,141 +1004,147 @@ mic_mute_toggle = "Ctrl+Alt+M"
 
 ---
 
-## 14. Тестирование и качество
+## 14. Testing and quality
 
-### 14.1 Автотесты
+### 14.1 Automated tests
 
-| Уровень | Что | Инструменты |
+| Level | What | Tools |
 |---|---|---|
-| DSP unit | АЧХ фильтров против аналитических формул (±0.1 dB), статические кривые компрессора/экспандера, отсутствие NaN/денормалов, null-тест «всё выключено = бит-в-бит», детерминизм | `cargo test`, `proptest` |
-| DSP golden | Эталонные WAV (голос + шумы: вентилятор, клавиатура, улица) → обработка → сравнение с golden-выходом (допуск) | собственный harness |
-| RT-safety | Прогон всех модулей и смены пресетов под `assert_no_alloc` | CI |
-| Производительность | `criterion`-бенчмарки на модуль и цепочку; регресс > 10% ломает CI | CI |
-| Engine/IPC | Интеграционные тесты протокола, миграций конфига | `cargo test` |
-| PipeWire integration | Headless PipeWire + WirePlumber в контейнере CI: создание узлов, перенос потоков (`pw-play` как «приложение»), исчезновение узлов при остановке демона | GitHub Actions |
-| UI | Компонентные тесты (Vitest), e2e (WebDriver через `tauri-driver`) для онбординга и D&D | CI |
+| DSP unit | Filter responses against analytic formulas (±0.1 dB), static compressor/expander curves, no NaN/denormals, a null test "everything off = bit-exact", determinism | `cargo test`, `proptest` |
+| DSP golden | Reference WAVs (voice + noise: fan, keyboard, street) → processing → comparison with a golden output (with tolerance) | our own harness |
+| RT safety | Running all modules and preset changes under `assert_no_alloc` | CI |
+| Performance | `criterion` benchmarks per module and chain; a regression > 10% breaks CI | CI |
+| Engine/IPC | Integration tests of the protocol and config migrations | `cargo test` |
+| PipeWire integration | Headless PipeWire + WirePlumber in a CI container: node creation, moving streams (`pw-play` as an "application"), nodes disappearing when the daemon stops | GitHub Actions |
+| UI | Component tests (Vitest), e2e (WebDriver through `tauri-driver`) for onboarding and D&D | CI |
 
-### 14.2 Ручное тестирование
+Per [AGENTS.md](../AGENTS.md) there is no cloud CI for now: these checks run locally (the headless PipeWire
+tests through `tools/tests/*.py`).
 
-Матрица §10.5 × сценарии US-1…US-10 перед каждым релизом; чек-лист в `docs/qa/release-checklist.md` (создаётся в M1).
+### 14.2 Manual testing
 
-### 14.3 Замер задержки
+The §10.5 matrix × scenarios US-1…US-10 before every release; the checklist is in
+[`docs/qa/release-checklist.md`](qa/release-checklist.md).
 
-`tools/latency-probe`: генерирует импульс/MLS в узел-«фейковый микрофон», ловит его на выходе
-`Macafon Microphone` и измеряет разницу с прямым путём; аналогично для каналов вывода. Результаты
-публикуются в README/релиз-нотах. Дополнительно — физический loopback-тест (кабель выход→вход аудиокарты).
+### 14.3 Latency measurement
 
-### 14.4 Набор приложений для проверки роутинга
+`tools/latency-probe`: generates an impulse/MLS into a "fake microphone" node, catches it at the output of
+`Macafon Microphone` and measures the difference from the direct path; the same for output channels. The
+results are published in the README/release notes. Additionally — a physical loopback test (a cable from
+the sound card's output to its input).
+
+### 14.4 Application set for routing checks
 
 Firefox, Chromium, Discord (native + Flatpak), Vesktop, Telegram Desktop, Spotify (Flatpak/deb), Cider,
-Steam + Proton-игра, нативная игра (SDL), mpv, OBS (как потребитель виртуального микрофона), Zoom.
+Steam + a Proton game, a native game (SDL), mpv, OBS (as a consumer of the virtual microphone), Zoom.
 
-## 15. Дистрибуция
+## 15. Distribution
 
-| Канал | Приоритет | Примечание |
+| Channel | Priority | Note |
 |---|---|---|
 | GitHub Releases: `.deb`, `.rpm`, AppImage | P0 | Tauri bundler + systemd user unit |
 | AUR (`macafon`, `macafon-bin`) | P0 | |
-| Flatpak (Flathub) | P2 | Демону нужен доступ к PipeWire и registry всех узлов — требует исследования песочницы |
-| Windows: MSI для текущего пользователя (без прав администратора) | P0 (M3) | Authenticode-подпись через SignPath Foundation (бесплатно для OSS); VB-CABLE пользователь ставит сам |
-| Автообновление | P1 | Только уведомление о новой версии (opt-in); обновление через пакетный менеджер / инсталлятор |
+| Flatpak (Flathub) | P2 | The daemon needs access to PipeWire and the registry of all nodes — the sandbox needs research |
+| Windows: a per-user installer (no administrator rights) | P0 (M3) | Authenticode signing through SignPath Foundation (free for OSS); the user installs VB-CABLE themselves |
+| Auto-update | P1 | Only a new-version notification (opt-in); updating through the package manager / installer |
 
-Сборка — GitHub Actions: lint (`clippy -D warnings`, `rustfmt`, eslint/prettier), тесты, бенчмарки,
-сборка пакетов на тег `v*`.
+Build: lint (`clippy -D warnings`, `rustfmt`, eslint/prettier), tests, benchmarks, building packages on a
+`v*` tag. Planned for GitHub Actions; per [AGENTS.md](../AGENTS.md) it runs locally until the owner decides
+otherwise.
 
-## 16. Риски
+## 16. Risks
 
-| Риск | Вероятность | Влияние | Митигация |
+| Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| WirePlumber переопределяет `target.object` / восстанавливает старые маршруты потоков | Средняя | Высокое | M0 spike на нескольких версиях; при необходимости — собственные линки + WirePlumber-скрипт/политика, поставляемая с пакетом |
-| Задержка `pw_filter`-источника выше ожидаемой | Низкая | Высокое | Замер в M0, fallback-схема, честное отображение задержки |
-| DeepFilterNet слишком тяжёл на слабых CPU | Средняя | Среднее | Lite по умолчанию, детектор перегрузки с автооткатом |
-| Глобальные хоткеи на Wayland недоступны в части DE | Высокая | Среднее | Портал + X11 + CLI-fallback с готовыми командами |
-| GNOME без AppIndicator — нет трея | Высокая | Среднее | Инструкция, управление через повторный запуск, хоткеи |
-| Двойная обработка (Discord NS/AGC + Macafon) портит звук | Высокая | Среднее | Подсказки в онбординге, Doctor |
-| Приложения, захватывающие устройство напрямую через ALSA (без PipeWire) | Низкая | Низкое | Документировать как ограничение |
-| Windows: пользователи не ставят VB-CABLE (лишний шаг + перезагрузка) — микрофон без него не работает | Средняя | Высокое | Понятный онбординг-шаг (WIN-MIC-002), продолжение после перезагрузки; микшер и тест звука работают и без кабеля |
-| Windows: `CABLE Output` молчит, когда Macafon не работает | Средняя | Высокое | Автозапуск по умолчанию, восстановление default-микрофона при Quit, предупреждение в диалоге Quit (WIN-MIC-005) |
-| Windows: кабель уже занят OBS/VoiceMeeter/игрой — чужой звук в микрофоне | Средняя | Высокое | Doctor обнаруживает чужие сессии и default render на кабеле, исправление в один клик (WIN-MIC-004) |
-| Windows: задержка VB-CABLE выше целевой | Средняя | Среднее | Замер в M3.0, рекомендованный буфер кабеля в Doctor (WIN-MIC-008) |
-| Windows: дрейф часов микрофона и кабеля — щелчки или растущая задержка | Средняя | Высокое | Адаптивный ресемплинг в кольцевом буфере, soak-тест 1 ч в M3 |
-| Windows: каналы без эффектов разочаруют пользователей Sonar | Высокая | Среднее | Честно в онбординге и UI (WIN-CH-006); эффекты на канал — пересмотр в ADR-0004 |
-| Windows: громкость сессий меняют приложение или микшер Windows | Высокая | Низкое | Принимать как новую громкость приложения (WIN-CH-003) |
-| Windows: изменения/прекращение поддержки VB-CABLE | Низкая | Высокое | Обнаружение по hardware ID, абстракция «виртуальный микрофон» в бэкенде; свой драйвер как долгосрочная альтернатива |
-| Windows: недокументированный `IPolicyConfig` меняется между сборками | Средняя | Среднее | Версии GUID по билдам (как в EarTrumpet/SoundSwitch), без него — инструкция выбрать устройство вручную |
-| WebKitGTK тормозит на анимациях / Canvas | Средняя | Среднее | Canvas 2D с ограничением FPS, отключение анимаций, профилирование на M1 |
+| WirePlumber overrides `target.object` / restores old stream routes | Medium | High | An M0 spike on several versions; if needed — our own links + a WirePlumber script/policy shipped with the package |
+| `pw_filter` source latency higher than expected | Low | High | Measurement in M0, a fallback design, honest latency display |
+| DeepFilterNet too heavy on weak CPUs | Medium | Medium | Lite by default, an overload detector with automatic fallback |
+| Global hotkeys on Wayland unavailable in some DEs | High | Medium | Portal + X11 + a CLI fallback with ready commands |
+| GNOME without AppIndicator — no tray | High | Medium | Instructions, control by relaunching, hotkeys |
+| Double processing (Discord NS/AGC + Macafon) ruins the sound | High | Medium | Hints in onboarding, Doctor |
+| Applications that grab the device directly through ALSA (without PipeWire) | Low | Low | Document as a limitation |
+| Windows: users do not install VB-CABLE (an extra step + a reboot) — the microphone does not work without it | Medium | High | A clear onboarding step (WIN-MIC-002), continuing after the reboot; the mixer and the sound test work without the cable |
+| Windows: `CABLE Output` is silent when Macafon is not running | Medium | High | Autostart by default, restoring the default microphone on Quit, a warning in the Quit dialog (WIN-MIC-005) |
+| Windows: the cable is already taken by OBS/VoiceMeeter/a game — foreign audio in the microphone | Medium | High | Doctor detects foreign sessions and a default render on the cable, a one-click fix (WIN-MIC-004) |
+| Windows: VB-CABLE latency higher than the target | Medium | Medium | Measurement in M3.0, the recommended cable buffer in Doctor (WIN-MIC-008) |
+| Windows: clock drift between the microphone and the cable — clicks or growing latency | Medium | High | Adaptive resampling in the ring buffer, a 1 h soak test in M3 |
+| Windows: channels without effects disappoint Sonar users | High | Medium | Honest about it in onboarding and the UI (WIN-CH-006); per-channel effects — revisited in ADR-0004 |
+| Windows: session volume is changed by the application or the Windows mixer | High | Low | Accept it as the application's new volume (WIN-CH-003) |
+| Windows: VB-CABLE changes or is discontinued | Low | High | Detection by hardware ID, a "virtual microphone" abstraction in the backend; our own driver as a long-term alternative |
+| Windows: the undocumented `IPolicyConfig` changes between builds | Medium | Medium | GUID versions per build (as in EarTrumpet/SoundSwitch); without it — instructions to choose the device manually |
+| WebKitGTK is slow on animations / Canvas | Medium | Medium | Canvas 2D with an FPS limit, disabling animations, profiling in M1 |
 
-## 17. Открытые вопросы
+## 17. Open questions
 
-| # | Вопрос | Рекомендация | Кто решает |
+| # | Question | Recommendation | Who decides |
 |---|---|---|---|
-| Q1 | **Решено владельцем:** GPL-3.0-only для приложения, MIT/Apache-2.0 для `macafon-dsp` | Тексты лицензий в репозитории | Владелец продукта |
-| Q2 | ~~Финальное имя~~ — **решено:** Macafon (рабочее имя было micEQ). Логотип — открыт | — | Владелец продукта |
-| Q3 | ~~Бюджет на подпись Windows-драйвера~~ — **решено:** своего драйвера нет, только бесплатный VB-CABLE ([ADR-0004](adr/0004-windows-free-vb-cable.md)). Свой драйвер — пересмотреть при появлении бюджета | — | — |
-| Q7 | ~~Каналы вывода на Windows~~ — **решено:** единственный бесплатный кабель отдан микрофону, каналы — группы громкости без эффектов ([ADR-0004](adr/0004-windows-free-vb-cable.md)) | — | — |
-| Q4 | Нужен ли отдельный канал/фейдер для микрофона в микшере (sidetone — слышать себя) | Отложить вместе с live-мониторингом | Продукт |
-| Q5 | Хранить ли пресеты сообщества (каталог в репозитории) | P2: папка `community-presets/` + импорт по ссылке | Продукт |
-| Q6 | Поддержка aarch64 Linux в 1.0 | P1, если CI позволяет | Разработка |
+| Q1 | **Decided by the owner:** GPL-3.0-only for the application, MIT/Apache-2.0 for `macafon-dsp` | License texts in the repository | Product owner |
+| Q2 | ~~Final name~~ — **decided:** Macafon (the working name was micEQ). Logo — decided (Retro, see the design system) | — | Product owner |
+| Q3 | ~~Budget for signing a Windows driver~~ — **decided:** no driver of our own, only the free VB-CABLE ([ADR-0004](adr/0004-windows-free-vb-cable.md)). Our own driver — revisit when there is a budget | — | — |
+| Q7 | ~~Output channels on Windows~~ — **decided:** the only free cable goes to the microphone, channels are volume groups without effects ([ADR-0004](adr/0004-windows-free-vb-cable.md)) | — | — |
+| Q4 | Is a separate channel/fader for the microphone needed in the mixer (sidetone — hearing yourself) | Postpone together with live monitoring | Product |
+| Q5 | Should community presets be stored (a catalog in the repository) | P2: a `community-presets/` folder + import by link | Product |
+| Q6 | aarch64 Linux support in 1.0 | P1, if the build setup allows | Development |
 
-## 18. Метрики успеха
+## 18. Success metrics
 
-Телеметрии нет, поэтому метрики — из тестов и сообщества:
+There is no telemetry, so the metrics come from tests and the community:
 
-| Метрика | Цель к 1.0 |
+| Metric | Target for 1.0 |
 |---|---|
-| Добавленная задержка (latency-probe) | NFR-L1…L3 выполнены, опубликованы |
-| CPU/RAM (бенчмарк-скрипт) | NFR-R1…R5 выполнены |
-| Время онбординга (юзабилити, n ≥ 5) | Медиана ≤ 2 мин |
-| A/B слепой тест (n ≥ 10 слушателей): «обработанный лучше» на пресете Natural с шумной записью | ≥ 80% |
-| Crash / xrun-баги в GitHub Issues за первый месяц после релиза | 0 открытых критичных > 7 дней |
-| Роутинг: приложения из §14.4 | 100% корректно перемещаются и запоминаются |
+| Added latency (latency-probe) | NFR-L1…L3 met and published |
+| CPU/RAM (benchmark script) | NFR-R1…R5 met |
+| Onboarding time (usability, n ≥ 5) | Median ≤ 2 min |
+| A/B blind test (n ≥ 10 listeners): "processed is better" on the Natural preset with a noisy recording | ≥ 80% |
+| Crash / xrun bugs in GitHub Issues in the first month after release | 0 critical ones open > 7 days |
+| Routing: applications from §14.4 | 100% move correctly and are remembered |
 
 ## 19. Roadmap
 
-| Этап | Содержание |
+| Stage | Content |
 |---|---|
-| **M0 · Spike** (1–2 нед.) | PoC виртуального микрофона на `pw_filter` + RNNoise, замер задержки, PoC переноса потока приложения в виртуальный sink через metadata, проверка DeepFilterNet в RT. Итог — ADR с выбранной схемой |
-| **M1 · MVP Микрофон** | Демон, цепочка 8 модулей, пресеты, калибровка, запись + A/B, экран Microphone, онбординг, трей, автозапуск, deb/rpm/AppImage/AUR |
-| **M2 · 1.0 Микшер** | Каналы, автодетект + D&D + правила, EQ/FX каналов, выбор и приоритет устройств вывода, горячие клавиши (portal/X11/CLI), Doctor |
-| **M3 · Windows** | См. план §19.1 |
-| **M4 · Стример** | Несколько виртуальных микрофонов (разные цепочки из одного входа), Stream mix (отдельный микс каналов для OBS), ducking (приглушать Main/Music, когда говорят в Voice), live-мониторинг себя |
-| **M5 · Pro** | Спектр на EQ, перестановка модулей, хостинг CLAP/LV2/VST3, разделение браузера по вкладкам, Spatial audio (HRTF), loudness-нормализация каналов, AutoEQ-профили наушников, пресеты сообщества |
-| **M6** | Локализация UI (RU и др.), aarch64, Flatpak, удалённое управление (Stream Deck / телефон) |
+| **M0 · Spike** (1–2 weeks) | A PoC of the virtual microphone on `pw_filter` + RNNoise, latency measurement, a PoC of moving an application stream into a virtual sink through metadata, a DeepFilterNet check in RT. The outcome — an ADR with the chosen design |
+| **M1 · MVP Microphone** | Daemon, the 8-module chain, presets, calibration, recording + A/B, the Microphone screen, onboarding, tray, autostart, deb/rpm/AppImage/AUR |
+| **M2 · 1.0 Mixer** | Channels, auto-detection + D&D + rules, channel EQ/FX, output device selection and priority, hotkeys (portal/X11/CLI), Doctor |
+| **M3 · Windows** | See the plan in §19.1 |
+| **M4 · Streamer** | Several virtual microphones (different chains from one input), Stream mix (a separate channel mix for OBS), ducking (lowering Main/Music when someone speaks in Voice), live self-monitoring |
+| **M5 · Pro** | A spectrum on the EQ, module reordering, CLAP/LV2/VST3 hosting, splitting the browser by tabs, Spatial audio (HRTF), channel loudness normalization, AutoEQ headphone profiles, community presets |
+| **M6** | UI localization (RU and others), aarch64, Flatpak, remote control (Stream Deck / phone) |
 
-M4 на Windows ограничен одним бесплатным кабелем: несколько виртуальных микрофонов и Stream mix там недоступны
-(ADR-0004).
+M4 on Windows is limited by the one free cable: several virtual microphones and Stream mix are not
+available there (ADR-0004).
 
-### 19.1 План порта на Windows (M3)
+### 19.1 Windows port plan (M3)
 
-Основа — §12.2 и [ADR-0004](adr/0004-windows-free-vb-cable.md): только бесплатный VB-CABLE (один кабель)
-под виртуальный микрофон, микшер — группы громкости без эффектов. Своего драйвера, APO и служб нет.
-Проверки — локально на Windows-стенде (Windows 10 22H2 и Windows 11 24H2/25H2 с установленным VB-CABLE),
-облачного CI нет (AGENTS.md).
+The basis is §12.2 and [ADR-0004](adr/0004-windows-free-vb-cable.md): only the free VB-CABLE (one cable) for
+the virtual microphone, the mixer as volume groups without effects. No driver, APO or services of our own.
+Checks run locally on a Windows test machine (Windows 10 22H2 and Windows 11 24H2/25H2 with VB-CABLE
+installed), there is no cloud CI (AGENTS.md). Progress — [windows-m3.md](development/windows-m3.md).
 
-| Шаг | Содержание | Готово, когда |
+| Step | Content | Done when |
 |---|---|---|
-| **M3.0 · Spike** (1–2 нед.) | Hardware ID драйвера VB-CABLE и надёжное обнаружение кабеля; прототип WASAPI-захват → `macafon-dsp` → `CABLE Input`; замер задержки при разных буферах `VBCABLE_ControlPanel` (`tools/latency-probe` для Windows); замер дрейфа часов микрофона и кабеля; `IPolicyConfig` (default capture/render) на целевых сборках; `ISimpleAudioVolume` + события сессий; named pipe IPC | Цифры задержки и дрейфа записаны в ADR-0004, NFR-L6 уточнён; известны GUID `IPolicyConfig` по сборкам |
-| **M3.1 · Платформенный слой** | Общий `trait AudioBackend` в `macafon-backend` вместо Linux-специфичных хост-трейтов; `macafon-backend-windows` (крейт `windows`): устройства и hot-plug (`IMMNotificationClient`), движок микрофона (поток захвата MMCSS + кольцевой буфер с компенсацией дрейфа + поток вывода), mute/bypass, A/B, калибровка, NS Studio; IPC через named pipe; пути `%APPDATA%`/`%LOCALAPPDATA%`; журнал default-устройств | Демон на Windows даёт обработанный звук в `CABLE Output`, переживает отключение микрофона и смену формата; тесты кольцевого буфера/дрейфа под `assert_no_alloc`; часовой soak без xrun |
-| **M3.2 · Возможности платформы в протоколе** | `hello` отдаёт `platform` и флаги возможностей (`virtual_mic_device`, `channel_fx`, `multiple_virtual_mics`, `hotkey_backend`…); UI скрывает недоступное (EQ/FX каналов, stereo-опцию, переименование) по флагам, а не по проверке ОС в UI; mock-демон получает режим `?platform=windows` | UI в mock-режиме Windows показывает правильные экраны; TS-типы сгенерированы |
-| **M3.3 · Микрофон в UI и онбординг** | Шаг «Install VB-CABLE» с продолжением после перезагрузки (WIN-MIC-002), «Use it» с `CABLE Output` (WIN-MIC-003), переключатель default-микрофона, предупреждение в Quit (WIN-MIC-005), Doctor: кабель найден, формат 48 кГц, буфер и задержка, чужие сессии на `CABLE Input`, default render на кабеле (WIN-MIC-004/007/008) | Онбординг проходит на чистой системе от установки VB-CABLE до звука в Discord |
-| **M3.4 · Микшер** | Сессии и группировка по exe, иконки из exe/AppX, громкость/mute через `ISimpleAudioVolume` (`канал × приложение × Master`), приём внешних изменений громкости, метры сессий, выбор и приоритет устройства вывода, журнал и восстановление громкостей (WIN-CH-001…009) | Приложения из §14.4 (Windows-версии) группируются, фейдеры и mute работают, после Quit/падения громкости восстановлены |
-| **M3.5 · Фон и управление** | Трей (`tray-icon`), автозапуск через `HKCU\…\Run`, single instance, хоткеи `global-hotkey` с push-to-talk, `macafon ctl` через named pipe, уведомления Windows | Хоткеи работают при закрытом окне; CLI-команды HK-004 работают |
-| **M3.6 · Пакет и релиз** | MSI для текущего пользователя (Tauri bundler + WiX) без VB-CABLE, подпись SignPath, удаление с восстановлением default-устройств и громкостей; чек-лист релиза Windows; тест-матрица: USB-микрофоны, Realtek, USB/Bluetooth-гарнитуры; Discord, OBS, Zoom, Teams, Telegram, игры с античитами (Vanguard, EAC, BattlEye, FACEIT) | Чек-лист пройден на Windows 10 22H2 и Windows 11 24H2/25H2 |
+| **M3.0 · Spike** (1–2 weeks) | The VB-CABLE driver hardware ID and reliable cable detection; a WASAPI capture → `macafon-dsp` → `CABLE Input` prototype; latency measurement with different `VBCABLE_ControlPanel` buffers (`tools/latency-probe` for Windows); measuring the clock drift between the microphone and the cable; `IPolicyConfig` (default capture/render) on the target builds; `ISimpleAudioVolume` + session events; named pipe IPC | Latency and drift numbers recorded in ADR-0004, NFR-L6 refined; `IPolicyConfig` GUIDs per build known |
+| **M3.1 · Platform layer** | A shared `trait AudioBackend` in `macafon-backend` instead of Linux-specific host traits; `macafon-backend-windows` (the `windows` crate): devices and hot-plug (`IMMNotificationClient`), the microphone engine (an MMCSS capture thread + a ring buffer with drift compensation + an output thread), mute/bypass, A/B, calibration, NS Studio; IPC over a named pipe; `%APPDATA%`/`%LOCALAPPDATA%` paths; the default device journal | The daemon on Windows delivers processed audio into `CABLE Output` and survives a microphone disconnect and a format change; ring buffer/drift tests under `assert_no_alloc`; a one-hour soak without xruns |
+| **M3.2 · Platform capabilities in the protocol** | `hello` returns `platform` and capability flags (`virtual_mic_device`, `channel_fx`, `multiple_virtual_mics`, `hotkey_backend`…); the UI hides what is unavailable (channel EQ/FX, the stereo option, renaming) by flags, not by an OS check in the UI; the mock daemon gets a `?platform=windows` mode | The UI in Windows mock mode shows the right screens; TS types generated |
+| **M3.3 · Microphone in the UI and onboarding** | The "Install VB-CABLE" step continuing after a reboot (WIN-MIC-002), "Use it" with `CABLE Output` (WIN-MIC-003), the default microphone toggle, a warning in Quit (WIN-MIC-005), Doctor: cable found, 48 kHz format, buffer and latency, foreign sessions on `CABLE Input`, default render on the cable (WIN-MIC-004/007/008) | Onboarding goes through on a clean system from installing VB-CABLE to audio in Discord |
+| **M3.4 · Mixer** | Sessions and grouping by exe, icons from exe/AppX, volume/mute through `ISimpleAudioVolume` (`channel × application × Master`), accepting external volume changes, session meters, output device selection and priority, a journal and volume restore (WIN-CH-001…009) | Applications from §14.4 (Windows versions) are grouped, faders and mute work, volumes are restored after Quit/a crash |
+| **M3.5 · Background and control** | Tray (`tray-icon`), autostart through `HKCU\…\Run`, single instance, `global-hotkey` hotkeys with push-to-talk, `macafon ctl` over the named pipe, Windows notifications | Hotkeys work with the window closed; HK-004 CLI commands work |
+| **M3.6 · Package and release** | A per-user installer (implemented with NSIS instead of the Tauri bundler + WiX MSI) without VB-CABLE, SignPath signing, uninstall restoring default devices and volumes; a Windows release checklist; a test matrix: USB microphones, Realtek, USB/Bluetooth headsets; Discord, OBS, Zoom, Teams, Telegram, games with anti-cheats (Vanguard, EAC, BattlEye, FACEIT) | The checklist passes on Windows 10 22H2 and Windows 11 24H2/25H2 |
 
-## 20. Глоссарий
+## 20. Glossary
 
-| Термин | Значение |
+| Term | Meaning |
 |---|---|
-| **Виртуальный кабель / устройство** | Программное аудиоустройство, которое приложения видят как обычный микрофон/динамик |
-| **VB-CABLE** | Бесплатный (donationware) драйвер VB-Audio с одним виртуальным кабелем: звук, выведенный в `CABLE Input`, приложения получают как микрофон `CABLE Output` |
-| **WASAPI** | Windows Audio Session API — низкоуровневый аудио-API Windows |
-| **Quantum** | Размер блока обработки PipeWire в сэмплах (128 @ 48 кГц = 2.67 мс) |
-| **Xrun** | Пропуск аудиоцикла (щелчок/треск) из-за того, что обработка не успела |
-| **HPF** | High-pass filter — срез низких частот |
-| **Downward expander** | Ослабляет сигнал ниже порога (мягкий гейт) |
-| **De-esser** | Подавляет резкие свистящие «с/ш» |
-| **Look-ahead** | «Заглядывание вперёд» в динамической обработке ценой задержки |
-| **SNR** | Отношение сигнал/шум |
-| **LUFS** | Единица воспринимаемой громкости |
-| **SNI** | StatusNotifierItem — стандарт значков трея на Linux |
-| **RT-поток** | Поток реального времени, обрабатывающий звук; в нём нельзя блокироваться |
+| **Virtual cable / device** | A software audio device that applications see as an ordinary microphone/speaker |
+| **VB-CABLE** | VB-Audio's free (donationware) driver with one virtual cable: audio played into `CABLE Input` reaches applications as the `CABLE Output` microphone |
+| **WASAPI** | Windows Audio Session API — the low-level Windows audio API |
+| **Quantum** | The PipeWire processing block size in samples (128 @ 48 kHz = 2.67 ms) |
+| **Xrun** | A skipped audio cycle (a click/crackle) because processing did not finish in time |
+| **HPF** | High-pass filter — cuts low frequencies |
+| **Downward expander** | Attenuates the signal below a threshold (a soft gate) |
+| **De-esser** | Suppresses harsh hissing "s/sh" sounds |
+| **Look-ahead** | "Looking ahead" in dynamics processing at the cost of latency |
+| **SNR** | Signal-to-noise ratio |
+| **LUFS** | A unit of perceived loudness |
+| **SNI** | StatusNotifierItem — the Linux tray icon standard |
+| **RT thread** | A real-time thread that processes audio; it must never block |

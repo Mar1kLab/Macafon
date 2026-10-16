@@ -362,23 +362,21 @@ fn send(control: &ControlSender<ControlMessage>, request: Request) {
     let (reply, _) = mpsc::channel();
     let _ = control.send(ControlMessage::Request { request, reply });
 }
+/// The Tauri UI binary; `macafon.exe` next to the daemon is the CLI, never the UI.
+const UI_EXE: &str = "macafon-ui.exe";
+
 fn open_ui() {
-    // Tauri's [[bin]] is macafon-ui; macafon may be an installed UI alias.
-    for name in ["macafon-ui.exe", "macafon.exe"] {
-        let sibling = std::env::current_exe()
-            .ok()
-            .and_then(|exe| Some(exe.parent()?.join(name)));
-        if let Some(path) = sibling.filter(|path| path.is_file()) {
-            launch_ui(path.as_os_str());
-            return;
-        }
+    let sibling = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.parent()?.join(UI_EXE)))
+        .filter(|path| path.is_file());
+    let launched = match sibling {
+        Some(path) => launch_ui(path.as_os_str()),
+        None => launch_ui(std::ffi::OsStr::new(UI_EXE)),
+    };
+    if !launched {
+        tracing::warn!("Cannot find Macafon UI next to daemon or on PATH");
     }
-    for name in ["macafon-ui.exe", "macafon.exe"] {
-        if launch_ui(std::ffi::OsStr::new(name)) {
-            return;
-        }
-    }
-    tracing::warn!("Cannot find Macafon UI next to daemon or on PATH");
 }
 fn launch_ui(program: &std::ffi::OsStr) -> bool {
     use std::os::windows::process::CommandExt;

@@ -1,91 +1,145 @@
-# Macafon
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/macafon-wordmark-white.svg">
+    <img alt="Macafon" src="assets/branding/macafon-wordmark-black.svg" width="320">
+  </picture>
+</p>
 
-Lightweight, open-source microphone processing and per-app audio mixer for Linux (PipeWire) and Windows, written in Rust.
-Think SteelSeries Sonar — faster, lighter and cross-platform.
+<p align="center">
+  <b>Lightweight, open-source microphone processing and per-app audio mixer for Linux and Windows.</b><br>
+  Think SteelSeries Sonar — lighter, faster to set up, and not tied to one OS or one brand of headset.
+</p>
 
-> Status: Linux prototype. The daemon runs the virtual microphone with the full eight-module
-> chain and built-in presets, is controlled live over a local socket (`macafon ctl`) and saves
-> its settings. Calibration, A/B recording and playback, device profiles, and a Tauri desktop
-> client are available. M1 validation and Linux packaging are in progress.
+<p align="center">
+  <img alt="License: GPL-3.0-only" src="https://img.shields.io/badge/license-GPL--3.0--only-blue">
+  <img alt="Rust 2024" src="https://img.shields.io/badge/rust-2024-orange">
+  <img alt="Linux: PipeWire" src="https://img.shields.io/badge/linux-PipeWire-informational">
+  <img alt="Windows: VB-CABLE" src="https://img.shields.io/badge/windows-VB--CABLE-informational">
+</p>
 
-## Linux prototype
+![Microphone screen](docs/images/microphone.png)
 
-Requires stable Rust, PipeWire ≥ 1.0, WirePlumber ≥ 0.5, a C compiler, pkg-config,
-libclang and the PipeWire development headers. On Ubuntu:
+## What it does
+
+**A clean voice in every app.** Macafon takes your physical microphone, runs it through a studio chain —
+Gain → High-pass → AI noise suppression → Expander → EQ → Compressor → De-esser → Limiter — and exposes
+the result as a virtual microphone, **Macafon Microphone**, that you pick in Discord, OBS, Zoom or games.
+
+- One slider per module, with every parameter one click away under *Advanced*.
+- Two-step auto-calibration (stay silent, read a sentence) sets gain, noise gate and noise suppression.
+- Record a few seconds and switch **Before ⇄ After** while you tune — every change is heard immediately.
+- Noise suppression *Lite* (RNNoise) or *Studio* (DeepFilterNet 3), running locally on the CPU.
+- Six built-in presets plus your own, per-microphone profiles, hot-plug and a fallback microphone.
+
+**Sound split into channels.** Main, Voice, Music and up to eight of your own. Apps show up automatically
+and are dragged between channels; Macafon remembers where each app belongs.
+
+![Mixer screen](docs/images/mixer.png)
+
+**Stays out of the way.** A small daemon runs in the tray and starts with your session; the window
+unloads completely when closed. Global hotkeys (mute, push-to-talk, presets, channel volume), a CLI for
+scripts, and a *Doctor* that checks the setup and fixes common problems in one click. No accounts, no
+cloud, no telemetry.
+
+## Platforms
+
+| | Linux | Windows 10 22H2+ / 11 |
+|---|---|---|
+| Virtual microphone | Created by Macafon in PipeWire | The free [VB-CABLE](https://vb-audio.com/Cable/) driver, installed by you |
+| Mic latency without noise suppression | ≈ 2.7 ms (one graph cycle) | Higher: two WASAPI passes plus the cable buffer |
+| Mixer channels | Real virtual devices with per-channel EQ, noise suppression, compressor, limiter | Volume groups over Windows audio sessions, no per-channel effects |
+| Requirements | PipeWire ≥ 1.0, WirePlumber ≥ 0.5 | VB-CABLE; no administrator rights for Macafon itself |
+
+Why Windows works this way is explained in [ADR-0004](docs/adr/0004-windows-free-vb-cable.md).
+
+## Status
+
+Pre-release. The Linux microphone (M1) and mixer (M2) and the Windows port (M3) are implemented and
+tested locally; there are no published releases yet. Known gaps and measured limits are tracked in the
+[release checklist](docs/qa/release-checklist.md) — notably the Lite noise suppression latency (≈ 22.7 ms
+against a 13 ms target) and the Windows microphone latency, which depends mostly on the VB-CABLE buffer.
+
+## Building
+
+You need stable Rust, Node.js with pnpm (Corepack is fine) and the platform prerequisites below.
+
+### Linux
 
 ```sh
-sudo apt install build-essential pkg-config libclang-dev libpipewire-0.3-dev pipewire-bin
+# Ubuntu / Debian
+sudo apt install build-essential pkg-config libclang-dev libpipewire-0.3-dev pipewire-bin \
+                 libwebkit2gtk-4.1-dev libgtk-3-dev libdbus-1-dev
+pnpm -C apps/macafon-ui install --frozen-lockfile
+python3 tools/package-linux.py      # deb, rpm and AppImage under target/release/bundle/
+```
+
+Or run from source without packaging:
+
+```sh
 cargo build --release -p macafond -p macafon-cli
 target/release/macafond devices
-target/release/macafond run --input '<physical node.name>'   # first run; remembered afterwards
+target/release/macafond run --input '<physical node.name>'   # remembered afterwards
+pnpm -C apps/macafon-ui tauri dev                           # the desktop UI
 ```
 
-While the daemon runs:
+Then select **Macafon Microphone** in your apps. An AUR recipe is under `packaging/aur/`.
+
+### Windows
 
 ```sh
-target/release/macafon ctl status
-target/release/macafon ctl preset broadcast      # natural, discord-clear, noisy-room, broadcast, warm-podcast, raw
-target/release/macafon ctl mute                  # toggle; also: mute on|off, bypass on|off
-target/release/macafon ctl gain -3
-target/release/macafon ctl devices               # then: macafon ctl device '<node.name>'
-target/release/macafon ctl meters --count 10
+python tools/package-windows.py     # per-user NSIS installer under target/release/bundle/nsis/
 ```
 
-Select **Macafon Microphone** in the consuming app. The prototype does not change system
-defaults. Settings live in `$XDG_CONFIG_HOME/macafon/config.toml`; `macafond run` flags
-(`--preset`, `--engine raw|lite`, `--intensity`, `--gain`, `--mute`, `--bypass`) override it.
-The daemon waits for PipeWire and recreates the microphone after server restarts.
-Stop with Ctrl+C. The M0 graph must run at 48 kHz; other graph rates are reported as unsupported.
+The installer needs no administrator rights and does not include VB-CABLE: onboarding links to the
+official VB-Audio download page. Uninstalling gives back your default microphone, output and app volumes.
 
-Measured in a private headless PipeWire 1.6.2 graph at quantum 128: **2.67 ms raw**,
-**22.67 ms Lite** (intensity 0, aligned dry path). The Lite latency target in the PRD
-is not met; this remains an M0 investigation. All other modules add no latency.
-
-`macafond route <playback-stream-id> <sink-node.name>` confirms actual WirePlumber
-links and restores the previous target on timeout. Streams with `node.dont-reconnect`
-or `node.dont-move` are rejected; moving every application remains an M0 investigation.
-
-Local checks:
+## Command line
 
 ```sh
-cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-python3 tools/tests/pipewire-smoke.py
-python3 tools/tests/wireplumber-routing.py
-python3 tools/tests/control-smoke.py
+macafon ctl status
+macafon ctl preset broadcast        # natural, discord-clear, noisy-room, broadcast, warm-podcast, raw
+macafon ctl mute                    # toggle; also mute on|off, bypass on|off
+macafon ctl mic mute toggle         # for desktop shortcuts
+macafon ctl channel voice volume +5
+macafon ctl apps move bin:firefox music
+macafon ctl doctor
 ```
 
-See [Linux M0 development and limitations](docs/development/linux-m0.md),
-[the microphone chain](docs/development/microphone-chain.md) and
-[the daemon, protocol and config](docs/development/daemon.md) (RU).
+## Development
 
-## Documents
-
-- [Product Requirements Document](docs/PRD.md) (RU)
-- [SteelSeries Sonar & competitors analysis](docs/research/sonar-analysis.md) (RU)
-- [Design system](docs/design/design-system.md) (RU)
-- [ADR-0004: Windows on the free VB-CABLE: virtual mic, volume-group channels](docs/adr/0004-windows-free-vb-cable.md) (RU)
-- ADR-0001 (APO) and ADR-0002 (channels on VB-Audio cables) are superseded by ADR-0004
-
-## Local Linux packages
-
-With the PipeWire and WebKitGTK 4.1 development packages, Rust and pnpm installed:
+The UI runs in a regular browser against a mock daemon — no audio stack needed:
 
 ```sh
-pnpm -C apps/macafon-ui install --frozen-lockfile
-python3 tools/package-linux.py
+pnpm -C apps/macafon-ui dev         # http://127.0.0.1:1420, add ?platform=windows for the Windows UI
 ```
 
-This builds deb, rpm and AppImage artifacts under `target/release/bundle/` without publishing
-anything. AUR source and removal hooks are under `packaging/aur/`; the matching binary recipe
-with the deb checksum is generated under `target/package-linux/aur/macafon-bin/`.
-PipeWire ≥ 1.0 and WirePlumber ≥ 0.5 are required at runtime, including for AppImage.
+Checks are targeted and local (there is no cloud CI):
 
-`macafon ctl set-default --confirm` explicitly selects the virtual microphone as the system
-default. Quit restores the previous choice unless the user has changed it since;
-`macafon restore-default` also performs recovery without a running daemon.
+```sh
+cargo fmt
+cargo clippy -p <crate> --all-targets -- -D warnings
+cargo test -p <crate>
+pnpm -C apps/macafon-ui check
+python3 tools/tests/control-smoke.py   # Linux: a private PipeWire graph, the user's audio is untouched
+```
 
-The application is licensed under GPL-3.0-only; `macafon-dsp` and `macafon-studio` under
-MIT OR Apache-2.0. Remaining M1 validation and measured limits are recorded in
-[the release checklist](docs/qa/release-checklist.md).
+Start with [AGENTS.md](AGENTS.md) — the contributor guidelines, including the hard real-time rules for
+audio code.
+
+| Document | |
+|---|---|
+| [Product requirements](docs/PRD.md) | Requirements and IDs, parameter ranges, architecture |
+| [Design system](docs/design/design-system.md) | Tokens, typography, components |
+| [Architecture decisions](docs/adr/) | ADR-0003 Linux channels, ADR-0004 Windows on VB-CABLE |
+| [Daemon, protocol and config](docs/development/daemon.md) | IPC methods, config, calibration, A/B |
+| [Microphone chain](docs/development/microphone-chain.md) · [Mixer](docs/development/mixer.md) · [UI](docs/development/ui.md) | Implementation notes |
+| [Windows port](docs/development/windows-m3.md) | WASAPI path, measurements, installer |
+| [Sonar analysis](docs/research/sonar-analysis.md) | Why the product looks the way it does |
+
+## License
+
+The application is licensed under [GPL-3.0-only](LICENSE). The `macafon-dsp` and `macafon-studio`
+crates are available under MIT OR Apache-2.0. Noise suppression uses
+[nnnoiseless](https://github.com/jneem/nnnoiseless) (RNNoise) and
+[DeepFilterNet](https://github.com/Rikorose/DeepFilterNet); VB-CABLE is a separate product by
+[VB-Audio](https://vb-audio.com/) and is not distributed with Macafon.

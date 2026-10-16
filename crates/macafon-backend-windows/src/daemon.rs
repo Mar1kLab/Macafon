@@ -33,7 +33,10 @@ const RESTART_DELAY: Duration = Duration::from_millis(500);
 const LATENCY_MARGIN_MS: f64 = 2.0;
 /// How long a console close / logoff / shutdown waits for the restore before Windows ends the
 /// process anyway (the system allows about 5 s).
-const SHUTDOWN_GRACE: Duration = Duration::from_millis(4500);
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(4);
+
+#[path = "session_shutdown.rs"]
+mod session_shutdown;
 
 static STOP: AtomicBool = AtomicBool::new(false);
 static FINISHED: AtomicBool = AtomicBool::new(false);
@@ -64,12 +67,21 @@ pub fn run_microphone<H: MicrophoneHost>(
     state_dir: &Path,
     cleanup: impl FnOnce(),
 ) -> Result<(), Error> {
+    STOP.store(false, Ordering::Release);
+    FINISHED.store(false, Ordering::Release);
+    let _shutdown = session_shutdown::Listener::spawn()
+        .map_err(|error| Error::Platform(format!("Cannot listen for session shutdown: {error}")))?;
     let _com = ComGuard::new().map_err(platform)?;
     // SAFETY: registers a plain function; it only touches atomics.
     if let Err(error) = unsafe { SetConsoleCtrlHandler(Some(console_handler), true) } {
         tracing::warn!(%error, "Cannot handle console shutdown signals");
     }
-    host.borrow_mut().started()?;
+    let started = host.borrow_mut().started();
+    if let Err(error) = started {
+        cleanup();
+        FINISHED.store(true, Ordering::Release);
+        return Err(error);
+    }
     let mut state = LoopState {
         groups: Some(VolumeGroups::start(state_dir)),
         ..LoopState::default()
@@ -99,10 +111,7 @@ unsafe extern "system" fn console_handler(event: u32) -> BOOL {
         CTRL_CLOSE_EVENT | CTRL_LOGOFF_EVENT | CTRL_SHUTDOWN_EVENT => {
             STOP.store(true, Ordering::Release);
             // Returning ends the process: give the loop time to restore system defaults.
-            let deadline = Instant::now() + SHUTDOWN_GRACE;
-            while !FINISHED.load(Ordering::Acquire) && Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(20));
-            }
+            wait_for_cleanup();
             BOOL::from(true)
         }
         _ => BOOL::from(false),
@@ -408,4 +417,12 @@ pub fn output_devices() -> Result<Vec<Node>, Error> {
         .filter(|endpoint| is_physical(endpoint, DataFlow::Render))
         .map(node)
         .collect())
+}
+
+fn wait_for_cleanup() {
+    STOP.store(true, Ordering::Release);
+    let deadline = Instant::now() + SHUTDOWN_GRACE;
+    while !FINISHED.load(Ordering::Acquire) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }

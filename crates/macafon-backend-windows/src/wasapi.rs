@@ -132,10 +132,12 @@ impl Stream {
             CoTaskMemFree(Some(format.cast()));
             let period_frames = result?;
             let client: IAudioClient = client.cast()?;
+            let buffer_frames = client.GetBufferSize()?;
+            let latency_hns = client.GetStreamLatency()?;
             let event = CreateEventW(None, false, false, None)?;
             let stream = Self {
-                buffer_frames: client.GetBufferSize()?,
-                latency_hns: client.GetStreamLatency()?,
+                buffer_frames,
+                latency_hns,
                 client,
                 event,
                 channels,
@@ -177,10 +179,12 @@ impl Stream {
                 &format,
                 None,
             )?;
+            let buffer_frames = client.GetBufferSize()?;
+            let latency_hns = client.GetStreamLatency()?;
             let event = CreateEventW(None, false, false, None)?;
             let stream = Self {
-                buffer_frames: client.GetBufferSize()?,
-                latency_hns: client.GetStreamLatency()?,
+                buffer_frames,
+                latency_hns,
                 client,
                 event,
                 channels,

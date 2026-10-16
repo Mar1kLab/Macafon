@@ -13,13 +13,14 @@ use windows::Win32::Devices::Properties::{
     DEVPKEY_Device_HardwareIds, DEVPKEY_Device_Service, DEVPROPTYPE,
 };
 use windows::Win32::Foundation::DEVPROPKEY;
+use windows::Win32::Foundation::ERROR_NOT_FOUND;
 use windows::Win32::Media::Audio::{
     DEVICE_STATE, DEVICE_STATE_ACTIVE, DEVICE_STATEMASK_ALL, EDataFlow, ERole, IMMDevice,
     IMMDeviceEnumerator, IMMEndpoint, MMDeviceEnumerator, PKEY_AudioEndpoint_FormFactor, Speakers,
     eAll, eCapture, eCommunications, eConsole, eMultimedia, eRender,
 };
 use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance, CoTaskMemFree, STGM_READ};
-use windows::core::{HSTRING, Interface, PCWSTR};
+use windows::core::{HRESULT, HSTRING, Interface, PCWSTR};
 
 /// Hardware ID of the free single VB-CABLE (WIN-MIC-001). Other VB-Audio devices (A+B, C+D,
 /// Voicemeeter) report different IDs and are never used. To be confirmed on a test machine.
@@ -155,9 +156,14 @@ pub(crate) fn device_by_id(id: &str) -> Result<IMMDevice, Error> {
 pub(crate) fn default_device(flow: DataFlow, role: EndpointRole) -> Result<Option<String>, Error> {
     let enumerator = enumerator()?;
     // SAFETY: plain COM call; "not found" means there is no such default.
-    match unsafe { enumerator.GetDefaultAudioEndpoint(flow.edataflow(), role.erole()) } {
+    default_endpoint(unsafe { enumerator.GetDefaultAudioEndpoint(flow.edataflow(), role.erole()) })
+}
+
+fn default_endpoint(result: windows::core::Result<IMMDevice>) -> Result<Option<String>, Error> {
+    match result {
         Ok(device) => Ok(Some(device_id(&device)?)),
-        Err(_) => Ok(None),
+        Err(error) if error.code() == HRESULT::from_win32(ERROR_NOT_FOUND.0) => Ok(None),
+        Err(error) => Err(error.into()),
     }
 }
 
@@ -264,6 +270,19 @@ fn devnode_property(node: u32, key: &DEVPROPKEY) -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_query_distinguishes_no_device_from_service_failure() {
+        let missing = windows::core::Error::from_hresult(HRESULT::from_win32(ERROR_NOT_FOUND.0));
+        assert!(
+            default_endpoint(Err(missing))
+                .expect("no default")
+                .is_none()
+        );
+        let failure =
+            windows::core::Error::from_hresult(windows::Win32::Foundation::E_ACCESSDENIED);
+        assert!(default_endpoint(Err(failure)).is_err());
+    }
 
     fn endpoint(id: &str, flow: DataFlow, hardware_id: &str, form_factor: u32) -> Endpoint {
         Endpoint {

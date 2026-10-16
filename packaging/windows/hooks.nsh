@@ -15,7 +15,9 @@
     IfErrors macafon_cleanup_failed
     IntCmp $0 0 macafon_cleanup_done macafon_cleanup_failed macafon_cleanup_failed
   macafon_cleanup_failed:
-    MessageBox MB_OK|MB_ICONSTOP "Macafon could not restore your audio settings. Uninstallation was stopped; reconnect your audio devices and try again." /SD IDOK
+    ; A device that is gone for good must not block removal: let the user decide. Silent
+    ; uninstalls stop, so nothing is left changed without anyone seeing it.
+    MessageBox MB_YESNO|MB_ICONEXCLAMATION|MB_DEFBUTTON2 "Macafon could not restore your audio settings (default microphone, output or app volumes). Reconnect your audio devices and try again, or check them in Windows Sound settings afterwards. Uninstall anyway?" /SD IDNO IDYES macafon_cleanup_done
     SetErrorLevel 1
     Abort
   macafon_cleanup_done:

@@ -20,9 +20,13 @@ pub fn send(summary: &'static str, body: &'static str) {
     show(summary.to_owned(), body.to_owned(), false, 6000);
 }
 
-/// Windows notifications come with M3.5; until then the message only goes to the log.
+/// A tray balloon needs no installed shortcut or AppUserModelID.
 #[cfg(not(target_os = "linux"))]
 fn show(summary: String, body: String, _replace: bool, _timeout_ms: i32) {
+    #[cfg(windows)]
+    if crate::tray::windows_tray::notify(summary.clone(), body.clone(), _replace) {
+        return;
+    }
     tracing::info!(%summary, %body, "Notification");
 }
 

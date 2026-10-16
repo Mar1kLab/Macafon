@@ -1,9 +1,11 @@
 //! Tray icon (PRD §8.1): on Linux a D-Bus StatusNotifierItem served by `ksni` on its own thread.
 //! Menu actions become ordinary control requests; the control loop pushes state back.
 
+#[cfg(not(windows))]
 use crate::host::ControlMessage;
 #[cfg(target_os = "linux")]
 use ksni::blocking::{Handle, TrayMethods};
+#[cfg(not(windows))]
 use macafon_backend::ControlSender;
 use macafon_ipc::PresetInfo;
 #[cfg(target_os = "linux")]
@@ -79,6 +81,13 @@ impl ksni::Tray for MicTray {
 
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
         icon::render(&self.state, self.bend)
+            .into_iter()
+            .map(|icon| ksni::Icon {
+                width: icon.width,
+                height: icon.height,
+                data: icon.data,
+            })
+            .collect()
     }
 
     fn tool_tip(&self) -> ksni::ToolTip {
@@ -338,7 +347,7 @@ fn animate(handle: Handle<MicTray>, updates: mpsc::Receiver<TrayState>, mut bend
 }
 
 /// Approved rounded microphone; generated masks are shared with the UI's rubber warp.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 mod icon {
     use super::TrayState;
 
@@ -363,7 +372,13 @@ mod icon {
         ((pa.0 - ba.0 * t).powi(2) + (pa.1 - ba.1 * t).powi(2)).sqrt()
     }
 
-    pub fn render(state: &TrayState, bend: f32) -> Vec<ksni::Icon> {
+    pub struct Pixmap {
+        pub width: i32,
+        pub height: i32,
+        pub data: Vec<u8>,
+    }
+
+    pub fn render(state: &TrayState, bend: f32) -> Vec<Pixmap> {
         let bend = bend.clamp(0.0, 1.0);
         let frame = (bend * STEPS as f32).round() as usize;
         let color = std::array::from_fn::<_, 3, _>(|i| {
@@ -415,7 +430,7 @@ mod icon {
                     });
                     data.extend([(total * 255.0).round() as u8, rgb[0], rgb[1], rgb[2]]);
                 }
-                ksni::Icon {
+                Pixmap {
                     width: size as i32,
                     height: size as i32,
                     data,
@@ -476,11 +491,11 @@ mod icon {
     }
 }
 
-/// No tray icon on this platform yet (Windows: M3.5).
-#[cfg(not(target_os = "linux"))]
+/// No native tray implementation on other platforms.
+#[cfg(not(any(target_os = "linux", windows)))]
 pub struct Tray;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 impl Tray {
     pub fn spawn(_state: TrayState, _control: ControlSender<ControlMessage>) -> Option<Self> {
         None
@@ -488,3 +503,9 @@ impl Tray {
 
     pub fn update(&mut self, _state: TrayState) {}
 }
+
+#[cfg(windows)]
+#[path = "tray_windows.rs"]
+pub(crate) mod windows_tray;
+#[cfg(windows)]
+pub use windows_tray::Tray;

@@ -252,6 +252,8 @@ struct Worker {
     endpoints: Vec<Endpoint>,
     sessions: Vec<LiveSession>,
     settings: HashMap<String, MixSettings>,
+    /// New sessions whose settings are not applied yet; kept until a write succeeds.
+    unapplied: Vec<String>,
     events: Sender<MixerEvent>,
 }
 impl Worker {
@@ -274,12 +276,14 @@ impl Worker {
             endpoints: Vec::new(),
             sessions: Vec::new(),
             settings: HashMap::new(),
+            unapplied: Vec::new(),
             events,
         })
     }
 
-    fn refresh(&mut self) -> Result<Vec<String>, Error> {
-        let mut added = Vec::new();
+    /// Track new endpoints and sessions; new sessions are queued in `unapplied` as soon as
+    /// they are tracked, so a later failure here does not skip their settings.
+    fn refresh(&mut self) -> Result<(), Error> {
         // SAFETY: all interfaces are created, called, and released on this MTA worker.
         unsafe {
             let devices = self
@@ -355,7 +359,7 @@ impl Worker {
                 let volume = control.cast()?;
                 let meter = control.cast().ok();
                 control.RegisterAudioSessionNotification(&callback)?;
-                added.push(instance.clone());
+                self.unapplied.push(instance.clone());
                 self.sessions.push(LiveSession {
                     executable,
                     key: Key { exe, endpoint },
@@ -373,7 +377,7 @@ impl Worker {
                     .is_ok_and(|state| state != AudioSessionStateExpired)
             });
         }
-        Ok(added)
+        Ok(())
     }
 
     fn external_changes(&mut self) {
@@ -457,6 +461,28 @@ impl Worker {
         Ok(())
     }
 
+    /// Apply the remembered settings to new sessions; a failed one is retried on the next
+    /// refresh instead of being taken for an existing, already handled session.
+    fn apply_new(&mut self, journal: &mut Journal) -> Result<(), Error> {
+        let mut first_error = None;
+        for instance in std::mem::take(&mut self.unapplied) {
+            let Some(settings) = self
+                .sessions
+                .iter()
+                .find(|s| s.instance == instance)
+                .and_then(|s| self.settings.get(&s.key.exe))
+                .copied()
+            else {
+                continue; // Gone or unmanaged.
+            };
+            if let Err(error) = self.apply(&instance, settings, journal) {
+                self.unapplied.push(instance);
+                first_error.get_or_insert(error);
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+
     fn apps(&self) -> Result<Vec<App>, Error> {
         let mut apps: HashMap<String, App> = HashMap::new();
         // SAFETY: live session interfaces; meter failures mean silence/disconnection.
@@ -505,20 +531,7 @@ impl Worker {
         loop {
             self.external_changes();
             if Instant::now() >= refresh_after && self.dirty.swap(false, Ordering::AcqRel) {
-                let result = self.refresh().and_then(|added| {
-                    for instance in added {
-                        if let Some(settings) = self
-                            .sessions
-                            .iter()
-                            .find(|s| s.instance == instance)
-                            .and_then(|s| self.settings.get(&s.key.exe))
-                            .copied()
-                        {
-                            self.apply(&instance, settings, journal)?;
-                        }
-                    }
-                    Ok(())
-                });
+                let result = self.refresh().and_then(|()| self.apply_new(journal));
                 if let Err(e) = result {
                     self.dirty.store(true, Ordering::Release);
                     refresh_after = Instant::now() + Duration::from_millis(500);

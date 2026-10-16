@@ -227,9 +227,20 @@ impl MicrophonePipeline {
         })?);
         let state = shared.clone();
         let buffer_hns = render.buffer_hns;
-        threads.push(spawn("macafon-capture", move || {
+        let capture = spawn("macafon-capture", move || {
             capture_thread(&state, buffer_hns, processor, writer, budget_producer)
-        })?);
+        });
+        match capture {
+            Ok(thread) => threads.push(thread),
+            Err(error) => {
+                // The render thread must not outlive a pipeline that never started.
+                shared.stop.store(true, Ordering::Release);
+                for thread in threads {
+                    let _ = thread.join();
+                }
+                return Err(error);
+            }
+        }
         Ok(Self {
             shared,
             budget,

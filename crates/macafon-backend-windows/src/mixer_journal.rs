@@ -34,6 +34,19 @@ struct Entry {
     instance: String,
     previous: Value,
     ours: Value,
+    /// A write-ahead value: the COM call may have failed or crashed, so either `ours` or this
+    /// can be current.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending: Option<Value>,
+}
+
+impl Entry {
+    fn is_ours_volume(&self, volume: f32) -> bool {
+        close(volume, self.ours.volume) || self.pending.is_some_and(|p| close(volume, p.volume))
+    }
+    fn is_ours_mute(&self, muted: bool) -> bool {
+        muted == self.ours.muted || self.pending.is_some_and(|p| muted == p.muted)
+    }
 }
 
 pub(crate) struct Journal {
@@ -62,13 +75,19 @@ impl Journal {
             .iter_mut()
             .find(|entry| entry.key == session.key && entry.instance == session.instance)
         {
-            entry.ours = ours;
+            // `session.value` is current: it confirms the last pending write if that landed;
+            // otherwise that write is not on the session and needs no recovery.
+            if entry.pending == Some(session.value) {
+                entry.ours = session.value;
+            }
+            entry.pending = Some(ours);
         } else {
             self.entries.push(Entry {
                 key: session.key.clone(),
                 instance: session.instance.clone(),
                 previous: session.value,
                 ours,
+                pending: None,
             });
         }
         self.save()
@@ -115,10 +134,10 @@ impl Journal {
             }
             for session in candidates {
                 let mut value = session.value;
-                if close(value.volume, entry.ours.volume) {
+                if entry.is_ours_volume(value.volume) {
                     value.volume = entry.previous.volume;
                 }
-                if value.muted == entry.ours.muted {
+                if entry.is_ours_mute(value.muted) {
                     value.muted = entry.previous.muted;
                 }
                 if value != session.value {
@@ -296,5 +315,39 @@ mod tests {
         journal.restore(&mut store).expect("reconnected");
         assert_eq!(store.0[0].value, original);
         assert!(!dir.join("session-volumes.json").exists());
+    }
+
+    #[test]
+    fn failed_rewrite_keeps_the_earlier_value_restorable() {
+        let dir = std::env::temp_dir().join(format!("macafon-rewrite-{}", std::process::id()));
+        let original = Value {
+            volume: 0.8,
+            muted: false,
+        };
+        let first = Value {
+            volume: 0.125,
+            muted: false,
+        };
+        let mut store = Fake(vec![StoredSession {
+            key: Key {
+                exe: "browser.exe".into(),
+                endpoint: "speakers".into(),
+            },
+            instance: "1".into(),
+            value: original,
+        }]);
+        let mut journal = Journal::open(&dir).expect("journal");
+        journal.record(&store.0[0], first).expect("first");
+        store.0[0].value = first;
+        // The second write is journaled, then SetMasterVolume fails or the daemon crashes.
+        let second = Value {
+            volume: 0.25,
+            ..first
+        };
+        journal.record(&store.0[0], second).expect("second");
+        let mut journal = Journal::open(&dir).expect("restart");
+        journal.restore(&mut store).expect("restore");
+        assert_eq!(store.0[0].value, original);
+        assert_eq!(journal.pending(), 0);
     }
 }

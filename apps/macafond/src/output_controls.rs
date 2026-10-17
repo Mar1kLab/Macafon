@@ -22,6 +22,10 @@ mod windows {
 
     impl Manager {
         pub fn new(hub: Arc<Hub>) -> Self {
+            // Host unit tests must not enumerate hardware or touch the user's DAC cache.
+            if cfg!(test) {
+                return Self { sender: None };
+            }
             let (sender, receiver) = mpsc::sync_channel::<Work>(1);
             let started = std::thread::Builder::new()
                 .name("macafon-output-control".into())

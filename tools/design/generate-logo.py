@@ -8,6 +8,8 @@ Runtime consumers use checked-in exports and need none of these dependencies.
 import ctypes as C
 import ctypes.util
 import json
+import subprocess
+import sys
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -190,37 +192,9 @@ for step in range(STEPS + 1):
 temporary.unlink()
 (ROOT / "apps/macafond/assets/logo-alpha.bin").write_bytes(mask)
 
-icons = ROOT / "apps/macafon-ui/src-tauri/icons"
-def app_mark(size):
-    return f'<rect width="128" height="128" fill="{BG}"/><g transform="translate(16 0)">{mark(small=size <= 32)}</g>'
-
-app_body = app_mark(512)
-(icons / "icon.svg").write_text(svg(app_body, 512, "0 0 128 128"))
-for name, size in (("32x32", 32), ("128x128", 128), ("128x128@2x", 256), ("icon", 512)):
-    render(svg(app_mark(size), size, "0 0 128 128"), icons / f"{name}.png", size)
-small_icons = []
-for size in (16, 24, 32):
-    render(svg(app_mark(size), size, "0 0 128 128"), BRAND / ".frame.png", size)
-    with Image.open(BRAND / ".frame.png") as image:
-        small_icons.append(image.copy())
-(BRAND / ".frame.png").unlink()
-with Image.open(icons / "icon.png") as image:
-    image.save(icons / "icon.ico", sizes=[(s, s) for s in (16, 24, 32, 48, 64, 128, 256)], append_images=small_icons)
-    image.save(icons / "icon.icns")
-
-public = ROOT / "apps/macafon-ui/public"
-(public / "favicon.svg").write_text(svg(app_mark(32), 32, "0 0 128 128"))
-with Image.open(icons / "icon.png") as image:
-    image.save(public / "favicon.ico", sizes=[(16, 16), (32, 32), (48, 48)], append_images=small_icons)
-
+# The launcher SVG is independently art-directed; never overwrite it from the flat mark.
+subprocess.run([sys.executable, str(ROOT / "tools/design/generate-app-icons.py")], check=True)
 hicolor = ROOT / "packaging/icons/hicolor"
-scalable = hicolor / "scalable/apps"
-scalable.mkdir(parents=True, exist_ok=True)
-(scalable / "macafon.svg").write_text(svg(app_body, 128, "0 0 128 128"))
-for size in (16, 24, 32, 48, 64, 128, 256, 512):
-    destination = hicolor / f"{size}x{size}/apps"
-    destination.mkdir(parents=True, exist_ok=True)
-    render(svg(app_mark(size), size, "0 0 128 128"), destination / "macafon.png", size)
 status = hicolor / "symbolic/status"
 status.mkdir(parents=True, exist_ok=True)
 for name, amount, bypass, error in (("normal", 0, False, False), ("muted", 1, False, False),

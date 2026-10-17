@@ -2,6 +2,7 @@
 pub mod cache;
 pub mod decode;
 pub mod library;
+pub mod rt;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

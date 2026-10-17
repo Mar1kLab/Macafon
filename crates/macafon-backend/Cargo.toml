@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 macafon-dsp.workspace = true
 macafon-engine.workspace = true
+macafon-soundpad.workspace = true
 thiserror.workspace = true
 
 [lints]

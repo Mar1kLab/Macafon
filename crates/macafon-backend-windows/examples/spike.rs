@@ -474,6 +474,7 @@ mod spike {
                 low_latency_render: options.low_latency,
             },
             processor,
+            None,
         )?;
         let report = pipeline.report();
         println!(

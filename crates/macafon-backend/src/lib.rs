@@ -6,6 +6,7 @@
 //! channel-node and stream-routing methods at their defaults.
 
 pub use macafon_engine::{AbRt, ChannelRt, MicRt};
+pub use macafon_soundpad::rt::{Output as SoundpadOutput, SoundpadTap};
 use std::sync::Arc;
 
 /// Host-facing name of Macafon's virtual microphone (MIC-010): the PipeWire `node.name` on
@@ -264,6 +265,16 @@ pub trait MicrophoneHost: MixerHost {
     }
     /// The A/B stream could not be created.
     fn player_failed(&mut self, _error: Error) {}
+    /// A soundpad tap for a new audio stream of `output` (§7.6); the previous tap of that
+    /// output goes silent. `None` where the platform has no soundpad.
+    fn soundpad_tap(&mut self, _output: SoundpadOutput) -> Option<SoundpadTap> {
+        None
+    }
+    /// Where the soundpad monitor should play, polled every 100 ms: `None` runs no stream,
+    /// `Some(None)` the default output, `Some(Some(name))` that output device.
+    fn soundpad_monitor(&self) -> Option<Option<String>> {
+        None
+    }
     /// Physical inputs (not ours, not monitors) changed.
     fn inputs_changed(&mut self, _inputs: &[Node]) {}
     fn device_metering(&self) -> bool {

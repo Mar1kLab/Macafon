@@ -12,6 +12,7 @@ use crate::Error;
 use crate::com::ComGuard;
 use crate::wasapi::{HNS_PER_SECOND, ProAudioThread, Stream};
 use assert_no_alloc::assert_no_alloc;
+use macafon_backend::SoundpadTap;
 use macafon_engine::{DriftReader, DriftStats, DriftWriter, MicRt, drift_buffer};
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
@@ -205,7 +206,12 @@ pub struct MicrophonePipeline {
 
 impl MicrophonePipeline {
     /// Start both threads. Missing devices are not an error: each side keeps retrying.
-    pub fn start(config: &MicrophoneConfig, processor: MicRt) -> Result<Self, Error> {
+    /// Soundpad sounds (§7.6) are mixed into the cable after the chain by `soundpad`.
+    pub fn start(
+        config: &MicrophoneConfig,
+        processor: MicRt,
+        soundpad: Option<SoundpadTap>,
+    ) -> Result<Self, Error> {
         let (writer, reader) = drift_buffer(1);
         let (budget_producer, budget) = RingBuffer::new(BUDGET_QUEUE);
         let drift = reader.stats();
@@ -223,7 +229,7 @@ impl MicrophonePipeline {
         let mut threads = Vec::with_capacity(2);
         let state = shared.clone();
         threads.push(spawn("macafon-render", move || {
-            render_thread(&state, render, reader)
+            render_thread(&state, render, reader, soundpad)
         })?);
         let state = shared.clone();
         let buffer_hns = render.buffer_hns;
@@ -511,6 +517,7 @@ fn render_thread(
     shared: &Shared,
     settings: RenderSettings,
     mut reader: DriftReader,
+    mut soundpad: Option<SoundpadTap>,
 ) -> Result<(), Error> {
     let _com = ComGuard::new()?;
     let _mmcss = ProAudioThread::register();
@@ -582,8 +589,15 @@ fn render_thread(
                     let block = &mut mono[..frames as usize];
                     assert_no_alloc(|| {
                         reader.read(block, padding as usize);
-                        for (frame, sample) in out.chunks_exact_mut(channels).zip(block.iter()) {
-                            frame.fill(*sample);
+                        match &mut soundpad {
+                            Some(tap) => tap.mix_with_voice(block, out, channels),
+                            None => {
+                                for (frame, sample) in
+                                    out.chunks_exact_mut(channels).zip(block.iter())
+                                {
+                                    frame.fill(*sample);
+                                }
+                            }
                         }
                     });
                     client.ReleaseBuffer(frames, 0)?;
@@ -628,7 +642,7 @@ mod tests {
             input_id: Some(input),
             ..MicrophoneConfig::default()
         };
-        let mut pipeline = MicrophonePipeline::start(&config, processor).expect("pipeline");
+        let mut pipeline = MicrophonePipeline::start(&config, processor, None).expect("pipeline");
         pipeline.set_budget_monitoring(true);
         std::thread::sleep(Duration::from_millis(600));
         let mut samples = Vec::new();

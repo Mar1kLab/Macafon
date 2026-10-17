@@ -10,8 +10,9 @@ use crate::devices::{DataFlow, Endpoint, EndpointRole, VirtualCable, endpoints, 
 use crate::groups::VolumeGroups;
 use crate::journal::{self, SystemDefaults};
 use crate::microphone::{MicrophoneConfig, MicrophonePipeline};
+use crate::monitor::Monitor;
 use crate::player::Player;
-use macafon_backend::{ControlSender, Error, MicrophoneHost, Node, PlayerRequest};
+use macafon_backend::{ControlSender, Error, MicrophoneHost, Node, PlayerRequest, SoundpadOutput};
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
@@ -88,6 +89,7 @@ pub fn run_microphone<H: MicrophoneHost>(
     };
     let result = state.run(&host, &control);
     state.player = None;
+    state.monitor = None;
     if let Some(groups) = &mut state.groups {
         groups.stop();
     }
@@ -133,6 +135,9 @@ struct LoopState {
     input: Option<String>,
     clock_reported_at: Option<Instant>,
     groups: Option<VolumeGroups>,
+    /// Soundpad monitor stream and the endpoint it plays into (§7.6).
+    monitor: Option<(String, Monitor)>,
+    monitor_retry_at: Option<Instant>,
 }
 
 impl LoopState {
@@ -238,8 +243,57 @@ impl LoopState {
                 }
             }
         }
+        self.soundpad_monitor(host);
         host.tick();
         Ok(())
+    }
+
+    /// Keep the soundpad monitor on the output the host wants: reopened when the device or
+    /// the default output changes or the stream fails, retried every second.
+    fn soundpad_monitor<H: MicrophoneHost>(&mut self, host: &mut H) {
+        let target = host.soundpad_monitor().and_then(|device| {
+            device
+                .filter(|id| {
+                    self.endpoints
+                        .iter()
+                        .any(|e| &e.id == id && is_physical(e, DataFlow::Render))
+                })
+                .or_else(|| self.default_render.clone().flatten())
+                .filter(|id| {
+                    !self
+                        .cable
+                        .as_ref()
+                        .is_some_and(|cable| &cable.input.id == id)
+                })
+        });
+        let current = self
+            .monitor
+            .as_ref()
+            .filter(|(_, monitor)| monitor.is_running())
+            .map(|(id, _)| id);
+        if current == target.as_ref() {
+            return;
+        }
+        if self.monitor.take().is_some() {
+            self.monitor_retry_at = None;
+        }
+        let Some(target) = target else { return };
+        if self.monitor_retry_at.is_some_and(|at| Instant::now() < at) {
+            return;
+        }
+        let Some(tap) = host.soundpad_tap(SoundpadOutput::Monitor) else {
+            return;
+        };
+        match Monitor::start(target.clone(), tap) {
+            Ok(monitor) => {
+                self.monitor = Some((target, monitor));
+                self.monitor_retry_at = None;
+            }
+            Err(error) => {
+                tracing::warn!(%error, "Cannot open the soundpad monitor");
+                self.monitor_retry_at = Some(Instant::now() + SCAN_INTERVAL);
+            }
+        }
     }
 
     fn start_session<H: MicrophoneHost>(&mut self, host: &mut H) -> Result<(), Error> {
@@ -258,7 +312,8 @@ impl LoopState {
             stream_buffer_ms: 0.0,
             low_latency_render: true,
         };
-        match MicrophonePipeline::start(&config, processor) {
+        let soundpad = host.soundpad_tap(SoundpadOutput::Microphone);
+        match MicrophonePipeline::start(&config, processor, soundpad) {
             Ok(pipeline) => {
                 tracing::info!(
                     cable = self.cable.is_some(),

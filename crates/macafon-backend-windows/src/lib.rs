@@ -16,6 +16,7 @@ pub mod macaron;
 pub mod microphone;
 pub mod mixer;
 mod mixer_journal;
+mod monitor;
 pub mod output;
 mod player;
 pub mod policy;

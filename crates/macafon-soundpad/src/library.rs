@@ -19,7 +19,7 @@ pub struct SoundEntry {
     pub modified_unix_ms: u64,
 }
 
-fn validate_name(name: &str) -> Result<(), Error> {
+pub fn validate_name(name: &str) -> Result<(), Error> {
     let base = name.split('.').next().unwrap_or("").to_ascii_uppercase();
     let reserved = matches!(
         base.as_str(),
@@ -296,29 +296,47 @@ pub fn rename_category(root: &Path, from: &str, to: &str) -> Result<(), Error> {
     fs::rename(source, target)?;
     Ok(())
 }
-pub fn delete_category(root: &Path, name: &str) -> Result<(), Error> {
+pub fn delete_category(root: &Path, name: &str) -> Result<Vec<(String, String)>, Error> {
     validate_name(name)?;
     let root = root_dir(root)?;
     let dir = root.join(name);
     if !ordinary(&dir)?.is_dir() {
         return Err(Error::InvalidName(name.into()));
     }
+    let mut moved = Vec::new();
     for sound in scan(&root)?
         .into_iter()
         .filter(|e| e.category.as_deref() == Some(name))
     {
-        move_to_category(&root, &sound.id, None)?;
+        let destination = move_to_category(&root, &sound.id, None)?;
+        moved.push((sound.id, destination.id));
     }
     if fs::read_dir(&dir)?.next().is_none() {
         fs::remove_dir(dir)?;
     }
-    Ok(())
+    Ok(moved)
 }
 
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+    #[test]
+    fn deleting_category_reports_collision_renames() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir(temp.path().join("Memes")).unwrap();
+        fs::write(temp.path().join("beep.wav"), b"root").unwrap();
+        fs::write(temp.path().join("Memes/beep.wav"), b"category").unwrap();
+        assert_eq!(
+            delete_category(temp.path(), "Memes").unwrap(),
+            vec![("Memes/beep.wav".into(), "beep (2).wav".into())]
+        );
+        assert_eq!(fs::read(temp.path().join("beep.wav")).unwrap(), b"root");
+        assert_eq!(
+            fs::read(temp.path().join("beep (2).wav")).unwrap(),
+            b"category"
+        );
+    }
     #[test]
     fn folder_operations_and_validation() {
         let temp = tempfile::tempdir().unwrap();

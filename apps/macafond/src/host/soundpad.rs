@@ -268,16 +268,20 @@ impl DaemonHost {
             Request::SoundpadRename { id, name } => {
                 soundpad.entry(&id)?;
                 let entry = library::rename(&folder, &id, &name).map_err(library_error)?;
-                soundpad.rescan();
                 self.sound_renamed(&id, &entry.id);
+                if let Some(soundpad) = &mut self.soundpad {
+                    soundpad.rescan();
+                }
                 self.soundpad_changed();
             }
             Request::SoundpadMove { id, category } => {
                 soundpad.entry(&id)?;
                 let entry = library::move_to_category(&folder, &id, category.as_deref())
                     .map_err(library_error)?;
-                soundpad.rescan();
                 self.sound_renamed(&id, &entry.id);
+                if let Some(soundpad) = &mut self.soundpad {
+                    soundpad.rescan();
+                }
                 self.soundpad_changed();
             }
             Request::SoundpadDelete { id } => {
@@ -293,43 +297,29 @@ impl DaemonHost {
                 self.soundpad_changed();
             }
             Request::SoundpadRenameCategory { from, to } => {
-                let moved: Vec<String> = soundpad
-                    .entries()
+                let moved: Vec<String> = library::scan(&folder)
+                    .map_err(library_error)?
                     .iter()
                     .filter(|entry| entry.category.as_deref() == Some(from.as_str()))
                     .map(|entry| entry.id.clone())
                     .collect();
                 library::rename_category(&folder, &from, &to).map_err(library_error)?;
-                soundpad.rescan();
                 for id in moved {
                     let file = id.rsplit('/').next().unwrap_or(&id);
                     self.sound_renamed(&id, &format!("{to}/{file}"));
                 }
+                if let Some(soundpad) = &mut self.soundpad {
+                    soundpad.rescan();
+                }
                 self.soundpad_changed();
             }
             Request::SoundpadDeleteCategory { name } => {
-                let moved: Vec<String> = soundpad
-                    .entries()
-                    .iter()
-                    .filter(|entry| entry.category.as_deref() == Some(name.as_str()))
-                    .map(|entry| entry.id.clone())
-                    .collect();
-                library::delete_category(&folder, &name).map_err(library_error)?;
-                soundpad.rescan();
-                // Sounds move to the folder itself; one that had to be renamed loses its
-                // settings rather than taking another sound's.
-                let present: Vec<String> = soundpad
-                    .entries()
-                    .iter()
-                    .map(|entry| entry.id.clone())
-                    .collect();
-                for id in moved {
-                    let file = id.rsplit('/').next().unwrap_or(&id).to_owned();
-                    if present.contains(&file) && !self.config.soundpad.sounds.contains_key(&file) {
-                        self.sound_renamed(&id, &file);
-                    } else {
-                        self.sound_removed(&id);
-                    }
+                let moved = library::delete_category(&folder, &name).map_err(library_error)?;
+                for (from, to) in moved {
+                    self.sound_renamed(&from, &to);
+                }
+                if let Some(soundpad) = &mut self.soundpad {
+                    soundpad.rescan();
                 }
                 self.soundpad_changed();
             }

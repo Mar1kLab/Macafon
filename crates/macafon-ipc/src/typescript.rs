@@ -80,6 +80,9 @@ fn protocol() -> String {
         HotkeyBinding::decl(&cfg),
         HotkeysState::decl(&cfg),
         CloseAction::decl(&cfg),
+        OsdStyle::decl(&cfg),
+        OsdEdge::decl(&cfg),
+        OsdPrefs::decl(&cfg),
         Preferences::decl(&cfg),
     ];
     let mut out = String::from(HEADER);
@@ -263,6 +266,11 @@ fn dsp() -> String {
     out.push_str(&defaults(
         "MAX_CHANNELS",
         json!(macafon_config::mixer::MAX_CHANNELS),
+    ));
+    out.push_str(&typed(
+        "OSD_MAX_OFFSET_PCT",
+        "number",
+        json!(macafon_config::OSD_MAX_OFFSET_PCT),
     ));
     out.push_str(&typed(
         "QUANTUM_CHOICES",

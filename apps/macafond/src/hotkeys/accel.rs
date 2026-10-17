@@ -12,12 +12,12 @@ pub struct Modifiers {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Accel {
     pub modifiers: Modifiers,
-    /// Canonical key: `A`…`Z`, `0`…`9`, `F1`…`F24`, `Space`, `PageUp`, `ArrowUp`, …
+    /// Canonical key: `A`…`Z`, `0`…`9`, `F1`…`F24`, `Space`, `PageUp`, `ArrowUp`, `Backquote`, …
     pub key: String,
 }
 
 /// Named keys accepted besides letters, digits and F-keys.
-const NAMED: [&str; 14] = [
+const NAMED: [&str; 15] = [
     "Space",
     "Insert",
     "Delete",
@@ -32,7 +32,14 @@ const NAMED: [&str; 14] = [
     "Pause",
     "ScrollLock",
     "PrintScreen",
+    // The key left of 1 (`` ` `` on US layouts, `ё` on Russian ones).
+    "Backquote",
 ];
+
+/// Keys that type a character: alone they would steal typing.
+fn types(key: &str) -> bool {
+    key.len() == 1 || key == "Backquote"
+}
 
 fn function_key(key: &str) -> Option<u8> {
     let n: u8 = key.strip_prefix('F')?.parse().ok()?;
@@ -57,6 +64,7 @@ fn canonical_key(raw: &str) -> Option<String> {
         "DEL" => "Delete",
         "INS" => "Insert",
         "PRINT" => "PrintScreen",
+        "`" | "GRAVE" => "Backquote",
         _ => "",
     };
     if !alias.is_empty() {
@@ -88,7 +96,7 @@ impl Accel {
         let key = key.ok_or_else(|| format!("{text:?} has no key"))?;
         let any_modifier = modifiers.ctrl || modifiers.alt || modifiers.super_;
         // A bare letter or digit would steal typing; F-keys and navigation keys alone are fine.
-        if !any_modifier && key.len() == 1 {
+        if !any_modifier && types(&key) {
             return Err(format!("{text:?} needs Ctrl, Alt or Super"));
         }
         Ok(Self { modifiers, key })
@@ -122,6 +130,7 @@ impl Accel {
             "ArrowRight" => "Right".into(),
             "ScrollLock" => "Scroll_Lock".into(),
             "PrintScreen" => "Print".into(),
+            "Backquote" => "grave".into(),
             other => other.to_owned(),
         };
         parts.push(keysym);
@@ -195,11 +204,16 @@ mod tests {
             );
         }
         for key in NAMED {
-            assert!(
-                hotkey(&Accel::parse(key).expect("valid named key")).is_ok(),
-                "{key}"
-            );
+            let accel = Accel::parse(&format!("Ctrl+Alt+{key}")).expect("valid named key");
+            assert!(hotkey(&accel).is_ok(), "{key}");
         }
+        assert_eq!(
+            hotkey(&Accel::parse("Ctrl+Alt+`").expect("console key")),
+            Ok(HotKey::new(
+                Some(Modifiers::CONTROL | Modifiers::ALT),
+                Code::Backquote
+            ))
+        );
     }
 
     #[test]
@@ -216,6 +230,13 @@ mod tests {
             "F9"
         );
         assert!(Accel::parse("M").is_err());
+        assert!(Accel::parse("Backquote").is_err());
+        assert_eq!(
+            Accel::parse("ctrl+alt+backquote")
+                .expect("valid")
+                .portal_trigger(),
+            "CTRL+ALT+grave"
+        );
         assert!(Accel::parse("Shift+M").is_err());
         assert!(Accel::parse("Ctrl+M+N").is_err());
         assert!(Accel::parse("Ctrl+Banana").is_err());

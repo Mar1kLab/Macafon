@@ -78,6 +78,8 @@ export class DaemonStore {
   constructor(
     transport: Transport,
     readonly mock: boolean,
+    /** Live meters; off in the quick panel, which shares the bridge with the main window. */
+    readonly meters = true,
   ) {
     this.client = new DaemonClient(transport);
     transport.onStatus((status) => this.onStatus(status));
@@ -173,7 +175,7 @@ export class DaemonStore {
 
   /** Meters flow only while the window is visible (MTR-004, NFR-R7). */
   private syncMeters() {
-    const want = this.connected && document.visibilityState === 'visible';
+    const want = this.meters && this.connected && document.visibilityState === 'visible';
     if (want === this.metersOn) return;
     this.metersOn = want;
     const request = want

@@ -310,7 +310,11 @@ periods and advice to lower Max Latency; it is not the full latency.
 **Installer (M3.6).** `python tools/package-windows.py` → NSIS
 `target/release/bundle/nsis/Macafon_<version>_x64-setup.exe` (~16 MiB): `installMode = currentUser`, no UAC,
 into `%LOCALAPPDATA%\Macafon`; it contains `macafon-ui.exe`, `macafond.exe`, `macafon.exe` and the licenses.
-VB-CABLE is not included. Hooks (`packaging/windows/hooks.nsh`): before an update `macafon ctl quit`; before
+VB-CABLE is not included. Hooks (`packaging/windows/hooks.nsh`): before an update `macafon ctl quit`, then
+wait (up to 15 s) until `macafond.exe` is no longer locked, and start `macafond run` again after the copy if it
+was running; `--install` runs the installer in passive mode (`/P`, plus `/R` on a first install to open the UI, `/UPDATE`
+afterwards: without it a passive reinstall of the same version runs the old uninstaller and its cleanup);
+before
 uninstall `macafond cleanup` — Quit the daemon, restore the default microphone/output and session volumes
 from the journals, remove the Run value. If cleanup fails, the uninstaller asks "Uninstall anyway?"; a
 silent uninstall stops. **Deviation from PRD §12.2.3:** NSIS instead of MSI (WiX), because the Tauri MSI
@@ -357,3 +361,65 @@ Fixed after a bug hunt (WIN-MIC-005, WIN-CH-007/008):
 Checked: clippy/tests of `macafon-backend-windows`, `macafond`, `macafon-apps`; the release daemon with
 separate APPDATA/LOCALAPPDATA — applications with icon paths, no warnings in the log, a normal Quit.
 Re-applying to a new session is not covered by a test (needs real COM).
+
+## Mixer: "the audio thread is not consuming changes" (2026-10-16)
+
+Dragging a channel fader several times on Windows showed a stream of "the audio thread is not consuming
+changes; try again" errors. Windows has no channel nodes, so the daemon drops the `ChannelRt` it builds for
+each channel, but `ChannelControl` kept queueing every fader change: after 64 changes the queue was full and
+each further change returned `Busy`. `ChannelControl::apply` now only stores the settings when the audio side
+is gone (`rtrb` abandoned). Regression test: `cargo test -p macafon-engine channel`.
+
+## Tray: clicks on the icon did nothing (2026-10-17)
+
+Right-click opened no menu (left and middle clicks were lost the same way). Explorer delivers the
+`Shell_NotifyIconW` callback as a sent message, so it goes straight to the window procedure and never reaches
+the `GetMessageW` loop that handled it; the procedure passed it to `DefWindowProcW`. The procedure now re-posts
+the callback to the loop, which opens the menu outside Explorer's send. Checked by clicking the real tray icon
+through UI Automation: the popup menu (`#32768`) opens and belongs to the daemon. Not covered by a test
+(needs Explorer).
+
+## Hotkey popup instead of notifications (2026-10-17, HK-006)
+
+Volume hotkeys raised a tray balloon per step, which piled up while a key was held. Hotkey actions now show
+no system notifications on Windows; `osd/popup.rs` draws Macafon's own popup instead:
+
+- A layered, click-through, topmost, non-activating window on a `macafon-osd` thread, placed at the right
+  edge of the work area of the monitor with the foreground window (else the cursor), per-monitor DPI.
+- Direct2D renders into a WIC bitmap (icons through Direct2D SVG, Lucide like the UI; text through
+  DirectWrite, Segoe UI Variable), `UpdateLayeredWindow` presents it; frames pace on `DwmFlush` only while
+  something moves, otherwise the thread sleeps.
+- Springs: the entrance slides and scales in with a light overshoot, the level follows each step, holding
+  a key at 0 or 100 % stretches the slider; the popup leaves 1.6 s after the last change. With Windows
+  "Animation effects" off everything snaps.
+- Volume: the channel's color, icon and name; mute crossfades the percentage to "Muted". Mute, bypass and
+  preset: a card with an icon, what changed and its new state.
+
+- Settings → Hotkey popup (`[ui.osd]`, `prefs.set { osd }`): style `vertical` (Android-like, `left`/`right`)
+  or `horizontal` (Windows 11-like bar, `top`/`bottom`), and `offset_pct` (0…40 % of the screen) toward the
+  center. A mismatched edge falls back to the style's default. Every change shows a sample popup; a visible
+  popup moves at once. The window never leaves the work area: with an offset it grows toward the edge so
+  the slide-in is not clipped. The UI shows the section only with `Capabilities::hotkey_popup`.
+
+Previews: `cargo test -p macafond osd_previews -- --ignored` writes PNGs to `.artifacts/screenshots/`.
+
+## Tray: the menu froze on screen (2026-10-17)
+
+The fix above re-posted the callback under the same message id. While the menu's modal loop ran it
+dispatched that posted copy back to the window procedure, which posted it again: the queue never emptied,
+and posted messages come before input and painting, so the open menu stayed on screen and ignored clicks.
+The procedure now re-posts under a separate id (`QUEUED`) that only the tray loop handles; inside the menu
+loop such copies are dropped.
+
+## Quick panel, channel switch, default hotkeys (2026-10-17, CH-010, HK-007, HK-008)
+
+- `macafon-ui --quick-panel` opens only the quick panel window (`quick_panel.rs`); a running UI receives
+  the argument through the single-instance plugin and toggles it. The main window has `create: false` in
+  `tauri.conf.json` and is built on demand. The panel sits at the bottom right of the work area of the
+  monitor under the cursor, sizes itself to its content and closes on focus loss. The daemon calls
+  `AllowSetForegroundWindow(ASFW_ANY)` before launching the UI, so the panel gets focus over a game.
+  The panel's store does not subscribe meters: it shares the bridge connection with the main window.
+- A channel switched off (`enabled = false` in `[[mixer.channels]]`) has no node; `MixerConfig::effective_channel`
+  sends its apps to the default channel.
+- `Config::offer_default_hotkeys` runs once per `HOTKEY_DEFAULTS_REVISION` at daemon start.
+  `types_with_altgr` checks every installed layout with `ToUnicodeEx` (Ctrl+Alt held).

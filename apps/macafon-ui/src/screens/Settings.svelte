@@ -3,17 +3,19 @@
   // the setup guide (§9.2), fallback microphone (MIC-006), input channel (MIC-004), system
   // default microphone (MIC-012), virtual microphone format (MIC-011), quit (BG-005), about.
   // Mixer: known-app sorting (APP-006) and the output priority list (OUT-002).
-  // Hotkeys (HK-002, HK-004). Doctor (§9.6).
+  // Hotkeys (HK-002, HK-004) and their popup (HK-006, where the daemon draws one). Doctor (§9.6).
   import Toggle from '../lib/components/Toggle.svelte';
   import Dropdown from '../lib/components/Dropdown.svelte';
+  import Segmented from '../lib/components/Segmented.svelte';
+  import RulerSlider from '../lib/components/RulerSlider.svelte';
   import Dialog from '../lib/components/Dialog.svelte';
   import { ArrowDown, ArrowUp, X } from '@lucide/svelte';
   import { daemon } from '../lib/state';
   import Doctor from '../lib/settings/Doctor.svelte';
   import Hotkeys from '../lib/settings/Hotkeys.svelte';
   import { t, type MessageKey } from '../lib/i18n';
-  import type { AutostartMethod, CloseAction, InputChannel } from '../lib/ipc/protocol';
-  import { QUANTUM_CHOICES, SAMPLE_RATE_HZ } from '../lib/ipc/dsp';
+  import type { AutostartMethod, CloseAction, InputChannel, OsdEdge, OsdPrefs, OsdStyle } from '../lib/ipc/protocol';
+  import { OSD_MAX_OFFSET_PCT, QUANTUM_CHOICES, SAMPLE_RATE_HZ } from '../lib/ipc/dsp';
 
   const autostartMethodKey: Record<AutostartMethod, MessageKey> = {
     systemd: 'settings.methodSystemd',
@@ -61,11 +63,33 @@
     label: t(`settings.closeActions.${value}`),
   }));
 
-  async function setPrefs(patch: { quantum_frames?: number; close_action?: CloseAction }) {
+  async function setPrefs(patch: { quantum_frames?: number; close_action?: CloseAction; osd?: OsdPrefs }) {
     const next = await daemon.run(
-      daemon.client.call('prefs.set', { quantum_frames: patch.quantum_frames ?? null, close_action: patch.close_action ?? null }),
+      daemon.client.call('prefs.set', {
+        quantum_frames: patch.quantum_frames ?? null,
+        close_action: patch.close_action ?? null,
+        osd: patch.osd ?? null,
+      }),
     );
     if (next) daemon.prefs = next;
+  }
+
+  // HK-006: each style has its own pair of edges; the daemon shows a sample popup on every change.
+  const OSD_EDGES: Record<OsdStyle, OsdEdge[]> = { vertical: ['left', 'right'], horizontal: ['top', 'bottom'] };
+  const osdStyleOptions = (['vertical', 'horizontal'] as OsdStyle[]).map((value) => ({
+    value,
+    label: t(`settings.osd.styles.${value}`),
+  }));
+  const osdEdgeOptions = $derived(
+    OSD_EDGES[prefs?.osd.style ?? 'vertical'].map((value) => ({ value, label: t(`settings.osd.edges.${value}`) })),
+  );
+
+  function setOsd(patch: Partial<OsdPrefs>) {
+    if (!prefs) return;
+    const osd = { ...prefs.osd, ...patch };
+    const edges = OSD_EDGES[osd.style];
+    if (!edges.includes(osd.edge)) osd.edge = edges[1]!;
+    void setPrefs({ osd });
   }
   let confirmQuit = $state(false);
   let confirmDefault = $state(false);
@@ -251,6 +275,63 @@
       </section>
     {/if}
 
+    {#if prefs && daemon.hello?.capabilities.hotkey_popup}
+      <section>
+        <h2 class="hud-label">{t('settings.osd.title')}</h2>
+        <div class="row">
+          <div>
+            <p class="name">{t('settings.osd.style')}</p>
+            <p class="hint">{t('settings.osd.styleHint')}</p>
+          </div>
+          <Segmented
+            label={t('settings.osd.style')}
+            layout="inline"
+            options={osdStyleOptions}
+            value={prefs.osd.style}
+            onchange={(style) => setOsd({ style })}
+          />
+        </div>
+        <div class="row">
+          <div>
+            <p class="name">{t('settings.osd.edge')}</p>
+            <p class="hint">{t('settings.osd.edgeHint')}</p>
+          </div>
+          <Segmented
+            label={t('settings.osd.edge')}
+            layout="inline"
+            options={osdEdgeOptions}
+            value={prefs.osd.edge}
+            onchange={(edge) => setOsd({ edge })}
+          />
+        </div>
+        <div class="row">
+          <div>
+            <p class="name">{t('settings.osd.offset')}</p>
+            <p class="hint">{t('settings.osd.offsetHint')}</p>
+          </div>
+          <div class="slider">
+            <RulerSlider
+              label={t('settings.osd.offset')}
+              value={prefs.osd.offset_pct}
+              min={0}
+              max={OSD_MAX_OFFSET_PCT}
+              defaultValue={0}
+              step={0.5}
+              format={(value) => `${value}%`}
+              onchange={(offset_pct) => setOsd({ offset_pct })}
+            />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <p class="name">{t('settings.osd.preview')}</p>
+            <p class="hint">{t('settings.osd.previewHint')}</p>
+          </div>
+          <button class="btn" onclick={() => setOsd({})}>{t('settings.osd.previewRun')}</button>
+        </div>
+      </section>
+    {/if}
+
     <section>
       <h2 class="hud-label">{t('settings.doctor')}</h2>
       <Doctor {onnavigate} onmakedefault={() => (confirmDefault = true)} />
@@ -355,6 +436,10 @@
   .row.column {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .slider {
+    width: 280px;
   }
 
   .priority {

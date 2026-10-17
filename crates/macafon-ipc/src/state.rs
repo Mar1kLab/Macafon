@@ -20,6 +20,42 @@ pub struct Preferences {
     /// Preferred PipeWire quantum for Macafon's nodes; other apps may make it smaller.
     pub quantum_frames: u32,
     pub close_action: CloseAction,
+    /// The hotkey popup; applies where `Capabilities::hotkey_popup` is set.
+    #[serde(default)]
+    pub osd: OsdPrefs,
+}
+
+/// The hotkey popup (HK-006): its look, the edge it sits at and how far from it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct OsdPrefs {
+    pub style: OsdStyle,
+    /// `left`/`right` for `vertical`, `top`/`bottom` for `horizontal`.
+    pub edge: OsdEdge,
+    /// Percent of the screen from the edge toward the center, 0…`OSD_MAX_OFFSET_PCT`.
+    pub offset_pct: f32,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum OsdStyle {
+    /// A vertical slider at a side, like Android.
+    #[default]
+    Vertical,
+    /// A horizontal bar at the top or bottom, like Windows 11.
+    Horizontal,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum OsdEdge {
+    Left,
+    #[default]
+    Right,
+    Top,
+    Bottom,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -55,6 +91,10 @@ pub struct Capabilities {
     pub channel_fx: bool,
     /// The preferred graph quantum in Settings applies (PipeWire).
     pub graph_quantum: bool,
+    /// Hotkeys show Macafon's own popup, set up in Settings (HK-006); otherwise a desktop
+    /// notification.
+    #[serde(default)]
+    pub hotkey_popup: bool,
 }
 
 impl Capabilities {
@@ -63,12 +103,14 @@ impl Capabilities {
         stereo_option: true,
         channel_fx: true,
         graph_quantum: true,
+        hotkey_popup: false,
     };
     pub const WINDOWS: Self = Self {
         virtual_mic_device: false,
         stereo_option: false,
         channel_fx: false,
         graph_quantum: false,
+        hotkey_popup: true,
     };
 }
 

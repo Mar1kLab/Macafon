@@ -13,11 +13,13 @@ mod hotkeys;
 mod logging;
 mod mixer;
 mod notify;
+mod osd;
 #[cfg_attr(target_os = "linux", path = "platform/linux.rs")]
 #[cfg_attr(windows, path = "platform/windows.rs")]
 mod platform;
 mod server;
 mod tray;
+mod ui;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};

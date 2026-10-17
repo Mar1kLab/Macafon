@@ -32,12 +32,14 @@ import { SILENT, random, voiceLevel } from './mock/signals';
 
 const VERSION = '0.1.0-mock';
 
-const GLOBAL_HOTKEYS = ['mic_mute_toggle', 'push_to_talk', 'push_to_mute', 'bypass_toggle', 'preset_next', 'preset_previous'];
+const GLOBAL_HOTKEYS = ['quick_panel', 'mic_mute_toggle', 'push_to_talk', 'push_to_mute', 'bypass_toggle', 'preset_next', 'preset_previous'];
 
 /** HK-004 command for an action, as `HotkeyAction::command` builds it. */
 function hotkeyCommand(action: string): string {
   const [kind, channel] = action.split('.');
   switch (kind) {
+    case 'quick_panel':
+      return 'macafon quick-panel';
     case 'mic_mute_toggle':
       return 'macafon ctl mic mute toggle';
     case 'bypass_toggle':
@@ -75,13 +77,23 @@ export class MockTransport implements Transport {
   private noiseFloor: number | null = null;
   private userPresets = new Map<string, { name: string; settings: ChainSettings }>();
   private isDefaultSource = false;
-  private prefs: Preferences = { quantum_frames: 128, close_action: 'tray' };
+  private prefs: Preferences = {
+    quantum_frames: 128,
+    close_action: 'tray',
+    osd: { style: 'vertical', edge: 'right', offset_pct: 0 },
+  };
   private autostart: AutostartState = { enabled: true, method: this.windows ? 'windows_run' : 'systemd' };
   private shortcuts = new Map<string, string>([
-    ['mic_mute_toggle', 'Ctrl+Alt+M'],
+    // The daemon's defaults (DEFAULT_HOTKEYS in macafon-config) plus push to talk.
+    ['quick_panel', 'Ctrl+Alt+Backquote'],
+    ['mic_mute_toggle', 'Ctrl+Alt+Q'],
     ['push_to_talk', 'F9'],
-    ['channel_volume_up.music', 'Ctrl+Alt+PageUp'],
-    ['channel_volume_down.music', 'Ctrl+Alt+PageDown'],
+    ['channel_volume_up.main', 'Ctrl+Alt+W'],
+    ['channel_volume_down.main', 'Ctrl+Alt+S'],
+    ['channel_volume_up.voice', 'Ctrl+Alt+E'],
+    ['channel_volume_down.voice', 'Ctrl+Alt+D'],
+    ['channel_volume_up.music', 'Ctrl+Alt+R'],
+    ['channel_volume_down.music', 'Ctrl+Alt+F'],
   ]);
 
   private meterTimer: number | undefined;
@@ -292,6 +304,7 @@ export class MockTransport implements Transport {
             stereo_option: !this.windows,
             channel_fx: !this.windows,
             graph_quantum: !this.windows,
+            hotkey_popup: this.windows,
           },
         };
       case 'daemon.quit':
@@ -411,6 +424,7 @@ export class MockTransport implements Transport {
       case 'prefs.set': {
         if (p.quantum_frames != null) this.prefs.quantum_frames = Number(p.quantum_frames);
         if (p.close_action != null) this.prefs.close_action = p.close_action as Preferences['close_action'];
+        if (p.osd != null) this.prefs.osd = clone(p.osd as Preferences['osd']);
         this.emit({ event: 'prefs.changed', data: clone(this.prefs) });
         return clone(this.prefs);
       }

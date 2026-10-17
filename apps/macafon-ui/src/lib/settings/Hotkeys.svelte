@@ -7,7 +7,7 @@
   import { t, type MessageKey } from '../i18n';
   import { DaemonError } from '../ipc/client';
   import type { HotkeyBinding } from '../ipc/protocol';
-  import { recordShortcut } from './shortcut';
+  import { displayShortcut, recordShortcut } from './shortcut';
 
   const hotkeys = $derived(daemon.hotkeys);
   const unavailable = $derived(hotkeys?.backend === 'unavailable');
@@ -33,15 +33,20 @@
     return daemon.mixer?.channels.find((c) => c.id === id)?.name ?? id;
   }
 
-  /** Microphone actions first, then one group per channel in mixer order. */
+  /** The quick panel, microphone actions, then one group per channel in mixer order. */
   const groups = $derived.by(() => {
     const result: { id: string; title: string; bindings: HotkeyBinding[] }[] = [];
     for (const binding of hotkeys?.bindings ?? []) {
       const channel = binding.action.split('.')[1];
-      const id = channel ?? '';
+      const general = binding.action === 'quick_panel';
+      const id = channel ?? (general ? 'general' : '');
       let group = result.find((g) => g.id === id);
       if (!group) {
-        const title = channel ? t('settings.hotkeys.channel', { name: channelName(channel) }) : t('settings.hotkeys.microphone');
+        const title = channel
+          ? t('settings.hotkeys.channel', { name: channelName(channel) })
+          : general
+            ? t('settings.hotkeys.general')
+            : t('settings.hotkeys.microphone');
         group = { id, title, bindings: [] };
         result.push(group);
       }
@@ -103,7 +108,7 @@
     stop();
     const taken = hotkeys?.bindings.find((b) => b.action !== action && b.shortcut === result.shortcut);
     if (taken) {
-      setProblem(action, t('settings.hotkeys.conflict', { shortcut: result.shortcut, action: fullLabel(taken.action) }));
+      setProblem(action, t('settings.hotkeys.conflict', { shortcut: displayShortcut(result.shortcut), action: fullLabel(taken.action) }));
       return;
     }
     void save(action, result.shortcut);
@@ -174,7 +179,7 @@
                   {#if recording === action}
                     {preview || t('settings.hotkeys.press')}
                   {:else}
-                    {binding.shortcut ?? t('settings.hotkeys.notSet')}
+                    {binding.shortcut ? displayShortcut(binding.shortcut) : t('settings.hotkeys.notSet')}
                   {/if}
                 </button>
                 <button

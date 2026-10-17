@@ -221,7 +221,10 @@ fn parse(text: &str) -> Result<(Config, i64), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AppsConfig, AudioConfig, MicConfig, MicProfile, MixerConfig, UiConfig};
+    use crate::{
+        AppsConfig, AudioConfig, MicConfig, MicProfile, MixerConfig, OsdConfig, OsdEdge, OsdStyle,
+        UiConfig,
+    };
     use macafon_dsp::{InputChannel, Preset};
     use std::collections::BTreeMap;
 
@@ -249,6 +252,12 @@ mod tests {
             ui: UiConfig {
                 close_hint_shown: false,
                 quit_on_close: true,
+                osd: OsdConfig {
+                    style: OsdStyle::Horizontal,
+                    edge: OsdEdge::Top,
+                    offset_pct: 12.5,
+                },
+                hotkey_defaults: 1,
             },
             audio: AudioConfig {
                 quantum_frames: 256,

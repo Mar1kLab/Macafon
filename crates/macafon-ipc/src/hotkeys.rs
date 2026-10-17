@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 /// HK-001 actions. Channel actions carry the channel id: `channel_volume_up.voice`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum HotkeyAction {
+    /// Open or close the quick panel: every volume and the microphone switches at hand.
+    QuickPanel,
     MicMuteToggle,
     /// Held: microphone on; released: muted.
     PushToTalk,
@@ -20,7 +22,8 @@ pub enum HotkeyAction {
 
 impl HotkeyAction {
     /// Actions that do not depend on the channels.
-    pub const GLOBAL: [Self; 6] = [
+    pub const GLOBAL: [Self; 7] = [
+        Self::QuickPanel,
         Self::MicMuteToggle,
         Self::PushToTalk,
         Self::PushToMute,
@@ -31,6 +34,7 @@ impl HotkeyAction {
 
     pub fn id(&self) -> String {
         match self {
+            Self::QuickPanel => "quick_panel".into(),
             Self::MicMuteToggle => "mic_mute_toggle".into(),
             Self::PushToTalk => "push_to_talk".into(),
             Self::PushToMute => "push_to_mute".into(),
@@ -45,6 +49,7 @@ impl HotkeyAction {
 
     pub fn parse(id: &str) -> Option<Self> {
         Some(match id {
+            "quick_panel" => Self::QuickPanel,
             "mic_mute_toggle" => Self::MicMuteToggle,
             "push_to_talk" => Self::PushToTalk,
             "push_to_mute" => Self::PushToMute,
@@ -70,6 +75,7 @@ impl HotkeyAction {
     /// HK-004: the equivalent CLI command for desktop shortcut settings.
     pub fn command(&self) -> String {
         match self {
+            Self::QuickPanel => "macafon quick-panel".into(),
             Self::MicMuteToggle => "macafon ctl mic mute toggle".into(),
             Self::PushToTalk | Self::PushToMute => String::new(),
             Self::BypassToggle => "macafon ctl mic bypass toggle".into(),
@@ -86,6 +92,9 @@ impl HotkeyAction {
         matches!(self, Self::PushToTalk | Self::PushToMute)
     }
 }
+
+/// The UI opens just its quick panel with `--quick-panel`, or closes it when it is open.
+pub const QUICK_PANEL_ARG: &str = "--quick-panel";
 
 /// How the daemon registers shortcuts (HK-003).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

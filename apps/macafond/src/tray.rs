@@ -46,25 +46,6 @@ impl MicTray {
     }
 }
 
-/// Look for the UI next to the daemon first, then on PATH (BG-004).
-#[cfg(target_os = "linux")]
-fn open_ui() {
-    let sibling = std::env::current_exe()
-        .ok()
-        .and_then(|exe| Some(exe.parent()?.join("macafon")))
-        .filter(|path| path.is_file());
-    let program = sibling.unwrap_or_else(|| "macafon".into());
-    match std::process::Command::new(&program).spawn() {
-        // Reap the child in the background so it does not linger as a zombie.
-        Ok(mut child) => {
-            std::thread::spawn(move || child.wait());
-        }
-        Err(error) => {
-            tracing::warn!(%error, program = %program.display(), "Cannot open Macafon")
-        }
-    }
-}
-
 #[cfg(target_os = "linux")]
 impl ksni::Tray for MicTray {
     fn id(&self) -> String {
@@ -119,7 +100,7 @@ impl ksni::Tray for MicTray {
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
-        open_ui();
+        crate::ui::open();
     }
 
     /// BG-004: middle click toggles mute.
@@ -140,7 +121,13 @@ impl ksni::Tray for MicTray {
         vec![
             StandardItem {
                 label: "Open Macafon".into(),
-                activate: Box::new(|_: &mut Self| open_ui()),
+                activate: Box::new(|_: &mut Self| crate::ui::open()),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: "Quick panel".into(),
+                activate: Box::new(|_: &mut Self| crate::ui::quick_panel()),
                 ..Default::default()
             }
             .into(),
@@ -352,6 +339,8 @@ mod icon {
     use super::TrayState;
 
     const WHITE: [u8; 3] = [255; 3];
+    const OUTLINE: [u8; 3] = [0x12, 0x13, 0x16]; // --bg
+    const INK: [u8; 3] = [0xf2, 0xf1, 0xee]; // --ink
     const DANGER: [u8; 3] = [0xff, 0x62, 0x59];
     const SIZES: [usize; 4] = [16, 22, 32, 48];
     const FRAME_BYTES: usize = 16 * 16 + 22 * 22 + 32 * 32 + 48 * 48;
@@ -391,13 +380,14 @@ mod icon {
                 let alpha = &MASKS[offset..offset + size * size];
                 offset += size * size;
                 let mut data = Vec::with_capacity(size * size * 4);
-                for (index, &alpha) in alpha.iter().enumerate() {
+                let coverage_at = |x: isize, y: isize| {
+                    if x < 0 || y < 0 || x >= size as isize || y >= size as isize {
+                        return (0.0, 0.0);
+                    }
                     // Original vector coordinates, including its -8 viewBox offset.
-                    let x = (index % size) as f32;
-                    let y = (index / size) as f32;
                     let p = (
-                        (x + 0.5) * 128.0 / size as f32 - 8.0,
-                        (y + 0.5) * 128.0 / size as f32,
+                        (x as f32 + 0.5) * 128.0 / size as f32 - 8.0,
+                        (y as f32 + 0.5) * 128.0 / size as f32,
                     );
                     let coverage =
                         |distance: f32| (0.5 - distance * size as f32 / 128.0).clamp(0.0, 1.0);
@@ -416,14 +406,33 @@ mod icon {
                     } else {
                         0.0
                     };
-                    let base = (f32::from(alpha) / 255.0).max(pause);
-                    let total = dot + base * (1.0 - dot);
+                    let base =
+                        (f32::from(alpha[y as usize * size + x as usize]) / 255.0).max(pause);
+                    (base, dot)
+                };
+                for index in 0..size * size {
+                    let (x, y) = ((index % size) as isize, (index / size) as isize);
+                    let (base, dot) = coverage_at(x, y);
+                    let foreground = dot + base * (1.0 - dot);
+                    // A one-pixel dark keyline preserves the white mark on light panels.
+                    // Apply it to badges too, so combined states remain readable.
+                    let mut outline = foreground;
+                    for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                        let (base, dot) = coverage_at(x + dx, y + dy);
+                        outline = outline.max((dot + base * (1.0 - dot)) * 0.85);
+                    }
+                    let edge = outline * (1.0 - foreground);
+                    let total = foreground + edge;
+                    let shade = y as f32 / (size - 1) as f32 * 0.35 * (1.0 - bend);
                     let rgb = std::array::from_fn::<_, 3, _>(|i| {
                         if total == 0.0 {
                             0
                         } else {
+                            let metal =
+                                f32::from(color[i]) * (1.0 - shade) + f32::from(INK[i]) * shade;
                             ((f32::from(DANGER[i]) * dot
-                                + f32::from(color[i]) * base * (1.0 - dot))
+                                + metal * base * (1.0 - dot)
+                                + f32::from(OUTLINE[i]) * edge)
                                 / total)
                                 .round() as u8
                         }
@@ -483,8 +492,7 @@ mod icon {
                     normal_icons[i]
                         .data
                         .chunks_exact(4)
-                        .filter(|p| p[0] > 0)
-                        .all(|p| p[1..] == WHITE)
+                        .any(|p| p[0] > 0 && p[1..] == OUTLINE)
                 );
             }
         }

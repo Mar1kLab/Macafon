@@ -13,6 +13,7 @@ impl DaemonHost {
             Request::PrefsSet {
                 quantum_frames,
                 close_action,
+                osd,
             } => {
                 if let Some(frames) = quantum_frames {
                     if !macafon_config::QUANTUM_CHOICES.contains(&frames) {
@@ -28,6 +29,10 @@ impl DaemonHost {
                 }
                 if let Some(action) = close_action {
                     self.config.ui.quit_on_close = action == macafon_ipc::CloseAction::Quit;
+                }
+                if let Some(osd) = osd {
+                    self.config.ui.osd = super::hotkeys::osd_config(osd);
+                    self.sample_osd();
                 }
                 self.changed_at = Some(Instant::now());
                 let prefs = self.prefs();

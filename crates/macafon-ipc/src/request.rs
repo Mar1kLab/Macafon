@@ -1,6 +1,6 @@
 //! Client requests; serialized method names are the public protocol.
 
-use crate::{AbSide, ChainSettings, ChannelPatch, CloseAction, InputChannel};
+use crate::{AbSide, ChainSettings, ChannelPatch, CloseAction, InputChannel, OsdPrefs};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -214,5 +214,8 @@ pub enum Request {
         quantum_frames: Option<u32>,
         #[serde(default)]
         close_action: Option<CloseAction>,
+        /// The whole popup setup; the daemon shows a sample popup with it.
+        #[serde(default)]
+        osd: Option<OsdPrefs>,
     },
 }

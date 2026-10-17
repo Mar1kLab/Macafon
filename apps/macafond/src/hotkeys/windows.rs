@@ -7,6 +7,10 @@ use macafon_backend::ControlSender;
 use macafon_ipc::HotkeyBackend;
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, TryRecvError};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetKeyboardLayoutList, HKL, MAPVK_VK_TO_VSC, MapVirtualKeyExW, ToUnicodeEx, VK_CONTROL,
+    VK_LCONTROL, VK_MENU, VK_OEM_3, VK_RMENU, VK_SHIFT,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, GetMessageW, KillTimer, MSG, SetTimer,
 };
@@ -108,6 +112,48 @@ impl Drop for Backend {
         // SAFETY: the timer was created on this thread and has no callback.
         let _ = unsafe { KillTimer(None, self.timer) };
     }
+}
+
+/// Whether Ctrl+Alt+key is AltGr+key that types a character in any installed layout.
+pub fn types_with_altgr(accel: &super::accel::Accel) -> bool {
+    let m = accel.modifiers;
+    if !(m.ctrl && m.alt) || m.super_ {
+        return false;
+    }
+    let key = accel.key.as_bytes();
+    let vk = match key {
+        [byte] if byte.is_ascii_alphanumeric() => u32::from(*byte),
+        _ if accel.key == "Backquote" => u32::from(VK_OEM_3.0),
+        _ => return false,
+    };
+    let mut state = [0u8; 256];
+    for held in [VK_CONTROL, VK_LCONTROL, VK_MENU, VK_RMENU] {
+        state[usize::from(held.0)] = 0x80;
+    }
+    if m.shift {
+        state[usize::from(VK_SHIFT.0)] = 0x80;
+    }
+    // SAFETY: a null buffer asks for the count; the second call fills a buffer of that size.
+    let layouts = unsafe {
+        let count = GetKeyboardLayoutList(None);
+        let mut layouts = vec![HKL::default(); usize::try_from(count).unwrap_or(0)];
+        let filled = GetKeyboardLayoutList(Some(&mut layouts));
+        layouts.truncate(usize::try_from(filled).unwrap_or(0));
+        layouts
+    };
+    layouts.into_iter().any(|layout| {
+        let mut text = [0u16; 8];
+        // SAFETY: plain buffers owned by this frame; flag 4 leaves the dead-key state alone.
+        let written = unsafe {
+            let scan = MapVirtualKeyExW(vk, MAPVK_VK_TO_VSC, Some(layout));
+            ToUnicodeEx(vk, scan, &state, &mut text, 4, Some(layout))
+        };
+        // Control characters are Ctrl+key itself, not an AltGr character.
+        written < 0
+            || text[..usize::try_from(written).unwrap_or(0)]
+                .iter()
+                .any(|&unit| unit >= 0x20)
+    })
 }
 
 pub fn run(receiver: Receiver<Vec<Binding>>, control: ControlSender<ControlMessage>) {

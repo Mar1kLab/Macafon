@@ -1089,6 +1089,7 @@ export const CHANNEL_TEMPLATES: Readonly<Record<'main' | 'voice' | 'music' | 'cu
 };
 
 export const MAX_CHANNELS = 8;
+export const OSD_MAX_OFFSET_PCT: number = 40.0;
 export const QUANTUM_CHOICES: readonly number[] = [64,128,256,512];
 export const CHANNEL_COLORS: readonly string[] = ["blue","violet","pink","orange","amber","teal","lime"];
 export const CHANNEL_ICONS: readonly string[] = ["speaker","message","music","gamepad","film","bell","globe","headphones"];

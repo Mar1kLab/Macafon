@@ -396,6 +396,7 @@ Cider ─────► Macafon Music ──────►│ Music: vol 70%  
 | CH-007 | Reordering channels by dragging | P1 |
 | CH-008 | The volume of an individual application inside a channel (click a chip → a mini slider) | P1 |
 | CH-009 | Turning the whole mixer on/off (if the user only needs the microphone). In M2 it is offered in onboarding on first launch, not enabled silently | P0 |
+| CH-010 | Switching a single channel off (the strip switch or Channel settings; owner request, 2026-10-17): it loses its node, its apps play through the default channel and come back when it is on again; their rules stay. The default channel cannot be switched off, an off channel cannot become the default or receive apps | P1 |
 
 ### 7.3 Per-channel processing
 
@@ -473,7 +474,9 @@ by default, except those set by the channel template.
 | HK-003 | Wayland: through `xdg-desktop-portal` **GlobalShortcuts** (KDE Plasma, GNOME 48+, Hyprland). X11: through XGrab (the `global-hotkey` crate). Hotkeys are registered by **the daemon**, not the UI, so they work with the window closed | P0 |
 | HK-004 | A fallback for environments without a portal: CLI `macafon ctl mic mute toggle` / `macafon ctl preset next` / `macafon ctl channel voice volume +5` — the user binds them in the DE settings; the UI shows a ready command to copy | P0 |
 | HK-005 | A sound cue (a quiet "click") on mute/unmute — an option | P1 |
-| HK-006 | An OSD notification on preset/volume change through a hotkey (a desktop notification) | P1 |
+| HK-006 | An OSD on every hotkey action. Windows: Macafon's own popup on the right edge of the active monitor, no system notifications (owner decision, 2026-10-17) — a vertical volume slider in the channel's color with its icon and name, a compact card for mute/bypass/preset; spring animations, off when Windows animations are off. Settings → Hotkey popup: style (Android-like vertical slider or Windows 11-like bar), edge (left/right or top/bottom) and an offset toward the center in percent of the screen. Linux: a replaceable desktop notification on preset/volume change | P1 |
+| HK-007 | Quick panel (owner request, 2026-10-17): a small always-on-top window above the tray with Android/Windows 11-like tiles (microphone mute, processing bypass, mixer), the preset and pill sliders with mute for the Master and every channel that is on. Opened by the `quick_panel` hotkey, the tray menu or `macafon quick-panel`; closes on Esc, the hotkey again or focus loss. Rounded corners are an owner exception to the design system, like the HK-006 popup | P1 |
+| HK-008 | Default shortcuts, offered once (cleared ones stay cleared) and only when free (owner request, 2026-10-17): one left hand on Ctrl+Alt — `` ` `` quick panel, `Q` mic mute, `W`/`S` Main, `E`/`D` Voice, `R`/`F` Music volume ±5 %. On Windows a pair whose key types a character with AltGr in an installed layout (`€`, `@`, `ś`) is skipped | P1 |
 
 ---
 

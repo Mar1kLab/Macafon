@@ -7,8 +7,10 @@ import '@fontsource/instrument-serif/400-italic.css';
 import './styles/tokens.css';
 import './styles/base.css';
 import App from './App.svelte';
+import QuickPanel from './lib/quick/QuickPanel.svelte';
+import { quickPanel } from './lib/state';
 
 const target = document.getElementById('app');
 if (!target) throw new Error('missing #app');
 
-export default mount(App, { target });
+export default mount(quickPanel ? QuickPanel : App, { target });

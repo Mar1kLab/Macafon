@@ -20,7 +20,7 @@ mod wire;
 pub use client::{Client, ClientError};
 pub use doctor::{DoctorCheck, DoctorCheckId, DoctorReport, DoctorStatus};
 pub use framing::{FrameError, read_protocol_line};
-pub use hotkeys::{HotkeyAction, HotkeyBackend, HotkeyBinding, HotkeysState};
+pub use hotkeys::{HotkeyAction, HotkeyBackend, HotkeyBinding, HotkeysState, QUICK_PANEL_ARG};
 pub use macafon_dsp::calibration::CalibrationReport;
 pub use macafon_dsp::{ChainSettings, InputChannel, Meters};
 pub use mixer::{
@@ -40,8 +40,8 @@ pub use request::Request;
 pub use state::{
     AbRecording, AbSide, AbState, AbWaveform, AutostartMethod, AutostartState, CalibrationFailure,
     CalibrationState, CalibrationStep, Capabilities, CloseAction, ConfigRecovery, Device,
-    DeviceKind, Hello, MicState, Platform, PlaybackDevice, PlaybackDeviceKind, Preferences,
-    PresetInfo,
+    DeviceKind, Hello, MicState, OsdEdge, OsdPrefs, OsdStyle, Platform, PlaybackDevice,
+    PlaybackDeviceKind, Preferences, PresetInfo,
 };
 pub use wire::{ErrorBody, ErrorCode, Event, Outcome, RequestEnvelope, Response, ServerMessage};
 

@@ -19,6 +19,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
 /// A shortcut to register: action id, readable description, shortcut.
+#[derive(Clone, PartialEq)]
 pub struct Binding {
     pub action: String,
     pub description: String,
@@ -51,8 +52,30 @@ impl Hotkeys {
         Self { bindings }
     }
 
+    /// A service without a backend; the test reads what would be registered.
+    #[cfg(test)]
+    pub fn fake() -> (Self, mpsc::Receiver<Vec<Binding>>) {
+        let (bindings, receiver) = mpsc::channel();
+        (Self { bindings }, receiver)
+    }
+
     pub fn bind(&self, bindings: Vec<Binding>) {
         let _ = self.bindings.send(bindings);
+    }
+}
+
+/// A default shortcut may be bound here: on Windows Ctrl+Alt also means AltGr, so a key that
+/// types a character with AltGr in an installed layout (`€`, `@`, `ś`) is left alone.
+pub fn usable_by_default(shortcut: &str) -> bool {
+    let Ok(accel) = Accel::parse(shortcut) else {
+        return false;
+    };
+    #[cfg(windows)]
+    return !windows::types_with_altgr(&accel);
+    #[cfg(not(windows))]
+    {
+        let _ = accel;
+        true
     }
 }
 

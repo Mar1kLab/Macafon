@@ -18,7 +18,13 @@ const NAMED = new Set([
   'Pause',
   'ScrollLock',
   'PrintScreen',
+  'Backquote',
 ]);
+
+/** How a canonical shortcut reads: the console key as its US character. */
+export function displayShortcut(shortcut: string): string {
+  return shortcut.replace(/Backquote$/, '`');
+}
 
 const MODIFIER_CODES = /^(Control|Alt|Shift|Meta|OS)(Left|Right)?$/;
 
@@ -56,7 +62,7 @@ export function recordShortcut(event: KeyLike): Recorded {
   const key = keyName(event.code);
   if (!key) return { kind: 'unsupported', preview: `${prefix}${event.code}` };
   const shortcut = `${prefix}${key}`;
-  if (key.length === 1 && !(event.ctrlKey || event.altKey || event.metaKey)) {
+  if ((key.length === 1 || key === 'Backquote') && !(event.ctrlKey || event.altKey || event.metaKey)) {
     return { kind: 'needs_modifier', preview: shortcut };
   }
   return { kind: 'done', shortcut };

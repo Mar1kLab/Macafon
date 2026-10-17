@@ -1,8 +1,11 @@
 //! Hotkeys control on the daemon control loop.
 
 use super::DaemonHost;
+use crate::osd::{Osd, StatusIcon};
+use macafon_config::{OsdConfig, OsdEdge, OsdStyle};
 use macafon_ipc::{
-    ErrorBody, ErrorCode, Event, HotkeyAction, HotkeyBackend, HotkeyBinding, HotkeysState, Request,
+    ErrorBody, ErrorCode, Event, HotkeyAction, HotkeyBackend, HotkeyBinding, HotkeysState,
+    OsdPrefs, Request,
 };
 use std::time::Instant;
 
@@ -13,6 +16,7 @@ impl DaemonHost {
             .into_iter()
             .map(|action| {
                 let description = match action {
+                    HotkeyAction::QuickPanel => "Open the quick panel",
                     HotkeyAction::MicMuteToggle => "Toggle microphone mute",
                     HotkeyAction::PushToTalk => "Push to talk",
                     HotkeyAction::PushToMute => "Push to mute",
@@ -41,9 +45,11 @@ impl DaemonHost {
         actions
     }
 
-    pub(super) fn rebind_hotkeys(&self) {
+    /// Register the shortcuts again only when they changed: rebinding releases held actions,
+    /// so a fader moved during push-to-talk would mute the microphone.
+    pub(super) fn rebind_hotkeys(&mut self) {
         let Some(service) = &self.hotkeys else { return };
-        let bindings = self
+        let bindings: Vec<crate::hotkeys::Binding> = self
             .hotkey_actions()
             .into_iter()
             .filter_map(|(action, description)| {
@@ -56,7 +62,11 @@ impl DaemonHost {
                 })
             })
             .collect();
-        service.bind(bindings);
+        if self.bound_hotkeys.as_ref() == Some(&bindings) {
+            return;
+        }
+        service.bind(bindings.clone());
+        self.bound_hotkeys = Some(bindings);
     }
 
     pub(super) fn hotkeys_state(&self) -> HotkeysState {
@@ -88,7 +98,25 @@ impl DaemonHost {
             } else {
                 macafon_ipc::CloseAction::Tray
             },
+            osd: osd_prefs(self.config.ui.osd),
         }
+    }
+
+    /// A popup with the given setup, so Settings shows where and how it appears.
+    pub(super) fn sample_osd(&self) {
+        let Some(channel) = self.config.mixer.channels.first() else {
+            return;
+        };
+        crate::osd::show(
+            Osd::Volume {
+                name: channel.name.clone(),
+                color: channel.color.clone(),
+                icon: channel.icon.clone(),
+                volume_pct: channel.settings.volume_pct,
+                muted: channel.settings.muted,
+            },
+            self.config.ui.osd,
+        );
     }
 
     pub(super) fn hotkeys_changed(&self) {
@@ -138,7 +166,7 @@ impl DaemonHost {
         Ok(())
     }
 
-    /// Run a hotkey action like the matching request (HK-001); OSD for presets and volume
+    /// Run a hotkey action like the matching request (HK-001), then show what it changed
     /// (HK-006).
     pub(super) fn hotkey(&mut self, action: &str, pressed: bool) {
         let Some(action) = HotkeyAction::parse(action) else {
@@ -148,6 +176,10 @@ impl DaemonHost {
             return;
         }
         let request = match &action {
+            HotkeyAction::QuickPanel => {
+                crate::ui::quick_panel();
+                return;
+            }
             HotkeyAction::MicMuteToggle => Request::MicToggleMute,
             HotkeyAction::PushToTalk => Request::MicSetMuted { muted: !pressed },
             HotkeyAction::PushToMute => Request::MicSetMuted { muted: pressed },
@@ -170,7 +202,27 @@ impl DaemonHost {
             tracing::warn!(?action, %error, "Hotkey action failed");
             return;
         }
-        match &action {
+        let chain = &self.config.mic.chain;
+        let osd = match &action {
+            HotkeyAction::QuickPanel => return,
+            HotkeyAction::MicMuteToggle | HotkeyAction::PushToTalk | HotkeyAction::PushToMute => {
+                Osd::Status {
+                    icon: if chain.muted {
+                        StatusIcon::MicOff
+                    } else {
+                        StatusIcon::Mic
+                    },
+                    title: "Microphone".to_owned(),
+                    value: if chain.muted { "Muted" } else { "On" }.to_owned(),
+                    alert: chain.muted,
+                }
+            }
+            HotkeyAction::BypassToggle => Osd::Status {
+                icon: StatusIcon::Processing,
+                title: "Processing".to_owned(),
+                value: if chain.bypass { "Bypassed" } else { "On" }.to_owned(),
+                alert: chain.bypass,
+            },
             HotkeyAction::PresetNext | HotkeyAction::PresetPrevious => {
                 let name = self
                     .config
@@ -183,22 +235,62 @@ impl DaemonHost {
                             .find(|preset| preset.id == id)
                     })
                     .map_or_else(|| "Custom".to_owned(), |preset| preset.name);
-                crate::notify::osd(format!("Preset: {name}"));
+                Osd::Status {
+                    icon: StatusIcon::Preset,
+                    title: "Microphone preset".to_owned(),
+                    value: name,
+                    alert: false,
+                }
             }
             HotkeyAction::ChannelVolumeUp(id)
             | HotkeyAction::ChannelVolumeDown(id)
             | HotkeyAction::ChannelMute(id) => {
-                if let Some(channel) = self.config.mixer.channel(id) {
-                    let s = &channel.settings;
-                    let text = if s.muted {
-                        format!("{}: muted", channel.name)
-                    } else {
-                        format!("{}: {:.0}%", channel.name, s.volume_pct)
-                    };
-                    crate::notify::osd(text);
+                let Some(channel) = self.config.mixer.channel(id) else {
+                    return;
+                };
+                Osd::Volume {
+                    name: channel.name.clone(),
+                    color: channel.color.clone(),
+                    icon: channel.icon.clone(),
+                    volume_pct: channel.settings.volume_pct,
+                    muted: channel.settings.muted,
                 }
             }
-            _ => {}
-        }
+        };
+        crate::osd::show(osd, self.config.ui.osd);
     }
+}
+
+pub(super) fn osd_prefs(config: OsdConfig) -> OsdPrefs {
+    OsdPrefs {
+        style: match config.style {
+            OsdStyle::Vertical => macafon_ipc::OsdStyle::Vertical,
+            OsdStyle::Horizontal => macafon_ipc::OsdStyle::Horizontal,
+        },
+        edge: match config.edge {
+            OsdEdge::Left => macafon_ipc::OsdEdge::Left,
+            OsdEdge::Right => macafon_ipc::OsdEdge::Right,
+            OsdEdge::Top => macafon_ipc::OsdEdge::Top,
+            OsdEdge::Bottom => macafon_ipc::OsdEdge::Bottom,
+        },
+        offset_pct: config.offset_pct,
+    }
+}
+
+/// Settings may send any combination: the edge is fixed up to the style, the offset clamped.
+pub(super) fn osd_config(prefs: OsdPrefs) -> OsdConfig {
+    OsdConfig {
+        style: match prefs.style {
+            macafon_ipc::OsdStyle::Vertical => OsdStyle::Vertical,
+            macafon_ipc::OsdStyle::Horizontal => OsdStyle::Horizontal,
+        },
+        edge: match prefs.edge {
+            macafon_ipc::OsdEdge::Left => OsdEdge::Left,
+            macafon_ipc::OsdEdge::Right => OsdEdge::Right,
+            macafon_ipc::OsdEdge::Top => OsdEdge::Top,
+            macafon_ipc::OsdEdge::Bottom => OsdEdge::Bottom,
+        },
+        offset_pct: prefs.offset_pct,
+    }
+    .normalized()
 }

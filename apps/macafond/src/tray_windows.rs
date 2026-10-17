@@ -11,6 +11,8 @@ use windows::Win32::UI::{Shell::*, WindowsAndMessaging::*};
 use windows::core::{PCWSTR, w};
 
 const CALLBACK: u32 = WM_APP + 1;
+/// `CALLBACK` re-posted for the loop under its own id, so a posted copy is never re-posted.
+const QUEUED: u32 = WM_APP + 2;
 static NOTIFICATIONS: OnceLock<mpsc::Sender<Update>> = OnceLock::new();
 enum Update {
     State(TrayState),
@@ -93,6 +95,17 @@ unsafe extern "system" fn procedure(
     unsafe {
         if message == WM_DESTROY {
             PostQuitMessage(0);
+            return LRESULT(0);
+        }
+        // Explorer sends the icon callbacks instead of posting them: queue them for the loop,
+        // which owns the state and must not open a modal menu inside Explorer's send.
+        if message == CALLBACK {
+            let _ = PostMessageW(Some(window), QUEUED, wparam, lparam);
+            return LRESULT(0);
+        }
+        // Only the menu's modal loop dispatches queued callbacks here: drop them. Re-posting
+        // them kept the queue busy forever, so the open menu never got its clicks or paints.
+        if message == QUEUED {
             return LRESULT(0);
         }
         DefWindowProcW(window, message, wparam, lparam)
@@ -337,9 +350,9 @@ fn run(
                 }
             } else if message.message == taskbar_created {
                 let _ = owner.refresh(&state, bend, true);
-            } else if message.message == CALLBACK {
+            } else if message.message == QUEUED {
                 match message.lParam.0 as u32 {
-                    WM_LBUTTONUP => open_ui(),
+                    WM_LBUTTONUP => crate::ui::open(),
                     WM_MBUTTONUP => send(&control, Request::MicToggleMute),
                     WM_RBUTTONUP => {
                         if let Err(error) = menu(window, &state, &control) {
@@ -361,38 +374,6 @@ fn run(
 fn send(control: &ControlSender<ControlMessage>, request: Request) {
     let (reply, _) = mpsc::channel();
     let _ = control.send(ControlMessage::Request { request, reply });
-}
-/// The Tauri UI binary; `macafon.exe` next to the daemon is the CLI, never the UI.
-const UI_EXE: &str = "macafon-ui.exe";
-
-fn open_ui() {
-    let sibling = std::env::current_exe()
-        .ok()
-        .and_then(|exe| Some(exe.parent()?.join(UI_EXE)))
-        .filter(|path| path.is_file());
-    let launched = match sibling {
-        Some(path) => launch_ui(path.as_os_str()),
-        None => launch_ui(std::ffi::OsStr::new(UI_EXE)),
-    };
-    if !launched {
-        tracing::warn!("Cannot find Macafon UI next to daemon or on PATH");
-    }
-}
-fn launch_ui(program: &std::ffi::OsStr) -> bool {
-    use std::os::windows::process::CommandExt;
-    match std::process::Command::new(program)
-        .creation_flags(0x08000000)
-        .spawn()
-    {
-        Ok(mut child) => {
-            std::thread::spawn(move || child.wait());
-            true
-        }
-        Err(error) => {
-            tracing::debug!(%error, ?program, "Cannot open Macafon UI");
-            false
-        }
-    }
 }
 struct Menu(HMENU);
 impl Drop for Menu {
@@ -437,6 +418,7 @@ fn menu(
             )
         };
         item(root.0, "Open Macafon", false, None)?;
+        item(root.0, "Quick panel", false, None)?;
         AppendMenuW(root.0, MF_SEPARATOR, 0, None)?;
         item(
             root.0,
@@ -518,7 +500,9 @@ fn menu(
         .0 as usize;
         let _ = PostMessageW(Some(window), WM_NULL, WPARAM(0), LPARAM(0));
         if selected == 1 {
-            open_ui();
+            crate::ui::open();
+        } else if selected == 2 {
+            crate::ui::quick_panel();
         } else if let Some(Some(request)) = selected
             .checked_sub(1)
             .and_then(|index| actions.get_mut(index))

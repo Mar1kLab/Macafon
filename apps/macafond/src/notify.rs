@@ -10,7 +10,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 #[cfg(target_os = "linux")]
 static OSD: AtomicU32 = AtomicU32::new(0);
 
-/// A short on-screen message after a hotkey changed a preset or a volume (HK-006).
+/// A short on-screen message after a hotkey changed a preset or a volume (HK-006); Windows
+/// shows its own popup instead (`crate::osd`).
+#[cfg(not(windows))]
 pub fn osd(summary: String) {
     show(summary, String::new(), true, 1500);
 }

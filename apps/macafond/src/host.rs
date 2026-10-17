@@ -79,6 +79,8 @@ pub struct DaemonHost {
     tray_wanted: bool,
     hotkeys: Option<crate::hotkeys::Hotkeys>,
     hotkey_status: Option<crate::hotkeys::Status>,
+    /// What the hotkey service registered last.
+    bound_hotkeys: Option<Vec<crate::hotkeys::Binding>>,
     icons: macafon_apps::icons::IconResolver,
     quit: bool,
     server: Option<(Endpoint, ControlSender<ControlMessage>)>,
@@ -128,6 +130,7 @@ impl DaemonHost {
             tray_wanted: tray,
             hotkeys: None,
             hotkey_status: None,
+            bound_hotkeys: None,
             icons: macafon_apps::icons::IconResolver::from_env(),
             quit: false,
             server: Some((endpoint, control)),
@@ -322,6 +325,13 @@ impl MicrophoneHost for DaemonHost {
             }
             // Spawned after signals are blocked, like the tray (HK-003).
             self.hotkeys = Some(crate::hotkeys::Hotkeys::spawn(control.clone()));
+            if self
+                .config
+                .offer_default_hotkeys(crate::hotkeys::usable_by_default)
+            {
+                tracing::info!("Default hotkeys offered");
+                self.changed_at = Some(Instant::now());
+            }
             self.rebind_hotkeys();
             let socket = server::start(&endpoint, self.hub.clone(), control)
                 .map_err(|error| Error::Message(format!("{error:#}")))?;
@@ -575,6 +585,42 @@ mod tests {
         return Endpoint::socket("unused");
         #[cfg(windows)]
         Endpoint::pipe("unused")
+    }
+
+    #[test]
+    fn mixer_changes_do_not_rebind_hotkeys_and_release_push_to_talk() {
+        let (sender, _receiver) = crate::platform::control_channel();
+        let mut config = Config::default();
+        config.mixer.enabled = true;
+        config
+            .hotkeys
+            .insert("channel_volume_up.main".into(), "Ctrl+Alt+W".into());
+        let mut host = DaemonHost::new(
+            config,
+            None,
+            PresetStore::in_memory(),
+            unused_endpoint(),
+            sender,
+            false,
+        );
+        let (service, bound) = crate::hotkeys::Hotkeys::fake();
+        host.hotkeys = Some(service);
+        host.rebind_hotkeys();
+        assert_eq!(bound.try_iter().count(), 1);
+        host.hotkey("channel_volume_up.main", true);
+        host.respond(Request::ChannelToggleMute { id: "voice".into() })
+            .expect("mute");
+        assert_eq!(bound.try_iter().count(), 0, "nothing to register again");
+        // A renamed channel changes the descriptions the desktop shows.
+        host.respond(Request::ChannelUpdate {
+            id: "main".into(),
+            patch: macafon_ipc::ChannelPatch {
+                name: Some("Games".into()),
+                ..Default::default()
+            },
+        })
+        .expect("rename");
+        assert_eq!(bound.try_iter().count(), 1);
     }
 
     #[test]

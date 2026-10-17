@@ -143,22 +143,15 @@ def main():
                         element.set("d", "M36 32H60M36 53H60")
                     if element.get("id") == "stem":
                         element.set("d", "M48 93V106")
-                    if element.get("id") == "microphone":
-                        element.set("transform", "translate(31.36 21.84) scale(0.68)")
-                        for stroke in element.iter():
-                            if "stroke-width" in stroke.attrib:
-                                stroke.set("stroke-width", "8" if size <= 24 else "6")
+                    widths = {
+                        "housing": 4, "grille": 5 if size <= 24 else 4,
+                        "yoke-outline": 12, "yoke": 7,
+                        "stem-outline": 12, "stem": 7, "foot": 4,
+                    }
+                    if element.get("id") in widths:
+                        element.set("stroke-width", str(widths[element.get("id")]))
                     if element.get("id") == "tile":
                         element.set("transform", "translate(-2 -2) scale(1.03125)")
-                if size == 16:
-                    # A filled capsule survives one-pixel rasterization better than
-                    # the outlined housing; retain the Retro grille, yoke and foot.
-                    microphone = next(e for e in tree.iter() if e.get("id") == "microphone")
-                    housing = next(e for e in microphone.iter() if e.get("fill") == "url(#housing)")
-                    housing.set("fill", "url(#metal)")
-                    grille = next(e for e in microphone.iter() if e.get("id") == "grille")
-                    grille.set("stroke", "#6783ff")
-                    grille.set("stroke-width", "8")
             source = temporary / f"{size}.svg"
             tree.write(source, encoding="unicode")
             subprocess.run(["node", str(CLI), "icon", str(source), "--output", str(temporary), "--png", str(size)], check=True, stdout=subprocess.DEVNULL)

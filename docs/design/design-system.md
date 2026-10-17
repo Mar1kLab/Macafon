@@ -137,7 +137,11 @@ bends smoothly like rubber. Bypass is additionally marked with a pause sign, a c
 dot (BG-002). The transition takes 300 ms (`--dur-card`), does not repeat at rest and continues from the
 current position on fast toggling. The UI respects `prefers-reduced-motion`. In the 16/22 px tray a
 thicker, simplified outline with two grille lines is used. The white, black and red versions of the logo
-have a transparent background; the launcher icon is white on a square `--bg` backing.
+have a transparent background. The launcher master is `apps/macafon-ui/src-tauri/icons/icon.svg`,
+exported by `tools/design/generate-app-icons.py`: an asymmetric amber/orange speech cloud with a flat
+bottom and tail, on the rounded dark tile (owner request, 2026-10-17). The filled light Retro microphone
+has a dark grille and outline for contrast; 16..32 px exports simplify the grille and thicken the yoke.
+The launcher uses the amber/orange palette above; its tile finish is independent of UI surfaces.
 
 ## 8. UI text tone
 

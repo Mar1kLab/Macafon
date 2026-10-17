@@ -1,9 +1,42 @@
 ; Tauri NSIS hooks (PRD §12.2.3): the installer is per-user and never ships VB-CABLE.
 
+; Set when an upgrade stopped a running daemon, so it comes back with the new binaries.
+Var MacafonDaemonWasRunning
+
 !macro NSIS_HOOK_PREINSTALL
-  ; An upgrade replaces the binaries: stop the running daemon first; it restores on its way out.
-  IfFileExists "$INSTDIR\macafon.exe" 0 +2
+  ; An upgrade replaces the binaries: stop the running daemon first; it restores on its way
+  ; out. `ctl quit` only asks, so wait until the running image no longer locks macafond.exe.
+  StrCpy $MacafonDaemonWasRunning 0
+  IfFileExists "$INSTDIR\macafond.exe" 0 macafon_stopped
+    ClearErrors
+    FileOpen $0 "$INSTDIR\macafond.exe" a
+    IfErrors 0 macafon_unlocked
+    StrCpy $MacafonDaemonWasRunning 1
     ExecWait '"$INSTDIR\macafon.exe" ctl quit'
+    StrCpy $1 0
+  macafon_wait:
+    Sleep 250
+    ClearErrors
+    FileOpen $0 "$INSTDIR\macafond.exe" a
+    IfErrors 0 macafon_unlocked
+    IntOp $1 $1 + 1
+    IntCmp $1 60 0 macafon_wait 0
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "Macafon is still running. Quit it from the tray icon and click Retry." /SD IDCANCEL IDRETRY macafon_wait
+    SetErrorLevel 1
+    Abort
+  macafon_unlocked:
+    FileClose $0
+  macafon_stopped:
+!macroend
+
+!macro NSIS_HOOK_POSTINSTALL
+  ; An upgrade keeps the shortcuts, so Explorer would keep showing the old icon from its
+  ; cache: SHCNE_ASSOCCHANGED makes it reload them.
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+  ; Bring back a daemon the upgrade stopped: the virtual microphone must not stay silent.
+  ; Started through Explorer like Tauri's /R, so it does not belong to the installer's process tree.
+  StrCmp $MacafonDaemonWasRunning 1 0 +2
+    nsis_tauri_utils::RunAsUser "$INSTDIR\macafond.exe" "run"
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL

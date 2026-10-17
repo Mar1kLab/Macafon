@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Build the per-user Windows installer locally using the Tauri bundler; never publish it."""
+"""Build the per-user Windows installer locally using the Tauri bundler; never publish it.
+
+`--install` also installs or upgrades Macafon for the current user: no prompts, no UAC.
+"""
 
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -63,6 +67,8 @@ def configuration(stage, triple):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle-only", action="store_true", help="use existing release binaries")
+    parser.add_argument("--install", action="store_true",
+                        help="install or upgrade for the current user after building")
     args = parser.parse_args()
     if sys.platform != "win32":
         parser.error("Windows is required")
@@ -79,8 +85,20 @@ def main():
     if not args.bundle_only:
         run("corepack", "pnpm", "tauri", "build", "--no-bundle", "--config", config, cwd=ui)
     run("corepack", "pnpm", "tauri", "bundle", "--bundles", "nsis", "--config", config, cwd=ui)
-    for installer in (ROOT / "target/release/bundle/nsis").glob("*.exe"):
-        print(installer)
+    version = json.loads((ui / "src-tauri/tauri.conf.json").read_text())["version"]
+    installer = ROOT / f"target/release/bundle/nsis/Macafon_{version}_x64-setup.exe"
+    print(installer)
+    if args.install:
+        install(installer)
+
+
+def install(installer):
+    """Passive mode: a progress window only; the hooks stop and restart a running daemon."""
+    first = not (Path(os.environ["LOCALAPPDATA"]) / "Macafon/macafon-ui.exe").is_file()
+    # /R opens the UI after a first install. /UPDATE copies over the old version: without it a
+    # passive reinstall runs the old uninstaller, which restores audio and drops autostart.
+    subprocess.run([str(installer), "/P", "/R" if first else "/UPDATE"], check=True)
+    print("installed" if first else "upgraded")
 
 
 if __name__ == "__main__":

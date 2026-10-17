@@ -87,10 +87,13 @@ Then select **Macafon Microphone** in your apps. An AUR recipe is under `packagi
 
 ```sh
 python tools/package-windows.py     # per-user NSIS installer under target/release/bundle/nsis/
+python tools/package-windows.py --install   # build, then install or upgrade in place
 ```
 
 The installer needs no administrator rights and does not include VB-CABLE: onboarding links to the
 official VB-Audio download page. Uninstalling gives back your default microphone, output and app volumes.
+An upgrade over a running Macafon stops the daemon, replaces the binaries and starts it again;
+settings and autostart are kept.
 
 ## Command line
 

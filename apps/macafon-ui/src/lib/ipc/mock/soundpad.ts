@@ -6,6 +6,8 @@ import { clone } from './helpers';
 
 const EXTENSIONS = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'];
 
+let initialIndex = 0;
+
 function sound(id: string, duration_ms: number, extra: Partial<SoundInfo> = {}): SoundInfo {
   const file = id.split('/').pop()!;
   const category = id.includes('/') ? id.split('/')[0]! : null;
@@ -17,6 +19,7 @@ function sound(id: string, duration_ms: number, extra: Partial<SoundInfo> = {}):
     volume_pct: 100,
     favorite: false,
     play_count: 0,
+    added_unix_ms: Date.now() - (initialIndex++ % 16) * 86_400_000,
     error: null,
     ...extra,
   };
@@ -175,7 +178,7 @@ export class MockSoundpad {
           id = `${category ? `${category}/` : ''}${fileName.replace(/(\.[^.]+)$/, ` (${n})$1`)}`;
         }
         // Rough MP3 duration at 128 kbit/s.
-        s.sounds.push(sound(id, Math.max(500, Math.round(received / 16))));
+        s.sounds.push(sound(id, Math.max(500, Math.round(received / 16)), { added_unix_ms: Date.now() }));
         this.sort();
         return this.changed();
       }

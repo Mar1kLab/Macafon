@@ -46,6 +46,8 @@ pub struct Soundpad {
     /// Probed duration by id, valid for the file's modification time.
     durations: HashMap<String, (u64, Option<u32>)>,
     errors: HashMap<String, String>,
+    /// When each file came into the folder, by id.
+    added: HashMap<String, u64>,
     /// The sound waiting for its decode to start playing.
     pending: Option<String>,
     /// The sound of the current play token.
@@ -67,6 +69,7 @@ impl Soundpad {
             categories: Vec::new(),
             durations: HashMap::new(),
             errors: HashMap::new(),
+            added: HashMap::new(),
             pending: None,
             playing: None,
             scanned_at: None,
@@ -153,6 +156,10 @@ impl Soundpad {
             .retain(|id, _| entries.iter().any(|entry| &entry.id == id));
         self.errors
             .retain(|id, _| entries.iter().any(|entry| &entry.id == id));
+        self.added = entries
+            .iter()
+            .map(|entry| (entry.id.clone(), added_unix_ms(entry)))
+            .collect();
         self.entries = entries;
         self.categories = categories;
         true
@@ -175,6 +182,11 @@ impl Soundpad {
                     volume_pct: settings.volume_pct,
                     favorite: settings.favorite,
                     play_count: settings.play_count,
+                    added_unix_ms: self
+                        .added
+                        .get(&entry.id)
+                        .copied()
+                        .unwrap_or(entry.modified_unix_ms),
                     error: self.errors.get(&entry.id).cloned(),
                 }
             })
@@ -503,6 +515,16 @@ impl Soundpad {
         self.rescan();
         Ok(Some(entry))
     }
+}
+
+/// A copied file keeps its modification time, so the creation time tells when it was added;
+/// renames and moves keep it.
+fn added_unix_ms(entry: &SoundEntry) -> u64 {
+    std::fs::metadata(&entry.path)
+        .and_then(|metadata| metadata.created())
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(entry.modified_unix_ms, |since| since.as_millis() as u64)
 }
 
 /// The upload's own directory goes with its file.

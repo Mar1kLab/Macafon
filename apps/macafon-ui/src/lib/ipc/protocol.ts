@@ -438,6 +438,11 @@ volume_pct: number, favorite: boolean,
  */
 play_count: number,
 /**
+ * When the file came into the library (its creation time), Unix ms; newest first is the
+ * default order.
+ */
+added_unix_ms: number,
+/**
  * The file could not be decoded.
  */
 error: string | null, };

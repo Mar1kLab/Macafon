@@ -23,6 +23,10 @@ pub struct SoundInfo {
     pub favorite: bool,
     /// Times played, for sorting like Soundpad's play count.
     pub play_count: u32,
+    /// When the file came into the library (its creation time), Unix ms; newest first is the
+    /// default order.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub added_unix_ms: u64,
     /// The file could not be decoded.
     pub error: Option<String>,
 }

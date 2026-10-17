@@ -119,7 +119,9 @@ impl HotkeyAction {
             Self::SoundpadStop => "macafon ctl soundpad stop".into(),
             Self::SoundpadPauseToggle => "macafon ctl soundpad pause".into(),
             Self::SoundpadRandom => "macafon ctl soundpad random".into(),
-            Self::SoundpadPlay(id) => format!("macafon ctl soundpad play {id:?}"),
+            Self::SoundpadPlay(id) => {
+                format!("macafon ctl soundpad play -- {}", quote_argument(id))
+            }
         }
     }
 
@@ -127,6 +129,15 @@ impl HotkeyAction {
     pub fn held(&self) -> bool {
         matches!(self, Self::PushToTalk | Self::PushToMute)
     }
+}
+
+// Desktop shortcut commands use PowerShell on Windows and a POSIX shell elsewhere.
+fn quote_argument(value: &str) -> String {
+    #[cfg(windows)]
+    let escaped = value.replace('\'', "''");
+    #[cfg(not(windows))]
+    let escaped = value.replace('\'', "'\"'\"'");
+    format!("'{escaped}'")
 }
 
 /// Toggle the tray panel in the UI.
@@ -191,6 +202,27 @@ pub struct HotkeysState {
 mod tests {
     use super::*;
 
+    #[test]
+    #[cfg(windows)]
+    fn soundpad_command_preserves_shell_metacharacters() {
+        let id = "-it's $HOME `test` #????.wav";
+        let command = HotkeyAction::SoundpadPlay(id.into()).command();
+        assert!(command.starts_with("macafon ctl soundpad play -- "));
+        let argument = command
+            .strip_prefix("macafon ctl soundpad play -- ")
+            .expect("prefix");
+        let output = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &format!(
+                "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); & {{ param([string] $id) [Console]::Write($id) }} {argument}"
+            )]).output().expect("PowerShell");
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8(output.stdout)
+                .expect("UTF-8")
+                .trim_start_matches('\u{feff}'),
+            id
+        );
+    }
     #[test]
     fn action_ids_round_trip() {
         for action in HotkeyAction::GLOBAL.into_iter().chain([

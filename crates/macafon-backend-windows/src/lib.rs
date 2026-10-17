@@ -10,6 +10,7 @@ pub mod daemon;
 pub mod devices;
 pub mod diagnostics;
 mod groups;
+pub mod input_level;
 pub mod journal;
 pub mod microphone;
 pub mod mixer;
@@ -37,6 +38,8 @@ pub enum Error {
     DeviceNotFound(String),
     #[error("device format not supported: {0}")]
     Format(String),
+    #[error("microphone level control failed: {0}")]
+    InputLevel(String),
     #[error("restore journal: {0}")]
     Journal(String),
     #[error("audio thread failed: {0}")]

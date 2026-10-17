@@ -33,11 +33,14 @@ fn restore_defaults() -> Result<()> {
     Ok(())
 }
 
-/// The default microphone from the journal (WIN-MIC-005); outputs are not changed on Windows
-/// yet.
+/// Restore the default microphone and calibrated capture levels from their journals.
 #[cfg(windows)]
 fn restore_defaults() -> Result<()> {
     let _com = macafon_backend_windows::ComGuard::new()?;
-    macafon_backend_windows::restore_default_microphone(&macafon_config::state_dir()?)?;
+    let state_dir = macafon_config::state_dir()?;
+    let microphone = macafon_backend_windows::restore_default_microphone(&state_dir);
+    let input_levels = macafon_backend_windows::input_level::restore(&state_dir);
+    microphone?;
+    input_levels?;
     Ok(())
 }

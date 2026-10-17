@@ -12,6 +12,32 @@ pub const SILENCE_SAMPLES: usize = 4 * SAMPLE_RATE_HZ as usize;
 /// CAL-002: "Read this sentence" phase.
 pub const SPEECH_SAMPLES: usize = 6 * SAMPLE_RATE_HZ as usize;
 
+/// Raw speech must leave room for coughs, laughter and other transients before digital Gain.
+pub const RAW_SPEECH_PEAK_DBFS: f32 = -15.0;
+
+/// One downward endpoint-volume adjustment, on the device's dB grid. Never raises a level.
+/// Limit each adjustment to roughly 6 dB so the caller can check fresh capture between steps.
+pub fn input_level_target_db(
+    current_db: f32,
+    minimum_db: f32,
+    increment_db: f32,
+    raw_peak_dbfs: f32,
+) -> Option<f32> {
+    if ![current_db, minimum_db, increment_db, raw_peak_dbfs]
+        .iter()
+        .all(|value| value.is_finite())
+        || increment_db <= 0.0
+        || current_db <= minimum_db
+        || raw_peak_dbfs <= RAW_SPEECH_PEAK_DBFS
+    {
+        return None;
+    }
+    let reduction_db = (raw_peak_dbfs - RAW_SPEECH_PEAK_DBFS).min(6.0);
+    let target_db = minimum_db
+        + ((current_db - reduction_db - minimum_db) / increment_db).floor() * increment_db;
+    Some(target_db.max(minimum_db))
+}
+
 /// Analysis windows of 20 ms.
 const WINDOW_SAMPLES: usize = SAMPLE_RATE_HZ as usize / 50;
 /// The loudest fifth of the silence (a cough, a click) does not count towards the floor.
@@ -245,6 +271,36 @@ mod tests {
     use super::*;
     use crate::Preset;
     use crate::util::db_to_lin;
+
+    #[test]
+    fn endpoint_steps_leave_fifteen_db_raw_headroom_without_raising_the_level() {
+        let mut endpoint_db = -3.0;
+        let mut raw_peak_dbfs = -1.0;
+        assert_no_alloc::assert_no_alloc(|| {
+            for expected_db in [-9.0, -15.0, -18.0] {
+                let next_db = input_level_target_db(endpoint_db, -60.0, 1.5, raw_peak_dbfs)
+                    .expect("hot speech needs attenuation");
+                assert_eq!(next_db, expected_db);
+                raw_peak_dbfs += next_db - endpoint_db;
+                endpoint_db = next_db;
+            }
+            assert!(raw_peak_dbfs <= -15.0);
+            assert_eq!(
+                input_level_target_db(endpoint_db, -60.0, 1.5, raw_peak_dbfs),
+                None
+            );
+            assert_eq!(input_level_target_db(-60.0, -60.0, 1.5, -3.0), None);
+            assert_eq!(input_level_target_db(-3.0, -60.0, 0.0, -3.0), None);
+            assert_eq!(input_level_target_db(-3.0, -60.0, 1.5, f32::NAN), None);
+            // Make-up remains digital: a 15 dB reduction at the endpoint requires 15 dB
+            // more Gain to keep the existing speech RMS target.
+            let original_speech_rms_dbfs = -12.0;
+            let adjusted_speech_rms_dbfs = original_speech_rms_dbfs + endpoint_db + 3.0;
+            let gain_db = SPEECH_REFERENCE_DBFS - adjusted_speech_rms_dbfs;
+            assert_eq!(gain_db, 9.0);
+            assert_eq!(adjusted_speech_rms_dbfs + gain_db, -18.0);
+        });
+    }
 
     /// Deterministic white noise in [−1, 1].
     fn noise(len: usize, seed: u32) -> impl Iterator<Item = f32> {

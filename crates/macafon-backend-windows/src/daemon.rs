@@ -446,6 +446,7 @@ pub fn fix_cable_default_output(state_dir: &Path) -> Result<(), Error> {
 pub fn restore_all(state_dir: &Path) -> Result<(), Error> {
     let _com = ComGuard::new().map_err(platform)?;
     let microphone = restore_default_microphone(state_dir);
+    let input_levels = crate::input_level::restore(state_dir).map_err(platform);
     let output = journal::restore(
         &mut SystemDefaults,
         &journal::journal_path(state_dir, DataFlow::Render),
@@ -456,13 +457,13 @@ pub fn restore_all(state_dir: &Path) -> Result<(), Error> {
     // Try everything, then report the first failure so the uninstaller can stop.
     let output = output.map_err(platform);
     let sessions = sessions.map_err(platform);
-    for error in [&microphone, &output, &sessions]
+    for error in [&microphone, &input_levels, &output, &sessions]
         .into_iter()
         .filter_map(|result| result.as_ref().err())
     {
         tracing::warn!(%error, "Cannot restore system audio settings");
     }
-    microphone.and(output).and(sessions)
+    microphone.and(input_levels).and(output).and(sessions)
 }
 
 /// Real output devices for the A/B player and the output picker (WIN-MIC-009).

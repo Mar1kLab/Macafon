@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { displayShortcut, recordShortcut } from './shortcut';
+import { displayShortcut, indexShortcuts, recordShortcut } from './shortcut';
+
+it('indexes the first shortcut for each action, including unbound actions', () => {
+  const shortcuts = indexShortcuts([
+    { action: 'soundpad_play.one', shortcut: 'Ctrl+Backquote' },
+    { action: 'soundpad_play.two', shortcut: null },
+    { action: 'soundpad_play.two', shortcut: 'F8' },
+  ]);
+  expect(shortcuts.get('soundpad_play.one')).toBe('Ctrl+`');
+  expect(shortcuts.get('soundpad_play.two')).toBeNull();
+  expect(shortcuts.get('soundpad_play.missing')).toBeUndefined();
+});
 
 const key = (code: string, mods: { ctrl?: boolean; alt?: boolean; shift?: boolean; meta?: boolean } = {}) => ({
   code,

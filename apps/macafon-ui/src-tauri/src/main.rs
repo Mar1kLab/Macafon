@@ -31,7 +31,17 @@ impl Sink for AppSink {
             open_requested(&self.app, Some(request));
             return;
         }
-        if let Err(error) = self.app.emit("daemon://event", event) {
+        // Only the main window subscribes to live levels. Keep the warm quick panel
+        // out of the 60 Hz WebView dispatch/JSON/reactivity path, even while visible.
+        let result = if matches!(
+            event["event"].as_str(),
+            Some("meters" | "mixer.meters" | "devices.meter")
+        ) {
+            self.app.emit_to("main", "daemon://event", event)
+        } else {
+            self.app.emit("daemon://event", event)
+        };
+        if let Err(error) = result {
             tracing::warn!(%error, "cannot forward a daemon event");
         }
     }

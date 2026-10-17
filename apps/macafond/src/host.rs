@@ -892,6 +892,7 @@ mod tests {
         ];
         host.refresh_input();
         host.input_connected(true);
+        assert_no_alloc::assert_no_alloc(|| host.refresh_input());
         assert_eq!(host.state().active_device.as_deref(), Some("primary"));
         assert_eq!(host.state().noise_floor_dbfs, Some(-60.0));
         host.inputs.remove(0);

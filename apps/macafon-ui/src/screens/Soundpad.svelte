@@ -39,7 +39,7 @@
     type SoundScope,
     type SoundSort,
   } from '../lib/soundpad/format';
-  import { displayShortcut } from '../lib/settings/shortcut';
+  import { indexShortcuts } from '../lib/settings/shortcut';
   import { daemon } from '../lib/state';
   import { t } from '../lib/i18n';
   import type { SoundInfo } from '../lib/ipc/protocol';
@@ -91,10 +91,7 @@
     ...(daemon.mixer?.outputs ?? []).map((output) => ({ value: output.name as string | null, label: output.description })),
   ]);
 
-  function shortcutOf(id: string): string | null {
-    const shortcut = daemon.hotkeys?.bindings.find((binding) => binding.action === `soundpad_play.${id}`)?.shortcut;
-    return shortcut ? displayShortcut(shortcut) : null;
-  }
+  const shortcuts = $derived(indexShortcuts(daemon.hotkeys?.bindings ?? []));
 
   function toggle(sound: SoundInfo) {
     if (playback?.sound_id === sound.id) daemon.stopSound();
@@ -338,7 +335,7 @@
           <ul class="rows" bind:this={listElement} role="listbox" aria-label={t('soundpad.section')}>
             {#each visible as sound, index (sound.id)}
               {@const playing = playback?.sound_id === sound.id}
-              {@const shortcut = shortcutOf(sound.id)}
+            {@const shortcut = shortcuts.get(`soundpad_play.${sound.id}`) ?? null}
               <li
                 class="row"
                 class:selected={selected === sound.id}

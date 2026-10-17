@@ -70,7 +70,12 @@ impl Hub {
     }
 
     pub fn broadcast(&self, event: &Event) {
-        let Ok(line) = encode(&ServerMessage::Event(event.clone())) else {
+        if self.clients().registered.is_empty() {
+            return;
+        }
+        // ServerMessage is untagged: borrowing the event produces the same wire frame
+        // without cloning its entire state (including potentially large sound libraries).
+        let Ok(line) = encode(event) else {
             return;
         };
         for (out, _) in self.clients().registered.values() {
@@ -426,5 +431,24 @@ fn send(
     if let Ok(line) = encode(&ServerMessage::Response(Response { id, outcome })) {
         // Replies wait for room: only events may be dropped for a slow client.
         let _ = out.send(line);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn broadcast_preserves_event_wire_format() {
+        let hub = Hub::new();
+        let event = Event::SoundpadPlayback(None);
+        assert_no_alloc::assert_no_alloc(|| hub.broadcast(&event));
+        let (out, incoming) = mpsc::sync_channel(1);
+        hub.clients().registered.insert(1, (out, None));
+        hub.broadcast(&event);
+        assert_eq!(
+            incoming.try_recv().expect("broadcast frame"),
+            encode(&ServerMessage::Event(event)).expect("event frame")
+        );
     }
 }

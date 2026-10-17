@@ -28,7 +28,7 @@
   // position are remembered, so a long library opens where the user left it.
   import { tick } from 'svelte';
   import { AudioWaveform, ChevronDown, ChevronUp, Search, Square, Star } from '@lucide/svelte';
-  import { displayShortcut } from '../settings/shortcut';
+  import { indexShortcuts } from '../settings/shortcut';
   import { FAVORITES, inScope, matches, savedSort, sortSounds, type SoundScope } from '../soundpad/format';
   import { daemon } from '../state';
   import { t } from '../i18n';
@@ -92,10 +92,7 @@
     save();
   }
 
-  function shortcutOf(id: string): string | null {
-    const shortcut = daemon.hotkeys?.bindings.find((binding) => binding.action === `soundpad_play.${id}`)?.shortcut;
-    return shortcut ? displayShortcut(shortcut) : null;
-  }
+  const shortcuts = $derived(indexShortcuts(daemon.hotkeys?.bindings ?? []));
 </script>
 
 <section class="soundpad" aria-label={t('quick.soundpad')}>
@@ -159,7 +156,7 @@
         >
           {#each pads as sound (sound.id)}
             {@const active = playback?.sound_id === sound.id}
-            {@const shortcut = shortcutOf(sound.id)}
+            {@const shortcut = shortcuts.get(`soundpad_play.${sound.id}`) ?? null}
             <button
               class="pad"
               class:active

@@ -4,7 +4,7 @@ import type { OutputControl } from '../protocol';
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-it('does not guess the missing half of volume/balance and consumes physical volume events', async () => {
+it('reads initial volume and preserves the other hardware control during single-slider edits', async () => {
   vi.useFakeTimers();
   vi.stubGlobal('location', { search: '?platform=windows&macaron=live' });
   const transport = new MockTransport();
@@ -17,9 +17,11 @@ it('does not guess the missing half of volume/balance and consumes physical volu
     return settled;
   };
   const before = await call('output_controls.list');
-  expect((before.value as OutputControl[])[0]?.settings.volume).toBeNull();
+  expect((before.value as OutputControl[])[0]?.settings.volume).toBe(83);
+  await call('output_controls.set', { id: 'mock-macaron', settings: { balance: 3 } });
   const edit = await call('output_controls.set', { id: 'mock-macaron', settings: { volume: 50 } });
-  expect(edit.error?.message).toContain('together');
+  expect(edit.error).toBeNull();
+  expect((edit.value as OutputControl[])[0]?.settings).toMatchObject({ volume: 50, balance: 3 });
   await vi.advanceTimersByTimeAsync(2000);
   const after = await call('output_controls.list');
   expect((after.value as OutputControl[])[0]).toMatchObject({ live_volume: true, settings: { volume: 81, balance: 0, gain: null } });

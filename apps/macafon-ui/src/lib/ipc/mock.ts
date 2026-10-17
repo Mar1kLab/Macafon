@@ -103,6 +103,8 @@ export class MockTransport implements Transport {
   private started = performance.now();
   private mixer = new MockMixer(this.query.get('mixer') !== 'off', this.started, (event) => this.emit(event));
   private outputControls: OutputControl[] = [];
+  private hardwareVolume = 83;
+  private hardwareBalance = 0;
 
   private calibration: CalibrationState = { state: 'idle' };
   private calibrationTimer: number | undefined;
@@ -124,11 +126,18 @@ export class MockTransport implements Transport {
         id: 'mock-macaron', name: 'iBasso Jr. Macaron', output: 'mock-macaron-output', error: null, live_volume: false,
         settings: { volume: null, balance: null, gain: null, filter: null, output_mode: null },
       };
-      if (this.query.get('macaron') === 'known') device.settings = { volume: 35, balance: 0, gain: 1, filter: 0, output_mode: 0 };
+      if (this.query.get('macaron') === 'known') {
+        device.settings = { volume: 35, balance: 0, gain: 1, filter: 0, output_mode: 0 };
+        this.hardwareVolume = 35;
+      }
+      if (this.query.get('macaron') !== 'unknown') {
+        device.settings.volume = this.hardwareVolume; device.settings.balance = this.hardwareBalance; device.live_volume = true;
+      }
       this.outputControls = [device];
       this.mixer.state.outputs.push({ name: device.output!, description: 'Headphones (Macaron)', kind: 'headphones' });
       this.mixer.state.output = device.output;
       if (this.query.get('macaron') === 'live') setTimeout(() => {
+        this.hardwareVolume = 81; this.hardwareBalance = 0;
         device.settings.volume = 81; device.settings.balance = 0; device.live_volume = true;
         this.emit({ event: 'output_controls.changed', data: clone(this.outputControls) });
       }, 2000);
@@ -325,12 +334,18 @@ export class MockTransport implements Transport {
           const v = patch[key];
           if (v != null && (!Number.isInteger(v) || v < limits[key][0]! || v > limits[key][1]!)) throw new DaemonError('invalid_params', 'Invalid Macaron settings');
         }
-        if ((patch.volume != null || patch.balance != null) && ((patch.volume ?? device.settings.volume) == null || (patch.balance ?? device.settings.balance) == null)) throw new DaemonError('invalid_params', 'Set volume and balance together');
         if (this.query.get('macaron') === 'error') {
           device.error = 'Macaron acknowledgement timed out';
           device.settings = { volume: null, balance: null, gain: null, filter: null, output_mode: null };
           this.emit({ event: 'output_controls.changed', data: clone(this.outputControls) });
           throw new DaemonError('internal', device.error);
+        }
+        if (patch.volume != null || patch.balance != null) {
+          this.hardwareVolume = patch.volume ?? this.hardwareVolume;
+          this.hardwareBalance = patch.balance ?? this.hardwareBalance;
+          device.settings.volume = this.hardwareVolume;
+          device.settings.balance = this.hardwareBalance;
+          device.live_volume = true;
         }
         for (const key of Object.keys(limits) as (keyof MacaronSettings)[]) {
           if (patch[key] != null) device.settings[key] = patch[key]!;

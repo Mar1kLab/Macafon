@@ -1,5 +1,4 @@
-//! Macaron's 16-byte Savitech output commands. No settings are read or initialised.
-//! Register layout verified against the official devices.ibasso.cn console (2026-10-17).
+//! Macaron's Savitech commands. Volume reads verified against iBasso UAC 1.8.6 on hardware.
 use crate::{ComGuard, DataFlow, Error, devices};
 use std::mem::size_of;
 use std::time::{Duration, Instant};
@@ -179,8 +178,16 @@ pub fn volume_reports(volume: u8, balance: i8) -> Option<Vec<[u8; 16]>> {
         return None;
     }
     let base = VOLUME_TABLE[volume as usize];
-    let left = base.saturating_sub((-balance).max(0) as u8);
-    let right = base.saturating_sub(balance.max(0) as u8);
+    let left = if base == 255 {
+        base
+    } else {
+        base.saturating_sub((-balance).max(0) as u8)
+    };
+    let right = if base == 255 {
+        base
+    } else {
+        base.saturating_sub(balance.max(0) as u8)
+    };
     let mut reports = Vec::with_capacity(10);
     for (chip, value, commands) in [
         (0x60, left, [1, 2, 9, 10, 19]),
@@ -230,55 +237,15 @@ fn io_error(message: &str) -> Error {
     Error::Thread(message.into())
 }
 
-/// Passive hardware-volume notifications, also sent while another application plays audio.
-pub struct Monitor {
-    file: Handle,
-}
-
-impl Monitor {
-    pub fn open(path: &str) -> Result<Self, Error> {
-        // SAFETY: read-only shared handle; opening never writes or initialises the DAC.
-        let file = Handle(unsafe {
-            CreateFileW(
-                &HSTRING::from(path),
-                GENERIC_READ.0,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                None,
-                OPEN_EXISTING,
-                FILE_FLAG_OVERLAPPED,
-                None,
-            )
-        }?);
-        Ok(Self { file })
-    }
-
-    pub fn poll(&self) -> Result<Option<(u8, i8)>, Error> {
-        let mut input = [0; 33];
-        for _ in 0..32 {
-            match transfer(self.file.0, &mut input, false, 5) {
-                Ok(33) => {
-                    if let Some(value) = parse_volume_notification(&input) {
-                        return Ok(Some(value));
-                    }
-                }
-                Ok(_) => {}
-                Err(Error::Thread(message)) if message == "Macaron USB operation timed out" => {
-                    return Ok(None);
-                }
-                Err(error) => return Err(error),
-            }
-        }
-        Ok(None)
-    }
-}
-
 /// Full Windows report, including report ID 0. Bytes 9/10 are channel attenuations.
 pub fn parse_volume_notification(input: &[u8]) -> Option<(u8, i8)> {
-    if input.len() != 33 || input[..9] != [0, 0, 0, 0, 0, 0xfe, 1, 0, 1] {
+    if input.len() != 33 || input[0] != 0 || input[5..7] != [0xfe, 1] {
         return None;
     }
-    let left = input[9];
-    let right = input[10];
+    decode_volume(input[9], input[10])
+}
+
+fn decode_volume(left: u8, right: u8) -> Option<(u8, i8)> {
     let base = left.max(right);
     let balance = i16::from(left) - i16::from(right);
     if !(-10..=10).contains(&balance) {
@@ -288,7 +255,28 @@ pub fn parse_volume_notification(input: &[u8]) -> Option<(u8, i8)> {
     Some((volume, balance as i8))
 }
 
+pub fn volume_queries() -> [[u8; 16]; 2] {
+    let mut reports = [[0; 16]; 2];
+    for ((report, command), offset) in reports.iter_mut().zip([65, 69]).zip([16, 17]) {
+        report[..7].copy_from_slice(&[command, 0x12, 0xe4, 0xa2, 0, offset, 1]);
+    }
+    reports
+}
+
+pub fn read_volume(path: &str) -> Result<(u8, i8), Error> {
+    let responses = exchange(path, &volume_queries())?;
+    if responses.len() != 2 || responses.iter().any(|r| r[8] != 1) {
+        return Err(io_error("Invalid Macaron volume response"));
+    }
+    decode_volume(responses[0][9], responses[1][9])
+        .ok_or_else(|| io_error("Unsupported Macaron volume value"))
+}
+
 pub fn send(path: &str, reports: &[[u8; 16]]) -> Result<(), Error> {
+    exchange(path, reports).map(|_| ())
+}
+
+fn exchange(path: &str, reports: &[[u8; 16]]) -> Result<Vec<[u8; 33]>, Error> {
     // SAFETY: device path is NUL-terminated; file is shared with the audio driver.
     let file = Handle(unsafe {
         CreateFileW(
@@ -327,6 +315,7 @@ pub fn send(path: &str, reports: &[[u8; 16]]) -> Result<(), Error> {
         HidD_FlushQueue(file.0);
     }
     let batch_deadline = Instant::now() + Duration::from_secs(2);
+    let mut responses = Vec::with_capacity(reports.len());
     for report in reports {
         let mut output = [0; 17];
         output[1..].copy_from_slice(report);
@@ -349,11 +338,12 @@ pub fn send(path: &str, reports: &[[u8; 16]]) -> Result<(), Error> {
             let count = transfer(file.0, &mut input, false, remaining)?;
             // Family-B responses have command ID at payload offset 6 (after report ID 0).
             if count == 33 && input[0] == 0 && input[7] == report[0] {
+                responses.push(input);
                 break;
             }
         }
     }
-    Ok(())
+    Ok(responses)
 }
 
 fn transfer(file: HANDLE, bytes: &mut [u8], write: bool, timeout_ms: u32) -> Result<u32, Error> {
@@ -392,6 +382,23 @@ fn transfer(file: HANDLE, bytes: &mut [u8], write: bool, timeout_ms: u32) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn android_volume_queries_read_both_controller_channels_without_writes() {
+        let queries = volume_queries();
+        assert_eq!(
+            queries[0],
+            [65, 18, 228, 162, 0, 16, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+        assert_eq!(
+            queries[1],
+            [69, 18, 228, 162, 0, 17, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+        assert_eq!(decode_volume(17, 17), Some((83, 0)));
+        assert_eq!(decode_volume(18, 18), Some((82, 0)));
+        let mute = volume_reports(0, 10).expect("mute");
+        assert_eq!(mute[0][11], 255);
+        assert_eq!(mute[5][11], 255, "balance must not unmute either channel");
+    }
     #[test]
     fn physical_buttons_decode_captured_attenuation_reports() {
         let mut report = [0; 33];

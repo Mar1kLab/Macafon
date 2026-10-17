@@ -20,6 +20,7 @@ fn main() -> anyhow::Result<()> {
     let devices = macaron::discover()?;
     for device in &devices {
         println!("{} -> {:?}", device.id, device.output);
+        println!("volume/balance: {:?}", macaron::read_volume(&device.path)?);
     }
     let mut reports =
         macaron::setting_reports(args.gain, args.filter, args.output_mode).unwrap_or_default();
@@ -32,6 +33,7 @@ fn main() -> anyhow::Result<()> {
         anyhow::ensure!(devices.len() == 1, "exactly one Macaron must be connected");
         macaron::send(&devices[0].path, &reports)?;
         println!("{} acknowledged commands", reports.len());
+        println!("readback: {:?}", macaron::read_volume(&devices[0].path)?);
     }
     Ok(())
 }

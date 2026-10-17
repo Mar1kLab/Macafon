@@ -62,7 +62,6 @@ mod windows {
     fn run(hub: Arc<Hub>, receiver: mpsc::Receiver<Work>) {
         let mut devices = Vec::<macaron::Device>::new();
         let mut state = Vec::<OutputControl>::new();
-        let mut monitors = BTreeMap::<String, macaron::Monitor>::new();
         let path = macafon_config::state_dir()
             .ok()
             .map(|p| p.join("macaron-last-settings.json"));
@@ -75,8 +74,9 @@ mod windows {
         saved.retain(|_, value| value.validate());
         let mut scanned_at = Instant::now() - Duration::from_secs(2);
         let mut dirty_at: Option<Instant> = None;
+        let mut volume_read_at = Instant::now() - Duration::from_secs(1);
         loop {
-            // Inventory is read-only. No device is opened for writing until a user edit.
+            // Discovery and volume queries never change settings.
             if scanned_at.elapsed() >= Duration::from_secs(2) {
                 scanned_at = Instant::now();
                 match macaron::discover() {
@@ -108,28 +108,6 @@ mod windows {
                             hub.broadcast(&Event::OutputControlsChanged(state.clone()));
                         }
                         devices = found;
-                        monitors.retain(|id, _| devices.iter().any(|d| &d.id == id));
-                        for device in &devices {
-                            if !monitors.contains_key(&device.id) {
-                                match macaron::Monitor::open(&device.path) {
-                                    Ok(monitor) => {
-                                        monitors.insert(device.id.clone(), monitor);
-                                        if let Some(item) =
-                                            state.iter_mut().find(|s| s.id == device.id)
-                                        {
-                                            item.error = None;
-                                        }
-                                    }
-                                    Err(error) => {
-                                        if let Some(item) =
-                                            state.iter_mut().find(|s| s.id == device.id)
-                                        {
-                                            item.error = Some(error.to_string());
-                                        }
-                                    }
-                                }
-                            }
-                        }
                     }
                     Err(error) => {
                         for item in &mut state {
@@ -137,44 +115,42 @@ mod windows {
                             item.settings = MacaronSettings::default();
                         }
                         devices.clear();
-                        monitors.clear();
                         hub.broadcast(&Event::OutputControlsChanged(state.clone()));
                     }
                 }
             }
             let mut changed = false;
-            let mut failed_monitors = Vec::new();
-            for item in &mut state {
-                if let Some(monitor) = monitors.get(&item.id) {
-                    // Bounded draining keeps volume notifications responsive under rapid presses.
-                    for _ in 0..16 {
-                        match monitor.poll() {
-                            Ok(Some((volume, balance))) => {
-                                item.settings.volume = Some(volume);
-                                item.settings.balance = Some(balance);
-                                item.live_volume = true;
+            if volume_read_at.elapsed() >= Duration::from_millis(250) {
+                volume_read_at = Instant::now();
+                for item in &mut state {
+                    let Some(device) = devices.iter().find(|d| d.id == item.id) else {
+                        continue;
+                    };
+                    let previous = item.clone();
+                    match macaron::read_volume(&device.path) {
+                        Ok((volume, balance)) => {
+                            item.settings.volume = Some(volume);
+                            item.settings.balance = Some(balance);
+                            item.live_volume = true;
+                            if item
+                                .error
+                                .as_deref()
+                                .is_some_and(|s| s.starts_with("Volume: "))
+                            {
+                                item.error = None;
+                            }
+                            if *item != previous {
                                 saved.insert(item.id.clone(), item.settings.clone());
                                 dirty_at = Some(Instant::now());
-                                changed = true;
-                            }
-                            Ok(None) => break,
-                            Err(error) => {
-                                failed_monitors.push(item.id.clone());
-                                item.live_volume = false;
-                                let message = Some(error.to_string());
-                                if item.error != message {
-                                    item.error = message;
-                                    changed = true;
-                                }
-                                scanned_at = Instant::now() - Duration::from_secs(2);
-                                break;
                             }
                         }
+                        Err(error) => {
+                            item.live_volume = false;
+                            item.error = Some(format!("Volume: {error}"));
+                        }
                     }
+                    changed |= *item != previous;
                 }
-            }
-            for id in failed_monitors {
-                monitors.remove(&id);
             }
             if changed {
                 hub.broadcast(&Event::OutputControlsChanged(state.clone()));
@@ -281,6 +257,11 @@ mod windows {
         let mut next = item.settings.clone();
         let mut reports = Vec::new();
         if patch.volume.is_some() || patch.balance.is_some() {
+            // Read the unedited half from the DAC, never from a possibly stale saved value.
+            let (current_volume, current_balance) = macaron::read_volume(&device.path)
+                .map_err(|e| ErrorBody::new(ErrorCode::Internal, e.to_string()))?;
+            next.volume = Some(current_volume);
+            next.balance = Some(current_balance);
             let volume = patch.volume.or(next.volume).ok_or_else(|| {
                 ErrorBody::new(
                     ErrorCode::InvalidParams,
@@ -317,6 +298,21 @@ mod windows {
             item.live_volume = false;
             item.error = Some(error.to_string());
             return Err(ErrorBody::new(ErrorCode::Internal, error.to_string()));
+        }
+        if patch.volume.is_some() || patch.balance.is_some() {
+            let (volume, balance) = macaron::read_volume(&device.path)
+                .map_err(|e| ErrorBody::new(ErrorCode::Internal, e.to_string()))?;
+            if next.volume != Some(volume) {
+                item.settings.volume = Some(volume);
+                item.settings.balance = Some(balance);
+                return Err(ErrorBody::new(
+                    ErrorCode::Internal,
+                    "Macaron volume write did not match readback",
+                ));
+            }
+            next.volume = Some(volume);
+            next.balance = Some(balance);
+            item.live_volume = true;
         }
         item.settings = next;
         item.error = None;

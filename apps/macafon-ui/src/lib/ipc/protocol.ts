@@ -299,11 +299,11 @@ export type OutputControl = {
  */
 id: string, name: string, output: string | null,
 /**
- * Last saved values, updated by acknowledged writes and hardware-volume notifications.
+ * Volume/balance are read from hardware; remaining controls are last saved writes.
  */
 settings: MacaronSettings,
 /**
- * A physical-button notification supplied volume/balance during this connection.
+ * Volume/balance were read from hardware during this connection.
  */
 live_volume: boolean, error: string | null, };
 

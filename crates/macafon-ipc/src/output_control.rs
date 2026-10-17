@@ -33,9 +33,9 @@ pub struct OutputControl {
     pub id: String,
     pub name: String,
     pub output: Option<String>,
-    /// Last saved values, updated by acknowledged writes and hardware-volume notifications.
+    /// Volume/balance are read from hardware; remaining controls are last saved writes.
     pub settings: MacaronSettings,
-    /// A physical-button notification supplied volume/balance during this connection.
+    /// Volume/balance were read from hardware during this connection.
     pub live_volume: bool,
     pub error: Option<String>,
 }

@@ -5,7 +5,7 @@ import type { SoundInfo } from '../ipc/protocol';
 export function formatDuration(ms: number | null, tenths = false): string {
   if (ms === null || !Number.isFinite(ms)) return '–:––';
   const total = Math.max(0, ms) / 1000;
-  if (tenths && total < 10) return `0:0${total.toFixed(1)}`;
+  if (tenths && total < 10) return `0:${total.toFixed(1).padStart(4, '0')}`;
   const seconds = Math.floor(total);
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);

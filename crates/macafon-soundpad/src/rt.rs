@@ -590,6 +590,7 @@ impl SoundpadTap {
         self.gain_lin = smooth(self.gain_lin, gain);
         let duck = self.output == Output::Microphone
             && self.settings.duck.load(Ordering::Relaxed)
+            && enabled
             && playing;
         self.duck_gain = approach(
             self.duck_gain,
@@ -845,6 +846,21 @@ mod tests {
             monitor.mix(&mut mono, 0);
             monitor.mix_with_voice(&[], &mut mono, 0);
         });
+    }
+    #[test]
+    fn disabling_microphone_output_restores_voice_while_monitor_plays() {
+        let mut control = SoundpadControl::new();
+        let mut mic = control.tap(Output::Microphone);
+        control.set_duck_voice(true);
+        control.play(constant(0.25, 48_000), 1.0, 0, false);
+        let voice = [0.5; 512];
+        let mut out = [0.0; 1024];
+        assert_no_alloc(|| mic.mix_with_voice(&voice, &mut out, 2));
+        assert!((out[1022] - 0.25).abs() < 0.001);
+        control.set_output_enabled(Output::Microphone, false);
+        assert_no_alloc(|| mic.mix_with_voice(&voice, &mut out, 2));
+        assert!((out[1022] - 0.5).abs() < 0.001);
+        assert!(control.status().token.is_some());
     }
     #[test]
     fn reconnect_and_command_flood_preserve_rt_ownership() {

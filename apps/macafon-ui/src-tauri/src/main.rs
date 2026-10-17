@@ -75,24 +75,42 @@ fn open_vb_cable_page() -> Result<(), BridgeError> {
 
 /// The main window from `tauri.conf.json`, created on demand: a launch for the quick panel
 /// alone does not open it.
-fn show_main(app: &AppHandle) {
+fn show_main(app: &AppHandle) -> bool {
+    // Serialize startup, second launches and panel requests without blocking the UI thread.
+    static MAIN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = MAIN.lock().unwrap_or_else(|error| error.into_inner());
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
-        return;
+        return true;
     }
     let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main") else {
-        return;
+        return false;
     };
+    // WebView2 can temporarily take focus before Tauri registers the new main window.
+    // Keep the sole panel alive until creation finishes, or closing it can exit the process.
+    quick_panel::OPENING_MAIN.store(true, std::sync::atomic::Ordering::SeqCst);
     let built = tauri::WebviewWindowBuilder::from_config(app, config).and_then(|b| b.build());
+    quick_panel::OPENING_MAIN.store(false, std::sync::atomic::Ordering::SeqCst);
     if let Err(error) = built {
         tracing::warn!(%error, "cannot open the main window");
+        return false;
     }
+    true
 }
 
-fn wants_quick_panel(args: &[String]) -> bool {
-    args.iter().any(|arg| arg == macafon_ipc::QUICK_PANEL_ARG)
+fn open_requested(app: &AppHandle, args: &[String]) {
+    let mode = quick_panel::Mode::from_args(args);
+    let app = app.clone();
+    // WebView2 creation must not block Tauri's Windows event/IPC thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(mode) = mode {
+            quick_panel::toggle(&app, mode);
+        } else if show_main(&app) {
+            quick_panel::quick_panel_close(app);
+        }
+    });
 }
 
 #[tauri::command]
@@ -114,19 +132,10 @@ fn main() {
         .init();
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if wants_quick_panel(&args) {
-                quick_panel::toggle(app);
-            } else {
-                show_main(app);
-            }
+            open_requested(app, &args);
         }))
         .setup(|app| {
             let args: Vec<String> = std::env::args().collect();
-            if wants_quick_panel(&args) {
-                quick_panel::toggle(app.handle());
-            } else {
-                show_main(app.handle());
-            }
             let endpoint = macafon_ipc::Endpoint::for_current_user()
                 .ok_or("cannot find the daemon endpoint for the current user")?;
             let bridge = Bridge::start(
@@ -135,6 +144,8 @@ fn main() {
                 bridge::launch_daemon,
             );
             app.manage(bridge);
+            app.manage(quick_panel::PanelState::default());
+            open_requested(app.handle(), &args);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -146,9 +157,21 @@ fn main() {
             quick_panel::quick_panel_close,
             quick_panel::open_main
         ])
-        .run(tauri::generate_context!());
-    if let Err(error) = result {
-        tracing::error!(%error, "Macafon UI failed");
-        std::process::exit(1);
+        .build(tauri::generate_context!());
+    match result {
+        Ok(app) => app.run(|_, event| {
+            if let tauri::RunEvent::ExitRequested {
+                code: None, api, ..
+            } = event
+                && (quick_panel::REPLACING.load(std::sync::atomic::Ordering::SeqCst)
+                    || quick_panel::OPENING_MAIN.load(std::sync::atomic::Ordering::SeqCst))
+            {
+                api.prevent_exit();
+            }
+        }),
+        Err(error) => {
+            tracing::error!(%error, "Macafon UI failed");
+            std::process::exit(1);
+        }
     }
 }

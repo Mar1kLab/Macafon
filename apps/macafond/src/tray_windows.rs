@@ -1,14 +1,14 @@
-//! Win32 tray: Shell, icons and menus are owned by a dedicated message-loop thread.
+//! Win32 tray: Shell and icons are owned by a dedicated message-loop thread.
 use super::{TrayState, icon};
 use crate::host::ControlMessage;
 use macafon_backend::ControlSender;
 use macafon_ipc::Request;
 use std::sync::{OnceLock, mpsc};
 use std::time::Instant;
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::{Shell::*, WindowsAndMessaging::*};
-use windows::core::{PCWSTR, w};
+use windows::core::w;
 
 const CALLBACK: u32 = WM_APP + 1;
 /// `CALLBACK` re-posted for the loop under its own id, so a posted copy is never re-posted.
@@ -98,24 +98,17 @@ unsafe extern "system" fn procedure(
             return LRESULT(0);
         }
         // Explorer sends the icon callbacks instead of posting them: queue them for the loop,
-        // which owns the state and must not open a modal menu inside Explorer's send.
+        // which owns the state and launches the UI outside Explorer's send.
         if message == CALLBACK {
             let _ = PostMessageW(Some(window), QUEUED, wparam, lparam);
             return LRESULT(0);
         }
-        // Only the menu's modal loop dispatches queued callbacks here: drop them. Re-posting
-        // them kept the queue busy forever, so the open menu never got its clicks or paints.
+        // Queued callbacks belong to the outer loop; never re-post a dispatched copy.
         if message == QUEUED {
             return LRESULT(0);
         }
         DefWindowProcW(window, message, wparam, lparam)
     }
-}
-fn wide(text: &str) -> Vec<u16> {
-    text.encode_utf16()
-        .filter(|&unit| unit != 0)
-        .chain(Some(0))
-        .collect()
 }
 fn copy_text<const N: usize>(destination: &mut [u16; N], text: &str) {
     let mut end = 0;
@@ -354,11 +347,7 @@ fn run(
                 match message.lParam.0 as u32 {
                     WM_LBUTTONUP => crate::ui::open(),
                     WM_MBUTTONUP => send(&control, Request::MicToggleMute),
-                    WM_RBUTTONUP => {
-                        if let Err(error) = menu(window, &state, &control) {
-                            tracing::warn!(%error, "Cannot open tray menu");
-                        }
-                    }
+                    WM_RBUTTONUP => crate::ui::quick_panel(),
                     _ => {}
                 }
             } else {
@@ -374,143 +363,6 @@ fn run(
 fn send(control: &ControlSender<ControlMessage>, request: Request) {
     let (reply, _) = mpsc::channel();
     let _ = control.send(ControlMessage::Request { request, reply });
-}
-struct Menu(HMENU);
-impl Drop for Menu {
-    fn drop(&mut self) {
-        // SAFETY: root owns all successfully appended submenus.
-        unsafe {
-            let _ = DestroyMenu(self.0);
-        }
-    }
-}
-fn radio(menu: HMENU, index: usize) -> windows::core::Result<()> {
-    let info = MENUITEMINFOW {
-        cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
-        fMask: MIIM_FTYPE,
-        fType: MFT_RADIOCHECK,
-        ..Default::default()
-    };
-    // SAFETY: index refers to a just-appended option, owned by this thread.
-    unsafe { SetMenuItemInfoW(menu, index as u32, true, &info) }
-}
-fn menu(
-    window: HWND,
-    state: &TrayState,
-    control: &ControlSender<ControlMessage>,
-) -> windows::core::Result<()> {
-    // SAFETY: this thread owns menu handles; AppendMenuW copies its live strings.
-    unsafe {
-        let root = Menu(CreatePopupMenu()?);
-        let mut actions = Vec::new();
-        let mut item = |menu: HMENU,
-                        label: &str,
-                        checked: bool,
-                        request: Option<Request>|
-         -> windows::core::Result<()> {
-            actions.push(request);
-            let text = wide(&label.replace('&', "&&"));
-            AppendMenuW(
-                menu,
-                MF_STRING | if checked { MF_CHECKED } else { MF_UNCHECKED },
-                actions.len(),
-                PCWSTR(text.as_ptr()),
-            )
-        };
-        item(root.0, "Open Macafon", false, None)?;
-        item(root.0, "Quick panel", false, None)?;
-        AppendMenuW(root.0, MF_SEPARATOR, 0, None)?;
-        item(
-            root.0,
-            "Mute microphone",
-            state.muted,
-            Some(Request::MicSetMuted {
-                muted: !state.muted,
-            }),
-        )?;
-        item(
-            root.0,
-            "Bypass processing",
-            state.bypass,
-            Some(Request::MicSetBypass {
-                bypass: !state.bypass,
-            }),
-        )?;
-        let presets = Menu(CreatePopupMenu()?);
-        for (index, preset) in state.presets.iter().enumerate() {
-            item(
-                presets.0,
-                &preset.name,
-                Some(&preset.id) == state.preset.as_ref(),
-                Some(Request::MicSetPreset {
-                    preset: preset.id.clone(),
-                }),
-            )?;
-            radio(presets.0, index)?;
-        }
-        AppendMenuW(root.0, MF_POPUP, presets.0.0 as usize, w!("Preset"))?;
-        std::mem::forget(presets);
-        AppendMenuW(root.0, MF_SEPARATOR, 0, None)?;
-        item(
-            root.0,
-            "Mixer",
-            state.mixer,
-            Some(Request::MixerSetEnabled {
-                enabled: !state.mixer,
-            }),
-        )?;
-        let outputs = Menu(CreatePopupMenu()?);
-        for (index, (id, description)) in state.outputs.iter().enumerate() {
-            item(
-                outputs.0,
-                description,
-                Some(id) == state.output.as_ref(),
-                Some(Request::MixerSetOutput {
-                    device: Some(id.clone()),
-                }),
-            )?;
-            radio(outputs.0, index)?;
-        }
-        AppendMenuW(
-            root.0,
-            MF_POPUP
-                | if state.mixer && !state.outputs.is_empty() {
-                    MF_ENABLED
-                } else {
-                    MF_GRAYED
-                },
-            outputs.0.0 as usize,
-            w!("Output device"),
-        )?;
-        std::mem::forget(outputs);
-        AppendMenuW(root.0, MF_SEPARATOR, 0, None)?;
-        item(root.0, "Quit Macafon", false, Some(Request::DaemonQuit))?;
-        let mut position = POINT::default();
-        GetCursorPos(&mut position)?;
-        let _ = SetForegroundWindow(window);
-        let selected = TrackPopupMenu(
-            root.0,
-            TPM_RETURNCMD | TPM_RIGHTBUTTON,
-            position.x,
-            position.y,
-            None,
-            window,
-            None,
-        )
-        .0 as usize;
-        let _ = PostMessageW(Some(window), WM_NULL, WPARAM(0), LPARAM(0));
-        if selected == 1 {
-            crate::ui::open();
-        } else if selected == 2 {
-            crate::ui::quick_panel();
-        } else if let Some(Some(request)) = selected
-            .checked_sub(1)
-            .and_then(|index| actions.get_mut(index))
-        {
-            send(control, request.clone());
-        }
-    }
-    Ok(())
 }
 #[cfg(test)]
 mod tests {

@@ -177,7 +177,7 @@ impl DaemonHost {
         }
         let request = match &action {
             HotkeyAction::QuickPanel => {
-                crate::ui::quick_panel();
+                crate::ui::overlay();
                 return;
             }
             HotkeyAction::MicMuteToggle => Request::MicToggleMute,

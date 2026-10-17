@@ -1,7 +1,7 @@
 <script lang="ts">
   // Quick panel: the microphone switches, the preset, the Master and every channel that is on,
   // in one small window above the tray (Windows 11 flyout) with Android-like tiles and pill
-  // sliders. The daemon opens it on its hotkey; Esc, the hotkey again or a click elsewhere
+  // sliders. The Windows tray opens it on right-click; Esc, the trigger again or a click elsewhere
   // closes it. It only talks to the daemon, like the main window.
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -15,6 +15,8 @@
     SquareArrowOutUpRight,
     Volume2,
     VolumeX,
+    X,
+    Power,
   } from '@lucide/svelte';
   import PillSlider from './PillSlider.svelte';
   import Logo from '../components/Logo.svelte';
@@ -26,6 +28,20 @@
 
   let root: HTMLDivElement | undefined = $state();
   const tauri = isTauri();
+  const tray = new URLSearchParams(location.search).get('mode') !== 'overlay';
+  let quitError = $state('');
+  let quitting = $state(false);
+
+  async function quit() {
+    quitting = true;
+    quitError = '';
+    try {
+      await daemon.client.call('daemon.quit');
+    } catch (error) {
+      quitError = String(error);
+      quitting = false;
+    }
+  }
 
   const mic = $derived(daemon.mic);
   const mixer = $derived(daemon.mixer);
@@ -41,7 +57,7 @@
   }
 
   function openMain() {
-    if (tauri) void invoke('open_main');
+    if (tauri) void invoke('open_main').catch((error) => (quitError = String(error)));
   }
 
   onMount(() => {
@@ -53,14 +69,17 @@
     // gives an undecorated window with a shadow a taller viewport than asked (its hidden
     // caption): what the viewport gets beyond the request is taken off the next one.
     let extra = 0;
+    let extraWidth = 0;
     const content = () => Math.ceil(root?.getBoundingClientRect().height ?? 0);
     const fit = () => {
-      if (root && tauri) void invoke('quick_panel_fit', { height: content() - extra });
+      if (root && tauri) void invoke('quick_panel_fit', { width: 360 - extraWidth, height: content() - extra });
     };
     const onresize = () => {
       const off = window.innerHeight - content();
-      if (Math.abs(off) <= 1) return;
+      const offWidth = window.innerWidth - 360;
+      if (Math.abs(off) <= 1 && Math.abs(offWidth) <= 1) return;
       extra += off;
+      extraWidth += offWidth;
       fit();
     };
     const observer = new ResizeObserver(fit);
@@ -80,6 +99,11 @@
     <button class="round" aria-label={t('quick.openApp')} title={t('quick.openApp')} onclick={openMain}>
       <SquareArrowOutUpRight size={15} strokeWidth={1.5} />
     </button>
+    {#if tray}
+      <button class="round" aria-label={t('quick.trayClose')} title={t('quick.trayClose')} onclick={close}>
+        <X size={15} strokeWidth={1.5} />
+      </button>
+    {/if}
   </header>
 
   {#if !daemon.connected || !mic}
@@ -190,6 +214,14 @@
     {/if}
   {/if}
 
+  {#if tray}
+    <button class="quit" disabled={quitting || !daemon.connected} onclick={quit}>
+      <Power size={15} strokeWidth={1.5} />
+      {t('quick.trayQuit')}
+    </button>
+    {#if quitError}<p class="status" role="alert">{quitError}</p>{/if}
+  {/if}
+
   <footer>
     <span class="output" title={output ?? ''}>{output ?? ''}</span>
     {#if shortcut}<kbd title={t('quick.hotkey')}>{displayShortcut(shortcut)}</kbd>{/if}
@@ -265,6 +297,7 @@
     border-color: var(--line-strong);
   }
 
+  .quit:focus-visible,
   .round:focus-visible,
   .tile:focus-visible {
     outline: 1px solid var(--ink);
@@ -284,6 +317,23 @@
     color: var(--danger);
     border-color: var(--danger);
   }
+
+  .quit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    background: var(--bg-sunken);
+    color: var(--ink);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .quit:hover { border-color: var(--line-strong); }
+  .quit:disabled { opacity: 0.5; cursor: default; }
 
   .tiles {
     display: grid;

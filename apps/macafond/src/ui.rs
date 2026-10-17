@@ -16,6 +16,13 @@ pub fn quick_panel() {
     #[cfg(windows)]
     launch(&[macafon_ipc::QUICK_PANEL_ARG]);
     #[cfg(not(windows))]
+    launch(&["quick-panel", "--tray"]);
+}
+
+pub fn overlay() {
+    #[cfg(windows)]
+    launch(&[macafon_ipc::OVERLAY_ARG]);
+    #[cfg(not(windows))]
     launch(&["quick-panel"]);
 }
 

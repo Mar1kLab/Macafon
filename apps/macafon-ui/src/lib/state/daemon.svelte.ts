@@ -91,6 +91,7 @@ export class DaemonStore {
   private redoStack: ChainSettings[] = [];
   private lastEditAt = 0;
   private metersOn = false;
+  private deviceMetersOn = false;
   /** Components showing per-device levels; the daemon meters every input only while > 0. */
   private deviceWatchers = 0;
   private recoveryShown: string | null = null;
@@ -146,10 +147,12 @@ export class DaemonStore {
     this.status = status;
     if (status.state === 'connected' && was !== 'connected') {
       this.metersOn = false;
+      this.deviceMetersOn = false;
       void this.load();
     }
     if (status.state !== 'connected') {
       this.metersOn = false;
+      this.deviceMetersOn = false;
       meterBus.reset();
       deviceMeterBus.reset();
       mixerMeterBus.reset();
@@ -189,7 +192,6 @@ export class DaemonStore {
         this.soundpadPlayback = null;
       }
       this.syncMeters();
-      if (this.deviceWatchers > 0) await this.client.call('devices.subscribe');
     } catch (error) {
       this.fail(error);
     }
@@ -197,22 +199,32 @@ export class DaemonStore {
 
   /** Live levels of every microphone (MIC-002) until the returned function is called. */
   watchDevices(): () => void {
-    if (this.deviceWatchers++ === 0 && this.connected) {
-      this.client.call('devices.subscribe').catch((error) => this.fail(error));
-    }
+    this.deviceWatchers++;
+    this.syncDeviceMeters();
     let stopped = false;
     return () => {
       if (stopped) return;
       stopped = true;
-      if (--this.deviceWatchers === 0) {
-        deviceMeterBus.reset();
-        if (this.connected) this.client.call('devices.unsubscribe').catch(() => {});
-      }
+      this.deviceWatchers--;
+      this.syncDeviceMeters();
     };
+  }
+
+  private syncDeviceMeters() {
+    const want = this.meters && this.connected && this.deviceWatchers > 0 && document.visibilityState === 'visible';
+    if (want === this.deviceMetersOn) return;
+    this.deviceMetersOn = want;
+    if (!want) deviceMeterBus.reset();
+    if (!this.connected) return;
+    this.client.call(want ? 'devices.subscribe' : 'devices.unsubscribe').catch((error) => {
+      this.deviceMetersOn = !want;
+      this.fail(error);
+    });
   }
 
   /** Meters flow only while the window is visible (MTR-004, NFR-R7). */
   private syncMeters() {
+    this.syncDeviceMeters();
     const want = this.meters && this.connected && document.visibilityState === 'visible';
     if (want === this.metersOn) return;
     this.metersOn = want;
@@ -223,7 +235,10 @@ export class DaemonStore {
       this.metersOn = !want;
       this.fail(error);
     });
-    if (!want) meterBus.reset();
+    if (!want) {
+      meterBus.reset();
+      mixerMeterBus.reset();
+    }
   }
 
   private onEvent(event: Event) {

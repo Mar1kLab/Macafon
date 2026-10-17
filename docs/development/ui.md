@@ -1,14 +1,15 @@
 # M1: UI (Tauri v2 + Svelte 5)
 
-State as of 2026-10-12. Onboarding, the Microphone and Mixer screens, calibration, the TEST (A/B) panel
-and Settings are ready. Preset import/export through a file dialog is the next step. Mixer —
-[mixer.md](mixer.md).
+State as of 2026-10-18. Onboarding, the Microphone, Mixer, Soundpad (Windows) and Settings screens,
+calibration, the TEST (A/B) panel, tray quick panel and hotkey overlay are implemented. The overlay has
+an expandable Soundpad panel with search and category filters (PRD §7.6). Preset import/export through
+a file dialog is still pending. Mixer — [mixer.md](mixer.md).
 
 The mock transport (`src/lib/ipc/mock.ts`) handles the connection, microphone, presets, calibration and
 A/B. `src/lib/ipc/mock/` holds the device and application data (`fixtures`), pure functions
-(`helpers`), synthetic signals (`signals`) and a separate mixer (`mixer`). The mixer owns the channels,
-applications and meters, uses the generated IPC types and hands out copies of its state for replies
-and events.
+(`helpers`), synthetic signals (`signals`), Soundpad (`soundpad`) and a separate mixer (`mixer`). The mixer
+owns the channels, applications and meters, uses the generated IPC types and hands out copies of its
+state for replies and events.
 
 ## Running
 
@@ -21,7 +22,8 @@ pnpm -C apps/macafon-ui tauri build --no-bundle   # target/release/macafon-ui
 
 `macafon` without arguments starts `macafon-ui` (next to the binary or from `PATH`) — this is how the
 tray (BG-004) and the launcher open it. A second launch focuses the already open window (BG-006,
-`tauri-plugin-single-instance`). Closing the window ends the UI process; audio stays in the daemon (BG-001).
+`tauri-plugin-single-instance`). The close-button behavior is configurable in Settings. On Windows the
+UI keeps the panel ready in the background; audio stays in the daemon (BG-001).
 
 On the Linux development machine there are no system WebKitGTK/GTK packages: the headers and `.so` files
 live in the same user-local sysroot as PipeWire (`. ~/.cache/macafon-sysroot/env.sh`). Building and tests

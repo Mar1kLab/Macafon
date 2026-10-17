@@ -49,13 +49,26 @@
       if (event.key === 'Escape') close();
     };
     window.addEventListener('keydown', onkey);
-    // The window takes the height of the content and shows itself once it knows it.
-    const observer = new ResizeObserver(() => {
-      if (root && tauri) void invoke('quick_panel_fit', { height: Math.ceil(root.getBoundingClientRect().height) });
-    });
+    // The window takes the height of the content and shows itself once it knows it. Windows
+    // gives an undecorated window with a shadow a taller viewport than asked (its hidden
+    // caption): what the viewport gets beyond the request is taken off the next one.
+    let extra = 0;
+    const content = () => Math.ceil(root?.getBoundingClientRect().height ?? 0);
+    const fit = () => {
+      if (root && tauri) void invoke('quick_panel_fit', { height: content() - extra });
+    };
+    const onresize = () => {
+      const off = window.innerHeight - content();
+      if (Math.abs(off) <= 1) return;
+      extra += off;
+      fit();
+    };
+    const observer = new ResizeObserver(fit);
     if (root) observer.observe(root);
+    window.addEventListener('resize', onresize);
     return () => {
       window.removeEventListener('keydown', onkey);
+      window.removeEventListener('resize', onresize);
       observer.disconnect();
     };
   });

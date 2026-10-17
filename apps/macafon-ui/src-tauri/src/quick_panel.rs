@@ -6,7 +6,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
-    AppHandle, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow,
+    AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
 };
 
@@ -16,7 +16,10 @@ const WIDTH: f64 = 360.0;
 /// Room between the panel and the screen edges or the taskbar, logical pixels.
 const MARGIN: f64 = 12.0;
 
-/// Set once the panel had focus: losing it before that is the window still opening.
+/// Set when the panel is shown: a hidden window being created may gain and lose focus, which
+/// must not close it.
+static SHOWN: AtomicBool = AtomicBool::new(false);
+/// Set once the shown panel had focus: only then does losing it close the panel.
 static FOCUSED: AtomicBool = AtomicBool::new(false);
 
 pub fn toggle(app: &AppHandle) {
@@ -29,6 +32,7 @@ pub fn toggle(app: &AppHandle) {
 }
 
 fn open(app: &AppHandle) {
+    SHOWN.store(false, Ordering::SeqCst);
     FOCUSED.store(false, Ordering::SeqCst);
     let built = WebviewWindowBuilder::new(
         app,
@@ -55,7 +59,9 @@ fn open(app: &AppHandle) {
             window.on_window_event(move |event| {
                 if let WindowEvent::Focused(focused) = event {
                     if *focused {
-                        FOCUSED.store(true, Ordering::SeqCst);
+                        if SHOWN.load(Ordering::SeqCst) {
+                            FOCUSED.store(true, Ordering::SeqCst);
+                        }
                     } else if FOCUSED.load(Ordering::SeqCst) {
                         let _ = handle.close();
                     }
@@ -66,7 +72,9 @@ fn open(app: &AppHandle) {
     }
 }
 
-/// Bottom-right of the work area of the monitor under the cursor, where the tray is.
+/// Bottom-right of the work area of the monitor under the cursor, where the tray is. Moved
+/// first and sized after in that monitor's pixels: a size set before the move would be
+/// scaled again when the window crosses to a monitor with another DPI.
 fn place(app: &AppHandle, window: &WebviewWindow, height: f64) -> tauri::Result<()> {
     let monitor = match app.cursor_position() {
         Ok(cursor) => app.monitor_from_point(cursor.x, cursor.y)?,
@@ -82,10 +90,21 @@ fn place(app: &AppHandle, window: &WebviewWindow, height: f64) -> tauri::Result<
     let margin = (MARGIN * scale).round() as i32;
     let right = area.position.x + area.size.width as i32;
     let bottom = area.position.y + area.size.height as i32;
-    window.set_position(PhysicalPosition::new(
-        (right - width - margin).max(area.position.x),
-        (bottom - height - margin).max(area.position.y),
-    ))
+    let at = |height: i32| {
+        PhysicalPosition::new(
+            (right - width - margin).max(area.position.x),
+            (bottom - height - margin).max(area.position.y),
+        )
+    };
+    window.set_position(at(height))?;
+    window.set_size(PhysicalSize::new(width as u32, height as u32))?;
+    // The frame may be taller than the content asked for (Windows keeps a hidden caption on
+    // undecorated windows): line its real bottom up with the work area.
+    let outer = i32::try_from(window.outer_size()?.height).unwrap_or(height);
+    if outer > height {
+        window.set_position(at(outer))?;
+    }
+    Ok(())
 }
 
 /// The content measured itself: size the window to it, place it and show it.
@@ -95,11 +114,11 @@ pub fn quick_panel_fit(app: AppHandle, height: f64) {
         return;
     };
     let height = height.clamp(120.0, 900.0);
-    let _ = window.set_size(LogicalSize::new(WIDTH, height));
     if let Err(error) = place(&app, &window, height) {
         tracing::warn!(%error, "cannot place the quick panel");
     }
     if !window.is_visible().unwrap_or(true) {
+        SHOWN.store(true, Ordering::SeqCst);
         let _ = window.show();
         let _ = window.set_focus();
     }

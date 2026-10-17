@@ -548,6 +548,10 @@ impl MicrophoneHost for DaemonHost {
             Some(Err(error)) => tracing::warn!(%error, "Cannot apply noise suppression fallback"),
             _ => {}
         }
+        #[cfg(windows)]
+        if let Some(recording) = &mut self.recording {
+            recording.input_device.clone_from(&self.active_device);
+        }
         self.poll_calibration();
         if let Some(control) = &mut self.control {
             if self.ab.poll(control) || self.ab.is_active() {

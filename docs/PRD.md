@@ -208,6 +208,11 @@ sibilants; the limiter last as clipping protection.
 
 Requirements: MIC-G1 (P0) — an input meter before and after Gain, an input clip indicator (clipping
 **before** our processing cannot be fixed → the hint "Lower your mic level in system settings").
+Windows automatic calibration lowers only the selected capture endpoint as needed to leave at
+least 15 dB of raw speech-peak headroom; make-up gain stays digital and targets the same
+−18 dBFS speech RMS. It never raises the user's endpoint level. The original endpoint level is
+journaled for uninstall / explicit recovery; ordinary Quit preserves calibration
+(owner request 2026-10-17).
 
 #### 6.3.2 High-pass (low cut)
 
@@ -349,7 +354,7 @@ The main tuning tool in 1.0 (live monitoring is on the roadmap).
 | CAL-002 | Step 2: "Read this sentence" — a phrase on screen (~6 s), measuring the speech level and peaks | P0 |
 | CAL-003 | From the results: Gain → speech at ≈ −18 dBFS RMS; Expander threshold = noise floor + 6 dB (not above speech − 12 dB); NS intensity by SNR (SNR > 40 dB → 40%, < 20 dB → 90% and a Studio suggestion); HPF by the presence of noise energy < 100 Hz | P0 |
 | CAL-004 | A result screen: SNR before/after, "noise level: low/medium/high", exactly what was set (a list with module icons) and a "Listen A/B" button | P0 |
-| CAL-005 | Input clipping during calibration → a warning and instructions to lower the level in the system/on the interface; calibration can be repeated | P0 |
+| CAL-005 | Windows: if raw speech peaks exceed −15 dBFS, automatically lower the selected capture endpoint in steps and check fresh capture; remeasure clipped speech. Journal the original endpoint level before changing it; restore on uninstall, `macafon restore-default` and `macafond cleanup`, but retain the calibrated level on Quit. Never raise the endpoint during calibration. Linux or unavailable/failed endpoint control: warn and ask the user to lower the system/interface level and retry. Digital Gain still targets ≈ −18 dBFS speech RMS (owner request 2026-10-17) | P0 |
 | CAL-006 | Calibration can be run again from the microphone screen | P0 |
 
 ### 6.6 Meters

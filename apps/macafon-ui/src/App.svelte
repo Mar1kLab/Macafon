@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { RefreshCw } from '@lucide/svelte';
+  import { RefreshCw, Upload } from '@lucide/svelte';
   import Sidebar, { type Screen } from './lib/components/Sidebar.svelte';
   import Toasts from './lib/components/Toasts.svelte';
   import Ticks from './lib/components/Ticks.svelte';
@@ -14,6 +14,28 @@
 
   const initial = new URLSearchParams(location.search).get('screen');
   let screen = $state<Screen>(initial === 'settings' || initial === 'mixer' || initial === 'soundpad' ? initial : 'microphone');
+
+  // SND-001: audio files dropped anywhere in the window go to the Soundpad; its own screen
+  // takes drops itself, into the category on screen.
+  let fileDrag = $state(false);
+  const hasFiles = (event: DragEvent) => daemon.soundpadAvailable && (event.dataTransfer?.types.includes('Files') ?? false);
+
+  function ondragover(event: DragEvent) {
+    // Without this the WebView would open a dropped file in place of the app.
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = hasFiles(event) ? 'copy' : 'none';
+    fileDrag = hasFiles(event);
+  }
+
+  async function ondrop(event: DragEvent) {
+    event.preventDefault();
+    fileDrag = false;
+    if (!hasFiles(event)) return;
+    const files = [...(event.dataTransfer?.files ?? [])];
+    screen = 'soundpad';
+    const added = await daemon.uploadSounds(files, null);
+    if (added > 0) daemon.toast(t('soundpad.added', { count: added }));
+  }
 
   // UI scale 90–150% with Ctrl +/− and Ctrl 0 (PRD §9.8).
   const ZOOM_STEPS = [0.9, 1, 1.1, 1.25, 1.5];
@@ -46,7 +68,15 @@
     }}
   />
 {:else}
-  <div class="app">
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="app"
+    {ondragover}
+    ondragleave={(event) => {
+      if (!event.relatedTarget) fileDrag = false;
+    }}
+    {ondrop}
+  >
     <Sidebar {screen} onnavigate={(next) => (screen = next)} />
     <main>
       {#if daemon.status.state === 'unavailable'}
@@ -72,12 +102,20 @@
         <Microphone />
       {/if}
     </main>
+    {#if fileDrag && screen !== 'soundpad'}
+      <div class="dropzone" aria-hidden="true">
+        <Ticks color="var(--accent)" />
+        <Upload size={22} strokeWidth={1.5} />
+        <span class="hud-label">{t('soundpad.dropApp')}</span>
+      </div>
+    {/if}
   </div>
 {/if}
 <Toasts />
 
 <style>
   .app {
+    position: relative;
     display: flex;
     height: 100%;
     min-width: 0;
@@ -85,6 +123,25 @@
     background-color: var(--bg);
     background-image: linear-gradient(var(--scanline) 1px, transparent 1px), linear-gradient(90deg, var(--scanline) 1px, transparent 1px);
     background-size: 24px 24px;
+  }
+
+  .dropzone {
+    position: absolute;
+    inset: 16px 16px 16px calc(var(--sidebar-width) + 16px);
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    border: 1px dashed var(--accent);
+    background: color-mix(in srgb, var(--bg) 90%, transparent);
+    color: var(--accent-ink);
+    pointer-events: none;
+  }
+
+  .dropzone .hud-label {
+    color: var(--accent-ink);
   }
 
   main {

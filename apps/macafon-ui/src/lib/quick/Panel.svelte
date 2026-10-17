@@ -16,6 +16,8 @@
   const initial = new URLSearchParams(location.search).get('mode');
   let mode = $state<Mode>(initial === 'overlay' ? 'overlay' : 'tray');
   let root: HTMLDivElement | undefined = $state();
+  /** Bumped every time the daemon asks to show a panel: the overlay starts collapsed again. */
+  let opened = $state(0);
 
   // Windows gives an undecorated window with a shadow a larger viewport than requested (its
   // hidden caption): what it gets beyond the request is taken off the next one.
@@ -37,6 +39,7 @@
 
   async function show(next: Mode) {
     mode = next;
+    opened++;
     await tick();
     await fit();
   }
@@ -85,7 +88,7 @@
 
 <div class="fit" class:tray={mode === 'tray'} bind:this={root}>
   {#if mode === 'overlay'}
-    <HotkeyOverlay onclose={close} />
+    <HotkeyOverlay onclose={close} {opened} />
   {:else}
     <QuickPanel onclose={close} />
   {/if}

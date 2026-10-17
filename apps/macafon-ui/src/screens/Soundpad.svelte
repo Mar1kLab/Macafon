@@ -33,6 +33,8 @@
     formatDuration,
     inScope,
     matches,
+    saveSort,
+    savedSort,
     sortSounds,
     type SoundScope,
     type SoundSort,
@@ -51,7 +53,7 @@
 
   let scope = $state<SoundScope>(null);
   let query = $state('');
-  let sort = $state<SoundSort>('name');
+  let sort = $state<SoundSort>(savedSort());
   let selected = $state<string | null>(null);
   let editing = $state<string | null>(null);
   let dropTarget = $state<SoundScope | 'screen' | null>(null);
@@ -76,10 +78,12 @@
     (soundpad?.categories ?? []).map((name) => ({ name, count: sounds.filter((s) => s.category === name).length })),
   );
   const sortOptions = $derived([
+    { value: 'newest' as SoundSort, label: t('soundpad.sortNewest') },
+    { value: 'oldest' as SoundSort, label: t('soundpad.sortOldest') },
     { value: 'name' as SoundSort, label: t('soundpad.sortName') },
     { value: 'plays' as SoundSort, label: t('soundpad.sortPlays') },
     { value: 'duration' as SoundSort, label: t('soundpad.sortDuration') },
-    { value: 'category' as SoundSort, label: t('soundpad.sortRecent') },
+    { value: 'category' as SoundSort, label: t('soundpad.sortCategory') },
   ]);
   const monitorOptions = $derived([
     { value: null as string | null, label: t('soundpad.followDefault') },
@@ -100,7 +104,7 @@
     const list = [...(files ?? [])];
     if (list.length === 0) return;
     const added = await daemon.uploadSounds(list, category);
-    if (added > 1) daemon.toast(t('soundpad.added', { count: added }));
+    if (added > 0) daemon.toast(t('soundpad.added', { count: added }));
   }
 
   function setFavorite(sound: SoundInfo) {
@@ -206,7 +210,10 @@
         <input type="search" bind:value={query} placeholder={t('soundpad.searchPlaceholder')} aria-label={t('soundpad.search')} />
       </label>
       <span class="hud-label">{t('soundpad.sort')}</span>
-      <Dropdown label={t('soundpad.sort')} options={sortOptions} value={sort} width="150px" onchange={(value) => (sort = value)} />
+      <Dropdown label={t('soundpad.sort')} options={sortOptions} value={sort} width="170px" onchange={(value) => {
+        sort = value;
+        saveSort(value);
+      }} />
       <span class="spacer"></span>
       <button class="btn" title={t('soundpad.randomHint')} disabled={visible.every((sound) => sound.error)} onclick={() => {
         const pool = visible.filter((sound) => !sound.error);
@@ -691,7 +698,7 @@
   }
 
   .head {
-    padding: 10px 24px 8px;
+    padding: 10px 29px 8px;
     border-bottom: 1px solid var(--line);
     font-size: 10px;
   }
@@ -706,14 +713,18 @@
     overflow-y: auto;
     list-style: none;
     margin: 0;
-    padding: 6px 12px 12px;
+    padding: 10px 16px 16px;
+    display: grid;
+    align-content: start;
+    gap: 6px;
   }
 
   .row {
     position: relative;
-    height: 40px;
+    height: 46px;
     padding: 0 12px;
-    border: 1px solid transparent;
+    border: 1px solid var(--line);
+    background: var(--bg-sunken);
     cursor: default;
     transition:
       border-color var(--dur) var(--ease),
@@ -721,17 +732,19 @@
   }
 
   .row:hover {
-    border-color: var(--line);
+    border-color: var(--line-strong);
+    background: var(--bg-raised);
   }
 
   .row.selected {
-    border-color: var(--line-strong);
+    border-color: var(--ink);
     background: var(--bg-raised);
   }
 
   .row.playing {
     border-color: var(--accent);
     background: var(--bg-raised);
+    box-shadow: inset 3px 0 0 var(--accent);
   }
 
   .row.playing::after {
@@ -785,7 +798,10 @@
   }
 
   .title b {
-    font-weight: 500;
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
     color: var(--ink);
     overflow: hidden;
     white-space: nowrap;

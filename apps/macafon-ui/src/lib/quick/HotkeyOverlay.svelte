@@ -8,7 +8,7 @@
   import { daemon } from '../state';
   import { t } from '../i18n';
 
-  let { onclose }: { onclose: () => void } = $props();
+  let { onclose, opened = 0 }: { onclose: () => void; opened?: number } = $props();
   const mic = $derived(daemon.mic);
   const mixer = $derived(daemon.mixer);
   const muted = $derived(mic?.settings.muted ?? false);
@@ -80,7 +80,7 @@
       </section>
     </div>
     {#if daemon.soundpad?.prefs.show_in_overlay}
-      <SoundpadOverlay />
+      <SoundpadOverlay {opened} />
     {/if}
   {/if}
 </div>

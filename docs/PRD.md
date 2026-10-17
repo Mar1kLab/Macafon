@@ -460,12 +460,12 @@ library folder ─► decoder (48 kHz stereo, cache) ─► SoundpadControl ─�
 
 | ID | Requirement | Priority |
 |---|---|---|
-| SND-001 | A library folder (default `Music\Macafon Sounds`): files in it and in its first-level subfolders (= categories) are the library; files copied in by hand appear within 3 s. MP3, WAV, OGG, FLAC, M4A, AAC up to 200 MB and 10 minutes. The UI adds files by a file picker or drag & drop (uploaded to the daemon in chunks), opens the folder, creates, renames and deletes categories, renames, moves and deletes sounds | P0 |
+| SND-001 | A library folder (default `Music\Macafon Sounds`): files in it and in its first-level subfolders (= categories) are the library; files copied in by hand appear within 3 s. MP3, WAV, OGG, FLAC, M4A, AAC up to 200 MB and 10 minutes. The UI adds files by a file picker or by dropping them anywhere on the window (uploaded to the daemon in chunks; the Soundpad screen opens), opens the folder, creates, renames and deletes categories, renames, moves and deletes sounds | P0 |
 | SND-002 | Playing a sound replaces the current one (short fade, no clicks). It is mixed after the microphone chain into the cable, so mute/bypass of the voice do not affect it, and into a monitor stream on the default or a chosen output. Each target has an on/off switch and a 0–200 % volume; each sound has its own 0–200 % volume | P0 |
 | SND-003 | Transport: play/stop per sound, pause/resume, stop, repeat, seek on a progress ruler, play a random sound (of the visible list or a category); progress about 10 Hz | P0 |
 | SND-004 | Every sound can have primary and secondary global hotkeys (`soundpad_play.<id>`, HK-009 rules); global actions stop, pause/resume and random. Hotkeyed sounds are decoded ahead, so they start at once. Renaming or moving a sound keeps its settings and hotkeys | P0 |
-| SND-005 | Library view: search, sort (name, plays, length, category), favorites, play counts, decode errors shown per sound; keyboard: arrows, Enter/Space play, F2 edit, Delete | P1 |
-| SND-006 | The hotkey overlay (HK-007) shows the soundpad as pads with a category filter and stop; Settings → Hotkey popup turns it on or off (on by default) | P1 |
+| SND-005 | Library view: distinct rows, search, sort — newest first by default (file creation time), remembered when changed; oldest, name, plays, length, category — favorites, play counts, decode errors shown per sound; keyboard: arrows, Enter/Space play, F2 edit, Delete | P1 |
+| SND-006 | The hotkey overlay (HK-007) has a soundpad bar with stop and a button that expands the sounds; every opening starts collapsed (owner request, 2026-10-18). Expanded: search (Enter plays the first match), a category filter and pads; the category, search and scroll position are remembered. Settings → Hotkey popup turns the soundpad bar on or off (on by default) | P1 |
 | SND-007 | "Mute my voice while playing": while a sound plays into the microphone the voice fades out | P1 |
 | SND-008 | RT rules (AGENTS §4.1): taps are allocation- and lock-free; decoded sounds are only freed on the control loop | P0 |
 

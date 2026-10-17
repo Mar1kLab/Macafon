@@ -13,7 +13,20 @@ export function formatDuration(ms: number | null, tenths = false): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
 }
 
-export type SoundSort = 'name' | 'plays' | 'duration' | 'category';
+export type SoundSort = 'newest' | 'oldest' | 'name' | 'plays' | 'duration' | 'category';
+export const SOUND_SORTS: readonly SoundSort[] = ['newest', 'oldest', 'name', 'plays', 'duration', 'category'];
+
+const SORT_KEY = 'macafon.soundpad.sort';
+
+/** The order picked last; newest first until the user picks another. */
+export function savedSort(): SoundSort {
+  const saved = localStorage.getItem(SORT_KEY);
+  return SOUND_SORTS.includes(saved as SoundSort) ? (saved as SoundSort) : 'newest';
+}
+
+export function saveSort(sort: SoundSort): void {
+  localStorage.setItem(SORT_KEY, sort);
+}
 /** `null` is every sound, `''` sounds outside categories, `*` favorites. */
 export type SoundScope = string | null;
 export const FAVORITES = '*';
@@ -39,6 +52,8 @@ export function matches(sound: SoundInfo, query: string): boolean {
 export function sortSounds(sounds: readonly SoundInfo[], sort: SoundSort): SoundInfo[] {
   const byName = (a: SoundInfo, b: SoundInfo) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
   const compare: Record<SoundSort, (a: SoundInfo, b: SoundInfo) => number> = {
+    newest: (a, b) => b.added_unix_ms - a.added_unix_ms || byName(a, b),
+    oldest: (a, b) => a.added_unix_ms - b.added_unix_ms || byName(a, b),
     name: byName,
     plays: (a, b) => b.play_count - a.play_count || byName(a, b),
     duration: (a, b) => (a.duration_ms ?? Infinity) - (b.duration_ms ?? Infinity) || byName(a, b),

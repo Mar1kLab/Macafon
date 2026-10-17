@@ -39,6 +39,13 @@ const UNDO_DEPTH = 100;
 const METER_HZ = 60;
 const ONBOARDING_KEY = 'macafon.onboarding';
 
+/** The library's formats (`SUPPORTED_EXTENSIONS` in macafon-soundpad). */
+export const SOUND_EXTENSIONS = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'];
+
+export function isSoundFile(name: string): boolean {
+  return SOUND_EXTENSIONS.includes(name.split('.').pop()?.toLowerCase() ?? '');
+}
+
 function base64(bytes: Uint8Array): string {
   let binary = '';
   for (let i = 0; i < bytes.length; i += 0x8000) {
@@ -479,6 +486,10 @@ export class DaemonStore {
   async uploadSounds(files: Iterable<File>, category: string | null): Promise<number> {
     let added = 0;
     for (const file of files) {
+      if (!isSoundFile(file.name)) {
+        this.toast(t('soundpad.unsupported', { name: file.name }), { tone: 'danger' });
+        continue;
+      }
       const key = file.name;
       const uploadId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
       this.uploads = { ...this.uploads, [key]: 0 };

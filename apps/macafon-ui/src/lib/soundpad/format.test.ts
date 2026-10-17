@@ -10,6 +10,7 @@ const sound = (name: string, extra: Partial<SoundInfo> = {}): SoundInfo => ({
   volume_pct: 100,
   favorite: false,
   play_count: 0,
+  added_unix_ms: 0,
   error: null,
   ...extra,
 });
@@ -31,5 +32,9 @@ describe('soundpad list', () => {
     const names = sortSounds([sound('Clip 10'), sound('Clip 2'), memes], 'name').map((s) => s.name);
     expect(names).toEqual(['Clip 2', 'Clip 10', 'Vine boom']);
     expect(sortSounds([sound('a'), memes], 'plays')[0]).toBe(memes);
+    const old = sound('Old', { added_unix_ms: 1 });
+    const fresh = sound('Fresh', { added_unix_ms: 2 });
+    expect(sortSounds([old, fresh], 'newest')[0]).toBe(fresh);
+    expect(sortSounds([fresh, old], 'oldest')[0]).toBe(old);
   });
 });

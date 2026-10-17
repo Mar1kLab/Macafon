@@ -59,6 +59,12 @@ impl Monitor {
                 let channels = usize::from(stream.channels);
                 while !stopping.load(Ordering::Acquire) {
                     if !stream.wait(WAIT_TIMEOUT_MS) {
+                        // Device invalidation can stop event delivery entirely. Probe on timeout
+                        // so the control loop can reopen the stream instead of keeping a dead tap.
+                        // SAFETY: the client remains initialised for this thread's lifetime.
+                        if unsafe { stream.client.GetCurrentPadding() }.is_err() {
+                            break;
+                        }
                         continue;
                     }
                     // SAFETY: GetBuffer returns room for `frames` interleaved float32 frames,
@@ -82,8 +88,7 @@ impl Monitor {
                             client.ReleaseBuffer(frames, 0)
                         })()
                     };
-                    if let Err(error) = written {
-                        tracing::warn!(%error, "Soundpad monitor stopped");
+                    if written.is_err() {
                         break;
                     }
                 }

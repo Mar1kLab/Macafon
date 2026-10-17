@@ -679,6 +679,19 @@ mod tests {
     }
 
     #[test]
+    fn failed_rescan_preserves_the_known_library() {
+        let (root, _, mut soundpad) = test_soundpad("failed-rescan");
+        write_wav(&soundpad.folder.join("known.wav"));
+        soundpad.rescan();
+        std::fs::rename(&soundpad.folder, root.join("backup")).expect("move folder");
+        std::fs::write(&soundpad.folder, b"temporarily unavailable").expect("block scan");
+        assert!(!soundpad.rescan());
+        assert_eq!(soundpad.entries()[0].id, "known.wav");
+        drop(soundpad);
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
     fn rescan_cancels_deleted_pending_decode() {
         let (root, config, mut soundpad) = test_soundpad("pending-delete");
         write_wav(&soundpad.folder.join("old.wav"));
@@ -702,6 +715,18 @@ mod tests {
                     .is_err()
             );
         }
+        assert!(
+            soundpad
+                .upload(
+                    "bad",
+                    "large.wav",
+                    None,
+                    0,
+                    &"A".repeat(SOUNDPAD_UPLOAD_CHUNK_BYTES.div_ceil(3) * 4 + 4),
+                    false
+                )
+                .is_err()
+        );
         assert!(!soundpad.uploads_dir.join("bad").exists());
         soundpad
             .upload("expired", "tone.wav", None, 0, "AAAA", false)

@@ -32,17 +32,27 @@ impl DaemonHost {
     }
 
     pub(super) fn refresh_input(&mut self) {
-        let selected = select_input(&self.config.mic, &self.inputs).map(str::to_owned);
+        let selected = select_input(&self.config.mic, &self.inputs);
         let stable_id = selected
-            .as_ref()
-            .and_then(|name| self.inputs.iter().find(|d| &d.name == name))
+            .and_then(|name| self.inputs.iter().find(|d| d.name == name))
             .map(|d| {
                 if d.stable_id.is_empty() {
-                    d.name.clone()
+                    d.name.as_str()
                 } else {
-                    d.stable_id.clone()
+                    d.stable_id.as_str()
                 }
             });
+        if self.selected_device.as_deref() == selected
+            && self.selected_stable_id.as_deref() == stable_id
+            && (self.config.mic.noise_floor_dbfs.is_none()
+                || self.config.mic.noise_floor_device.as_deref() == selected)
+        {
+            return;
+        }
+        // The 100 ms tick usually observes the same selection. Own the identifiers only
+        // when applying a change, which can update the config and its device profiles.
+        let selected = selected.map(str::to_owned);
+        let stable_id = stable_id.map(str::to_owned);
         let selection_changed =
             self.selected_device != selected || self.selected_stable_id != stable_id;
         if selection_changed {

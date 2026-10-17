@@ -205,7 +205,7 @@ mod tests {
     #[test]
     #[cfg(windows)]
     fn soundpad_command_preserves_shell_metacharacters() {
-        let id = "-it's $HOME `test` #????.wav";
+        let id = "-it's $HOME `test` #звук.wav";
         let command = HotkeyAction::SoundpadPlay(id.into()).command();
         assert!(command.starts_with("macafon ctl soundpad play -- "));
         let argument = command

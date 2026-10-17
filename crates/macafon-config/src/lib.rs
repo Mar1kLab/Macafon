@@ -2,12 +2,14 @@
 
 pub mod mixer;
 pub mod presets;
+pub mod soundpad;
 mod storage;
 
 pub(crate) use storage::write_atomically;
 pub use storage::{Error, Loaded, Recovered, Store, config_dir, state_dir};
 
 pub use mixer::{AppRule, AppsConfig, ChannelConfig, MixerConfig};
+pub use soundpad::{SoundConfig, SoundpadConfig};
 
 use macafon_dsp::{ChainSettings, InputChannel};
 use serde::{Deserialize, Serialize};
@@ -27,6 +29,7 @@ pub struct Config {
     pub audio: AudioConfig,
     /// `[hotkeys]`: action id → shortcut, `mic_mute_toggle = "Ctrl+Alt+M"` (§8.3).
     pub hotkeys: BTreeMap<String, String>,
+    pub soundpad: SoundpadConfig,
 }
 
 /// UI facts the daemon remembers.
@@ -205,6 +208,7 @@ impl Default for Config {
             ui: UiConfig::default(),
             audio: AudioConfig::default(),
             hotkeys: BTreeMap::new(),
+            soundpad: SoundpadConfig::default(),
         }
     }
 }

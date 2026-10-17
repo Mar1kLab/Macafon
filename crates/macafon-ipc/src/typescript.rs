@@ -87,12 +87,18 @@ fn protocol() -> String {
         OsdEdge::decl(&cfg),
         OsdPrefs::decl(&cfg),
         Preferences::decl(&cfg),
+        SoundInfo::decl(&cfg),
+        SoundpadPlayback::decl(&cfg),
+        SoundpadPrefs::decl(&cfg),
+        SoundpadState::decl(&cfg),
+        SoundpadPrefsPatch::decl(&cfg),
+        SoundPatch::decl(&cfg),
     ];
     let mut out = String::from(HEADER);
     out.push_str("// Protocol types of macafon-ipc (PRD §11.5).\n\n");
     out.push_str("type JsonValue = number | string | boolean | null | JsonValue[] | { [key: string]: JsonValue };\n\n");
     out.push_str(&format!(
-        "export const PROTOCOL_VERSION = {PROTOCOL_VERSION};\nexport const MAX_METER_HZ = {MAX_METER_HZ};\n\n"
+        "export const PROTOCOL_VERSION = {PROTOCOL_VERSION};\nexport const MAX_METER_HZ = {MAX_METER_HZ};\nexport const SOUNDPAD_UPLOAD_CHUNK_BYTES = {SOUNDPAD_UPLOAD_CHUNK_BYTES};\n\n"
     ));
     for decl in decls {
         // `Module<T>` is generic; ts-rs declares it with its placeholder parameter.

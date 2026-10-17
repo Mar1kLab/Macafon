@@ -21,11 +21,17 @@ pub enum HotkeyAction {
     ChannelVolumeUp(String),
     ChannelVolumeDown(String),
     ChannelMute(String),
+    /// Soundpad (§7.6): stop whatever plays.
+    SoundpadStop,
+    SoundpadPauseToggle,
+    SoundpadRandom,
+    /// Play one sound by its library id: `soundpad_play.Memes/airhorn.mp3`.
+    SoundpadPlay(String),
 }
 
 impl HotkeyAction {
     /// Actions that do not depend on the channels.
-    pub const GLOBAL: [Self; 10] = [
+    pub const GLOBAL: [Self; 13] = [
         Self::QuickPanel,
         Self::MasterVolumeUp,
         Self::MasterVolumeDown,
@@ -36,6 +42,9 @@ impl HotkeyAction {
         Self::BypassToggle,
         Self::PresetNext,
         Self::PresetPrevious,
+        Self::SoundpadStop,
+        Self::SoundpadPauseToggle,
+        Self::SoundpadRandom,
     ];
 
     pub fn id(&self) -> String {
@@ -53,6 +62,10 @@ impl HotkeyAction {
             Self::ChannelVolumeUp(id) => format!("channel_volume_up.{id}"),
             Self::ChannelVolumeDown(id) => format!("channel_volume_down.{id}"),
             Self::ChannelMute(id) => format!("channel_mute.{id}"),
+            Self::SoundpadStop => "soundpad_stop".into(),
+            Self::SoundpadPauseToggle => "soundpad_pause".into(),
+            Self::SoundpadRandom => "soundpad_random".into(),
+            Self::SoundpadPlay(id) => format!("soundpad_play.{id}"),
         }
     }
 
@@ -68,6 +81,9 @@ impl HotkeyAction {
             "bypass_toggle" => Self::BypassToggle,
             "preset_next" => Self::PresetNext,
             "preset_previous" => Self::PresetPrevious,
+            "soundpad_stop" => Self::SoundpadStop,
+            "soundpad_pause" => Self::SoundpadPauseToggle,
+            "soundpad_random" => Self::SoundpadRandom,
             _ => {
                 let (kind, channel) = id.split_once('.')?;
                 let channel = channel.to_owned();
@@ -78,6 +94,7 @@ impl HotkeyAction {
                     "channel_volume_up" => Self::ChannelVolumeUp(channel),
                     "channel_volume_down" => Self::ChannelVolumeDown(channel),
                     "channel_mute" => Self::ChannelMute(channel),
+                    "soundpad_play" => Self::SoundpadPlay(channel),
                     _ => return None,
                 }
             }
@@ -99,6 +116,10 @@ impl HotkeyAction {
             Self::ChannelVolumeUp(id) => format!("macafon ctl channel {id} volume +5"),
             Self::ChannelVolumeDown(id) => format!("macafon ctl channel {id} volume -5"),
             Self::ChannelMute(id) => format!("macafon ctl channel {id} mute"),
+            Self::SoundpadStop => "macafon ctl soundpad stop".into(),
+            Self::SoundpadPauseToggle => "macafon ctl soundpad pause".into(),
+            Self::SoundpadRandom => "macafon ctl soundpad random".into(),
+            Self::SoundpadPlay(id) => format!("macafon ctl soundpad play {id:?}"),
         }
     }
 
@@ -175,10 +196,12 @@ mod tests {
         for action in HotkeyAction::GLOBAL.into_iter().chain([
             HotkeyAction::ChannelVolumeUp("voice".into()),
             HotkeyAction::ChannelMute("ch-2".into()),
+            HotkeyAction::SoundpadPlay("Memes/air horn.v2.mp3".into()),
         ]) {
             assert_eq!(HotkeyAction::parse(&action.id()), Some(action));
         }
         assert_eq!(HotkeyAction::parse("channel_mute."), None);
+        assert_eq!(HotkeyAction::parse("soundpad_play."), None);
         assert_eq!(HotkeyAction::parse("explode"), None);
     }
 }

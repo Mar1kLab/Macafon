@@ -12,6 +12,7 @@ mod hotkeys;
 mod mixer;
 mod output_control;
 mod request;
+mod soundpad;
 mod state;
 pub mod transport;
 #[cfg(all(test, feature = "ts"))]
@@ -42,6 +43,10 @@ pub const MAX_LINE_BYTES: usize = 1 << 20;
 pub const MAX_METER_HZ: u32 = 60;
 
 pub use request::Request;
+pub use soundpad::{
+    SOUNDPAD_UPLOAD_CHUNK_BYTES, SoundInfo, SoundPatch, SoundpadPlayback, SoundpadPrefs,
+    SoundpadPrefsPatch, SoundpadState,
+};
 pub use state::{
     AbRecording, AbSide, AbState, AbWaveform, AutostartMethod, AutostartState, CalibrationFailure,
     CalibrationState, CalibrationStep, Capabilities, CloseAction, ConfigRecovery, Device,

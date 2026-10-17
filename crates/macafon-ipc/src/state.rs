@@ -98,6 +98,9 @@ pub struct Capabilities {
     /// notification.
     #[serde(default)]
     pub hotkey_popup: bool,
+    /// Sounds play into the virtual microphone and the headphones (§7.6).
+    #[serde(default)]
+    pub soundpad: bool,
 }
 
 impl Capabilities {
@@ -107,6 +110,7 @@ impl Capabilities {
         channel_fx: true,
         graph_quantum: true,
         hotkey_popup: false,
+        soundpad: false,
     };
     pub const WINDOWS: Self = Self {
         virtual_mic_device: false,
@@ -114,6 +118,7 @@ impl Capabilities {
         channel_fx: false,
         graph_quantum: false,
         hotkey_popup: true,
+        soundpad: true,
     };
 }
 

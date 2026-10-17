@@ -103,6 +103,12 @@ pub enum Event {
     DevicesChanged(Vec<Device>),
     #[serde(rename = "prefs.changed")]
     PrefsChanged(Preferences),
+    /// Any change of the library or the soundpad preferences.
+    #[serde(rename = "soundpad.changed")]
+    SoundpadChanged(crate::SoundpadState),
+    /// Playback progress, about 10 Hz while a sound plays; `null` when it ends.
+    #[serde(rename = "soundpad.playback")]
+    SoundpadPlayback(Option<crate::SoundpadPlayback>),
     /// For the UI process, not its pages: show a window or toggle a panel. The daemon sends
     /// it instead of starting a second UI process, which is what made panels slow to open.
     #[serde(rename = "ui.show")]

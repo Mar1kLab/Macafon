@@ -266,6 +266,14 @@ mod tests {
                 quantum_frames: 256,
             },
             hotkeys: BTreeMap::new(),
+            soundpad: {
+                let mut soundpad = crate::SoundpadConfig {
+                    monitor_device: Some("headphones".into()),
+                    ..Default::default()
+                };
+                soundpad.edit_sound("Memes/air horn.mp3", |sound| sound.favorite = true);
+                soundpad
+            },
             mic: MicConfig {
                 stereo: true,
                 input_channel: InputChannel::Right,

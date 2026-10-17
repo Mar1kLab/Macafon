@@ -217,6 +217,79 @@ pub enum Request {
     /// reacts as it did to the UI disconnecting (BG-001 hint, §9.5 quit on close).
     #[serde(rename = "ui.window_closed")]
     UiWindowClosed,
+    /// The library, its sounds and the soundpad preferences (§7.6).
+    #[serde(rename = "soundpad.get")]
+    SoundpadGet,
+    /// Look at the folder again now; it is also rescanned every few seconds.
+    #[serde(rename = "soundpad.rescan")]
+    SoundpadRescan,
+    /// Open the library folder in the file manager.
+    #[serde(rename = "soundpad.open_folder")]
+    SoundpadOpenFolder,
+    /// SND-002: play a sound from the start, replacing what plays.
+    #[serde(rename = "soundpad.play")]
+    SoundpadPlay { id: String },
+    /// Play a random sound, of one category if given.
+    #[serde(rename = "soundpad.play_random")]
+    SoundpadPlayRandom {
+        #[serde(default)]
+        category: Option<String>,
+    },
+    #[serde(rename = "soundpad.stop")]
+    SoundpadStop,
+    /// `null` toggles.
+    #[serde(rename = "soundpad.set_paused")]
+    SoundpadSetPaused {
+        #[serde(default)]
+        paused: Option<bool>,
+    },
+    #[serde(rename = "soundpad.seek")]
+    SoundpadSeek { position_ms: u32 },
+    #[serde(rename = "soundpad.set_looping")]
+    SoundpadSetLooping { looping: bool },
+    #[serde(rename = "soundpad.set_prefs")]
+    SoundpadSetPrefs { patch: crate::SoundpadPrefsPatch },
+    /// Monitor output by device name; `null` follows the default output.
+    #[serde(rename = "soundpad.set_monitor_device")]
+    SoundpadSetMonitorDevice { device: Option<String> },
+    #[serde(rename = "soundpad.set_sound")]
+    SoundpadSetSound {
+        id: String,
+        patch: crate::SoundPatch,
+    },
+    /// New file name without extension.
+    #[serde(rename = "soundpad.rename")]
+    SoundpadRename { id: String, name: String },
+    /// Move into a category; `null` is the folder itself.
+    #[serde(rename = "soundpad.move")]
+    SoundpadMove {
+        id: String,
+        category: Option<String>,
+    },
+    /// Delete the file from the library folder.
+    #[serde(rename = "soundpad.delete")]
+    SoundpadDelete { id: String },
+    #[serde(rename = "soundpad.create_category")]
+    SoundpadCreateCategory { name: String },
+    #[serde(rename = "soundpad.rename_category")]
+    SoundpadRenameCategory { from: String, to: String },
+    /// Its sounds move to the folder itself.
+    #[serde(rename = "soundpad.delete_category")]
+    SoundpadDeleteCategory { name: String },
+    /// Add a file to the library in base64 chunks of up to `SOUNDPAD_UPLOAD_CHUNK_BYTES`
+    /// decoded bytes:
+    /// `offset` is the byte offset of `data`; `done` finishes the file and returns the
+    /// state. A new upload starts with `offset` 0 under a client-chosen `upload_id`.
+    #[serde(rename = "soundpad.upload")]
+    SoundpadUpload {
+        upload_id: String,
+        file_name: String,
+        #[serde(default)]
+        category: Option<String>,
+        offset: u32,
+        data: String,
+        done: bool,
+    },
     /// §9.5 preferences.
     #[serde(rename = "prefs.get")]
     PrefsGet,

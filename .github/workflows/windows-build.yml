@@ -1,0 +1,89 @@
+name: Windows 11 build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  installer:
+    name: Windows 11 x64 installer
+    runs-on: windows-2025
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_TERM_COLOR: always
+      RUSTUP_TOOLCHAIN: 1.99.0
+      PYTHONUTF8: '1'
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Set up Rust
+        run: rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal
+
+      - name: Set up pnpm
+        run: |
+          npm install --global --force corepack@0.35.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          corepack enable
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          corepack prepare pnpm@12.11.2 --activate
+
+      - name: Install frontend dependencies
+        run: corepack pnpm -C apps/macafon-ui install --frozen-lockfile
+
+      - name: Check frontend
+        run: corepack pnpm -C apps/macafon-ui check
+
+      - name: Build Windows installer
+        run: python tools/package-windows.py
+
+      - name: Prepare download
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath target/release/bundle/nsis -Filter '*_x64-setup.exe' -File)
+          if ($installers.Count -ne 1) { throw 'Expected exactly one Windows x64 installer' }
+          $installer = $installers[0]
+          $checksum = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $download = New-Item -ItemType Directory -Path target/windows-download -Force
+          Copy-Item -LiteralPath $installer.FullName -Destination $download.FullName
+          "$checksum  $($installer.Name)" | Set-Content -LiteralPath (Join-Path $download.FullName 'SHA256SUMS.txt') -Encoding ascii
+          @"
+          ## Windows 11 x64
+          - Installer: ``$($installer.Name)``
+          - Source: ``$env:GITHUB_SHA``
+          - SHA-256: ``$checksum``
+          - Download **Macafon-Windows11-x64** from this run's **Artifacts** section.
+          - VB-CABLE is installed separately; it is not bundled.
+          "@ | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload installer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Macafon-Windows11-x64
+          path: target/windows-download/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

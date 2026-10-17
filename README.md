@@ -31,7 +31,7 @@ the result as a virtual microphone for Discord, OBS, Zoom or games. On Windows, 
 - Noise suppression *Lite* (RNNoise) or *Studio* (DeepFilterNet 3), running locally on the CPU.
 - Six built-in presets plus your own, per-microphone profiles, hot-plug and a fallback microphone.
 
-**Sound split into channels.** Main, Voice, Music and up to eight of your own. Apps show up automatically
+**Sound split into channels.** Start with Main, Voice and Music; customize up to eight channels in total. Apps show up automatically
 and are dragged between channels; Macafon remembers where each app belongs.
 
 ![Mixer screen](docs/images/mixer.png)

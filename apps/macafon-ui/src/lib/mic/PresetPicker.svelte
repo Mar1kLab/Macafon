@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HotkeyHint from '../settings/HotkeyHint.svelte';
   // Presets (§6.3.10): built-in are read-only (Save → "Save as new"), user presets can be
   // updated, renamed, duplicated and deleted. Import/export need file dialogs (next round).
   import { Copy, Pencil, Trash2 } from '@lucide/svelte';
@@ -90,6 +91,8 @@
   onsubmit={submit}
   onclose={() => (prompt = null)}
 />
+
+<HotkeyHint actions={['preset_next', 'preset_previous']} />
 
 <style>
   .presets {

@@ -122,7 +122,7 @@
 {#if mixer}
   <div class="screen">
     <header class="top">
-      <h1 class="hud-label">02 / {t('mixer.section')}</h1>
+      <h1 class="hud-label">{t('mixer.section')}</h1>
       <label class="switch">
         <span class="hud-label">{t('mixer.enabled')}</span>
         <Toggle checked={mixer.enabled} label={t('mixer.enabled')} onchange={(enabled) => daemon.setMixer(daemon.client.call('mixer.set_enabled', { enabled }))} />
@@ -214,7 +214,7 @@
           />
         {/if}
       </div>
-      <p class="footnote">{t('mixer.footnote')}</p>
+
     {/if}
   </div>
 {:else}
@@ -297,7 +297,8 @@
     display: flex;
     gap: 12px;
     padding: 20px 24px;
-    overflow-x: auto;
+    overflow: auto;
+    align-items: stretch;
   }
 
   .new {
@@ -318,12 +319,6 @@
   .new:hover {
     border-color: var(--ink);
     color: var(--ink);
-  }
-
-  .footnote {
-    padding: 8px 24px 12px;
-    font-size: 12px;
-    color: var(--faint);
   }
 
   .off {

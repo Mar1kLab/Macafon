@@ -474,14 +474,16 @@ by default, except those set by the channel template.
 
 | ID | Requirement | Priority |
 |---|---|---|
-| HK-001 | Global actions: Toggle mic mute, Push-to-talk (hold = on), Push-to-mute, Toggle bypass, Next/Previous preset, Volume up/down for each channel, channel Mute | P0 |
+| HK-001 | Global actions: Toggle mic mute, Push-to-talk (hold = on), Push-to-mute, Toggle bypass, Next/Previous preset, Volume up/down for each channel and Master, channel/Master Mute | P0 |
 | HK-002 | Assignment in Settings → Hotkeys: recording a shortcut by pressing it, conflict checks within Macafon | P0 |
 | HK-003 | Wayland: through `xdg-desktop-portal` **GlobalShortcuts** (KDE Plasma, GNOME 48+, Hyprland). X11: through XGrab (the `global-hotkey` crate). Hotkeys are registered by **the daemon**, not the UI, so they work with the window closed | P0 |
 | HK-004 | A fallback for environments without a portal: CLI `macafon ctl mic mute toggle` / `macafon ctl preset next` / `macafon ctl channel voice volume +5` — the user binds them in the DE settings; the UI shows a ready command to copy | P0 |
 | HK-005 | A sound cue (a quiet "click") on mute/unmute — an option | P1 |
-| HK-006 | An OSD on every hotkey action. Windows: Macafon's own popup on the right edge of the active monitor, no system notifications (owner decision, 2026-10-17) — a vertical volume slider in the channel's color with its icon and name, a compact card for mute/bypass/preset; spring animations, off when Windows animations are off. Settings → Hotkey popup: style (Android-like vertical slider or Windows 11-like bar), edge (left/right or top/bottom) and an offset toward the center in percent of the screen. Linux: a replaceable desktop notification on preset/volume change | P1 |
+| HK-006 | An OSD on every hotkey action. Windows: Macafon's own popup on the right edge of the active monitor, no system notifications (owner decision, 2026-10-17) — a vertical volume slider in the channel's color with its icon and name, a compact card for mute/bypass/preset; spring animations, off when Windows animations are off. Settings → Hotkey popup: monitor (foreground/active or primary, shared with the hotkey overlay), style (Android-like vertical slider or Windows 11-like bar), edge (left/right or top/bottom) and an offset toward the center in percent of the screen. Linux: a replaceable desktop notification on preset/volume change | P1 |
 | HK-007 | Quick panel (owner request, 2026-10-17): a small always-on-top window above the tray with Android/Windows 11-like tiles (microphone mute, processing bypass, mixer), the preset and pill sliders with mute for the Master and every channel that is on. Windows tray right-click opens this compact tray panel with Close, Open Macafon and Quit Macafon controls; the `quick_panel` hotkey or `macafon quick-panel` opens a centered horizontal overlay in the upper-middle of the foreground monitor. Both close on Esc, their trigger again or focus loss. Rounded corners are an owner exception to the design system, like the HK-006 popup | P1 |
 | HK-008 | Default shortcuts, offered once (cleared ones stay cleared) and only when free (owner request, 2026-10-17): one left hand on Ctrl+Alt — `` ` `` quick panel, `Q` mic mute, `W`/`S` Main, `E`/`D` Voice, `R`/`F` Music volume ±5 %. On Windows a pair whose key types a character with AltGr in an installed layout (`€`, `@`, `ś`) is skipped | P1 |
+| HK-009 | Every action has primary and secondary shortcuts, independently recorded and cleared. Windows distinguishes left/right Ctrl and Alt; generic existing modifiers keep matching either side. Overlapping shortcuts are rejected. Releasing one of two held shortcuts leaves the hold action active until both are released | P0 |
+| HK-010 | Settings provides a volume hotkey step of 1..20 percentage points (default 5), shared by channel and Master volume actions. Assigned shortcuts appear next to microphone, preset, channel and Master controls | P0 |
 
 ---
 
@@ -928,15 +930,15 @@ sessions. The channel model, rules, auto-classification, D&D and hotkeys are the
 no effects on channels or Master.
 
 ```
-Discord ─┐ session × (Voice 50% × app 100% × Master 100%)
-Firefox ─┼─ session × (Main 30% × …)            ──► the real output device (Windows mixes it itself)
+Discord ─┐ session × (Voice 50% × app 100%)
+Firefox ─┼─ session × (Main 30% × …)            ──► Windows mix -> system Master -> output device
 Cider   ─┘ session × (Music 70% × …)
 ```
 
 | ID | Requirement | Priority |
 |---|---|---|
 | WIN-CH-001 | Application auto-detection — `IAudioSessionManager2` + `IAudioSessionNotification` on all output devices; grouping by exe (APP-002), icons from the exe / AppX manifest (APP-003); system sounds — a pseudo-chip (APP-011) | P0 |
-| WIN-CH-002 | Session volume = a cubic curve (`channel × application × Master`) through `ISimpleAudioVolume`; channel/Master mute — session mute. A change applies to all of the application's sessions, including new ones (APP-005) | P0 |
+| WIN-CH-002 | Session volume = a cubic curve (`channel × application`) through `ISimpleAudioVolume`; channel mute affects sessions. Master mirrors the default Windows render endpoint through `IAudioEndpointVolume`, including external volume/mute changes, adopts Windows on startup/device changes, and never attenuates sessions a second time. Explicit Master edits persist as system volume on exit (owner decision, 2026-10-17). A change applies to all of the application's sessions, including new ones (APP-005) | P0 |
 | WIN-CH-003 | A change of an application's volume in the Windows volume mixer (or by the application itself) is recognized by Macafon through `IAudioSessionEvents::OnSimpleVolumeChanged` (its own event-context GUID tells its own changes apart) and accepted as the application's new volume (CH-008), not overwritten | P0 |
 | WIN-CH-004 | Meters: session `IAudioMeterInformation`; a channel meter is the maximum of its applications' peaks (CH-005), Master is the output device meter | P0 |
 | WIN-CH-005 | Up to 8 channels, as on Linux (channels need no cables) | P0 |
@@ -945,6 +947,7 @@ Cider   ─┘ session × (Music 70% × …)
 | WIN-CH-008 | Recovery: the original session volumes and mutes changed by Macafon are saved in a journal and given back when the mixer is disabled, on Quit, after a daemon crash (on the next start) and on uninstall | P0 |
 | WIN-CH-009 | An application cannot be redirected "into a channel" at the audio level — a channel does not change the application's device. Moving a chip only changes which fader controls the application | P0 |
 | WIN-CH-010 | Per-channel effects without extra cables (for example, WASAPI process loopback) — outside 1.x; revisited in ADR-0004 | P2 |
+| WIN-CH-011 | Settings shows Windows sessions as the active mixer mode and a disabled VB-CABLE (Soon) option. A future cable mixer requires a separate user-installed cable; no cable mixer or effects are enabled yet (owner decision, 2026-10-17) | P0 |
 
 **Accepted limitations of this approach:** one virtual microphone; higher microphone latency than on Linux;
 a foreign device name in applications (until WIN-MIC-010); no channel or Master effects on Windows;
@@ -956,7 +959,7 @@ a foreign device name in applications (until WIN-MIC-010); no channel or Master 
 |---|---|
 | Tray / autostart | `tray-icon`; daemon autostart at logon through `HKCU\…\Run` (no UAC) (AS-004) |
 | IPC | The named pipe `\\.\pipe\macafon-<user SID>` with a current-user ACL instead of a Unix socket |
-| Hotkeys | `global-hotkey` (RegisterHotKey), including release events for push-to-talk |
+| Hotkeys | `global-hotkey` (RegisterHotKey), plus `WH_KEYBOARD_LL` for side-specific Ctrl/Alt, including release events for push-to-talk |
 | Installer | MSI (WiX) through the Tauri bundler, **a per-user install without administrator rights** (no services or system components). VB-CABLE is **not** part of the installer (WIN-MIC-002). Implemented as a per-user NSIS installer, because the Tauri MSI installs per machine ([windows-m3.md](development/windows-m3.md)) |
 | Uninstall | Restores default devices and session volumes from the journals (WIN-MIC-005, WIN-CH-008); does not remove VB-CABLE — explains how to remove it yourself |
 | Our own virtual device driver | Postponed; revisited if there is a budget for signing (then several virtual mics and channels with effects, as on Linux) |
@@ -1145,7 +1148,7 @@ installed), there is no cloud CI (AGENTS.md). Progress — [windows-m3.md](devel
 | **M3.1 · Platform layer** | A shared `trait AudioBackend` in `macafon-backend` instead of Linux-specific host traits; `macafon-backend-windows` (the `windows` crate): devices and hot-plug (`IMMNotificationClient`), the microphone engine (an MMCSS capture thread + a ring buffer with drift compensation + an output thread), mute/bypass, A/B, calibration, NS Studio; IPC over a named pipe; `%APPDATA%`/`%LOCALAPPDATA%` paths; the default device journal | The daemon on Windows delivers processed audio into `CABLE Output` and survives a microphone disconnect and a format change; ring buffer/drift tests under `assert_no_alloc`; a one-hour soak without xruns |
 | **M3.2 · Platform capabilities in the protocol** | `hello` returns `platform` and capability flags (`virtual_mic_device`, `channel_fx`, `multiple_virtual_mics`, `hotkey_backend`…); the UI hides what is unavailable (channel EQ/FX, the stereo option, renaming) by flags, not by an OS check in the UI; the mock daemon gets a `?platform=windows` mode | The UI in Windows mock mode shows the right screens; TS types generated |
 | **M3.3 · Microphone in the UI and onboarding** | The "Install VB-CABLE" step continuing after a reboot (WIN-MIC-002), "Use it" with `CABLE Output` (WIN-MIC-003), the default microphone toggle, a warning in Quit (WIN-MIC-005), Doctor: cable found, 48 kHz format, buffer and latency, foreign sessions on `CABLE Input`, default render on the cable (WIN-MIC-004/007/008) | Onboarding goes through on a clean system from installing VB-CABLE to audio in Discord |
-| **M3.4 · Mixer** | Sessions and grouping by exe, icons from exe/AppX, volume/mute through `ISimpleAudioVolume` (`channel × application × Master`), accepting external volume changes, session meters, output device selection and priority, a journal and volume restore (WIN-CH-001…009) | Applications from §14.4 (Windows versions) are grouped, faders and mute work, volumes are restored after Quit/a crash |
+| **M3.4 · Mixer** | Sessions and grouping by exe, icons from exe/AppX, volume/mute through `ISimpleAudioVolume` (`channel × application`), Master through `IAudioEndpointVolume`, accepting external volume changes, session meters, output device selection and priority, a journal and volume restore (WIN-CH-001…009) | Applications from §14.4 (Windows versions) are grouped, faders and mute work, volumes are restored after Quit/a crash |
 | **M3.5 · Background and control** | Tray (`tray-icon`), autostart through `HKCU\…\Run`, single instance, `global-hotkey` hotkeys with push-to-talk, `macafon ctl` over the named pipe, Windows notifications | Hotkeys work with the window closed; HK-004 CLI commands work |
 | **M3.6 · Package and release** | A per-user installer (implemented with NSIS instead of the Tauri bundler + WiX MSI) without VB-CABLE, SignPath signing, uninstall restoring default devices and volumes; a Windows release checklist; a test matrix: USB microphones, Realtek, USB/Bluetooth headsets; Discord, OBS, Zoom, Teams, Telegram, games with anti-cheats (Vanguard, EAC, BattlEye, FACEIT) | The checklist passes on Windows 10 22H2 and Windows 11 24H2/25H2 |
 

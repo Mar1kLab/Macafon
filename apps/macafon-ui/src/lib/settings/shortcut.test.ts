@@ -23,6 +23,10 @@ describe('shortcut recording', () => {
     expect(recordShortcut(key('Semicolon', { ctrl: true })).kind).toBe('unsupported');
   });
 
+  it('retains the physical Ctrl and Alt sides', () => {
+    expect(recordShortcut(key('KeyM', { ctrl: true, alt: true }), new Set(['ControlRight', 'AltLeft']))).toEqual({ kind: 'done', shortcut: 'RCtrl+LAlt+M' });
+  });
+
   it('records the console key like the daemon and shows it as its character', () => {
     expect(recordShortcut(key('Backquote', { ctrl: true, alt: true }))).toEqual({
       kind: 'done',

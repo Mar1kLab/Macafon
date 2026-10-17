@@ -15,6 +15,7 @@
   /** Action being recorded and the modifiers held so far. */
   let recording = $state<string | null>(null);
   let preview = $state('');
+  const sides = new Set<string>();
   /** Inline problem per action: bad key, conflict, daemon refusal. */
   let problems = $state<Record<string, string>>({});
 
@@ -38,7 +39,7 @@
     const result: { id: string; title: string; bindings: HotkeyBinding[] }[] = [];
     for (const binding of hotkeys?.bindings ?? []) {
       const channel = binding.action.split('.')[1];
-      const general = binding.action === 'quick_panel';
+      const general = binding.action === 'quick_panel' || binding.action.startsWith('master_');
       const id = channel ?? (general ? 'general' : '');
       let group = result.find((g) => g.id === id);
       if (!group) {
@@ -61,19 +62,22 @@
   }
 
   function start(action: string) {
+    sides.clear();
     recording = action;
     preview = '';
     setProblem(action, null);
   }
 
   function stop() {
+    sides.clear();
     recording = null;
     preview = '';
   }
 
   async function save(action: string, shortcut: string | null) {
     try {
-      const next = await daemon.client.call('hotkeys.set', { action, shortcut });
+      const [id, slot] = action.split('#');
+      const next = await daemon.client.call('hotkeys.set', { action: id!, shortcut, secondary: slot === 'secondary' });
       daemon.hotkeys = next;
       setProblem(action, null);
     } catch (error) {
@@ -92,7 +96,8 @@
       stop();
       return;
     }
-    const result = recordShortcut(event);
+    if (/^(Control|Alt)(Left|Right)$/.test(event.code)) sides.add(event.code);
+    const result = recordShortcut(event, daemon.windows ? sides : undefined);
     if (result.kind === 'partial') {
       preview = result.preview;
       return;
@@ -106,7 +111,7 @@
       return;
     }
     stop();
-    const taken = hotkeys?.bindings.find((b) => b.action !== action && b.shortcut === result.shortcut);
+    const taken = hotkeys?.bindings.find((b) => (b.action !== action && b.shortcut === result.shortcut) || (`${b.action}#secondary` !== action && b.secondary_shortcut === result.shortcut));
     if (taken) {
       setProblem(action, t('settings.hotkeys.conflict', { shortcut: displayShortcut(result.shortcut), action: fullLabel(taken.action) }));
       return;
@@ -116,7 +121,8 @@
 
   function onkeyup(action: string, event: KeyboardEvent) {
     if (recording !== action) return;
-    const result = recordShortcut(event);
+    sides.delete(event.code);
+    const result = recordShortcut(event, daemon.windows ? sides : undefined);
     if (result.kind === 'partial') preview = result.preview;
   }
 
@@ -132,20 +138,6 @@
 
 {#if hotkeys}
   <div class="hotkeys">
-    <div class="status">
-      <div>
-        <p class="name">{t('settings.hotkeys.backend')}</p>
-        <p class="hint">
-          {unavailable
-            ? t('settings.hotkeys.unavailableHint')
-            : hotkeys.backend === 'portal'
-              ? t('settings.hotkeys.portalHint')
-              : t('settings.hotkeys.x11Hint')}
-        </p>
-      </div>
-      <span class="badge" class:off={unavailable}>{t(`settings.hotkeys.backends.${hotkeys.backend}`)}</span>
-    </div>
-
     {#each groups as group (group.id)}
       <div class="group">
         <h3 class="hud-label">{group.title}</h3>
@@ -153,7 +145,7 @@
           {#each group.bindings as binding (binding.action)}
             {@const action = binding.action}
             {@const problem = problems[action] ?? binding.error}
-            <li>
+            <li class:unavailable>
               <span class="action">{label(action)}</span>
               {#if unavailable}
                 {#if binding.command}
@@ -165,32 +157,23 @@
                   <span class="hint">{t('settings.hotkeys.holdOnly')}</span>
                 {/if}
               {:else}
-                <button
-                  class="key"
-                  class:recording={recording === action}
-                  class:empty={!binding.shortcut}
-                  aria-label={t('settings.hotkeys.record', { action: fullLabel(action) })}
-                  aria-describedby={problem ? `hk-${action}` : undefined}
-                  onclick={() => (recording === action ? stop() : start(action))}
-                  onkeydown={(event) => onkeydown(action, event)}
-                  onkeyup={(event) => onkeyup(action, event)}
-                  onblur={() => recording === action && stop()}
-                >
-                  {#if recording === action}
-                    {preview || t('settings.hotkeys.press')}
-                  {:else}
-                    {binding.shortcut ? displayShortcut(binding.shortcut) : t('settings.hotkeys.notSet')}
-                  {/if}
-                </button>
-                <button
-                  class="btn icon ghost small"
-                  aria-label={t('settings.hotkeys.clear', { action: fullLabel(action) })}
-                  title={t('settings.hotkeys.clear', { action: fullLabel(action) })}
-                  disabled={!binding.shortcut}
-                  onclick={() => save(action, null)}
-                >
-                  <X size={13} strokeWidth={1.5} />
-                </button>
+                {#each [false, true] as secondary}
+                  {@const slot = secondary ? `${action}#secondary` : action}
+                  {@const shortcut = secondary ? binding.secondary_shortcut : binding.shortcut}
+                  <div class="slot">
+                    <button class="key" class:recording={recording === slot} class:empty={!shortcut}
+                      aria-label={`${t('settings.hotkeys.record', { action: fullLabel(action) })} / ${t(secondary ? 'settings.hotkeys.secondary' : 'settings.hotkeys.primary')}`}
+                      aria-describedby={(secondary ? problems[slot] || binding.secondary_error : problem) ? `hk-${slot}` : undefined}
+                      onclick={() => recording === slot ? stop() : start(slot)}
+                      onkeydown={(event) => onkeydown(slot, event)} onkeyup={(event) => onkeyup(slot, event)}
+                      onblur={() => recording === slot && stop()}>
+                      {recording === slot ? preview || t('settings.hotkeys.press') : shortcut ? displayShortcut(shortcut) : t(secondary ? 'settings.hotkeys.secondary' : 'settings.hotkeys.notSet')}
+                    </button>
+                    <button class="btn icon ghost small" aria-label={`${t('settings.hotkeys.clear', { action: fullLabel(action) })} / ${t(secondary ? 'settings.hotkeys.secondary' : 'settings.hotkeys.primary')}`}
+                      disabled={!shortcut} onclick={() => save(slot, null)}><X size={13} strokeWidth={1.5} /></button>
+                  </div>
+                  {#if secondary && (problems[slot] || binding.secondary_error)}<p class="problem" id="hk-{slot}">{problems[slot] ?? binding.secondary_error}</p>{/if}
+                {/each}
               {/if}
               {#if problem}
                 <p class="problem" id="hk-{action}">{problem}</p>
@@ -214,16 +197,7 @@
     padding: 14px 24px;
   }
 
-  .status {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 24px;
-  }
-
-  .badge.off {
-    color: var(--app-amber-ink);
-  }
+  .slot { display: flex; min-width: 0; align-items: center; }
 
   .group {
     display: grid;
@@ -240,7 +214,7 @@
 
   li {
     display: grid;
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: minmax(100px, 1fr) minmax(0, 1fr) minmax(0, 1fr);
     align-items: center;
     column-gap: 8px;
     padding: 4px 8px 4px 12px;
@@ -248,7 +222,8 @@
     background: var(--bg-sunken);
   }
 
-  .name,
+  li.unavailable { grid-template-columns: minmax(100px, 1fr) minmax(0, 2fr) auto; }
+
   .action {
     color: var(--ink);
   }
@@ -259,7 +234,10 @@
   }
 
   .key {
-    min-width: 168px;
+    min-width: 0;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
     padding: 4px 10px;
     font-family: var(--font-mono);
     font-size: 12px;
@@ -285,6 +263,7 @@
   }
 
   code {
+    overflow-wrap: anywhere;
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--ink);

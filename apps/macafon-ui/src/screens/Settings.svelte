@@ -14,15 +14,9 @@
   import { daemon } from '../lib/state';
   import Doctor from '../lib/settings/Doctor.svelte';
   import Hotkeys from '../lib/settings/Hotkeys.svelte';
-  import { t, type MessageKey } from '../lib/i18n';
-  import type { AutostartMethod, CloseAction, InputChannel, OsdEdge, OsdPrefs, OsdStyle } from '../lib/ipc/protocol';
+  import { t } from '../lib/i18n';
+  import type { CloseAction, InputChannel, OsdEdge, OsdPrefs, OsdStyle } from '../lib/ipc/protocol';
   import { OSD_MAX_OFFSET_PCT, QUANTUM_CHOICES, SAMPLE_RATE_HZ } from '../lib/ipc/dsp';
-
-  const autostartMethodKey: Record<AutostartMethod, MessageKey> = {
-    systemd: 'settings.methodSystemd',
-    xdg_autostart: 'settings.methodXdg',
-    windows_run: 'settings.methodWindowsRun',
-  };
 
   let { onnavigate }: { onnavigate: (screen: 'microphone' | 'mixer') => void } = $props();
   const mic = $derived(daemon.mic);
@@ -65,9 +59,10 @@
     label: t(`settings.closeActions.${value}`),
   }));
 
-  async function setPrefs(patch: { quantum_frames?: number; close_action?: CloseAction; osd?: OsdPrefs }) {
+  async function setPrefs(patch: { volume_step_pct?: number; quantum_frames?: number; close_action?: CloseAction; osd?: OsdPrefs }) {
     const next = await daemon.run(
       daemon.client.call('prefs.set', {
+        volume_step_pct: patch.volume_step_pct ?? null,
         quantum_frames: patch.quantum_frames ?? null,
         close_action: patch.close_action ?? null,
         osd: patch.osd ?? null,
@@ -116,7 +111,7 @@
 
 <div class="screen">
   <header class="top">
-    <h1 class="hud-label">03 / {t('settings.section')}</h1>
+    <h1 class="hud-label">{t('settings.section')}</h1>
   </header>
   <div class="scroll">
     <section>
@@ -124,18 +119,12 @@
       <div class="row">
         <div>
           <p class="name">{t('settings.startWithSystem')}</p>
-          {#if autostart}
-            <p class="hint">
-              {t('settings.startWithSystemHint', { method: t(autostartMethodKey[autostart.method]) })}
-            </p>
-          {/if}
         </div>
         <Toggle checked={autostart?.enabled ?? false} disabled={!autostart} label={t('settings.startWithSystem')} onchange={setAutostart} />
       </div>
       <div class="row">
         <div>
           <p class="name">{t('settings.onboarding')}</p>
-          <p class="hint">{t('settings.onboardingHint')}</p>
         </div>
         <button class="btn" onclick={() => daemon.startOnboarding()}>{t('settings.onboardingRun')}</button>
       </div>
@@ -143,7 +132,6 @@
         <div class="row">
           <div>
             <p class="name">{t('settings.closeAction')}</p>
-            <p class="hint">{t('settings.closeActionHint')}</p>
           </div>
           <Dropdown
             label={t('settings.closeAction')}
@@ -157,7 +145,6 @@
       <div class="row">
         <div>
           <p class="name">{t('settings.quit')}</p>
-          <p class="hint">{daemon.windows ? t('settings.quitHintWindows') : t('settings.quitHint')}</p>
         </div>
         <button class="btn" onclick={() => (confirmQuit = true)}>{t('settings.quit')}</button>
       </div>
@@ -169,7 +156,6 @@
         <div class="row">
           <div>
             <p class="name">{t('settings.fallback')}</p>
-            <p class="hint">{t('settings.fallbackHint')}</p>
           </div>
           <Dropdown
             label={t('settings.fallback')}
@@ -182,7 +168,6 @@
         <div class="row">
           <div>
             <p class="name">{t('settings.inputChannel')}</p>
-            <p class="hint">{t('settings.inputChannelHint')}</p>
           </div>
           <Dropdown
             label={t('settings.inputChannel')}
@@ -195,7 +180,6 @@
         <div class="row">
           <div>
             <p class="name">{t('settings.systemDefault')}</p>
-            <p class="hint">{t('settings.systemDefaultHint')}</p>
           </div>
           <Toggle checked={mic.is_default_source} disabled={daemon.cableMissing} label={t('settings.systemDefault')} onchange={setDefault} />
         </div>
@@ -203,7 +187,6 @@
           <div class="row">
             <div>
               <p class="name">{t('settings.quantum')}</p>
-              <p class="hint">{t('settings.quantumHint')}</p>
             </div>
             <Dropdown
               label={t('settings.quantum')}
@@ -217,7 +200,6 @@
         <div class="row">
           <div>
             <p class="name">{t('settings.format')}</p>
-            <p class="hint">{daemon.windows ? t('settings.formatHintWindows') : t('settings.formatHint')}</p>
           </div>
           <span class="badge">{mic.stereo || daemon.windows ? t('settings.stereo') : t('settings.mono')} · 48 kHz · float32</span>
         </div>
@@ -239,10 +221,17 @@
     {#if mixer}
       <section>
         <h2 class="hud-label">{t('settings.mixer')}</h2>
+        {#if daemon.windows}
+          <div class="row"><span class="name">{t('settings.mixerMode')}</span>
+            <div class="mode" role="group" aria-label={t('settings.mixerMode')}>
+              <button class="btn on" aria-pressed="true">{t('settings.mixerSessions')}</button>
+              <button class="btn" disabled>{t('settings.mixerCable')}</button>
+            </div>
+          </div>
+        {/if}
         <div class="row">
           <div>
             <p class="name">{t('settings.autoClassify')}</p>
-            <p class="hint">{t('settings.autoClassifyHint')}</p>
           </div>
           <Toggle
             checked={mixer.auto_classify}
@@ -253,7 +242,6 @@
         <div class="row column">
           <div>
             <p class="name">{t('settings.outputPriority')}</p>
-            <p class="hint">{t('settings.outputPriorityHint')}</p>
           </div>
           <ol class="priority">
             {#each mixer.output_priority as name, index (name)}
@@ -285,6 +273,7 @@
     {#if daemon.hotkeys}
       <section>
         <h2 class="hud-label">{t('settings.hotkeys.title')}</h2>
+        {#if prefs}<div class="row"><span class="name">{t('settings.hotkeys.step')}</span><div class="slider"><RulerSlider compact label={t('settings.hotkeys.step')} value={prefs.volume_step_pct} min={1} max={20} step={1} defaultValue={5} format={(value) => `${value}%`} onchange={(volume_step_pct) => setPrefs({ volume_step_pct })} /></div></div>{/if}
         <Hotkeys />
       </section>
     {/if}
@@ -292,10 +281,12 @@
     {#if prefs && daemon.hello?.capabilities.hotkey_popup}
       <section>
         <h2 class="hud-label">{t('settings.osd.title')}</h2>
+        <div class="row"><span class="name">{t('settings.osd.monitor')}</span>
+          <Segmented label={t('settings.osd.monitor')} layout="inline" options={[{ value: false, label: t('settings.osd.activeMonitor') }, { value: true, label: t('settings.osd.primaryMonitor') }]} value={prefs.osd.primary_monitor} onchange={(primary_monitor) => setOsd({ primary_monitor })} />
+        </div>
         <div class="row">
           <div>
             <p class="name">{t('settings.osd.style')}</p>
-            <p class="hint">{t('settings.osd.styleHint')}</p>
           </div>
           <Segmented
             label={t('settings.osd.style')}
@@ -308,7 +299,6 @@
         <div class="row">
           <div>
             <p class="name">{t('settings.osd.edge')}</p>
-            <p class="hint">{t('settings.osd.edgeHint')}</p>
           </div>
           <Segmented
             label={t('settings.osd.edge')}
@@ -321,10 +311,10 @@
         <div class="row">
           <div>
             <p class="name">{t('settings.osd.offset')}</p>
-            <p class="hint">{t('settings.osd.offsetHint')}</p>
           </div>
           <div class="slider">
             <RulerSlider
+              compact
               label={t('settings.osd.offset')}
               value={prefs.osd.offset_pct}
               min={0}
@@ -339,7 +329,6 @@
         <div class="row">
           <div>
             <p class="name">{t('settings.osd.preview')}</p>
-            <p class="hint">{t('settings.osd.previewHint')}</p>
           </div>
           <button class="btn" onclick={() => setOsd({})}>{t('settings.osd.previewRun')}</button>
         </div>
@@ -392,6 +381,8 @@
 {/if}
 
 <style>
+  .mode { display: flex; flex-wrap: wrap; gap: 4px; }
+
   .screen {
     display: flex;
     flex-direction: column;
@@ -417,7 +408,10 @@
     display: grid;
     align-content: start;
     gap: 24px;
-    max-width: 820px;
+    width: 100%;
+    max-width: 960px;
+    margin-inline: auto;
+    min-height: 0;
   }
 
   section {

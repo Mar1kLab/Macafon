@@ -77,8 +77,11 @@
   .app {
     display: flex;
     height: 100%;
-    min-width: 960px;
-    min-height: 640px;
+    min-width: 0;
+    min-height: 0;
+    background-color: var(--bg);
+    background-image: linear-gradient(var(--scanline) 1px, transparent 1px), linear-gradient(90deg, var(--scanline) 1px, transparent 1px);
+    background-size: 24px 24px;
   }
 
   main {

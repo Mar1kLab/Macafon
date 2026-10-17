@@ -42,6 +42,12 @@ function hotkeyCommand(action: string): string {
   switch (kind) {
     case 'quick_panel':
       return 'macafon quick-panel';
+    case 'master_volume_up':
+      return 'macafon ctl channel master volume +5';
+    case 'master_volume_down':
+      return 'macafon ctl channel master volume -5';
+    case 'master_mute':
+      return 'macafon ctl channel master mute';
     case 'mic_mute_toggle':
       return 'macafon ctl mic mute toggle';
     case 'bypass_toggle':
@@ -80,9 +86,10 @@ export class MockTransport implements Transport {
   private userPresets = new Map<string, { name: string; settings: ChainSettings }>();
   private isDefaultSource = false;
   private prefs: Preferences = {
+    volume_step_pct: 5,
     quantum_frames: 128,
     close_action: 'tray',
-    osd: { style: 'vertical', edge: 'right', offset_pct: 0 },
+    osd: { primary_monitor: false, style: 'vertical', edge: 'right', offset_pct: 0 },
   };
   private autostart: AutostartState = { enabled: true, method: this.windows ? 'windows_run' : 'systemd' };
   private shortcuts = new Map<string, string>([
@@ -269,7 +276,7 @@ export class MockTransport implements Transport {
 
   private hotkeys(): HotkeysState {
     const actions = [
-      ...GLOBAL_HOTKEYS,
+      ...GLOBAL_HOTKEYS, 'master_volume_up', 'master_volume_down', 'master_mute',
       ...this.mixer.state.channels.flatMap((c) => [`channel_volume_up.${c.id}`, `channel_volume_down.${c.id}`, `channel_mute.${c.id}`]),
     ];
     const portal = this.query.get('hotkeys') !== 'unavailable';
@@ -278,6 +285,8 @@ export class MockTransport implements Transport {
       bindings: actions.map(
         (action): HotkeyBinding => ({
           action,
+          secondary_shortcut: this.shortcuts.get(`${action}#secondary`) ?? null,
+          secondary_error: null,
           shortcut: this.shortcuts.get(action) ?? null,
           // KDE shows its own spelling of what it registered.
           system_trigger: portal && this.shortcuts.has(action) ? (this.shortcuts.get(action) ?? null) : null,
@@ -483,6 +492,7 @@ export class MockTransport implements Transport {
       case 'prefs.get':
         return clone(this.prefs);
       case 'prefs.set': {
+        if (p.volume_step_pct != null) this.prefs.volume_step_pct = Math.max(1, Math.min(20, Number(p.volume_step_pct)));
         if (p.quantum_frames != null) this.prefs.quantum_frames = Number(p.quantum_frames);
         if (p.close_action != null) this.prefs.close_action = p.close_action as Preferences['close_action'];
         if (p.osd != null) this.prefs.osd = clone(p.osd as Preferences['osd']);
@@ -492,7 +502,7 @@ export class MockTransport implements Transport {
       case 'hotkeys.get':
         return this.hotkeys();
       case 'hotkeys.set': {
-        const action = String(p.action);
+        const action = String(p.action) + (p.secondary ? '#secondary' : '');
         const shortcut = (p.shortcut as string | null) ?? null;
         if (shortcut === null) {
           this.shortcuts.delete(action);

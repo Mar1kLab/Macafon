@@ -43,6 +43,36 @@ async function onboardingTo(page, step) {
 }
 
 const scenarios = {
+  'controls-mixer': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=mixer`);
+    await page.waitForSelector('.channels');
+    await page.locator('.toast button').first().click();
+  },
+  'controls-microphone': async (page) => {
+    await page.goto(`${base}?platform=windows`);
+    await page.waitForSelector('.chain');
+  },
+  'controls-settings': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=settings`);
+    await page.waitForSelector('.hotkeys');
+  },
+  'controls-hotkeys': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=settings`);
+    await page.waitForSelector('.hotkeys');
+    await page.locator('.hotkeys').evaluate((element) => element.closest('section').scrollIntoView({ block: 'start' }));
+  },
+  'controls-offline': async (page) => {
+    await page.goto(`${base}?platform=windows&daemon=down`);
+    await page.waitForSelector('.unavailable');
+  },
+  'controls-mode': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=settings`);
+    await page.getByRole('button', { name: 'Windows sessions', exact: true }).evaluate((element) => element.closest('section').scrollIntoView({ block: 'center' }));
+  },
+  'controls-popup': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=settings`);
+    await page.getByRole('radiogroup', { name: 'Popup & overlay monitor' }).scrollIntoViewIfNeeded();
+  },
   'macaron-unknown': async (page) => {
     await page.goto(`${base}?platform=windows&screen=mixer&macaron=unknown`);
     await page.getByRole('button', { name: 'Device settings', exact: true }).click();
@@ -161,13 +191,13 @@ const scenarios = {
     await page.getByRole('button', { name: 'Set shortcut for Voice: Toggle mute' }).click();
     await page.keyboard.down('Control');
     await page.keyboard.down('Shift');
-    await page.locator('.hotkeys').scrollIntoViewIfNeeded();
+    await page.locator('.hotkeys').evaluate((element) => element.closest('section').scrollIntoView({ block: 'start' }));
     await page.waitForTimeout(400);
   },
   'hotkeys-unavailable': async (page) => {
     await page.goto(`${base}?screen=settings&hotkeys=unavailable`);
     await page.waitForSelector('.hotkeys li');
-    await page.locator('.hotkeys').scrollIntoViewIfNeeded();
+    await page.locator('.hotkeys').evaluate((element) => element.closest('section').scrollIntoView({ block: 'start' }));
     await page.waitForTimeout(400);
   },
   'mixer-new': async (page) => {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HotkeyHint from '../lib/settings/HotkeyHint.svelte';
   // 01 / MICROPHONE (PRD §9.3): device, preset, calibration, bypass and mute in the header;
   // IN/OUT meters; the eight module cards in signal order; the TEST panel pinned below.
   import { MicOff, Mic, Redo2, Undo2 } from '@lucide/svelte';
@@ -51,7 +52,7 @@
 {#if mic}
   <div class="screen">
     <header class="top">
-      <h1 class="hud-label">01 / {t('mic.section')}</h1>
+      <h1 class="hud-label">{t('mic.section')}</h1>
       <DevicePicker {mic} />
       <PresetPicker {mic} />
       <span class="spacer"></span>
@@ -74,7 +75,7 @@
         title={t('mic.bypassHint')}
         onclick={() => setBypass(!mic.settings.bypass)}
       >
-        {t('mic.bypass')}
+        {t('mic.bypass')}<HotkeyHint actions={['bypass_toggle']} />
       </button>
       <button
         class="btn danger"
@@ -84,6 +85,7 @@
         onclick={() => daemon.setMic(daemon.client.call('mic.set_muted', { muted: !mic.settings.muted }))}
       >
         {#if mic.settings.muted}<MicOff size={13} strokeWidth={1.5} />{t('mic.muted')}{:else}<Mic size={13} strokeWidth={1.5} />{t('mic.mute')}{/if}
+        <HotkeyHint actions={['mic_mute_toggle', 'push_to_talk', 'push_to_mute']} />
       </button>
     </header>
 

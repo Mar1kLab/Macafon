@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HotkeyHint from '../settings/HotkeyHint.svelte';
   // Master (CH-006): fader and mute over all channels, the loudest channel meter.
   import Fader from './Fader.svelte';
   import StereoMeter from './StereoMeter.svelte';
@@ -12,7 +13,7 @@
 
 <section class="master" aria-label={t('mixer.master')}>
   <header><h2 class="hud-label">{t('mixer.master')}</h2></header>
-  <p class="note">{t('mixer.masterHint')}</p>
+  <div aria-hidden="true"></div>
   <div class="level">
     <Fader
       value={mixer.master_volume_pct}
@@ -25,7 +26,7 @@
   </div>
   <p class="readout">
     <span class="value">{Math.round(mixer.master_volume_pct)}%</span>
-    <span class="db">{formatVolumeDb(mixer.master_volume_pct)}</span>
+    {#if !daemon.windows}<span class="db">{formatVolumeDb(mixer.master_volume_pct)}</span>{/if}
   </p>
   <button
     class="btn small danger"
@@ -34,17 +35,20 @@
     title={t('mixer.masterMute')}
     onclick={() => daemon.setMaster({ muted: !mixer.master_muted })}>M</button
   >
+  <div class="shortcuts"><HotkeyHint actions={['master_volume_up', 'master_volume_down', 'master_mute']} /></div>
 </section>
 
 <style>
+  .shortcuts { min-height: 16px; display: flex; justify-content: center; align-items: center; }
   .master {
     display: grid;
-    grid-template-rows: auto minmax(84px, 1fr) minmax(160px, 260px) auto auto;
+    grid-template-rows: auto minmax(84px, 1fr) minmax(140px, 240px) auto auto auto;
     gap: 12px;
     width: 136px;
     flex: none;
     padding: 0 12px 12px;
     border: 1px solid var(--line-strong);
+    border-top: 3px solid var(--app-teal);
     background: var(--bg-raised);
   }
 
@@ -65,10 +69,6 @@
     min-height: 0;
   }
 
-  .note {
-    font-size: 12px;
-    color: var(--faint);
-  }
 
   .readout {
     white-space: nowrap;

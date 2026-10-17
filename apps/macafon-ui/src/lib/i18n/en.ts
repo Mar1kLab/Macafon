@@ -21,6 +21,8 @@ export const en = {
     settings: 'Settings',
   },
   daemon: {
+    running: 'Running',
+    stopped: 'Stopped',
     connected: 'Daemon running · v{version}',
     connecting: 'Connecting to the daemon',
     loading: 'Connecting to Macafon',
@@ -246,6 +248,9 @@ export const en = {
     },
   },
   settings: {
+    mixerMode: 'Mixer mode',
+    mixerSessions: 'Windows sessions',
+    mixerCable: 'VB-CABLE (Soon)',
     section: 'Settings',
     general: 'General',
     audio: 'Audio',
@@ -278,6 +283,9 @@ export const en = {
     closeActionHint: 'What the window close button does',
     closeActions: { tray: 'Keep running in tray', quit: 'Quit Macafon' },
     osd: {
+      monitor: 'Popup & overlay monitor',
+      activeMonitor: 'Active',
+      primaryMonitor: 'Primary',
       title: 'Hotkey popup',
       style: 'Style',
       styleHint: 'Android: a vertical slider at a side. Windows 11: a bar at the top or bottom.',
@@ -308,7 +316,7 @@ export const en = {
     autoClassifyHint: 'Discord, Telegram, Zoom start in Voice; Spotify and other players in Music',
     outputPriority: 'Output priority',
     outputPriorityHint: 'The first connected device wins. Unplug it and Macafon switches to the next; plug it back and it returns.',
-    priorityEmpty: 'Empty: Macafon plays into the output that was the system default before it.',
+    priorityEmpty: 'System default',
     addOutput: 'Add output',
     moveUp: 'Move up',
     moveDown: 'Move down',
@@ -316,6 +324,9 @@ export const en = {
     disconnected: 'Disconnected',
     doctor: 'Doctor',
     hotkeys: {
+      primary: 'Primary',
+      secondary: 'Secondary',
+      step: 'Volume step',
       title: 'Hotkeys',
       backend: 'Global shortcuts',
       backends: {
@@ -331,6 +342,9 @@ export const en = {
       microphone: 'Microphone',
       channel: 'Channel {name}',
       actions: {
+        master_volume_up: 'Master volume up',
+        master_volume_down: 'Master volume down',
+        master_mute: 'Master mute',
         quick_panel: 'Open quick panel',
         mic_mute_toggle: 'Toggle mute',
         push_to_talk: 'Push to talk',
@@ -549,6 +563,9 @@ export const en = {
       warning: 'Quantum {0} at {1} Hz; {2} overloads in the last 10 minutes switched Studio to Lite',
     },
     hotkeys: {
+      primary: 'Primary',
+      secondary: 'Secondary',
+      step: 'Volume step',
       title: 'Hotkeys',
       ok: 'Registered through {0}',
       info: 'No global shortcut service here. Bind commands like “macafon ctl mic mute toggle” in your desktop settings.',

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HotkeyHint from '../settings/HotkeyHint.svelte';
   // Channel strip (design system §6, PRD §9.4): colour bar, name, app chips (a drop target),
   // fader with a stereo meter, % and dB, M / EQ / FX. While a chip is dragged over it the
   // strip lights up in its colour with corner ticks; a new app flashes in. The channel icon is
@@ -151,7 +152,7 @@
       <Icon size={14} strokeWidth={1.5} />
     </button>
     <h2>{channel.name}</h2>
-    {#if isDefault}<span class="badge">{t('mixer.default')}</span>{/if}
+
     <span class="tools">
       {#if !isDefault}
         <Toggle checked={channel.enabled} color={channel.color} label={t('mixer.channelOn', { name: channel.name })} onchange={setEnabled} />
@@ -221,16 +222,19 @@
       <button class="btn small" title={t('mixer.channelFxLinuxBody')} onclick={() => onpanel('channel')}>{t('mixer.panels.channel')}</button>
     {/if}
   </footer>
+  <div class="shortcuts"><HotkeyHint actions={[`channel_volume_up.${channel.id}`, `channel_volume_down.${channel.id}`, `channel_mute.${channel.id}`]} /></div>
   {/if}
 </section>
 
 <style>
+  .shortcuts { min-height: 16px; display: flex; justify-content: center; align-items: center; }
   .strip {
     position: relative;
     display: grid;
-    grid-template-rows: auto minmax(84px, 1fr) minmax(160px, 260px) auto auto;
+    grid-template-rows: auto minmax(84px, 1fr) minmax(140px, 240px) auto auto auto;
     gap: 12px;
-    width: 184px;
+    width: 196px;
+    min-width: 0;
     flex: none;
     padding: 0 12px 12px;
     border: 1px solid var(--line);
@@ -273,6 +277,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    flex: none;
     margin-left: auto;
   }
 
@@ -351,6 +356,9 @@
     padding: 0;
     list-style: none;
     overflow-y: auto;
+    padding: 4px 0;
+    min-width: 0;
+    text-align: center;
   }
 
   .empty {

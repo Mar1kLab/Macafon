@@ -157,6 +157,15 @@ pub fn hide(app: &AppHandle) {
 
 /// Capture the foreground monitor before the panel takes focus.
 fn target_monitor(app: &AppHandle, mode: Mode) -> Option<Monitor> {
+    if mode == Mode::Overlay
+        && app
+            .state::<crate::Bridge>()
+            .call("prefs.get", None)
+            .ok()
+            .is_some_and(|prefs| prefs["osd"]["primary_monitor"] == true)
+    {
+        return app.primary_monitor().ok().flatten();
+    }
     #[cfg(windows)]
     if mode == Mode::Overlay {
         use windows::Win32::{

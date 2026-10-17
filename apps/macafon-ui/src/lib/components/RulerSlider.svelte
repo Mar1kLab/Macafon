@@ -21,6 +21,7 @@
     disabled?: boolean;
     hint?: string;
     layout?: 'stacked' | 'row';
+    compact?: boolean;
   }
 
   let {
@@ -39,6 +40,7 @@
     disabled = false,
     hint,
     layout = 'stacked',
+    compact = false,
   }: Props = $props();
 
   let track: HTMLDivElement | undefined = $state();
@@ -162,11 +164,12 @@
 <div
   class="ruler {layout}"
   class:disabled
+  class:compact
   style:--c="var(--app-{color})"
   style:--c-ink="var(--app-{color}-ink)"
   title={hint}
 >
-  <span class="hud-label name">{label}</span>
+  {#if !compact}<span class="hud-label name">{label}</span>{/if}
   <div
     bind:this={track}
     class="track"
@@ -224,6 +227,11 @@
   .ruler.row {
     grid-template-columns: 104px 1fr 78px;
     grid-template-areas: 'name track value';
+  }
+
+  .ruler.compact {
+    grid-template-columns: 1fr 46px;
+    grid-template-areas: 'track value';
   }
 
   .name {

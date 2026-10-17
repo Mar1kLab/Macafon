@@ -14,7 +14,6 @@
   const items = [
     { id: 'microphone' as const, icon: Mic, label: t('nav.microphone') },
     { id: 'mixer' as const, icon: SlidersVertical, label: t('nav.mixer') },
-    { id: 'settings' as const, icon: Settings, label: t('nav.settings') },
   ];
 
   const status = $derived(daemon.status);
@@ -59,9 +58,13 @@
       </li>
     {/each}
   </ul>
+  <div class="bottom">
+    <button class:active={screen === 'settings'} aria-current={screen === 'settings' ? 'page' : undefined} aria-label={t('nav.settings')} onclick={() => onnavigate('settings')}><Settings size={20} strokeWidth={1.5} /><span class="tip hud-label">{t('nav.settings')}</span></button>
   <div class="status" title={statusText} role="status" aria-label={statusText}>
     {#if muted}<span class="badge muted">{t('mic.muted')}</span>{/if}
     <span class="dot {status.state}" class:mock={daemon.mock}></span>
+    <span class="status-label">{status.state === 'connected' ? t('daemon.running') : status.state === 'connecting' ? t('daemon.loading') : t('daemon.stopped')}</span>
+  </div>
   </div>
 </nav>
 
@@ -142,8 +145,9 @@
     opacity: 1;
   }
 
+  .bottom { margin-top: auto; display: grid; justify-items: center; width: 100%; }
+  .status-label { font-family: var(--font-mono); font-size: 9px; color: var(--muted); }
   .status {
-    margin-top: auto;
     padding: 16px 0;
     display: grid;
     justify-items: center;

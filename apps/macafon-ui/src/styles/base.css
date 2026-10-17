@@ -127,6 +127,7 @@ p {
 /* Buttons: HUD text, 1px frame; `invert` is the primary CTA, `on` an engaged toggle. */
 .btn {
   display: inline-flex;
+  justify-content: center;
   align-items: center;
   gap: 6px;
   height: 30px;

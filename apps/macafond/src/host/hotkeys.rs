@@ -17,6 +17,9 @@ impl DaemonHost {
             .map(|action| {
                 let description = match action {
                     HotkeyAction::QuickPanel => "Open the quick panel",
+                    HotkeyAction::MasterVolumeUp => "Master: volume up",
+                    HotkeyAction::MasterVolumeDown => "Master: volume down",
+                    HotkeyAction::MasterMute => "Master: mute",
                     HotkeyAction::MicMuteToggle => "Toggle microphone mute",
                     HotkeyAction::PushToTalk => "Push to talk",
                     HotkeyAction::PushToMute => "Push to mute",
@@ -49,19 +52,21 @@ impl DaemonHost {
     /// so a fader moved during push-to-talk would mute the microphone.
     pub(super) fn rebind_hotkeys(&mut self) {
         let Some(service) = &self.hotkeys else { return };
-        let bindings: Vec<crate::hotkeys::Binding> = self
-            .hotkey_actions()
-            .into_iter()
-            .filter_map(|(action, description)| {
-                let shortcut = self.config.hotkeys.get(&action.id())?;
-                let accel = crate::hotkeys::accel::Accel::parse(shortcut).ok()?;
-                Some(crate::hotkeys::Binding {
-                    action: action.id(),
-                    description,
-                    accel,
-                })
-            })
-            .collect();
+        let mut bindings = Vec::new();
+        for (action, description) in self.hotkey_actions() {
+            let id = action.id();
+            for id in [id.clone(), format!("{id}#secondary")] {
+                if let Some(shortcut) = self.config.hotkeys.get(&id)
+                    && let Ok(accel) = crate::hotkeys::accel::Accel::parse(shortcut)
+                {
+                    bindings.push(crate::hotkeys::Binding {
+                        action: id,
+                        description: description.clone(),
+                        accel,
+                    });
+                }
+            }
+        }
         if self.bound_hotkeys.as_ref() == Some(&bindings) {
             return;
         }
@@ -79,6 +84,14 @@ impl DaemonHost {
                 .map(|(action, _)| {
                     let id = action.id();
                     HotkeyBinding {
+                        secondary_shortcut: self
+                            .config
+                            .hotkeys
+                            .get(&format!("{id}#secondary"))
+                            .cloned(),
+                        secondary_error: status.and_then(|status| {
+                            status.errors.get(&format!("{id}#secondary")).cloned()
+                        }),
                         shortcut: self.config.hotkeys.get(&id).cloned(),
                         system_trigger: status.and_then(|status| status.triggers.get(&id).cloned()),
                         error: status.and_then(|status| status.errors.get(&id).cloned()),
@@ -92,6 +105,7 @@ impl DaemonHost {
 
     pub(super) fn prefs(&self) -> macafon_ipc::Preferences {
         macafon_ipc::Preferences {
+            volume_step_pct: self.config.ui.volume_step_pct,
             quantum_frames: self.config.audio.quantum_frames,
             close_action: if self.config.ui.quit_on_close {
                 macafon_ipc::CloseAction::Quit
@@ -134,7 +148,7 @@ impl DaemonHost {
         if !self
             .hotkey_actions()
             .iter()
-            .any(|(known, _)| known.id() == action)
+            .any(|(known, _)| known.id() == action.split('#').next().unwrap_or(action))
         {
             return Err(invalid(format!("unknown action {action:?}")));
         }
@@ -143,15 +157,16 @@ impl DaemonHost {
                 self.config.hotkeys.remove(action);
             }
             Some(text) => {
-                let canonical = crate::hotkeys::accel::Accel::parse(&text)
-                    .map_err(invalid)?
-                    .to_string();
-                if let Some((other, _)) = self
-                    .config
-                    .hotkeys
-                    .iter()
-                    .find(|(other, bound)| other.as_str() != action && **bound == canonical)
-                {
+                let accel = crate::hotkeys::accel::Accel::parse(&text).map_err(invalid)?;
+                if !cfg!(windows) && accel.sided() {
+                    return Err(invalid("Side-specific modifiers require Windows".into()));
+                }
+                let canonical = accel.to_string();
+                if let Some((other, _)) = self.config.hotkeys.iter().find(|(other, bound)| {
+                    other.as_str() != action
+                        && crate::hotkeys::accel::Accel::parse(bound)
+                            .is_ok_and(|other| accel.overlaps(&other))
+                }) {
                     return Err(ErrorBody::new(
                         ErrorCode::AlreadyExists,
                         format!("{canonical} is already used by {other}"),
@@ -169,9 +184,25 @@ impl DaemonHost {
     /// Run a hotkey action like the matching request (HK-001), then show what it changed
     /// (HK-006).
     pub(super) fn hotkey(&mut self, action: &str, pressed: bool) {
+        let binding = action.to_owned();
+        let action = action.split('#').next().unwrap_or(action);
         let Some(action) = HotkeyAction::parse(action) else {
             return;
         };
+        if action.held() {
+            if pressed {
+                self.pressed_hotkeys.insert(binding);
+            } else {
+                self.pressed_hotkeys.remove(&binding);
+            }
+            let active = self
+                .pressed_hotkeys
+                .iter()
+                .any(|id| id.split('#').next() == Some(action.id().as_str()));
+            if active != pressed {
+                return;
+            }
+        }
         if !pressed && !action.held() {
             return;
         }
@@ -180,6 +211,25 @@ impl DaemonHost {
                 crate::ui::overlay();
                 return;
             }
+            HotkeyAction::MasterVolumeUp | HotkeyAction::MasterVolumeDown => {
+                Request::MixerSetMaster {
+                    volume_pct: Some(
+                        (self.config.mixer.master_volume_pct
+                            + f32::from(self.config.ui.volume_step_pct)
+                                * if matches!(action, HotkeyAction::MasterVolumeUp) {
+                                    1.0
+                                } else {
+                                    -1.0
+                                })
+                        .clamp(0.0, 100.0),
+                    ),
+                    muted: None,
+                }
+            }
+            HotkeyAction::MasterMute => Request::MixerSetMaster {
+                volume_pct: None,
+                muted: Some(!self.config.mixer.master_muted),
+            },
             HotkeyAction::MicMuteToggle => Request::MicToggleMute,
             HotkeyAction::PushToTalk => Request::MicSetMuted { muted: !pressed },
             HotkeyAction::PushToMute => Request::MicSetMuted { muted: pressed },
@@ -190,11 +240,11 @@ impl DaemonHost {
             HotkeyAction::PresetPrevious => Request::MicCyclePreset { step: -1 },
             HotkeyAction::ChannelVolumeUp(id) => Request::ChannelAdjustVolume {
                 id: id.clone(),
-                delta_pct: 5.0,
+                delta_pct: f32::from(self.config.ui.volume_step_pct),
             },
             HotkeyAction::ChannelVolumeDown(id) => Request::ChannelAdjustVolume {
                 id: id.clone(),
-                delta_pct: -5.0,
+                delta_pct: -f32::from(self.config.ui.volume_step_pct),
             },
             HotkeyAction::ChannelMute(id) => Request::ChannelToggleMute { id: id.clone() },
         };
@@ -205,6 +255,15 @@ impl DaemonHost {
         let chain = &self.config.mic.chain;
         let osd = match &action {
             HotkeyAction::QuickPanel => return,
+            HotkeyAction::MasterVolumeUp
+            | HotkeyAction::MasterVolumeDown
+            | HotkeyAction::MasterMute => Osd::Volume {
+                name: "Master".into(),
+                color: "teal".into(),
+                icon: "speaker".into(),
+                volume_pct: self.config.mixer.master_volume_pct,
+                muted: self.config.mixer.master_muted,
+            },
             HotkeyAction::MicMuteToggle | HotkeyAction::PushToTalk | HotkeyAction::PushToMute => {
                 Osd::Status {
                     icon: if chain.muted {
@@ -263,6 +322,7 @@ impl DaemonHost {
 
 pub(super) fn osd_prefs(config: OsdConfig) -> OsdPrefs {
     OsdPrefs {
+        primary_monitor: config.primary_monitor,
         style: match config.style {
             OsdStyle::Vertical => macafon_ipc::OsdStyle::Vertical,
             OsdStyle::Horizontal => macafon_ipc::OsdStyle::Horizontal,
@@ -280,6 +340,7 @@ pub(super) fn osd_prefs(config: OsdConfig) -> OsdPrefs {
 /// Settings may send any combination: the edge is fixed up to the style, the offset clamped.
 pub(super) fn osd_config(prefs: OsdPrefs) -> OsdConfig {
     OsdConfig {
+        primary_monitor: prefs.primary_monitor,
         style: match prefs.style {
             macafon_ipc::OsdStyle::Vertical => OsdStyle::Vertical,
             macafon_ipc::OsdStyle::Horizontal => OsdStyle::Horizontal,

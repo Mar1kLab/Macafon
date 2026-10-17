@@ -5,6 +5,8 @@ pub mod accel;
 #[cfg(target_os = "linux")]
 mod portal;
 #[cfg(windows)]
+mod sided;
+#[cfg(windows)]
 mod windows;
 #[cfg(target_os = "linux")]
 mod x11;

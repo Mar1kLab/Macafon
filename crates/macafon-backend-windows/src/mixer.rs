@@ -109,6 +109,10 @@ pub enum MixerEvent {
 }
 
 enum Command {
+    Master(
+        Option<(f32, bool)>,
+        Sender<Result<(String, f32, bool), Error>>,
+    ),
     Apps(Sender<Result<Vec<App>, Error>>),
     Peaks(Sender<Result<Vec<OutputPeak>, Error>>),
     Set(String, MixSettings, Sender<Result<(), Error>>),
@@ -169,6 +173,9 @@ impl SessionWatcher {
         self.events.try_recv().ok()
     }
     /// Current app groups, including freshly polled peaks. No automatic volume changes.
+    pub fn master(&self, value: Option<(f32, bool)>) -> Result<(String, f32, bool), Error> {
+        self.request(|reply| Command::Master(value, reply))
+    }
     pub fn apps(&self) -> Result<Vec<App>, Error> {
         self.request(Command::Apps)
     }
@@ -540,6 +547,9 @@ impl Worker {
                 let _ = self.events.send(MixerEvent::AppsChanged);
             }
             match commands.recv_timeout(Duration::from_millis(20)) {
+                Ok(Command::Master(value, reply)) => {
+                    let _ = reply.send(endpoint_master(value));
+                }
                 Ok(Command::Apps(reply)) => {
                     self.external_changes();
                     let _ = reply.send(self.apps());
@@ -807,6 +817,27 @@ impl IMMNotificationClient_Impl for DeviceEvents_Impl {
     fn OnPropertyValueChanged(&self, _: &PCWSTR, _: &PROPERTYKEY) -> windows::core::Result<()> {
         self.dirty.store(true, Ordering::Release);
         Ok(())
+    }
+}
+
+/// Explicit user changes to system volume persist; unlike managed session gains they are
+/// not an application takeover and must not be restored on Quit.
+fn endpoint_master(value: Option<(f32, bool)>) -> Result<(String, f32, bool), Error> {
+    // SAFETY: called on the COM worker; the endpoint and interface stay on this thread.
+    unsafe {
+        let device = enumerator()?.GetDefaultAudioEndpoint(eRender, eMultimedia)?;
+        let id = device_id(&device)?;
+        let volume: windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume =
+            device.Activate(CLSCTX_ALL, None)?;
+        if let Some((percent, muted)) = value {
+            volume.SetMasterVolumeLevelScalar(pct(percent) / 100.0, &CONTEXT)?;
+            volume.SetMute(muted, &CONTEXT)?;
+        }
+        Ok((
+            id,
+            volume.GetMasterVolumeLevelScalar()? * 100.0,
+            volume.GetMute()?.as_bool(),
+        ))
     }
 }
 

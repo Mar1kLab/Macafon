@@ -73,6 +73,38 @@ pub(super) fn run(json: bool, command: Ctl) -> Result<()> {
             };
             return print_mixer(&client.call_as(request)?, json);
         }
+        Ctl::Channel { id, action } if id == "master" => {
+            let state: MixerState = client.call_as(Request::MixerGet)?;
+            let request = match action {
+                ChannelAction::Volume { value } => {
+                    let parsed: f32 = value
+                        .trim_start_matches('+')
+                        .parse()
+                        .with_context(|| format!("not a volume: {value}"))?;
+                    let volume = if value.starts_with(['+', '-']) {
+                        state.master_volume_pct + parsed
+                    } else {
+                        parsed
+                    };
+                    Request::MixerSetMaster {
+                        volume_pct: Some(volume.clamp(0.0, 100.0)),
+                        muted: None,
+                    }
+                }
+                ChannelAction::Mute { state: switch } => Request::MixerSetMaster {
+                    volume_pct: None,
+                    muted: Some(match switch {
+                        Switch::On => true,
+                        Switch::Off => false,
+                        Switch::Toggle => !state.master_muted,
+                    }),
+                },
+                ChannelAction::Default => {
+                    anyhow::bail!("Master cannot be the default application channel")
+                }
+            };
+            return print_mixer(&client.call_as(request)?, json);
+        }
         Ctl::Channel { id, action } => {
             let request = match action {
                 ChannelAction::Volume { value } => {
@@ -199,8 +231,13 @@ pub(super) fn run(json: bool, command: Ctl) -> Result<()> {
         Ctl::Hotkeys { command } => {
             let request = match command {
                 None | Some(HotkeysCommand::List) => Request::HotkeysGet,
-                Some(HotkeysCommand::Set { action, shortcut }) => Request::HotkeysSet {
+                Some(HotkeysCommand::Set {
                     action,
+                    shortcut,
+                    secondary,
+                }) => Request::HotkeysSet {
+                    action,
+                    secondary,
                     shortcut: (shortcut != "none").then_some(shortcut),
                 },
             };

@@ -30,7 +30,7 @@ pub struct Config {
 }
 
 /// UI facts the daemon remembers.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UiConfig {
     /// BG-001: the "keeps running in the tray" notification was shown once.
@@ -42,6 +42,24 @@ pub struct UiConfig {
     /// The `DEFAULT_HOTKEYS` revision already offered, so a shortcut the user cleared stays
     /// cleared.
     pub hotkey_defaults: u32,
+    #[serde(default = "default_volume_step")]
+    pub volume_step_pct: u8,
+}
+
+pub fn default_volume_step() -> u8 {
+    5
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            close_hint_shown: false,
+            quit_on_close: false,
+            osd: OsdConfig::default(),
+            hotkey_defaults: 0,
+            volume_step_pct: default_volume_step(),
+        }
+    }
 }
 
 /// Default shortcuts for one hand on the left of the keyboard: Ctrl+Alt (pinky and thumb) plus
@@ -73,6 +91,7 @@ pub const HOTKEY_DEFAULTS_REVISION: u32 = 1;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OsdConfig {
+    pub primary_monitor: bool,
     pub style: OsdStyle,
     /// Left or right for the vertical style, top or bottom for the horizontal one.
     pub edge: OsdEdge,
@@ -119,6 +138,7 @@ impl OsdConfig {
             0.0
         };
         Self {
+            primary_monitor: self.primary_monitor,
             style: self.style,
             edge,
             offset_pct,
@@ -283,6 +303,7 @@ mod tests {
     #[test]
     fn osd_setup_keeps_an_edge_of_its_style_and_a_sane_offset() {
         let fixed = OsdConfig {
+            primary_monitor: false,
             style: OsdStyle::Horizontal,
             edge: OsdEdge::Right,
             offset_pct: 90.0,
@@ -296,6 +317,7 @@ mod tests {
         };
         assert_eq!(broken.normalized().offset_pct, 0.0);
         let kept = OsdConfig {
+            primary_monitor: true,
             style: OsdStyle::Vertical,
             edge: OsdEdge::Left,
             offset_pct: 12.5,

@@ -198,6 +198,11 @@ pub trait MixerHost {
     // Volume groups (Windows, §12.2.2): apps are not routed, Macafon sets their volume.
 
     /// Channels are on; when they go off the backend gives app volumes back (WIN-CH-008).
+    fn master_volume(&self) -> (f32, bool) {
+        (100.0, false)
+    }
+    fn master_volume_changed(&mut self, _volume_pct: f32, _muted: bool) {}
+
     fn mixer_enabled(&self) -> bool {
         false
     }

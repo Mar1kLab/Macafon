@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 pub(crate) struct VolumeGroups {
     watcher: Option<SessionWatcher>,
+    master: Option<(String, f32, bool)>,
     /// Stable stream ids per executable for this run.
     ids: HashMap<String, u32>,
     streams: Vec<(String, PlaybackStream)>,
@@ -39,6 +40,7 @@ impl VolumeGroups {
             .ok();
         Self {
             watcher,
+            master: None,
             ids: HashMap::new(),
             streams: Vec::new(),
             applied: HashMap::new(),
@@ -60,6 +62,26 @@ impl VolumeGroups {
     }
 
     fn tick_with<H: MixerHost>(&mut self, watcher: &SessionWatcher, host: &mut H) {
+        // Read before applying: startup and an endpoint change adopt Windows, never a saved fader.
+        if let Ok(mut observed) = watcher.master(None) {
+            if let Some(previous) = &self.master {
+                let desired = host.master_volume();
+                if previous.0 == observed.0
+                    && ((desired.0 - previous.1).abs() > 0.001 || desired.1 != previous.2)
+                {
+                    match watcher.master(Some(desired)) {
+                        Ok(actual) => observed = actual,
+                        Err(error) => tracing::warn!(%error, "Cannot set system volume"),
+                    }
+                }
+            }
+            if self.master.as_ref() != Some(&observed)
+                || host.master_volume() != (observed.1, observed.2)
+            {
+                host.master_volume_changed(observed.1, observed.2);
+            }
+            self.master = Some(observed);
+        }
         while let Some(event) = watcher.try_event() {
             match event {
                 MixerEvent::AppsChanged => self.refresh = true,
@@ -205,10 +227,10 @@ fn settings(mix: AppMix, app_muted: bool) -> MixSettings {
     MixSettings {
         channel_pct: mix.channel_pct,
         app_pct: mix.app_pct,
-        master_pct: mix.master_pct,
+        master_pct: 100.0,
         channel_muted: mix.channel_muted,
         app_muted,
-        master_muted: mix.master_muted,
+        master_muted: false,
     }
 }
 
@@ -233,5 +255,27 @@ fn stream(id: u32, app: &App) -> PlaybackStream {
         running: app.active,
         movable: true,
         ..PlaybackStream::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn system_master_is_not_applied_again_to_sessions() {
+        let settings = settings(
+            AppMix {
+                channel_pct: 70.0,
+                app_pct: 80.0,
+                master_pct: 20.0,
+                channel_muted: false,
+                master_muted: true,
+            },
+            false,
+        );
+        assert_eq!(settings.master_pct, 100.0);
+        assert!(!settings.master_muted);
+        assert_eq!(settings.channel_pct, 70.0);
+        assert_eq!(settings.app_pct, 80.0);
     }
 }

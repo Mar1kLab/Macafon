@@ -83,6 +83,7 @@ pub struct DaemonHost {
     hotkey_status: Option<crate::hotkeys::Status>,
     /// What the hotkey service registered last.
     bound_hotkeys: Option<Vec<crate::hotkeys::Binding>>,
+    pressed_hotkeys: std::collections::HashSet<String>,
     icons: macafon_apps::icons::IconResolver,
     quit: bool,
     server: Option<(Endpoint, ControlSender<ControlMessage>)>,
@@ -135,6 +136,7 @@ impl DaemonHost {
             hotkeys: None,
             hotkey_status: None,
             bound_hotkeys: None,
+            pressed_hotkeys: std::collections::HashSet::new(),
             icons: macafon_apps::icons::IconResolver::from_env(),
             quit: false,
             server: Some((endpoint, control)),
@@ -274,6 +276,18 @@ impl MixerHost for DaemonHost {
 
     fn stream_volume(&self, stream: &PlaybackStream) -> f32 {
         self.mixer.stream_volume(&self.config, stream)
+    }
+
+    fn master_volume(&self) -> (f32, bool) {
+        (
+            self.config.mixer.master_volume_pct,
+            self.config.mixer.master_muted,
+        )
+    }
+    fn master_volume_changed(&mut self, volume_pct: f32, muted: bool) {
+        self.config.mixer.master_volume_pct = volume_pct;
+        self.config.mixer.master_muted = muted;
+        self.mixer_changed();
     }
 
     fn mixer_enabled(&self) -> bool {
@@ -596,6 +610,44 @@ mod tests {
         return Endpoint::socket("unused");
         #[cfg(windows)]
         Endpoint::pipe("unused")
+    }
+
+    #[test]
+    fn secondary_bindings_hold_until_both_are_released_and_use_configured_step() {
+        let (sender, _receiver) = crate::platform::control_channel();
+        let mut config = Config::default();
+        config.ui.volume_step_pct = 3;
+        config.mixer.channels[0].settings.volume_pct = 50.0;
+        let mut host = DaemonHost::new(
+            config,
+            None,
+            PresetStore::in_memory(),
+            unused_endpoint(),
+            sender,
+            false,
+        );
+        host.set_hotkey("push_to_talk", Some("Ctrl+F8".into()))
+            .expect("primary");
+        host.set_hotkey("push_to_talk#secondary", Some("Ctrl+F9".into()))
+            .expect("secondary");
+        assert_eq!(
+            host.hotkeys_state()
+                .bindings
+                .iter()
+                .find(|b| b.action == "push_to_talk")
+                .expect("binding")
+                .secondary_shortcut
+                .as_deref(),
+            Some("Ctrl+F9")
+        );
+        host.hotkey("push_to_talk", true);
+        host.hotkey("push_to_talk#secondary", true);
+        host.hotkey("push_to_talk", false);
+        assert!(!host.config.mic.chain.muted);
+        host.hotkey("push_to_talk#secondary", false);
+        assert!(host.config.mic.chain.muted);
+        host.hotkey("channel_volume_up.main#secondary", true);
+        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 53.0);
     }
 
     #[test]

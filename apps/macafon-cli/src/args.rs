@@ -154,7 +154,12 @@ pub(super) enum MicCommand {
 #[derive(Subcommand)]
 pub(super) enum HotkeysCommand {
     List,
-    Set { action: String, shortcut: String },
+    Set {
+        action: String,
+        shortcut: String,
+        #[arg(long)]
+        secondary: bool,
+    },
 }
 
 #[derive(Subcommand)]

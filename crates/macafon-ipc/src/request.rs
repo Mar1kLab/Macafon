@@ -210,6 +210,8 @@ pub enum Request {
     HotkeysSet {
         action: String,
         shortcut: Option<String>,
+        #[serde(default)]
+        secondary: bool,
     },
     /// The main window closed while the UI process stays warm in the background: the daemon
     /// reacts as it did to the UI disconnecting (BG-001 hint, §9.5 quit on close).
@@ -221,6 +223,8 @@ pub enum Request {
     /// Change the given preferences; `quantum_frames` is one of 64, 128, 256, 512.
     #[serde(rename = "prefs.set")]
     PrefsSet {
+        #[serde(default)]
+        volume_step_pct: Option<u8>,
         #[serde(default)]
         quantum_frames: Option<u32>,
         #[serde(default)]

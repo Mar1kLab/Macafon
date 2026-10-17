@@ -4,6 +4,8 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Modifiers {
     pub ctrl: bool,
+    pub ctrl_side: u8,
+    pub alt_side: u8,
     pub alt: bool,
     pub shift: bool,
     pub super_: bool,
@@ -83,6 +85,22 @@ impl Accel {
         for part in text.split('+').map(str::trim) {
             match part.to_ascii_lowercase().as_str() {
                 "ctrl" | "control" => modifiers.ctrl = true,
+                "lctrl" | "leftctrl" => {
+                    modifiers.ctrl = true;
+                    modifiers.ctrl_side |= 1;
+                }
+                "rctrl" | "rightctrl" => {
+                    modifiers.ctrl = true;
+                    modifiers.ctrl_side |= 2;
+                }
+                "lalt" | "leftalt" => {
+                    modifiers.alt = true;
+                    modifiers.alt_side |= 1;
+                }
+                "ralt" | "rightalt" => {
+                    modifiers.alt = true;
+                    modifiers.alt_side |= 2;
+                }
                 "alt" => modifiers.alt = true,
                 "shift" => modifiers.shift = true,
                 "super" | "meta" | "logo" | "win" => modifiers.super_ = true,
@@ -100,6 +118,21 @@ impl Accel {
             return Err(format!("{text:?} needs Ctrl, Alt or Super"));
         }
         Ok(Self { modifiers, key })
+    }
+
+    pub fn sided(&self) -> bool {
+        self.modifiers.ctrl_side != 0 || self.modifiers.alt_side != 0
+    }
+
+    pub fn overlaps(&self, other: &Self) -> bool {
+        let (a, b) = (self.modifiers, other.modifiers);
+        self.key == other.key
+            && a.ctrl == b.ctrl
+            && a.alt == b.alt
+            && a.shift == b.shift
+            && a.super_ == b.super_
+            && (a.ctrl_side == 0 || b.ctrl_side == 0 || a.ctrl_side == b.ctrl_side)
+            && (a.alt_side == 0 || b.alt_side == 0 || a.alt_side == b.alt_side)
     }
 
     /// xdg shortcuts spec trigger: `CTRL+ALT+m`, keys as XKB keysym names.
@@ -142,8 +175,12 @@ impl std::fmt::Display for Accel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let m = self.modifiers;
         for (on, name) in [
-            (m.ctrl, "Ctrl"),
-            (m.alt, "Alt"),
+            (m.ctrl && m.ctrl_side == 0, "Ctrl"),
+            (m.ctrl_side & 1 != 0, "LCtrl"),
+            (m.ctrl_side & 2 != 0, "RCtrl"),
+            (m.alt && m.alt_side == 0, "Alt"),
+            (m.alt_side & 1 != 0, "LAlt"),
+            (m.alt_side & 2 != 0, "RAlt"),
             (m.shift, "Shift"),
             (m.super_, "Super"),
         ] {
@@ -185,6 +222,16 @@ pub fn hotkey(accel: &Accel) -> Result<global_hotkey::hotkey::HotKey, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sided_modifiers_remain_distinct_and_generic_bindings_conflict() {
+        let left = Accel::parse("LCtrl+LAlt+M").expect("left");
+        let right = Accel::parse("RCtrl+RAlt+M").expect("right");
+        assert_eq!(left.to_string(), "LCtrl+LAlt+M");
+        assert_eq!(right.to_string(), "RCtrl+RAlt+M");
+        assert!(!left.overlaps(&right));
+        assert!(left.overlaps(&Accel::parse("Ctrl+Alt+M").expect("either")));
+    }
 
     #[test]
     fn native_mapping_preserves_modifiers_and_key_codes() {

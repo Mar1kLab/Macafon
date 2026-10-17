@@ -17,6 +17,7 @@ pub enum CloseAction {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Preferences {
+    pub volume_step_pct: u8,
     /// Preferred PipeWire quantum for Macafon's nodes; other apps may make it smaller.
     pub quantum_frames: u32,
     pub close_action: CloseAction,
@@ -29,6 +30,8 @@ pub struct Preferences {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct OsdPrefs {
+    #[serde(default)]
+    pub primary_monitor: bool,
     pub style: OsdStyle,
     /// `left`/`right` for `vertical`, `top`/`bottom` for `horizontal`.
     pub edge: OsdEdge,

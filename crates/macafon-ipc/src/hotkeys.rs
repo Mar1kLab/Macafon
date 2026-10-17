@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 pub enum HotkeyAction {
     /// Open or close the quick panel: every volume and the microphone switches at hand.
     QuickPanel,
+    MasterVolumeUp,
+    MasterVolumeDown,
+    MasterMute,
     MicMuteToggle,
     /// Held: microphone on; released: muted.
     PushToTalk,
@@ -22,8 +25,11 @@ pub enum HotkeyAction {
 
 impl HotkeyAction {
     /// Actions that do not depend on the channels.
-    pub const GLOBAL: [Self; 7] = [
+    pub const GLOBAL: [Self; 10] = [
         Self::QuickPanel,
+        Self::MasterVolumeUp,
+        Self::MasterVolumeDown,
+        Self::MasterMute,
         Self::MicMuteToggle,
         Self::PushToTalk,
         Self::PushToMute,
@@ -35,6 +41,9 @@ impl HotkeyAction {
     pub fn id(&self) -> String {
         match self {
             Self::QuickPanel => "quick_panel".into(),
+            Self::MasterVolumeUp => "master_volume_up".into(),
+            Self::MasterVolumeDown => "master_volume_down".into(),
+            Self::MasterMute => "master_mute".into(),
             Self::MicMuteToggle => "mic_mute_toggle".into(),
             Self::PushToTalk => "push_to_talk".into(),
             Self::PushToMute => "push_to_mute".into(),
@@ -50,6 +59,9 @@ impl HotkeyAction {
     pub fn parse(id: &str) -> Option<Self> {
         Some(match id {
             "quick_panel" => Self::QuickPanel,
+            "master_volume_up" => Self::MasterVolumeUp,
+            "master_volume_down" => Self::MasterVolumeDown,
+            "master_mute" => Self::MasterMute,
             "mic_mute_toggle" => Self::MicMuteToggle,
             "push_to_talk" => Self::PushToTalk,
             "push_to_mute" => Self::PushToMute,
@@ -76,6 +88,9 @@ impl HotkeyAction {
     pub fn command(&self) -> String {
         match self {
             Self::QuickPanel => "macafon quick-panel".into(),
+            Self::MasterVolumeUp => "macafon ctl channel master volume +5".into(),
+            Self::MasterVolumeDown => "macafon ctl channel master volume -5".into(),
+            Self::MasterMute => "macafon ctl channel master mute".into(),
             Self::MicMuteToggle => "macafon ctl mic mute toggle".into(),
             Self::PushToTalk | Self::PushToMute => String::new(),
             Self::BypassToggle => "macafon ctl mic bypass toggle".into(),
@@ -130,6 +145,8 @@ pub enum HotkeyBackend {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct HotkeyBinding {
+    pub secondary_shortcut: Option<String>,
+    pub secondary_error: Option<String>,
     pub action: String,
     /// Canonical shortcut, `Ctrl+Alt+M`.
     pub shortcut: Option<String>,

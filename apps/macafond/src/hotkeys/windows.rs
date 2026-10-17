@@ -16,6 +16,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 struct Backend {
+    sided: Option<super::sided::Hook>,
     manager: GlobalHotKeyManager,
     registered: Vec<HotKey>,
     actions: HashMap<u32, String>,
@@ -32,6 +33,7 @@ impl Backend {
             return Err(std::io::Error::last_os_error().to_string());
         }
         Ok(Self {
+            sided: None,
             manager,
             registered: Vec::new(),
             actions: HashMap::new(),
@@ -51,6 +53,7 @@ impl Backend {
     fn bind(&mut self, bindings: Vec<Binding>, control: &ControlSender<ControlMessage>) {
         // A removed held binding must not leave push-to-talk active indefinitely.
         self.release(control);
+        self.sided = None;
         for key in self.registered.drain(..) {
             if let Err(error) = self.manager.unregister(key) {
                 tracing::warn!(%error, "Cannot unregister a Windows hotkey");
@@ -58,6 +61,20 @@ impl Backend {
         }
         self.actions.clear();
         let mut errors = HashMap::new();
+        let (sided, bindings): (Vec<_>, Vec<_>) = bindings
+            .into_iter()
+            .partition(|binding| binding.accel.sided());
+        if !sided.is_empty() {
+            let ids: Vec<_> = sided.iter().map(|binding| binding.action.clone()).collect();
+            match super::sided::Hook::bind(sided, control) {
+                Ok(hook) => self.sided = Some(hook),
+                Err(error) => {
+                    for id in ids {
+                        errors.insert(id, error.clone());
+                    }
+                }
+            }
+        }
         for binding in bindings {
             let result = super::accel::hotkey(&binding.accel).and_then(|key| {
                 self.manager

@@ -447,7 +447,9 @@ impl Popup {
         // SAFETY: plain queries into stack structs.
         unsafe {
             let foreground = GetForegroundWindow();
-            let monitor = if foreground.is_invalid() {
+            let monitor = if setup.primary_monitor {
+                MonitorFromPoint(POINT::default(), MONITOR_DEFAULTTOPRIMARY)
+            } else if foreground.is_invalid() {
                 let mut cursor = POINT::default();
                 GetCursorPos(&mut cursor)?;
                 MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST)
@@ -1376,6 +1378,7 @@ mod tests {
         for (style_name, style, edge) in layouts {
             let layout = Layout {
                 setup: OsdConfig {
+                    primary_monitor: false,
                     style,
                     edge,
                     offset_pct: 0.0,

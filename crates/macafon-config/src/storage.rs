@@ -200,6 +200,7 @@ fn parse(text: &str) -> Result<(Config, i64), String> {
         .validate()
         .map_err(|error| error.to_string())?;
     config.mixer.validate()?;
+    config.ui.volume_step_pct = config.ui.volume_step_pct.clamp(1, 20);
     if !QUANTUM_CHOICES.contains(&config.audio.quantum_frames) {
         config.audio.quantum_frames = DEFAULT_QUANTUM_FRAMES;
     }
@@ -253,11 +254,13 @@ mod tests {
                 close_hint_shown: false,
                 quit_on_close: true,
                 osd: OsdConfig {
+                    primary_monitor: false,
                     style: OsdStyle::Horizontal,
                     edge: OsdEdge::Top,
                     offset_pct: 12.5,
                 },
                 hotkey_defaults: 1,
+                volume_step_pct: 5,
             },
             audio: AudioConfig {
                 quantum_frames: 256,

@@ -19,9 +19,19 @@ impl DaemonHost {
             Request::PrefsGet => return Ok(serde_json::json!(self.prefs())),
             Request::PrefsSet {
                 quantum_frames,
+                volume_step_pct,
                 close_action,
                 osd,
             } => {
+                if let Some(step) = volume_step_pct {
+                    if !(1..=20).contains(&step) {
+                        return Err(ErrorBody::new(
+                            ErrorCode::InvalidParams,
+                            "volume step must be 1..20",
+                        ));
+                    }
+                    self.config.ui.volume_step_pct = step;
+                }
                 if let Some(frames) = quantum_frames {
                     if !macafon_config::QUANTUM_CHOICES.contains(&frames) {
                         return Err(ErrorBody::new(
@@ -46,8 +56,17 @@ impl DaemonHost {
                 self.hub.broadcast(&Event::PrefsChanged(prefs.clone()));
                 return Ok(serde_json::json!(prefs));
             }
-            Request::HotkeysSet { action, shortcut } => {
-                self.set_hotkey(&action, shortcut)?;
+            Request::HotkeysSet {
+                action,
+                shortcut,
+                secondary,
+            } => {
+                let id = if secondary {
+                    format!("{action}#secondary")
+                } else {
+                    action
+                };
+                self.set_hotkey(&id, shortcut)?;
                 return Ok(serde_json::json!(self.hotkeys_state()));
             }
             Request::MicGet => self.state(),

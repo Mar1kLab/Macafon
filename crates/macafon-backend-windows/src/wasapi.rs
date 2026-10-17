@@ -132,19 +132,11 @@ impl Stream {
             CoTaskMemFree(Some(format.cast()));
             let period_frames = result?;
             let client: IAudioClient = client.cast()?;
-            let buffer_frames = client.GetBufferSize()?;
-            let latency_hns = client.GetStreamLatency()?;
-            let event = CreateEventW(None, false, false, None)?;
-            let stream = Self {
-                buffer_frames,
-                latency_hns,
+            Self::from_initialized_client(
                 client,
-                event,
                 channels,
-                period_hns: (f64::from(period_frames) * HNS_PER_SECOND / f64::from(rate)) as i64,
-            };
-            stream.client.SetEventHandle(stream.event)?;
-            Ok(stream)
+                (f64::from(period_frames) * HNS_PER_SECOND / f64::from(rate)) as i64,
+            )
         }
     }
 
@@ -179,6 +171,19 @@ impl Stream {
                 &format,
                 None,
             )?;
+            Self::from_initialized_client(client, channels, period_hns)
+        }
+    }
+
+    /// Attach an owned event after either shared-mode initialization path succeeds.
+    fn from_initialized_client(
+        client: IAudioClient,
+        channels: u16,
+        period_hns: i64,
+    ) -> Result<Self, Error> {
+        // SAFETY: both callers initialize the client on this COM thread. Once constructed,
+        // Stream owns the event and closes it even if SetEventHandle fails.
+        unsafe {
             let buffer_frames = client.GetBufferSize()?;
             let latency_hns = client.GetStreamLatency()?;
             let event = CreateEventW(None, false, false, None)?;

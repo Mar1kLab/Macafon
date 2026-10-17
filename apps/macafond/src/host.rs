@@ -638,6 +638,61 @@ mod tests {
     }
 
     #[test]
+    fn deleting_soundpad_category_preserves_settings_and_both_hotkeys_on_collision() {
+        let root =
+            std::env::temp_dir().join(format!("macafon-category-settings-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("sounds/Memes")).expect("category");
+        std::fs::write(root.join("sounds/beep.#звук.wav"), b"root").expect("root sound");
+        std::fs::write(root.join("sounds/Memes/beep.#звук.wav"), b"category")
+            .expect("category sound");
+        let mut config = Config::default();
+        config.soundpad.folder = Some(root.join("sounds"));
+        config.soundpad.edit_sound("Memes/beep.#звук.wav", |sound| {
+            sound.favorite = true;
+            sound.play_count = 7;
+        });
+        for (suffix, key) in [("", "Ctrl+F8"), ("#secondary", "Ctrl+F9")] {
+            config.hotkeys.insert(
+                format!("soundpad_play.Memes/beep.#звук.wav{suffix}"),
+                key.into(),
+            );
+        }
+        let (sender, _receiver) = crate::platform::control_channel();
+        let mut host = DaemonHost::new(
+            config,
+            None,
+            PresetStore::in_memory(),
+            unused_endpoint(),
+            sender,
+            false,
+        );
+        host.soundpad = Some(crate::soundpad::Soundpad::new(
+            &host.config.soundpad,
+            &root.join("state"),
+        ));
+        // Do not rescan first: the operation must also handle files added since the last scan.
+        host.respond_soundpad(macafon_ipc::Request::SoundpadDeleteCategory {
+            name: "Memes".into(),
+        })
+        .expect("delete category");
+        let new_id = "beep.#звук (2).wav";
+        assert!(host.config.soundpad.sound(new_id).favorite);
+        assert_eq!(host.config.soundpad.sound(new_id).play_count, 7);
+        assert!(!host.config.soundpad.sound("beep.#звук.wav").favorite);
+        for (suffix, key) in [("", "Ctrl+F8"), ("#secondary", "Ctrl+F9")] {
+            assert_eq!(
+                host.config
+                    .hotkeys
+                    .get(&format!("soundpad_play.{new_id}{suffix}"))
+                    .map(String::as_str),
+                Some(key)
+            );
+        }
+        drop(host);
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
     fn volume_hotkeys_repeat_after_delay_and_stop_on_release_or_rebind() {
         use std::time::Duration;
         let (sender, _receiver) = crate::platform::control_channel();

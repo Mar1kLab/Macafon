@@ -44,14 +44,20 @@ impl Monitor {
                 let _mmcss = ProAudioThread::register();
                 while !stopping.load(Ordering::Acquire) {
                     if !stream.wait(WAIT_TIMEOUT_MS) {
+                        // Device invalidation can stop event delivery entirely. Probe on timeout
+                        // so the control loop can reopen the stream instead of keeping a dead tap.
+                        if !stream.device_alive() {
+                            break;
+                        }
                         continue;
                     }
                     let written = stream.render_available(u32::MAX, |output, channels| {
                         output.fill(0.0);
                         tap.mix(output, channels);
                     });
-                    if let Err(error) = written {
-                        tracing::warn!(%error, "Soundpad monitor stopped");
+                    // No logging on the audio thread (AGENTS §4.1): the control loop sees the
+                    // stopped thread and reopens the device.
+                    if written.is_err() {
                         break;
                     }
                 }

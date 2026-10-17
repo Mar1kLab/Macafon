@@ -226,6 +226,13 @@ pub(crate) struct RenderStream {
 }
 
 impl RenderStream {
+    /// False once the device was invalidated (unplugged, disabled); event delivery may stop
+    /// then, so callers probe on wait timeouts.
+    pub fn device_alive(&self) -> bool {
+        // SAFETY: the audio client stays initialised for the stream's lifetime.
+        unsafe { self.stream.client.GetCurrentPadding() }.is_ok()
+    }
+
     pub fn open(device_id: &str) -> Result<Self, Error> {
         let stream = Stream::open(device_id, 2, 0)?;
         // SAFETY: the client was initialized by Stream::open; prefill with silence before Start.

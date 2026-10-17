@@ -435,11 +435,21 @@ export class DaemonStore {
 
   private soundpadPrefsPending: SoundpadPrefsPatch | null = null;
   private soundpadPrefsInFlight = false;
+  private soundpadPrefsPatch: SoundpadPrefsPatch | null = null;
 
   /** A volume drag keeps its local value until the last request is answered. */
   private applySoundpad(state: SoundpadState) {
     const local = this.soundpad?.prefs;
-    this.soundpad = this.soundpadPrefsInFlight && local ? { ...state, prefs: local } : state;
+    const editing = { ...this.soundpadPrefsPatch, ...this.soundpadPrefsPending };
+    const prefs = { ...state.prefs };
+    if (local) {
+      for (const key of Object.keys(editing) as (keyof SoundpadPrefsPatch)[]) {
+        if (editing[key] !== null && editing[key] !== undefined) {
+          (prefs as Record<string, unknown>)[key] = local[key];
+        }
+      }
+    }
+    this.soundpad = { ...state, prefs };
     this.soundpadPlayback = state.playback;
   }
 
@@ -463,9 +473,19 @@ export class DaemonStore {
       return;
     }
     this.soundpadPrefsInFlight = true;
+    this.soundpadPrefsPatch = patch;
     this.client
       .call('soundpad.set_prefs', { patch })
-      .catch((error) => this.fail(error))
+      .then((state) => {
+        this.soundpadPrefsPatch = null;
+        if (state) this.applySoundpad(state);
+      })
+      .catch(async (error) => {
+        this.fail(error);
+        this.soundpadPrefsPatch = null;
+        const state = await this.run(this.client.call('soundpad.get'));
+        if (state) this.applySoundpad(state);
+      })
       .finally(() => {
         this.soundpadPrefsInFlight = false;
         const next = this.soundpadPrefsPending;
@@ -494,11 +514,10 @@ export class DaemonStore {
       const uploadId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
       this.uploads = { ...this.uploads, [key]: 0 };
       try {
-        const bytes = new Uint8Array(await file.arrayBuffer());
         let offset = 0;
         do {
-          const chunk = bytes.subarray(offset, offset + SOUNDPAD_UPLOAD_CHUNK_BYTES);
-          const done = offset + chunk.length >= bytes.length;
+          const chunk = new Uint8Array(await file.slice(offset, offset + SOUNDPAD_UPLOAD_CHUNK_BYTES).arrayBuffer());
+          const done = offset + chunk.length >= file.size;
           const state = await this.client.call('soundpad.upload', {
             upload_id: uploadId,
             file_name: file.name,
@@ -508,9 +527,9 @@ export class DaemonStore {
             done,
           });
           offset += chunk.length;
-          this.uploads = { ...this.uploads, [key]: bytes.length ? offset / bytes.length : 1 };
+          this.uploads = { ...this.uploads, [key]: file.size ? offset / file.size : 1 };
           if (state) this.applySoundpad(state);
-        } while (offset < bytes.length);
+        } while (offset < file.size);
         added++;
       } catch (error) {
         this.fail(error);

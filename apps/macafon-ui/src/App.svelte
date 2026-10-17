@@ -72,6 +72,7 @@
   <div
     class="app"
     {ondragover}
+    ondropcapture={() => (fileDrag = false)}
     ondragleave={(event) => {
       if (!event.relatedTarget) fileDrag = false;
     }}

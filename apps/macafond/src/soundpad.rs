@@ -27,6 +27,12 @@ struct Upload {
     touched: Instant,
 }
 
+impl Drop for Upload {
+    fn drop(&mut self) {
+        remove_upload(&self.path);
+    }
+}
+
 /// What the host learns from one control-loop tick.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct TickOutcome {
@@ -119,14 +125,6 @@ impl Soundpad {
         &self.categories
     }
 
-    pub fn category_sound_ids(&self, category: &str) -> Vec<String> {
-        self.entries
-            .iter()
-            .filter(|entry| entry.category.as_deref() == Some(category))
-            .map(|entry| entry.id.clone())
-            .collect()
-    }
-
     pub fn entry(&self, id: &str) -> Result<&SoundEntry, ErrorBody> {
         self.entries
             .iter()
@@ -143,11 +141,16 @@ impl Soundpad {
             Ok(found) => found,
             Err(error) => {
                 tracing::debug!(%error, folder = %self.folder.display(), "Cannot scan the soundpad folder");
-                (Vec::new(), Vec::new())
+                return false;
             }
         };
         if entries == self.entries && categories == self.categories {
             return false;
+        }
+        for old in &self.entries {
+            if !entries.iter().any(|entry| entry.id == old.id) {
+                self.loader.invalidate(&old.id);
+            }
         }
         for entry in &entries {
             let changed = self
@@ -170,6 +173,20 @@ impl Soundpad {
             .collect();
         self.entries = entries;
         self.categories = categories;
+        if let Some(id) = self.pending.clone() {
+            if let Some(entry) = self.entries.iter().find(|entry| entry.id == id) {
+                self.loader
+                    .request(&entry.id, &entry.path, entry.modified_unix_ms);
+            } else {
+                self.stop();
+            }
+        } else if self
+            .playing
+            .as_ref()
+            .is_some_and(|(_, id)| !self.entries.iter().any(|e| &e.id == id))
+        {
+            self.stop();
+        }
         true
     }
 
@@ -363,13 +380,17 @@ impl Soundpad {
         {
             self.playing = None;
         }
-        let mut outcome = self.poll_loaded_sounds(config);
+        // Rescan first: a file removed meanwhile must not accept its finished decode.
+        let mut outcome = TickOutcome::default();
         if self
             .scanned_at
             .is_none_or(|at| now.saturating_duration_since(at) >= RESCAN_INTERVAL)
         {
             outcome.library_changed |= self.rescan();
         }
+        let loaded = self.poll_loaded_sounds(config);
+        outcome.library_changed |= loaded.library_changed;
+        outcome.played = loaded.played;
         outcome.library_changed |= self.probe_durations();
         self.uploads
             .retain(|_, upload| now.saturating_duration_since(upload.touched) < STALE_UPLOAD);
@@ -460,6 +481,10 @@ impl Soundpad {
             .and_then(|name| name.to_str())
             .filter(|name| !name.is_empty())
             .ok_or_else(|| invalid("invalid file name".into()))?;
+        library::validate_name(name).map_err(library_error)?;
+        if let Some(category) = category {
+            library::validate_name(category).map_err(library_error)?;
+        }
         let extension = Path::new(name)
             .extension()
             .and_then(|extension| extension.to_str())
@@ -468,15 +493,16 @@ impl Soundpad {
         if !library::SUPPORTED_EXTENSIONS.contains(&extension.as_str()) {
             return Err(invalid(format!("unsupported file type .{extension}")));
         }
+        if data.len() > SOUNDPAD_UPLOAD_CHUNK_BYTES.div_ceil(3) * 4 {
+            return Err(invalid("chunk too large".into()));
+        }
         let bytes = decode_base64(data).ok_or_else(|| invalid("invalid base64 data".into()))?;
         if bytes.len() > SOUNDPAD_UPLOAD_CHUNK_BYTES {
             return Err(invalid("chunk too large".into()));
         }
         let io = |error: std::io::Error| ErrorBody::new(ErrorCode::Internal, error.to_string());
         if offset == 0 {
-            if let Some(old) = self.uploads.remove(upload_id) {
-                remove_upload(&old.path);
-            }
+            self.uploads.remove(upload_id);
             let directory = self.uploads_dir.join(upload_id);
             std::fs::create_dir_all(&directory).map_err(io)?;
             let path = directory.join(name);
@@ -501,9 +527,7 @@ impl Soundpad {
             )));
         }
         if upload.received + bytes.len() as u64 > library::MAX_FILE_BYTES {
-            let path = upload.path.clone();
             self.uploads.remove(upload_id);
-            remove_upload(&path);
             return Err(invalid("the file is larger than 200 MB".into()));
         }
         {
@@ -523,7 +547,7 @@ impl Soundpad {
             return Ok(None);
         };
         let result = library::import(&self.folder, &upload.path, category);
-        remove_upload(&upload.path);
+        drop(upload);
         let entry = result.map_err(library_error)?;
         self.rescan();
         Ok(Some(entry))
@@ -614,6 +638,119 @@ pub fn open_folder(folder: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_soundpad(label: &str) -> (PathBuf, SoundpadConfig, Soundpad) {
+        let root = std::env::temp_dir().join(format!("macafon-{label}-{}", std::process::id()));
+        let config = SoundpadConfig {
+            folder: Some(root.join("sounds")),
+            ..Default::default()
+        };
+        let mut soundpad = Soundpad::new(&config, &root.join("state"));
+        soundpad.rescan();
+        (root, config, soundpad)
+    }
+
+    fn write_wav(path: &Path) {
+        let mut bytes = Vec::new();
+        bytes.extend(b"RIFF");
+        bytes.extend(996_u32.to_le_bytes());
+        bytes.extend(b"WAVEfmt ");
+        bytes.extend(16_u32.to_le_bytes());
+        bytes.extend(1_u16.to_le_bytes());
+        bytes.extend(1_u16.to_le_bytes());
+        bytes.extend(48_000_u32.to_le_bytes());
+        bytes.extend(96_000_u32.to_le_bytes());
+        bytes.extend(2_u16.to_le_bytes());
+        bytes.extend(16_u16.to_le_bytes());
+        bytes.extend(b"data");
+        bytes.extend(960_u32.to_le_bytes());
+        bytes.resize(1004, 0);
+        std::fs::write(path, bytes).expect("write wav");
+    }
+
+    #[test]
+    fn pending_decode_follows_rename() {
+        let (root, config, mut soundpad) = test_soundpad("pending-rename");
+        write_wav(&soundpad.folder.join("old.wav"));
+        soundpad.rescan();
+        assert!(!soundpad.play("old.wav", &config).expect("play"));
+        let renamed = library::rename(&soundpad.folder, "old.wav", "new").expect("rename");
+        soundpad.renamed("old.wav", &renamed.id);
+        soundpad.rescan();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(id) = soundpad.tick(&config, Instant::now()).played {
+                assert_eq!(id, "new.wav");
+                break;
+            }
+            assert!(Instant::now() < deadline, "renamed sound stayed loading");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        drop(soundpad);
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn failed_rescan_preserves_the_known_library() {
+        let (root, _, mut soundpad) = test_soundpad("failed-rescan");
+        write_wav(&soundpad.folder.join("known.wav"));
+        soundpad.rescan();
+        std::fs::rename(&soundpad.folder, root.join("backup")).expect("move folder");
+        std::fs::write(&soundpad.folder, b"temporarily unavailable").expect("block scan");
+        assert!(!soundpad.rescan());
+        assert_eq!(soundpad.entries()[0].id, "known.wav");
+        drop(soundpad);
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn rescan_cancels_deleted_pending_decode() {
+        let (root, config, mut soundpad) = test_soundpad("pending-delete");
+        write_wav(&soundpad.folder.join("old.wav"));
+        soundpad.rescan();
+        soundpad.play("old.wav", &config).expect("play");
+        std::fs::remove_file(soundpad.folder.join("old.wav")).expect("delete");
+        soundpad.rescan();
+        assert!(soundpad.playback().is_none());
+        assert!(soundpad.tick(&config, Instant::now()).played.is_none());
+        drop(soundpad);
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn uploads_expire_and_reject_invalid_names_before_writing() {
+        let (root, config, mut soundpad) = test_soundpad("upload-expiry");
+        for name in ["NUL.wav", "audio:stream.wav", "trailing .wav:"] {
+            assert!(
+                soundpad
+                    .upload("bad", name, None, 0, "AAAA", false)
+                    .is_err()
+            );
+        }
+        assert!(
+            soundpad
+                .upload(
+                    "bad",
+                    "large.wav",
+                    None,
+                    0,
+                    &"A".repeat(SOUNDPAD_UPLOAD_CHUNK_BYTES.div_ceil(3) * 4 + 4),
+                    false
+                )
+                .is_err()
+        );
+        assert!(!soundpad.uploads_dir.join("bad").exists());
+        soundpad
+            .upload("expired", "tone.wav", None, 0, "AAAA", false)
+            .expect("chunk");
+        let path = soundpad.uploads["expired"].path.clone();
+        assert!(path.exists());
+        soundpad.tick(&config, Instant::now() + STALE_UPLOAD);
+        assert!(!path.exists());
+        assert!(!path.parent().expect("directory").exists());
+        drop(soundpad);
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
 
     #[test]
     fn base64_matches_btoa() {

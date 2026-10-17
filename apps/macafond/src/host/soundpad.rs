@@ -209,16 +209,20 @@ impl DaemonHost {
             Request::SoundpadRename { id, name } => {
                 soundpad.entry(&id)?;
                 let entry = library::rename(&folder, &id, &name).map_err(library_error)?;
-                soundpad.rescan();
                 self.sound_renamed(&id, &entry.id);
+                if let Some(soundpad) = &mut self.soundpad {
+                    soundpad.rescan();
+                }
                 self.soundpad_changed();
             }
             Request::SoundpadMove { id, category } => {
                 soundpad.entry(&id)?;
                 let entry = library::move_to_category(&folder, &id, category.as_deref())
                     .map_err(library_error)?;
-                soundpad.rescan();
                 self.sound_renamed(&id, &entry.id);
+                if let Some(soundpad) = &mut self.soundpad {
+                    soundpad.rescan();
+                }
                 self.soundpad_changed();
             }
             Request::SoundpadDelete { id } => {
@@ -270,38 +274,44 @@ impl DaemonHost {
     }
 
     fn rename_soundpad_category(&mut self, from: &str, to: &str) -> Result<(), ErrorBody> {
-        let soundpad = self.soundpad.as_mut().ok_or_else(soundpad_unavailable)?;
-        let folder = soundpad.folder().to_owned();
-        let moved = soundpad.category_sound_ids(from);
+        let folder = self
+            .soundpad
+            .as_ref()
+            .ok_or_else(soundpad_unavailable)?
+            .folder()
+            .to_owned();
+        // From the folder itself: files may have arrived after the last scan.
+        let moved: Vec<String> = library::scan(&folder)
+            .map_err(library_error)?
+            .into_iter()
+            .filter(|entry| entry.category.as_deref() == Some(from))
+            .map(|entry| entry.id)
+            .collect();
         library::rename_category(&folder, from, to).map_err(library_error)?;
-        soundpad.rescan();
         for id in moved {
             let file = id.rsplit('/').next().unwrap_or(&id);
             self.sound_renamed(&id, &format!("{to}/{file}"));
         }
+        if let Some(soundpad) = &mut self.soundpad {
+            soundpad.rescan();
+        }
         Ok(())
     }
 
+    /// Sounds move to the folder itself, under the names the library actually gave them.
     fn delete_soundpad_category(&mut self, name: &str) -> Result<(), ErrorBody> {
-        let soundpad = self.soundpad.as_mut().ok_or_else(soundpad_unavailable)?;
-        let folder = soundpad.folder().to_owned();
-        let moved = soundpad.category_sound_ids(name);
-        library::delete_category(&folder, name).map_err(library_error)?;
-        soundpad.rescan();
-        // Sounds move to the folder itself; one that had to be renamed loses its
-        // settings rather than taking another sound's.
-        let present: Vec<String> = soundpad
-            .entries()
-            .iter()
-            .map(|entry| entry.id.clone())
-            .collect();
-        for id in moved {
-            let file = id.rsplit('/').next().unwrap_or(&id).to_owned();
-            if present.contains(&file) && !self.config.soundpad.sounds.contains_key(&file) {
-                self.sound_renamed(&id, &file);
-            } else {
-                self.sound_removed(&id);
-            }
+        let folder = self
+            .soundpad
+            .as_ref()
+            .ok_or_else(soundpad_unavailable)?
+            .folder()
+            .to_owned();
+        let moved = library::delete_category(&folder, name).map_err(library_error)?;
+        for (from, to) in moved {
+            self.sound_renamed(&from, &to);
+        }
+        if let Some(soundpad) = &mut self.soundpad {
+            soundpad.rescan();
         }
         Ok(())
     }

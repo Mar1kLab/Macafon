@@ -200,6 +200,13 @@ fn parse(text: &str) -> Result<(Config, i64), String> {
         .validate()
         .map_err(|error| error.to_string())?;
     config.mixer.validate()?;
+    config.soundpad.microphone_volume_pct =
+        crate::soundpad::clamp_volume(config.soundpad.microphone_volume_pct);
+    config.soundpad.headphones_volume_pct =
+        crate::soundpad::clamp_volume(config.soundpad.headphones_volume_pct);
+    for sound in config.soundpad.sounds.values_mut() {
+        sound.volume_pct = crate::soundpad::clamp_volume(sound.volume_pct);
+    }
     config.ui.volume_step_pct = config.ui.volume_step_pct.clamp(1, 20);
     if !QUANTUM_CHOICES.contains(&config.audio.quantum_frames) {
         config.audio.quantum_frames = DEFAULT_QUANTUM_FRAMES;
@@ -226,6 +233,26 @@ mod tests {
         AppsConfig, AudioConfig, MicConfig, MicProfile, MixerConfig, OsdConfig, OsdEdge, OsdStyle,
         UiConfig,
     };
+    #[test]
+    fn soundpad_volumes_are_clamped_on_load() {
+        let (config, _) = parse(
+            r#"
+[soundpad]
+microphone_volume_pct = 900.0
+headphones_volume_pct = -4.0
+[soundpad.sounds."bad.wav"]
+volume_pct = nan
+[soundpad.sounds."loud.wav"]
+volume_pct = 300.0
+"#,
+        )
+        .expect("config");
+        assert_eq!(config.soundpad.microphone_volume_pct, 200.0);
+        assert_eq!(config.soundpad.headphones_volume_pct, 0.0);
+        assert_eq!(config.soundpad.sound("bad.wav").volume_pct, 100.0);
+        assert_eq!(config.soundpad.sound("loud.wav").volume_pct, 200.0);
+    }
+
     use macafon_dsp::{InputChannel, Preset};
     use std::collections::BTreeMap;
 

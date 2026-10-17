@@ -8,9 +8,11 @@ import './styles/tokens.css';
 import './styles/base.css';
 import App from './App.svelte';
 import QuickPanel from './lib/quick/QuickPanel.svelte';
+import HotkeyOverlay from './lib/quick/HotkeyOverlay.svelte';
 import { quickPanel } from './lib/state';
 
 const target = document.getElementById('app');
 if (!target) throw new Error('missing #app');
 
-export default mount(quickPanel ? QuickPanel : App, { target });
+const overlay = quickPanel && new URLSearchParams(location.search).get('mode') === 'overlay';
+export default mount(quickPanel ? (overlay ? HotkeyOverlay : QuickPanel) : App, { target });

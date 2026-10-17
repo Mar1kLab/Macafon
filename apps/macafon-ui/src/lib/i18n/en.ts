@@ -348,6 +348,12 @@ export const en = {
     licenseList: 'RNNoise (nnnoiseless, BSD-3-Clause) · DeepFilterNet 3 (MIT OR Apache-2.0) · Archivo, Inter, Geist Mono, Instrument Serif (SIL OFL 1.1) · Lucide (ISC)',
   },
   quick: {
+    // Hotkey overlay.
+    closeOverlay: 'Close overlay',
+    overlayTitle: 'Quick controls',
+    volumeValue: '{value}%',
+    mutedVolumeValue: '{value}%, muted',
+
     openApp: 'Open Macafon',
     microphone: 'Microphone',
     processing: 'Processing',

@@ -1,20 +1,21 @@
 <script lang="ts" module>
-  export type Screen = 'microphone' | 'mixer' | 'settings';
+  export type Screen = 'microphone' | 'mixer' | 'soundpad' | 'settings';
 </script>
 
 <script lang="ts">
   // 64px icon sidebar (PRD §9.1) with HUD labels on hover; daemon status at the bottom.
-  import { Mic, Settings, SlidersVertical } from '@lucide/svelte';
+  import { AudioWaveform, Mic, Settings, SlidersVertical } from '@lucide/svelte';
   import { daemon } from '../state';
   import { t } from '../i18n';
   import Logo from './Logo.svelte';
 
   let { screen, onnavigate }: { screen: Screen; onnavigate: (screen: Screen) => void } = $props();
 
-  const items = [
+  const items = $derived([
     { id: 'microphone' as const, icon: Mic, label: t('nav.microphone') },
     { id: 'mixer' as const, icon: SlidersVertical, label: t('nav.mixer') },
-  ];
+    ...(daemon.soundpadAvailable ? [{ id: 'soundpad' as const, icon: AudioWaveform, label: t('nav.soundpad') }] : []),
+  ]);
 
   const status = $derived(daemon.status);
   const statusText = $derived(

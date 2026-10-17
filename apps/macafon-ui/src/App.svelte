@@ -7,12 +7,13 @@
   import Microphone from './screens/Microphone.svelte';
   import Settings from './screens/Settings.svelte';
   import Mixer from './screens/Mixer.svelte';
+  import Soundpad from './screens/Soundpad.svelte';
   import Onboarding from './lib/onboarding/Onboarding.svelte';
   import { daemon } from './lib/state';
   import { t } from './lib/i18n';
 
   const initial = new URLSearchParams(location.search).get('screen');
-  let screen = $state<Screen>(initial === 'settings' || initial === 'mixer' ? initial : 'microphone');
+  let screen = $state<Screen>(initial === 'settings' || initial === 'mixer' || initial === 'soundpad' ? initial : 'microphone');
 
   // UI scale 90–150% with Ctrl +/− and Ctrl 0 (PRD §9.8).
   const ZOOM_STEPS = [0.9, 1, 1.1, 1.25, 1.5];
@@ -65,6 +66,8 @@
         <Settings onnavigate={(next) => (screen = next)} />
       {:else if screen === 'mixer'}
         <Mixer />
+      {:else if screen === 'soundpad' && daemon.soundpadAvailable}
+        <Soundpad />
       {:else}
         <Microphone />
       {/if}

@@ -30,11 +30,13 @@ import type {
 import { DEVICES, MOCK_ICONS } from './mock/fixtures';
 import { clone, latencySamples, sameChain, slugify } from './mock/helpers';
 import { MockMixer } from './mock/mixer';
+import { MockSoundpad } from './mock/soundpad';
 import { SILENT, random, voiceLevel } from './mock/signals';
 
 const VERSION = '0.1.0-mock';
 
 const GLOBAL_HOTKEYS = ['quick_panel', 'mic_mute_toggle', 'push_to_talk', 'push_to_mute', 'bypass_toggle', 'preset_next', 'preset_previous'];
+const SOUNDPAD_HOTKEYS = ['soundpad_stop', 'soundpad_pause', 'soundpad_random'];
 
 /** HK-004 command for an action, as `HotkeyAction::command` builds it. */
 function hotkeyCommand(action: string): string {
@@ -62,7 +64,14 @@ function hotkeyCommand(action: string): string {
       return `macafon ctl channel ${channel} volume -5`;
     case 'channel_mute':
       return `macafon ctl channel ${channel} mute`;
+    case 'soundpad_stop':
+      return 'macafon ctl soundpad stop';
+    case 'soundpad_pause':
+      return 'macafon ctl soundpad pause';
+    case 'soundpad_random':
+      return 'macafon ctl soundpad random';
     default:
+      if (action.startsWith('soundpad_play.')) return `macafon ctl soundpad play ${JSON.stringify(action.slice('soundpad_play.'.length))}`;
       return '';
   }
 }
@@ -103,12 +112,17 @@ export class MockTransport implements Transport {
     ['channel_volume_down.voice', 'Ctrl+Alt+D'],
     ['channel_volume_up.music', 'Ctrl+Alt+R'],
     ['channel_volume_down.music', 'Ctrl+Alt+F'],
+    ['soundpad_stop', 'Ctrl+Alt+X'],
+    ['soundpad_play.Air horn.mp3', 'Ctrl+Alt+1'],
+    ['soundpad_play.Memes/Bruh.mp3', 'Ctrl+Alt+2'],
+    ['soundpad_play.Memes/Vine boom.wav', 'Ctrl+Alt+3'],
   ]);
 
   private meterTimer: number | undefined;
   private deviceMeterTimer: number | undefined;
   private started = performance.now();
   private mixer = new MockMixer(this.query.get('mixer') !== 'off', this.started, (event) => this.emit(event));
+  private soundpad = new MockSoundpad((event) => this.emit(event), this.windows);
   private outputControls: OutputControl[] = [];
   private hardwareVolume = 83;
   private hardwareBalance = 0;
@@ -278,6 +292,7 @@ export class MockTransport implements Transport {
     const actions = [
       ...GLOBAL_HOTKEYS, 'master_volume_up', 'master_volume_down', 'master_mute',
       ...this.mixer.state.channels.flatMap((c) => [`channel_volume_up.${c.id}`, `channel_volume_down.${c.id}`, `channel_mute.${c.id}`]),
+      ...(this.windows ? [...SOUNDPAD_HOTKEYS, ...this.soundpad.state.sounds.map((x) => `soundpad_play.${x.id}`)] : []),
     ];
     const portal = this.query.get('hotkeys') !== 'unavailable';
     return {
@@ -295,6 +310,15 @@ export class MockTransport implements Transport {
         }),
       ),
     };
+  }
+
+  /** Bindings of sounds that are gone are dropped; the mock does not track renames. */
+  private syncSoundHotkeys() {
+    const ids = new Set(this.soundpad.state.sounds.map((x) => `soundpad_play.${x.id}`));
+    for (const action of [...this.shortcuts.keys()]) {
+      if (action.startsWith('soundpad_play.') && !ids.has(action.replace(/#secondary$/, ''))) this.shortcuts.delete(action);
+    }
+    this.emit({ event: 'hotkeys.changed', data: this.hotkeys() });
   }
 
   private abChanged(): AbState {
@@ -331,6 +355,15 @@ export class MockTransport implements Transport {
     const p = (params ?? {}) as Record<string, unknown>;
     if (method.startsWith('mixer.') || method.startsWith('channel.') || (method.startsWith('apps.') && method !== 'apps.icon')) {
       return this.mixer.call(method, p);
+    }
+    if (method.startsWith('soundpad.')) {
+      if (!this.windows) throw new DaemonError('bad_request', 'the soundpad is not available on this platform');
+      const result = this.soundpad.call(method, p);
+      // Renamed and moved sounds take their hotkeys along, as in the daemon.
+      if (method === 'soundpad.rename' || method === 'soundpad.move' || method === 'soundpad.delete' || method.endsWith('_category')) {
+        this.syncSoundHotkeys();
+      }
+      return result;
     }
     switch (method) {
       case 'output_controls.list': return clone(this.outputControls);
@@ -373,6 +406,7 @@ export class MockTransport implements Transport {
             channel_fx: !this.windows,
             graph_quantum: !this.windows,
             hotkey_popup: this.windows,
+            soundpad: this.windows,
           },
         };
       case 'daemon.quit':

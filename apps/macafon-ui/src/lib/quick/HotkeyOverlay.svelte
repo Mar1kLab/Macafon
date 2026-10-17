@@ -2,6 +2,7 @@
   import { AudioLines, ChevronLeft, ChevronRight, Mic, MicOff, SlidersHorizontal, Volume2, VolumeX, X } from '@lucide/svelte';
   import Logo from '../components/Logo.svelte';
   import VerticalSlider from './VerticalSlider.svelte';
+  import SoundpadOverlay from './SoundpadOverlay.svelte';
   import { channelIcon } from '../mixer/icons';
   import { displayShortcut } from '../settings/shortcut';
   import { daemon } from '../state';
@@ -78,6 +79,9 @@
         </div>
       </section>
     </div>
+    {#if daemon.soundpad?.prefs.show_in_overlay}
+      <SoundpadOverlay />
+    {/if}
   {/if}
 </div>
 

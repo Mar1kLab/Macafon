@@ -18,8 +18,11 @@ import type {
   Preferences,
   PresetInfo,
   OutputControl,
+  SoundpadPlayback,
+  SoundpadPrefsPatch,
+  SoundpadState,
 } from '../ipc/protocol';
-import { PROTOCOL_VERSION } from '../ipc/protocol';
+import { PROTOCOL_VERSION, SOUNDPAD_UPLOAD_CHUNK_BYTES } from '../ipc/protocol';
 import { t } from '../i18n';
 import { deviceMeterBus, meterBus, mixerMeterBus } from './meters';
 
@@ -36,6 +39,14 @@ const UNDO_DEPTH = 100;
 const METER_HZ = 60;
 const ONBOARDING_KEY = 'macafon.onboarding';
 
+function base64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
+
 export class DaemonStore {
   readonly client: DaemonClient;
   status = $state<DaemonStatus>({ state: 'connecting' });
@@ -51,6 +62,12 @@ export class DaemonStore {
   outputControls = $state.raw<OutputControl[]>([]);
   hotkeys = $state.raw<HotkeysState | null>(null);
   prefs = $state.raw<Preferences | null>(null);
+  /** The library and its preferences (§7.6); `null` where the platform has no soundpad. */
+  soundpad = $state.raw<SoundpadState | null>(null);
+  /** Progress of the playing sound, updated about 10 times a second. */
+  soundpadPlayback = $state.raw<SoundpadPlayback | null>(null);
+  /** Files being added to the library: name → 0…1. */
+  uploads = $state<Record<string, number>>({});
   toasts = $state<Toast[]>([]);
   canUndo = $state(false);
   /** Bumped to ask the TEST panel to record a clip (calibration → "Listen A/B"). */
@@ -100,6 +117,10 @@ export class DaemonStore {
   /** EQ and effects on channels and Master (WIN-CH-006: none on Windows). */
   get channelFx(): boolean {
     return this.hello?.capabilities.channel_fx ?? true;
+  }
+
+  get soundpadAvailable(): boolean {
+    return this.hello?.capabilities.soundpad ?? false;
   }
 
   /** Windows without VB-CABLE: processing runs, but no app can hear it (WIN-MIC-001). */
@@ -153,6 +174,13 @@ export class DaemonStore {
       this.calibration = calibration;
       this.autostart = autostart;
       this.outputControls = await this.client.call('output_controls.list');
+      if (hello.capabilities.soundpad) {
+        this.soundpad = await this.client.call('soundpad.get');
+        this.soundpadPlayback = this.soundpad.playback;
+      } else {
+        this.soundpad = null;
+        this.soundpadPlayback = null;
+      }
       this.syncMeters();
       if (this.deviceWatchers > 0) await this.client.call('devices.subscribe');
     } catch (error) {
@@ -229,6 +257,12 @@ export class DaemonStore {
         break;
       case 'mixer.meters':
         mixerMeterBus.update(event.data);
+        break;
+      case 'soundpad.changed':
+        this.applySoundpad(event.data);
+        break;
+      case 'soundpad.playback':
+        this.soundpadPlayback = event.data;
         break;
       case 'mic.noise_fallback':
         this.toast(t('mic.toastNoiseFallback'), { message: t('mic.toastNoiseFallbackBody'), tone: 'danger' });
@@ -388,6 +422,93 @@ export class DaemonStore {
         this.appVolumePending.delete(key);
         if (next !== undefined) this.setAppVolume(key, next);
       });
+  }
+
+  // --- Soundpad ---------------------------------------------------------------------------
+
+  private soundpadPrefsPending: SoundpadPrefsPatch | null = null;
+  private soundpadPrefsInFlight = false;
+
+  /** A volume drag keeps its local value until the last request is answered. */
+  private applySoundpad(state: SoundpadState) {
+    const local = this.soundpad?.prefs;
+    this.soundpad = this.soundpadPrefsInFlight && local ? { ...state, prefs: local } : state;
+    this.soundpadPlayback = state.playback;
+  }
+
+  async setSoundpad(request: Promise<SoundpadState | null>): Promise<boolean> {
+    const state = await this.run(request.then((value) => value ?? this.soundpad));
+    if (state) this.applySoundpad(state);
+    return state !== undefined;
+  }
+
+  /** Optimistic preference change; a slider drag sends only the latest values. */
+  setSoundpadPrefs(patch: SoundpadPrefsPatch): void {
+    const soundpad = this.soundpad;
+    if (!soundpad) return;
+    const prefs = { ...soundpad.prefs };
+    for (const [key, value] of Object.entries(patch)) {
+      if (value !== undefined && value !== null) (prefs as Record<string, unknown>)[key] = value;
+    }
+    this.soundpad = { ...soundpad, prefs };
+    if (this.soundpadPrefsInFlight) {
+      this.soundpadPrefsPending = { ...this.soundpadPrefsPending, ...patch };
+      return;
+    }
+    this.soundpadPrefsInFlight = true;
+    this.client
+      .call('soundpad.set_prefs', { patch })
+      .catch((error) => this.fail(error))
+      .finally(() => {
+        this.soundpadPrefsInFlight = false;
+        const next = this.soundpadPrefsPending;
+        this.soundpadPrefsPending = null;
+        if (next) this.setSoundpadPrefs(next);
+      });
+  }
+
+  playSound(id: string): void {
+    this.client.call('soundpad.play', { id }).catch((error) => this.fail(error));
+  }
+
+  stopSound(): void {
+    this.client.call('soundpad.stop').catch((error) => this.fail(error));
+  }
+
+  /** Add files to the library through the daemon, in chunks that fit one protocol line. */
+  async uploadSounds(files: Iterable<File>, category: string | null): Promise<number> {
+    let added = 0;
+    for (const file of files) {
+      const key = file.name;
+      const uploadId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      this.uploads = { ...this.uploads, [key]: 0 };
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let offset = 0;
+        do {
+          const chunk = bytes.subarray(offset, offset + SOUNDPAD_UPLOAD_CHUNK_BYTES);
+          const done = offset + chunk.length >= bytes.length;
+          const state = await this.client.call('soundpad.upload', {
+            upload_id: uploadId,
+            file_name: file.name,
+            category,
+            offset,
+            data: base64(chunk),
+            done,
+          });
+          offset += chunk.length;
+          this.uploads = { ...this.uploads, [key]: bytes.length ? offset / bytes.length : 1 };
+          if (state) this.applySoundpad(state);
+        } while (offset < bytes.length);
+        added++;
+      } catch (error) {
+        this.fail(error);
+      } finally {
+        const { [key]: _, ...rest } = this.uploads;
+        this.uploads = rest;
+      }
+    }
+    return added;
   }
 
   // --- Chain edits --------------------------------------------------------------------------

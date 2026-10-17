@@ -38,16 +38,21 @@
   const groups = $derived.by(() => {
     const result: { id: string; title: string; bindings: HotkeyBinding[] }[] = [];
     for (const binding of hotkeys?.bindings ?? []) {
-      const channel = binding.action.split('.')[1];
+      // Single sounds get their shortcuts on the Soundpad screen.
+      if (binding.action.startsWith('soundpad_play.')) continue;
+      const soundpad = binding.action.startsWith('soundpad_');
+      const channel = soundpad ? undefined : binding.action.split('.')[1];
       const general = binding.action === 'quick_panel' || binding.action.startsWith('master_');
-      const id = channel ?? (general ? 'general' : '');
+      const id = channel ?? (general ? 'general' : soundpad ? 'soundpad' : '');
       let group = result.find((g) => g.id === id);
       if (!group) {
         const title = channel
           ? t('settings.hotkeys.channel', { name: channelName(channel) })
           : general
             ? t('settings.hotkeys.general')
-            : t('settings.hotkeys.microphone');
+            : soundpad
+              ? t('settings.hotkeys.soundpad')
+              : t('settings.hotkeys.microphone');
         group = { id, title, bindings: [] };
         result.push(group);
       }

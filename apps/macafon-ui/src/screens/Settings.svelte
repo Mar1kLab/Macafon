@@ -332,6 +332,15 @@
           </div>
           <button class="btn" onclick={() => setOsd({})}>{t('settings.osd.previewRun')}</button>
         </div>
+        {#if daemon.soundpad}
+          <div class="row">
+            <div>
+              <p class="name">{t('settings.soundpadOverlay')}</p>
+              <p class="hint">{t('settings.soundpadOverlayHint')}</p>
+            </div>
+            <Toggle checked={daemon.soundpad.prefs.show_in_overlay} label={t('settings.soundpadOverlay')} onchange={(show_in_overlay) => daemon.setSoundpadPrefs({ show_in_overlay })} />
+          </div>
+        {/if}
       </section>
     {/if}
 

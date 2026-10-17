@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/macafon-dsp",
+    "crates/macafon-soundpad",
     "crates/macafon-studio",
     "crates/macafon-engine",
     "crates/macafon-config",
@@ -34,6 +35,7 @@ tracing = "0.1"
 ts-rs = { version = "12", default-features = false, features = ["serde-compat", "no-serde-warnings"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 macafon-dsp = { path = "crates/macafon-dsp" }
+macafon-soundpad = { path = "crates/macafon-soundpad" }
 macafon-engine = { path = "crates/macafon-engine" }
 macafon-config = { path = "crates/macafon-config" }
 macafon-apps = { path = "crates/macafon-apps" }

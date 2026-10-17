@@ -7,6 +7,13 @@ use std::time::{Duration, Instant};
 impl DaemonHost {
     pub(super) fn respond(&mut self, request: Request) -> Result<serde_json::Value, ErrorBody> {
         let state = match request {
+            Request::OutputControlsList => return Ok(serde_json::json!([])),
+            Request::OutputControlsSet { .. } => {
+                return Err(ErrorBody::new(
+                    ErrorCode::BadRequest,
+                    "output controls unavailable",
+                ));
+            }
             Request::MicCyclePreset { step } => self.cycle_preset(step)?,
             Request::HotkeysGet => return Ok(serde_json::json!(self.hotkeys_state())),
             Request::PrefsGet => return Ok(serde_json::json!(self.prefs())),

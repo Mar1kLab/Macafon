@@ -68,6 +68,8 @@ fn protocol() -> String {
         ChannelState::decl(&cfg),
         AppState::decl(&cfg),
         OutputDevice::decl(&cfg),
+        MacaronSettings::decl(&cfg),
+        OutputControl::decl(&cfg),
         MixerState::decl(&cfg),
         ChannelMeterFrame::decl(&cfg),
         MixerMeters::decl(&cfg),

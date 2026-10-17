@@ -10,6 +10,7 @@ mod doctor;
 mod framing;
 mod hotkeys;
 mod mixer;
+mod output_control;
 mod request;
 mod state;
 pub mod transport;
@@ -29,6 +30,7 @@ pub use macafon_dsp::{ChainSettings, InputChannel, Meters};
 pub use mixer::{
     AppState, ChannelMeterFrame, ChannelPatch, ChannelState, MixerMeters, MixerState, OutputDevice,
 };
+pub use output_control::{MacaronSettings, OutputControl};
 pub use transport::Endpoint;
 
 use serde::Serialize;

@@ -43,6 +43,40 @@ async function onboardingTo(page, step) {
 }
 
 const scenarios = {
+  'macaron-unknown': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=mixer&macaron=connected`);
+    await page.getByRole('button', { name: 'Device settings', exact: true }).click();
+    await page.getByText('Current value unknown').first().waitFor();
+  },
+  'macaron-live': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=mixer&macaron=live`);
+    await page.getByRole('button', { name: 'Device settings', exact: true }).click();
+    await page.getByText('Volume updated from device').waitFor();
+  },
+  'macaron-known': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=mixer&macaron=known`);
+    await page.getByRole('button', { name: 'Device settings', exact: true }).click();
+    await page.getByRole('button', { name: 'High', exact: true }).click();
+    await page.locator('button[aria-pressed="true"]').filter({ hasText: 'High' }).waitFor();
+    await page.getByRole('button', { name: 'NOS', exact: true }).click();
+    await page.locator('button[aria-pressed="true"]').filter({ hasText: 'NOS' }).waitFor();
+  },
+  'macaron-error': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=mixer&macaron=error`);
+    await page.getByRole('button', { name: 'Device settings', exact: true }).click();
+    await page.getByRole('button', { name: 'Mid', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: 'timed out' }).waitFor();
+  },
+  'macaron-disconnected': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=mixer&macaron=disconnect`);
+    await page.getByRole('button', { name: 'Device settings', exact: true }).click();
+    await page.getByText('Device disconnected or daemon unavailable. Reconnect the device to continue.').waitFor();
+  },
+  'macaron-absent': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=mixer`);
+    await page.waitForSelector('.strip');
+    if (await page.getByRole('button', { name: 'Device settings', exact: true }).count()) throw new Error('Controls visible without a supported DAC');
+  },
   mixer: async (page) => {
     await page.goto(`${base}?screen=mixer`);
     await page.waitForSelector('.strip');
@@ -286,7 +320,8 @@ for (const [name, run] of Object.entries(scenarios)) {
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
   await run(page);
   const file = join(out, `${date}-ui-${name}.png`);
-  await page.screenshot({ path: file });
+  await page.screenshot({ path: file, animations: 'disabled' });
+  if (name === 'macaron-live') await page.locator('dialog[open]').screenshot({ path: join(out, `${date}-ui-macaron-detail.png`), animations: 'disabled' });
   console.log(file, errors.length ? `errors: ${errors.join(' | ')}` : '');
   await page.close();
 }

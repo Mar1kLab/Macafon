@@ -14,6 +14,7 @@ mod logging;
 mod mixer;
 mod notify;
 mod osd;
+mod output_controls;
 #[cfg_attr(target_os = "linux", path = "platform/linux.rs")]
 #[cfg_attr(windows, path = "platform/windows.rs")]
 mod platform;

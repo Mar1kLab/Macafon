@@ -68,6 +68,8 @@ pub enum Outcome {
 #[serde(tag = "event", content = "data")]
 #[allow(clippy::large_enum_variant)] // transient messages; boxing buys nothing
 pub enum Event {
+    #[serde(rename = "output_controls.changed")]
+    OutputControlsChanged(Vec<crate::OutputControl>),
     #[serde(rename = "mic.noise_fallback")]
     NoiseFallback {
         engine: macafon_dsp::settings::NoiseEngine,

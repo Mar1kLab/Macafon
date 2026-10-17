@@ -49,6 +49,8 @@ pub enum ControlMessage {
 }
 
 pub struct DaemonHost {
+    #[cfg(windows)]
+    output_controls: crate::output_controls::Manager,
     config: Config,
     config_recovery: Option<macafon_ipc::ConfigRecovery>,
     store: Option<Store>,
@@ -113,6 +115,8 @@ impl DaemonHost {
             changed_at: None,
             control: None,
             telemetry: hub.telemetry(),
+            #[cfg(windows)]
+            output_controls: crate::output_controls::Manager::new(hub.clone()),
             inputs: Vec::new(),
             input_connected: false,
             // PipeWire: the daemon creates the device itself. Windows: reported by the scan.
@@ -492,6 +496,14 @@ impl MicrophoneHost for DaemonHost {
             self.ab_changed();
             return;
         };
+        #[cfg(windows)]
+        if matches!(
+            request,
+            Request::OutputControlsList | Request::OutputControlsSet { .. }
+        ) {
+            self.output_controls.dispatch(request, reply);
+            return;
+        }
         let outcome = match self.respond(request) {
             Ok(value) => Outcome::Result(value),
             Err(error) => Outcome::Error(error),

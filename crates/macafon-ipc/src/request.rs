@@ -8,6 +8,13 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "method", content = "params")]
 #[allow(clippy::large_enum_variant)] // transient messages; boxing buys nothing
 pub enum Request {
+    #[serde(rename = "output_controls.list")]
+    OutputControlsList,
+    #[serde(rename = "output_controls.set")]
+    OutputControlsSet {
+        id: String,
+        settings: crate::MacaronSettings,
+    },
     #[serde(rename = "hello")]
     Hello { protocol: u32, client: String },
     /// Stop the daemon: the virtual microphone disappears (BG-005).

@@ -1,6 +1,25 @@
 // English UI strings (the only locale in 1.0, PRD §3.2). Tone: short, no exclamation marks.
 
 export const en = {
+  outputDevice: {
+    open: 'Device settings',
+    macaron: 'iBasso Jr. Macaron',
+    scope: 'Hardware settings apply to all sound played through this DAC. Master volume controls your application groups separately.',
+    writeOnly: 'Physical volume-button notifications update volume and balance. Until one arrives, values are the last saved settings, not device readings. Gain, filter and output mode show the last saved commands. Avoid using another controller at the same time. Original settings cannot be restored automatically.',
+    volumeBalance: 'Volume and balance',
+    volume: 'Device volume', balance: 'Channel balance',
+    unknown: 'Current value unknown',
+    pairHint: 'Choose both values, then apply. The DAC writes volume and balance together. The initial slider positions are a draft, not a device reading.',
+    applyPair: 'Apply volume and balance',
+    center: 'Center', left: 'L{value}', right: 'R{value}',
+    filter: 'Digital filter', gain: 'Gain level', mode: 'Output mode',
+    fast: 'Fast Roll-off', ldSlow: 'LD Slow Roll-off', ldFast: 'LD Fast Roll-off', slow: 'Slow Roll-off', nos: 'NOS',
+    low: 'Low', mid: 'Mid', high: 'High', normal: 'Normal', boost: 'Boost',
+    applying: 'Applying to device…',
+    session: 'Last settings are saved for this device. Nothing is applied at startup or reconnect.',
+    liveVolume: 'Volume updated from device',
+    disconnected: 'Device disconnected or daemon unavailable. Reconnect the device to continue.',
+  },
   app: {
     name: 'Macafon',
   },

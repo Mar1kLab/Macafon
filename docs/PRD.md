@@ -912,6 +912,16 @@ Physical mic ─► WASAPI capture ─► macafond: chain §6.3 ─► WASAPI re
 
 #### 12.2.2 Windows mixer — volume groups without cables
 
+Optional output-device controls (owner request, 2026-10-17) are separate from channel/Master FX:
+
+| ID | Requirement | Priority |
+|---|---|---|
+| WIN-DAC-001 | Detect iBasso Jr. Macaron by USB VID/PID `262A:1A0B` and associate its HID interface with its render endpoint through the physical PnP ancestor. Controls appear only for connected supported devices: beside the current Mixer output and in Settings. No onboarding dependency, driver installation or administrator rights | P1 |
+| WIN-DAC-002 | Match the official web console without EQ: hardware volume 0–100 in integer steps, balance L10–R10, gain Low/Mid/High, five digital filters (Fast Roll-off, LD Slow Roll-off, LD Fast Roll-off, Slow Roll-off, NOS), output Normal/Boost. Hardware volume remains separate from Master | P1 |
+| WIN-DAC-003 | Do not invent device readings. Save the last acknowledged settings per physical device and display them on restart/reconnect without applying them. Decode passive hardware-volume reports from physical buttons and update volume/balance in the UI; filter/gain/output remain last-saved values. Explain these limits. The owner explicitly accepted no automatic restoration when originals cannot be read. Initially choose volume and balance together if neither a saved value nor a hardware report supplies them | P1 |
+| WIN-DAC-004 | All USB operations run on a bounded background controller, outside audio and daemon control loops. Validate commands, wait for matching acknowledgements with bounded timeouts, invalidate cached values on partial write failure, retain last settings for display across disconnection, and report failures without interrupting normal audio | P1 |
+| WIN-DAC-005 | The browser mock covers absent, unknown, acknowledged, disconnected and failed device states. Accessible controls use the existing design tokens and generated IPC types. No runtime website dependency, EQ, firmware flashing or permanent-profile writing | P1 |
+
 There are no cables for channels, so application audio does not pass through Macafon. A channel on Windows
 is a group of applications with a shared fader and mute: Macafon controls the volume of their Windows audio
 sessions. The channel model, rules, auto-classification, D&D and hotkeys are the same as on Linux; there are

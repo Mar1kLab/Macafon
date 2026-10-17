@@ -17,6 +17,7 @@ import type {
   PresetInfo,
   PlaybackDevice,
   Request,
+  OutputControl,
 } from './protocol';
 
 export type Method = Request['method'];
@@ -26,6 +27,8 @@ type ParamsOf<M extends Method> =
 
 /** Result of every method; a new protocol method fails type-checking until listed here. */
 interface Results {
+  'output_controls.list': OutputControl[];
+  'output_controls.set': OutputControl[];
   hello: Hello;
   'daemon.quit': null;
   'autostart.get': AutostartState;

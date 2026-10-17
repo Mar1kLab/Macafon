@@ -24,6 +24,8 @@ import type {
   MicState,
   Preferences,
   PresetInfo,
+  OutputControl,
+  MacaronSettings,
 } from './protocol';
 import { DEVICES, MOCK_ICONS } from './mock/fixtures';
 import { clone, latencySamples, sameChain, slugify } from './mock/helpers';
@@ -100,6 +102,7 @@ export class MockTransport implements Transport {
   private deviceMeterTimer: number | undefined;
   private started = performance.now();
   private mixer = new MockMixer(this.query.get('mixer') !== 'off', this.started, (event) => this.emit(event));
+  private outputControls: OutputControl[] = [];
 
   private calibration: CalibrationState = { state: 'idle' };
   private calibrationTimer: number | undefined;
@@ -116,6 +119,24 @@ export class MockTransport implements Transport {
   private abTimer: number | undefined;
 
   constructor() {
+    if (this.query.has('macaron') && this.query.get('macaron') !== 'absent') {
+      const device: OutputControl = {
+        id: 'mock-macaron', name: 'iBasso Jr. Macaron', output: 'mock-macaron-output', error: null, live_volume: false,
+        settings: { volume: null, balance: null, gain: null, filter: null, output_mode: null },
+      };
+      if (this.query.get('macaron') === 'known') device.settings = { volume: 35, balance: 0, gain: 1, filter: 0, output_mode: 0 };
+      this.outputControls = [device];
+      this.mixer.state.outputs.push({ name: device.output!, description: 'Headphones (Macaron)', kind: 'headphones' });
+      this.mixer.state.output = device.output;
+      if (this.query.get('macaron') === 'live') setTimeout(() => {
+        device.settings.volume = 81; device.settings.balance = 0; device.live_volume = true;
+        this.emit({ event: 'output_controls.changed', data: clone(this.outputControls) });
+      }, 2000);
+      if (this.query.get('macaron') === 'disconnect') setTimeout(() => {
+        this.outputControls = [];
+        this.emit({ event: 'output_controls.changed', data: [] });
+      }, 8000);
+    }
     setTimeout(() => this.setStatus(this.down ? this.unavailable() : this.connectedStatus()), 250);
     if (this.query.has('overload')) {
       setTimeout(() => {
@@ -294,6 +315,29 @@ export class MockTransport implements Transport {
       return this.mixer.call(method, p);
     }
     switch (method) {
+      case 'output_controls.list': return clone(this.outputControls);
+      case 'output_controls.set': {
+        const device = this.outputControls.find((d) => d.id === p.id);
+        if (!device) throw new DaemonError('not_found', 'Macaron disconnected');
+        const patch = p.settings as MacaronSettings;
+        const limits = { volume: [0, 100], balance: [-10, 10], gain: [0, 2], filter: [0, 4], output_mode: [0, 1] };
+        for (const key of Object.keys(limits) as (keyof MacaronSettings)[]) {
+          const v = patch[key];
+          if (v != null && (!Number.isInteger(v) || v < limits[key][0]! || v > limits[key][1]!)) throw new DaemonError('invalid_params', 'Invalid Macaron settings');
+        }
+        if ((patch.volume != null || patch.balance != null) && ((patch.volume ?? device.settings.volume) == null || (patch.balance ?? device.settings.balance) == null)) throw new DaemonError('invalid_params', 'Set volume and balance together');
+        if (this.query.get('macaron') === 'error') {
+          device.error = 'Macaron acknowledgement timed out';
+          device.settings = { volume: null, balance: null, gain: null, filter: null, output_mode: null };
+          this.emit({ event: 'output_controls.changed', data: clone(this.outputControls) });
+          throw new DaemonError('internal', device.error);
+        }
+        for (const key of Object.keys(limits) as (keyof MacaronSettings)[]) {
+          if (patch[key] != null) device.settings[key] = patch[key]!;
+        }
+        this.emit({ event: 'output_controls.changed', data: clone(this.outputControls) });
+        return clone(this.outputControls);
+      }
       case 'hello':
         return {
           protocol: 1,

@@ -9,6 +9,7 @@
   import Segmented from '../lib/components/Segmented.svelte';
   import RulerSlider from '../lib/components/RulerSlider.svelte';
   import Dialog from '../lib/components/Dialog.svelte';
+  import OutputDevicePanel from '../lib/mixer/OutputDevicePanel.svelte';
   import { ArrowDown, ArrowUp, X } from '@lucide/svelte';
   import { daemon } from '../lib/state';
   import Doctor from '../lib/settings/Doctor.svelte';
@@ -26,6 +27,7 @@
   let { onnavigate }: { onnavigate: (screen: 'microphone' | 'mixer') => void } = $props();
   const mic = $derived(daemon.mic);
   const mixer = $derived(daemon.mixer);
+  let outputPanel = $state<string | null>(null);
   const describe = (name: string) => mixer?.outputs.find((output) => output.name === name)?.description ?? name;
   const unlisted = $derived(
     (mixer?.outputs ?? [])
@@ -222,6 +224,18 @@
       </section>
     {/if}
 
+    {#if daemon.outputControls.length}
+      <section>
+        <h2 class="hud-label">{t('outputDevice.open')}</h2>
+        {#each daemon.outputControls as device (device.id)}
+          <div class="row">
+            <span class="name">{device.name}</span>
+            <button class="btn small" onclick={() => (outputPanel = device.id)}>{t('outputDevice.open')}</button>
+          </div>
+        {/each}
+      </section>
+    {/if}
+
     {#if mixer}
       <section>
         <h2 class="hud-label">{t('settings.mixer')}</h2>
@@ -372,6 +386,10 @@
     <button class="btn invert" onclick={makeDefault}>{t('settings.makeDefault')}</button>
   {/snippet}
 </Dialog>
+
+{#if outputPanel}
+  <OutputDevicePanel id={outputPanel} onclose={() => (outputPanel = null)} />
+{/if}
 
 <style>
   .screen {

@@ -17,6 +17,7 @@ import type {
   MixerState,
   Preferences,
   PresetInfo,
+  OutputControl,
 } from '../ipc/protocol';
 import { PROTOCOL_VERSION } from '../ipc/protocol';
 import { t } from '../i18n';
@@ -47,6 +48,7 @@ export class DaemonStore {
   calibration = $state.raw<CalibrationState>({ state: 'idle' });
   autostart = $state.raw<AutostartState | null>(null);
   mixer = $state.raw<MixerState | null>(null);
+  outputControls = $state.raw<OutputControl[]>([]);
   hotkeys = $state.raw<HotkeysState | null>(null);
   prefs = $state.raw<Preferences | null>(null);
   toasts = $state<Toast[]>([]);
@@ -150,6 +152,7 @@ export class DaemonStore {
       this.ab = ab;
       this.calibration = calibration;
       this.autostart = autostart;
+      this.outputControls = await this.client.call('output_controls.list');
       this.syncMeters();
       if (this.deviceWatchers > 0) await this.client.call('devices.subscribe');
     } catch (error) {
@@ -190,6 +193,9 @@ export class DaemonStore {
 
   private onEvent(event: Event) {
     switch (event.event) {
+      case 'output_controls.changed':
+        this.outputControls = event.data;
+        break;
       case 'meters':
         meterBus.latest = event.data;
         meterBus.receivedAt = performance.now();

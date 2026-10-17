@@ -7,6 +7,7 @@
   import { Plus } from '@lucide/svelte';
   import ChannelStrip from '../lib/mixer/ChannelStrip.svelte';
   import MasterStrip from '../lib/mixer/MasterStrip.svelte';
+  import OutputDevicePanel from '../lib/mixer/OutputDevicePanel.svelte';
   import ChannelDrawer, { type Panel } from '../lib/mixer/ChannelDrawer.svelte';
   import Dropdown from '../lib/components/Dropdown.svelte';
   import Dialog from '../lib/components/Dialog.svelte';
@@ -29,6 +30,8 @@
   let showInactive = $state(true);
   let flashing = $state(new Set<string>());
   let creating = $state(false);
+  let outputPanel = $state<string | null>(null);
+  const outputControl = $derived(daemon.outputControls.find((item) => item.output !== null && item.output === mixer?.output));
   let newName = $state('');
   let newColor = $state('orange');
 
@@ -144,6 +147,9 @@
           <span>{current?.description ?? t('mixer.noOutput')}</span>
         {/snippet}
       </Dropdown>
+      {#if outputControl}
+        <button class="btn small" onclick={() => (outputPanel = outputControl!.id)}>{t('outputDevice.open')}</button>
+      {/if}
       {/if}
     </header>
 
@@ -242,6 +248,10 @@
     <button class="btn invert" disabled={!newName.trim()} onclick={create}>{t('mixer.create')}</button>
   {/snippet}
 </Dialog>
+
+{#if outputPanel}
+  <OutputDevicePanel id={outputPanel} onclose={() => (outputPanel = null)} />
+{/if}
 
 <style>
   .screen {

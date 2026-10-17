@@ -12,6 +12,7 @@ pub mod diagnostics;
 mod groups;
 pub mod input_level;
 pub mod journal;
+pub mod macaron;
 pub mod microphone;
 pub mod mixer;
 mod mixer_journal;

@@ -419,6 +419,8 @@ export class MockTransport implements Transport {
         if (!document?.name || !document.settings) throw new DaemonError('invalid_params', 'not a Macafon preset');
         return this.addPreset(this.uniqueName(document.name), document.settings);
       }
+      case 'ui.window_closed':
+        return null;
       case 'prefs.get':
         return clone(this.prefs);
       case 'prefs.set': {

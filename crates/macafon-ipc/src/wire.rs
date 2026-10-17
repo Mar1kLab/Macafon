@@ -101,6 +101,10 @@ pub enum Event {
     DevicesChanged(Vec<Device>),
     #[serde(rename = "prefs.changed")]
     PrefsChanged(Preferences),
+    /// For the UI process, not its pages: show a window or toggle a panel. The daemon sends
+    /// it instead of starting a second UI process, which is what made panels slow to open.
+    #[serde(rename = "ui.show")]
+    UiShow { target: crate::UiTarget },
 }
 
 /// One line from the daemon.

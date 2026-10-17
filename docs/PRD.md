@@ -660,7 +660,7 @@ Measurement method — §14.3.
 | NFR-R2 | CPU: + NS Lite on the microphone and on the Voice channel | < 3% |
 | NFR-R3 | CPU: + NS Studio on the microphone | < 10% |
 | NFR-R4 | Daemon RAM | < 40 MB (+ ~15 MB with the DeepFilterNet model loaded) |
-| NFR-R5 | UI RAM (window open) | < 200 MB; window closed — the UI process has ended |
+| NFR-R5 | UI RAM (window open) | < 200 MB; window closed — the UI process has ended. **Windows deviation (owner decision, 2026-10-17):** the daemon keeps the UI process warm in the background with the hidden quick panel (~190 MB private, mostly WebView2), so the tray panel and the hotkey overlay open in ~15–40 ms instead of ~370 ms; it ends with the daemon |
 | NFR-R6 | Install size | < 30 MB (without the system WebView runtime) |
 | NFR-R7 | Zero activity when idle: meters/spectrum are neither computed nor sent while the UI is closed | — |
 

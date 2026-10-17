@@ -225,6 +225,10 @@ impl DaemonHost {
                     .map(|()| serde_json::Value::Null)
                     .map_err(|error| ErrorBody::new(ErrorCode::Internal, error));
             }
+            Request::UiWindowClosed => {
+                self.window_closed();
+                return Ok(serde_json::Value::Null);
+            }
             Request::DaemonQuit => {
                 tracing::info!("Quit requested");
                 self.quit = true;
@@ -243,5 +247,26 @@ impl DaemonHost {
         };
         serde_json::to_value(state)
             .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))
+    }
+
+    /// The main window closed; the warm UI process keeps running without it.
+    fn window_closed(&mut self) {
+        self.ab.clear(self.control.as_mut());
+        self.ab_changed();
+        // §9.5: the user chose "close quits Macafon".
+        if self.config.ui.quit_on_close {
+            tracing::info!("Window closed; quitting as configured");
+            self.quit = true;
+            return;
+        }
+        // BG-001: the window closed, the sound keeps going; say so once.
+        if !self.quit && !self.config.ui.close_hint_shown {
+            self.config.ui.close_hint_shown = true;
+            self.changed_at = Some(Instant::now());
+            crate::notify::send(
+                "Macafon keeps running in the tray",
+                "Your microphone and mixer stay on. Open Macafon from the tray icon.",
+            );
+        }
     }
 }

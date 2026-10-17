@@ -21,7 +21,8 @@ pub use client::{Client, ClientError};
 pub use doctor::{DoctorCheck, DoctorCheckId, DoctorReport, DoctorStatus};
 pub use framing::{FrameError, read_protocol_line};
 pub use hotkeys::{
-    HotkeyAction, HotkeyBackend, HotkeyBinding, HotkeysState, OVERLAY_ARG, QUICK_PANEL_ARG,
+    BACKGROUND_ARG, HotkeyAction, HotkeyBackend, HotkeyBinding, HotkeysState, OVERLAY_ARG,
+    QUICK_PANEL_ARG, UiTarget,
 };
 pub use macafon_dsp::calibration::CalibrationReport;
 pub use macafon_dsp::{ChainSettings, InputChannel, Meters};

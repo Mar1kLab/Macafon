@@ -27,6 +27,20 @@ Var MacafonDaemonWasRunning
   macafon_unlocked:
     FileClose $0
   macafon_stopped:
+  ; The UI stays warm in the background and leaves when the daemon does; give it a moment
+  ; so its binary can be replaced (Tauri's own running-app check follows).
+  StrCpy $1 0
+  macafon_ui_wait:
+    IfFileExists "$INSTDIR\macafon-ui.exe" 0 macafon_ui_stopped
+    ClearErrors
+    FileOpen $0 "$INSTDIR\macafon-ui.exe" a
+    IfErrors 0 macafon_ui_unlocked
+    Sleep 250
+    IntOp $1 $1 + 1
+    IntCmp $1 20 macafon_ui_stopped macafon_ui_wait macafon_ui_stopped
+  macafon_ui_unlocked:
+    FileClose $0
+  macafon_ui_stopped:
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL

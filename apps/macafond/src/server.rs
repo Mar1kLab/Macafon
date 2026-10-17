@@ -34,6 +34,8 @@ struct Clients {
     /// Clients that completed `hello`, with their meter rate if subscribed.
     registered: HashMap<u64, (mpsc::SyncSender<String>, Option<u32>)>,
     device_meters: HashSet<u64>,
+    /// Clients that said hello as the UI.
+    ui: HashSet<u64>,
 }
 
 pub struct Hub {
@@ -109,6 +111,11 @@ impl Hub {
         self.meters_wanted.notify_all();
     }
 
+    /// A UI process is connected and can take `ui.show` instead of a new launch.
+    pub fn ui_connected(&self) -> bool {
+        !self.clients().ui.is_empty()
+    }
+
     pub fn device_metering(&self) -> bool {
         !self.clients().device_meters.is_empty()
     }
@@ -132,6 +139,7 @@ impl Hub {
         let mut clients = self.clients();
         clients.registered.remove(&client);
         clients.device_meters.remove(&client);
+        clients.ui.remove(&client);
         self.meters_wanted.notify_all();
     }
 
@@ -346,7 +354,12 @@ fn serve(
                     if !greeted {
                         greeted = true;
                         ui = client == "macafon-ui" || client.starts_with("macafon-ui-");
-                        hub.clients().registered.insert(id, (out.clone(), None));
+                        let mut clients = hub.clients();
+                        clients.registered.insert(id, (out.clone(), None));
+                        if ui {
+                            clients.ui.insert(id);
+                        }
+                        drop(clients);
                         tracing::debug!(client, id, "IPC client connected");
                     }
                     serde_json::to_value(Hello {

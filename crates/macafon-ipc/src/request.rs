@@ -204,6 +204,10 @@ pub enum Request {
         action: String,
         shortcut: Option<String>,
     },
+    /// The main window closed while the UI process stays warm in the background: the daemon
+    /// reacts as it did to the UI disconnecting (BG-001 hint, §9.5 quit on close).
+    #[serde(rename = "ui.window_closed")]
+    UiWindowClosed,
     /// §9.5 preferences.
     #[serde(rename = "prefs.get")]
     PrefsGet,

@@ -3,7 +3,6 @@
   // in one small window above the tray (Windows 11 flyout) with Android-like tiles and pill
   // sliders. The Windows tray opens it on right-click; Esc, the trigger again or a click elsewhere
   // closes it. It only talks to the daemon, like the main window.
-  import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import {
     AudioLines,
@@ -26,9 +25,8 @@
   import { daemon } from '../state';
   import { t } from '../i18n';
 
-  let root: HTMLDivElement | undefined = $state();
+  let { onclose }: { onclose: () => void } = $props();
   const tauri = isTauri();
-  const tray = new URLSearchParams(location.search).get('mode') !== 'overlay';
   let quitError = $state('');
   let quitting = $state(false);
 
@@ -52,58 +50,21 @@
   const output = $derived(mixer?.outputs.find((o) => o.name === mixer.output)?.description ?? null);
   const shortcut = $derived(daemon.hotkeys?.bindings.find((b) => b.action === 'quick_panel')?.shortcut ?? null);
 
-  function close() {
-    if (tauri) void invoke('quick_panel_close');
-  }
-
   function openMain() {
     if (tauri) void invoke('open_main').catch((error) => (quitError = String(error)));
   }
 
-  onMount(() => {
-    const onkey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
-    };
-    window.addEventListener('keydown', onkey);
-    // The window takes the height of the content and shows itself once it knows it. Windows
-    // gives an undecorated window with a shadow a taller viewport than asked (its hidden
-    // caption): what the viewport gets beyond the request is taken off the next one.
-    let extra = 0;
-    let extraWidth = 0;
-    const content = () => Math.ceil(root?.getBoundingClientRect().height ?? 0);
-    const fit = () => {
-      if (root && tauri) void invoke('quick_panel_fit', { width: 360 - extraWidth, height: content() - extra });
-    };
-    const onresize = () => {
-      const off = window.innerHeight - content();
-      const offWidth = window.innerWidth - 360;
-      if (Math.abs(off) <= 1 && Math.abs(offWidth) <= 1) return;
-      extra += off;
-      extraWidth += offWidth;
-      fit();
-    };
-    const observer = new ResizeObserver(fit);
-    if (root) observer.observe(root);
-    window.addEventListener('resize', onresize);
-    return () => {
-      window.removeEventListener('keydown', onkey);
-      window.removeEventListener('resize', onresize);
-      observer.disconnect();
-    };
-  });
 </script>
 
-<div class="panel" bind:this={root}>
+<div class="panel">
   <header>
     <span class="brand"><span class="logo"><Logo label="" inactive={muted} bypass={bypass} /></span><b>Macafon</b></span>
     <button class="round" aria-label={t('quick.openApp')} title={t('quick.openApp')} onclick={openMain}>
       <SquareArrowOutUpRight size={15} strokeWidth={1.5} />
     </button>
-    {#if tray}
-      <button class="round" aria-label={t('quick.trayClose')} title={t('quick.trayClose')} onclick={close}>
-        <X size={15} strokeWidth={1.5} />
-      </button>
-    {/if}
+    <button class="round" aria-label={t('quick.trayClose')} title={t('quick.trayClose')} onclick={onclose}>
+      <X size={15} strokeWidth={1.5} />
+    </button>
   </header>
 
   {#if !daemon.connected || !mic}
@@ -214,13 +175,11 @@
     {/if}
   {/if}
 
-  {#if tray}
-    <button class="quit" disabled={quitting || !daemon.connected} onclick={quit}>
-      <Power size={15} strokeWidth={1.5} />
-      {t('quick.trayQuit')}
-    </button>
-    {#if quitError}<p class="status" role="alert">{quitError}</p>{/if}
-  {/if}
+  <button class="quit" disabled={quitting || !daemon.connected} onclick={quit}>
+    <Power size={15} strokeWidth={1.5} />
+    {t('quick.trayQuit')}
+  </button>
+  {#if quitError}<p class="status" role="alert">{quitError}</p>{/if}
 
   <footer>
     <span class="output" title={output ?? ''}>{output ?? ''}</span>

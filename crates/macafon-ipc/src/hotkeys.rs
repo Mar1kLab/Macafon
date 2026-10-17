@@ -97,6 +97,20 @@ impl HotkeyAction {
 pub const QUICK_PANEL_ARG: &str = "--quick-panel";
 /// Toggle the centered hotkey overlay in the UI.
 pub const OVERLAY_ARG: &str = "--overlay";
+/// Start the UI with no window: the daemon keeps it warm so panels open at once.
+pub const BACKGROUND_ARG: &str = "--background";
+
+/// What the daemon asks a running UI to show (`ui.show`); the same as the launch arguments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum UiTarget {
+    Main,
+    /// Toggle the panel by the tray.
+    TrayPanel,
+    /// Toggle the centered hotkey overlay.
+    Overlay,
+}
 
 /// How the daemon registers shortcuts (HK-003).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

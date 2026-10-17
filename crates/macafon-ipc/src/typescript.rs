@@ -80,6 +80,7 @@ fn protocol() -> String {
         HotkeyBinding::decl(&cfg),
         HotkeysState::decl(&cfg),
         CloseAction::decl(&cfg),
+        UiTarget::decl(&cfg),
         OsdStyle::decl(&cfg),
         OsdEdge::decl(&cfg),
         OsdPrefs::decl(&cfg),

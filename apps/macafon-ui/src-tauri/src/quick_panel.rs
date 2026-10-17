@@ -1,21 +1,23 @@
-//! The quick panel: every volume and the microphone switches in a small window above the
-//! taskbar, or the centered hotkey overlay. A second launch toggles the requested mode.
-//! It closes on Esc, on the hotkey again and when it loses focus; with no main window open
-//! the process ends with it.
+//! The panel window: the compact panel by the tray or the centered hotkey overlay, one window
+//! for both. It is created hidden when the UI starts and only shown and hidden afterwards, so
+//! the daemon's `ui.show` brings it up at once; the page switches between the two layouts on
+//! `panel://show`. It hides on Esc, ✕, the trigger again and when it loses focus.
 
 use std::sync::{
     Mutex,
     atomic::{AtomicBool, Ordering},
 };
+use std::time::{Duration, Instant};
 use tauri::{
-    AppHandle, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, WindowEvent,
+    AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
 
 pub const LABEL: &str = "quick-panel";
 const MARGIN: f64 = 12.0;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Mode {
     Tray,
     Overlay,
@@ -31,74 +33,129 @@ impl Mode {
             None
         }
     }
+}
 
-    fn url(self) -> &'static str {
-        match self {
-            Self::Tray => "index.html?view=quick-panel&mode=tray",
-            Self::Overlay => "index.html?view=quick-panel&mode=overlay",
-        }
-    }
+/// What the panel shows and where; `wanted` until `quick_panel_fit` has shown it.
+struct Panel {
+    mode: Mode,
+    monitor: Option<Monitor>,
+    wanted: bool,
 }
 
 #[derive(Default)]
-pub struct PanelState(Mutex<Option<(Mode, Monitor)>>);
+pub struct PanelState(Mutex<Option<Panel>>);
 
-/// A hidden window can gain and lose focus during creation; close only after shown focus.
-static SHOWN: AtomicBool = AtomicBool::new(false);
-static FOCUSED: AtomicBool = AtomicBool::new(false);
-pub static REPLACING: AtomicBool = AtomicBool::new(false);
-pub static OPENING_MAIN: AtomicBool = AtomicBool::new(false);
-
-/// Called on a worker: WebView2 creation on the event/IPC thread can deadlock on Windows.
-pub fn toggle(app: &AppHandle, mode: Mode) {
-    static TOGGLE: Mutex<()> = Mutex::new(());
-    let _guard = TOGGLE.lock().unwrap_or_else(|error| error.into_inner());
-    let state = app.state::<PanelState>();
-    let same_mode = state
-        .0
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .as_ref()
-        .is_some_and(|(current, _)| *current == mode);
-    if let Some(window) = app.get_webview_window(LABEL) {
-        if same_mode {
-            let _ = window.close();
-            return;
-        }
-        SHOWN.store(false, Ordering::SeqCst);
-        FOCUSED.store(false, Ordering::SeqCst);
-        REPLACING.store(true, Ordering::SeqCst);
-        // destroy() only queues a request. Wait off the event thread until its label is
-        // removed, otherwise building the replacement can fail with DuplicateWindowLabel.
-        let (destroyed, wait) = std::sync::mpsc::channel();
-        let handle = app.clone();
-        window.on_window_event(move |event| {
-            if matches!(event, WindowEvent::Destroyed) {
-                let done = destroyed.clone();
-                let _ = handle.run_on_main_thread(move || {
-                    let _ = done.send(());
-                });
-            }
-        });
-        if let Err(error) = window.destroy() {
-            REPLACING.store(false, Ordering::SeqCst);
-            tracing::warn!(%error, "cannot replace the quick panel");
-            return;
-        }
-        if let Err(error) = wait.recv_timeout(std::time::Duration::from_secs(5)) {
-            REPLACING.store(false, Ordering::SeqCst);
-            tracing::warn!(%error, "timed out replacing the quick panel");
-            return;
-        }
+impl PanelState {
+    fn with<T>(&self, f: impl FnOnce(&mut Option<Panel>) -> T) -> T {
+        f(&mut self.0.lock().unwrap_or_else(|error| error.into_inner()))
     }
-    let monitor = target_monitor(app, mode);
-    *state.0.lock().unwrap_or_else(|error| error.into_inner()) =
-        monitor.map(|monitor| (mode, monitor));
-    open(app, mode);
-    REPLACING.store(false, Ordering::SeqCst);
 }
 
-/// Capture the foreground monitor before the new panel takes focus.
+/// Set once the shown panel had focus: only then does losing it hide the panel. A hidden
+/// window being shown can gain and lose focus on the way.
+static FOCUSED: AtomicBool = AtomicBool::new(false);
+/// When the panel last hid because focus left it. A tray click takes the focus first, then
+/// asks for the panel: that click means "close", not "open again".
+static BLURRED_AT: Mutex<Option<(Mode, Instant)>> = Mutex::new(None);
+const BLUR_GRACE: Duration = Duration::from_millis(400);
+
+/// Create the hidden panel window if it is missing; the page loads and connects meanwhile.
+pub fn prewarm(app: &AppHandle) {
+    if app.get_webview_window(LABEL).is_some() {
+        return;
+    }
+    let built = WebviewWindowBuilder::new(
+        app,
+        LABEL,
+        WebviewUrl::App("index.html?view=quick-panel".into()),
+    )
+    .title("Macafon quick panel")
+    .inner_size(360.0, 420.0)
+    .resizable(false)
+    .maximizable(false)
+    .minimizable(false)
+    .decorations(false)
+    // Windows 11 gives an undecorated window with a shadow its rounded corners and border.
+    .shadow(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .visible(false)
+    .background_color(tauri::window::Color(0x10, 0x10, 0x14, 0xff)) // --bg-raised
+    .build();
+    match built {
+        Ok(window) => {
+            let handle = window.clone();
+            window.on_window_event(move |event| {
+                if let WindowEvent::Focused(focused) = event {
+                    if *focused {
+                        if handle.is_visible().unwrap_or(false) {
+                            FOCUSED.store(true, Ordering::SeqCst);
+                        }
+                    } else if FOCUSED.swap(false, Ordering::SeqCst) {
+                        let app = handle.app_handle();
+                        let mode = app
+                            .state::<PanelState>()
+                            .with(|panel| panel.as_ref().map(|panel| panel.mode));
+                        if let Some(mode) = mode {
+                            *BLURRED_AT.lock().unwrap_or_else(|error| error.into_inner()) =
+                                Some((mode, Instant::now()));
+                        }
+                        hide(app);
+                    }
+                }
+            });
+        }
+        Err(error) => tracing::warn!(%error, "cannot create the quick panel"),
+    }
+}
+
+/// The same mode again hides the panel; otherwise it shows in `mode`.
+pub fn toggle(app: &AppHandle, mode: Mode) {
+    let visible = app
+        .get_webview_window(LABEL)
+        .is_some_and(|window| window.is_visible().unwrap_or(false));
+    let state = app.state::<PanelState>();
+    let current = state.with(|panel| panel.as_ref().map(|panel| panel.mode));
+    if visible && current == Some(mode) {
+        hide(app);
+        return;
+    }
+    let just_blurred = BLURRED_AT
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .take()
+        .is_some_and(|(blurred, at)| blurred == mode && at.elapsed() < BLUR_GRACE);
+    if !visible && just_blurred {
+        return;
+    }
+    let monitor = target_monitor(app, mode);
+    state.with(|panel| {
+        *panel = Some(Panel {
+            mode,
+            monitor,
+            wanted: true,
+        })
+    });
+    prewarm(app);
+    // The page lays itself out for `mode` and answers with `quick_panel_fit`, which shows it.
+    if let Err(error) = app.emit_to(LABEL, "panel://show", mode) {
+        tracing::warn!(%error, "cannot show the quick panel");
+    }
+}
+
+pub fn hide(app: &AppHandle) {
+    app.state::<PanelState>().with(|panel| {
+        if let Some(panel) = panel {
+            panel.wanted = false;
+        }
+    });
+    FOCUSED.store(false, Ordering::SeqCst);
+    if let Some(window) = app.get_webview_window(LABEL) {
+        let _ = window.hide();
+    }
+}
+
+/// Capture the foreground monitor before the panel takes focus.
 fn target_monitor(app: &AppHandle, mode: Mode) -> Option<Monitor> {
     #[cfg(windows)]
     if mode == Mode::Overlay {
@@ -125,55 +182,14 @@ fn target_monitor(app: &AppHandle, mode: Mode) -> Option<Monitor> {
         .or_else(|| app.primary_monitor().ok().flatten())
 }
 
-fn open(app: &AppHandle, mode: Mode) {
-    SHOWN.store(false, Ordering::SeqCst);
-    FOCUSED.store(false, Ordering::SeqCst);
-    let built = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App(mode.url().into()))
-        .title("Macafon quick panel")
-        .inner_size(360.0, 420.0)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .decorations(false)
-        // Windows 11 gives an undecorated window with a shadow its rounded corners and border.
-        .shadow(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        // Shown by `quick_panel_fit` once the content has its height: no empty frame flashes.
-        .visible(false)
-        .background_color(tauri::window::Color(0x10, 0x10, 0x14, 0xff)) // --bg-raised
-        .build();
-    match built {
-        Ok(window) => {
-            let handle = window.clone();
-            window.on_window_event(move |event| {
-                if let WindowEvent::Focused(focused) = event {
-                    if *focused {
-                        if SHOWN.load(Ordering::SeqCst) {
-                            FOCUSED.store(true, Ordering::SeqCst);
-                        }
-                    } else if FOCUSED.load(Ordering::SeqCst) && !OPENING_MAIN.load(Ordering::SeqCst)
-                    {
-                        let _ = handle.close();
-                    }
-                }
-            });
-        }
-        Err(error) => tracing::warn!(%error, "cannot open the quick panel"),
-    }
-}
-
 /// Move first, then size in the destination monitor's pixels to avoid double DPI scaling.
-fn place(app: &AppHandle, window: &WebviewWindow, width: f64, height: f64) -> tauri::Result<()> {
-    let state = app.state::<PanelState>();
-    let placement = state
-        .0
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .clone();
-    let Some((mode, monitor)) = placement else {
-        return Ok(());
-    };
+fn place(
+    window: &WebviewWindow,
+    mode: Mode,
+    monitor: &Monitor,
+    width: f64,
+    height: f64,
+) -> tauri::Result<()> {
     let scale = monitor.scale_factor();
     let area = monitor.work_area();
     let margin = (MARGIN * scale).round() as i32;
@@ -215,41 +231,61 @@ fn place(app: &AppHandle, window: &WebviewWindow, width: f64, height: f64) -> ta
     Ok(())
 }
 
-/// The content measured itself: size the window to it, place it and show it.
+/// The page measured its layout: size and place the window, and show it if it was asked for.
 #[tauri::command]
-pub async fn quick_panel_fit(app: AppHandle, width: f64, height: f64) {
+pub fn quick_panel_fit(app: AppHandle, width: f64, height: f64) {
     if !width.is_finite() || !height.is_finite() {
         return;
     }
     let Some(window) = app.get_webview_window(LABEL) else {
         return;
     };
-    if let Err(error) = place(&app, &window, width, height) {
+    let target = app.state::<PanelState>().with(|panel| {
+        panel
+            .as_ref()
+            .map(|panel| (panel.mode, panel.monitor.clone(), panel.wanted))
+    });
+    // A prewarmed page measures itself too; nothing to place until something is asked for.
+    let Some((mode, Some(monitor), wanted)) = target else {
+        return;
+    };
+    if let Err(error) = place(&window, mode, &monitor, width, height) {
         tracing::warn!(%error, "cannot place the quick panel");
     }
-    if !window.is_visible().unwrap_or(true) {
-        SHOWN.store(true, Ordering::SeqCst);
+    if wanted && !window.is_visible().unwrap_or(true) {
         let _ = window.show();
         let _ = window.set_focus();
     }
 }
 
+/// A page that just loaded asks what it was opened for: an event sent before it listened is
+/// lost.
 #[tauri::command]
-pub fn quick_panel_close(app: AppHandle) {
-    if let Some(window) = app.get_webview_window(LABEL) {
-        let _ = window.close();
-    }
+pub fn quick_panel_pending(app: AppHandle) -> Option<Mode> {
+    app.state::<PanelState>().with(|panel| {
+        panel
+            .as_ref()
+            .filter(|panel| panel.wanted)
+            .map(|panel| panel.mode)
+    })
 }
 
-/// "Open Macafon" from the panel: the main window, then the panel steps aside.
+#[tauri::command]
+pub fn quick_panel_close(app: AppHandle) {
+    hide(&app);
+}
+
+/// "Open Macafon" from the panel: the main window, then the panel steps aside. Async, so the
+/// main window is not created on the event thread (that deadlocked WebView2: black window).
 #[tauri::command]
 pub async fn open_main(app: AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        if !crate::show_main(&app) {
-            return Err("cannot open the main window".to_owned());
+        hide(&app);
+        if crate::show_main(&app) {
+            Ok(())
+        } else {
+            Err("cannot open the main window".to_owned())
         }
-        quick_panel_close(app);
-        Ok(())
     })
     .await
     .map_err(|error| error.to_string())?
@@ -270,10 +306,6 @@ mod tests {
             Mode::from_args(&[macafon_ipc::OVERLAY_ARG.into()]),
             Some(Mode::Overlay)
         );
-        assert_eq!(Mode::Tray.url(), "index.html?view=quick-panel&mode=tray");
-        assert_eq!(
-            Mode::Overlay.url(),
-            "index.html?view=quick-panel&mode=overlay"
-        );
+        assert_eq!(Mode::from_args(&[macafon_ipc::BACKGROUND_ARG.into()]), None);
     }
 }

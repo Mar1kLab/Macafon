@@ -336,6 +336,13 @@ impl MicrophoneHost for DaemonHost {
             let socket = server::start(&endpoint, self.hub.clone(), control)
                 .map_err(|error| Error::Message(format!("{error:#}")))?;
             self._socket = Some(socket);
+            crate::ui::attach(self.hub.clone());
+            // A warm UI opens the tray panel and the hotkey overlay at once (owner decision,
+            // 2026-10-17, against NFR-R5); without a tray nobody would open them.
+            #[cfg(windows)]
+            if self.tray_wanted {
+                crate::ui::prewarm();
+            }
         }
         Ok(())
     }
@@ -478,23 +485,11 @@ impl MicrophoneHost for DaemonHost {
             message => message,
         };
         let ControlMessage::Request { request, reply } = message else {
+            // The UI process went away (it stays warm in the background, so this is a crash
+            // or the daemon going down): only stop what it was doing. Closing the window is
+            // `ui.window_closed`.
             self.ab.clear(self.control.as_mut());
             self.ab_changed();
-            // §9.5: the user chose "close quits Macafon".
-            if self.config.ui.quit_on_close {
-                tracing::info!("Window closed; quitting as configured");
-                self.quit = true;
-                return;
-            }
-            // BG-001: the window closed, the sound keeps going; say so once.
-            if !self.quit && !self.config.ui.close_hint_shown {
-                self.config.ui.close_hint_shown = true;
-                self.changed_at = Some(Instant::now());
-                crate::notify::send(
-                    "Macafon keeps running in the tray",
-                    "Your microphone and mixer stay on. Open Macafon from the tray icon.",
-                );
-            }
             return;
         };
         let outcome = match self.respond(request) {

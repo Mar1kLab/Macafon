@@ -93,6 +93,7 @@ interface Results {
   'mic.cycle_preset': MicState;
   'hotkeys.get': HotkeysState;
   'hotkeys.set': HotkeysState;
+  'ui.window_closed': null;
   'prefs.get': Preferences;
   'prefs.set': Preferences;
 }

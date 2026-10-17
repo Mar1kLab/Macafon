@@ -1,17 +1,13 @@
-﻿<script lang="ts">
-  import { onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+<script lang="ts">
   import { AudioLines, ChevronLeft, ChevronRight, Mic, MicOff, SlidersHorizontal, Volume2, VolumeX, X } from '@lucide/svelte';
   import Logo from '../components/Logo.svelte';
   import VerticalSlider from './VerticalSlider.svelte';
   import { channelIcon } from '../mixer/icons';
   import { displayShortcut } from '../settings/shortcut';
-  import { isTauri } from '../ipc/tauri';
   import { daemon } from '../state';
   import { t } from '../i18n';
 
-  let root: HTMLDivElement | undefined = $state();
-  const tauri = isTauri();
+  let { onclose }: { onclose: () => void } = $props();
   const mic = $derived(daemon.mic);
   const mixer = $derived(daemon.mixer);
   const muted = $derived(mic?.settings.muted ?? false);
@@ -20,56 +16,16 @@
   const preset = $derived(daemon.presets.find((item) => item.id === mic?.preset)?.name ?? t('quick.custom'));
   const shortcut = $derived(daemon.hotkeys?.bindings.find((binding) => binding.action === 'quick_panel')?.shortcut);
 
-  function close() {
-    if (tauri) void invoke('quick_panel_close');
-  }
 
-  onMount(() => {
-    const onkey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); close(); }
-    };
-    window.addEventListener('keydown', onkey);
-    // Undecorated Windows viewports can exceed the requested size in either dimension.
-    // Keep the content independent of the viewport so correction converges after resize.
-    let extraWidth = 0;
-    let extraHeight = 0;
-    const content = () => ({
-      width: Math.ceil(root?.getBoundingClientRect().width ?? 0),
-      height: Math.ceil(root?.getBoundingClientRect().height ?? 0),
-    });
-    const fit = () => {
-      if (!root || !tauri) return;
-      const { width, height } = content();
-      void invoke('quick_panel_fit', { width: width - extraWidth, height: height - extraHeight });
-    };
-    const onresize = () => {
-      if (!tauri) return;
-      const { width, height } = content();
-      const offWidth = window.innerWidth - width;
-      const offHeight = window.innerHeight - height;
-      if (Math.abs(offWidth) <= 1 && Math.abs(offHeight) <= 1) return;
-      extraWidth += offWidth;
-      extraHeight += offHeight;
-      fit();
-    };
-    const observer = new ResizeObserver(fit);
-    if (root) observer.observe(root);
-    window.addEventListener('resize', onresize);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', onresize);
-      window.removeEventListener('keydown', onkey);
-    };
-  });
 </script>
 
-<div class="overlay" bind:this={root}>
+<div class="overlay">
   <header>
     <span class="brand"><span class="logo"><Logo label="" inactive={muted} {bypass} /></span><b>{t('app.name')}</b></span>
     <span class="hud-label">{t('quick.overlayTitle')}</span>
     <span class="header-end">
       {#if shortcut}<kbd title={t('quick.hotkey')}>{displayShortcut(shortcut)}</kbd>{/if}
-      <button class="round close" aria-label={t('quick.closeOverlay')} title={t('quick.closeOverlay')} onclick={close}><X size={18} strokeWidth={1.5} /></button>
+      <button class="round close" aria-label={t('quick.closeOverlay')} title={t('quick.closeOverlay')} onclick={onclose}><X size={18} strokeWidth={1.5} /></button>
     </span>
   </header>
 

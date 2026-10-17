@@ -440,3 +440,25 @@ Verified with the installed NSIS build: Open Macafon renders the main UI, normal
 icon default action work, both modes toggle and replace one another, Close/Esc work, and Quit stops the
 daemon and UI. Right/middle tray callbacks were injected through Win32; physical right-click remains
 unverified because cursor injection was unavailable in this automation session.
+
+## Panels open at once: a warm UI process (2026-10-17, NFR-R5 deviation)
+
+Each tray right-click or overlay hotkey started `macafon-ui` from scratch (Tauri + WebView2, ~370 ms to a
+window) with the "app starting" cursor next to the pointer. Now:
+
+- The daemon starts `macafon-ui --background` after its pipe is ready (`ui::prewarm`) with
+  `CreateProcessW(STARTF_FORCEOFFFEEDBACK)`, so no busy cursor. The UI creates the panel window hidden and
+  keeps it; closing the main window keeps the process (`ExitRequested` is prevented). It exits when the
+  daemon goes away (status Connected → not connected without a main window), so `ctl quit`, Quit and
+  upgrades still end it; the installer also waits for `macafon-ui.exe` to unlock.
+- The daemon asks a connected UI with the event `ui.show { target: main | tray_panel | overlay }` instead
+  of launching a process; without a UI it falls back to the launch arguments.
+- One panel window for both layouts (`Panel.svelte`): `panel://show` switches the layout, the page
+  measures it and `quick_panel_fit` shows the window. A click on the tray icon that took the focus from
+  the panel closes it instead of reopening (400 ms grace).
+- Closing the main window sends `meters.unsubscribe`, `devices.unsubscribe` and `ui.window_closed` (the
+  daemon's BG-001 hint / quit-on-close moved from "UI disconnected" to this request).
+
+Measured on the owner's machine: hotkey 13–14 ms, tray right-click 13–38 ms, close 11–29 ms; ~190 MB private
+for the warm UI. WebView2's `MemoryUsageTargetLevel = Low` while hidden saved nothing measurable and cost
+~100 ms per open, so it is not used.

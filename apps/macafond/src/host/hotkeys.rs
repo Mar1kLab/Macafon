@@ -19,8 +19,18 @@ pub(super) struct VolumeRepeats(HashMap<String, Instant>);
 impl DaemonHost {
     /// Every action available now: the global ones and three per channel.
     pub(super) fn hotkey_actions(&self) -> Vec<(HotkeyAction, String)> {
+        let soundpad = self.soundpad.is_some();
         let mut actions: Vec<(HotkeyAction, String)> = HotkeyAction::GLOBAL
             .into_iter()
+            .filter(|action| {
+                soundpad
+                    || !matches!(
+                        action,
+                        HotkeyAction::SoundpadStop
+                            | HotkeyAction::SoundpadPauseToggle
+                            | HotkeyAction::SoundpadRandom
+                    )
+            })
             .map(|action| {
                 let description = match action {
                     HotkeyAction::QuickPanel => "Open the quick panel",
@@ -32,6 +42,9 @@ impl DaemonHost {
                     HotkeyAction::PushToMute => "Push to mute",
                     HotkeyAction::BypassToggle => "Toggle processing bypass",
                     HotkeyAction::PresetNext => "Next microphone preset",
+                    HotkeyAction::SoundpadStop => "Soundpad: stop",
+                    HotkeyAction::SoundpadPauseToggle => "Soundpad: pause or resume",
+                    HotkeyAction::SoundpadRandom => "Soundpad: play a random sound",
                     _ => "Previous microphone preset",
                 };
                 (action, description.to_owned())
@@ -51,6 +64,14 @@ impl DaemonHost {
                 HotkeyAction::ChannelMute(channel.id.clone()),
                 format!("{name}: mute"),
             ));
+        }
+        if let Some(soundpad) = &self.soundpad {
+            for entry in soundpad.entries() {
+                actions.push((
+                    HotkeyAction::SoundpadPlay(entry.id.clone()),
+                    format!("Soundpad: {}", entry.name),
+                ));
+            }
         }
         actions
     }
@@ -156,7 +177,7 @@ impl DaemonHost {
         if !self
             .hotkey_actions()
             .iter()
-            .any(|(known, _)| known.id() == action.split('#').next().unwrap_or(action))
+            .any(|(known, _)| known.id() == base_action(action))
         {
             return Err(invalid(format!("unknown action {action:?}")));
         }
@@ -186,6 +207,7 @@ impl DaemonHost {
         self.changed_at = Some(Instant::now());
         self.rebind_hotkeys();
         self.hotkeys_changed();
+        self.preload_sounds();
         Ok(())
     }
 
@@ -206,8 +228,7 @@ impl DaemonHost {
             })
             .collect();
         for binding in due {
-            if let Some(action) = HotkeyAction::parse(binding.split('#').next().unwrap_or(&binding))
-            {
+            if let Some(action) = HotkeyAction::parse(base_action(&binding)) {
                 self.apply_hotkey(action, true);
             }
         }
@@ -219,7 +240,7 @@ impl DaemonHost {
 
     pub(super) fn hotkey_at(&mut self, action: &str, pressed: bool, now: Instant) {
         let binding = action.to_owned();
-        let action = action.split('#').next().unwrap_or(action);
+        let action = base_action(action);
         let Some(action) = HotkeyAction::parse(action) else {
             return;
         };
@@ -251,7 +272,7 @@ impl DaemonHost {
             let active = self
                 .pressed_hotkeys
                 .iter()
-                .any(|id| id.split('#').next() == Some(action.id().as_str()));
+                .any(|id| base_action(id) == action.id());
             if active != pressed {
                 return;
             }
@@ -304,6 +325,10 @@ impl DaemonHost {
                 delta_pct: -f32::from(self.config.ui.volume_step_pct),
             },
             HotkeyAction::ChannelMute(id) => Request::ChannelToggleMute { id: id.clone() },
+            HotkeyAction::SoundpadStop => Request::SoundpadStop,
+            HotkeyAction::SoundpadPauseToggle => Request::SoundpadSetPaused { paused: None },
+            HotkeyAction::SoundpadRandom => Request::SoundpadPlayRandom { category: None },
+            HotkeyAction::SoundpadPlay(id) => Request::SoundpadPlay { id: id.clone() },
         };
         if let Err(error) = self.respond(request) {
             tracing::warn!(?action, %error, "Hotkey action failed");
@@ -311,7 +336,12 @@ impl DaemonHost {
         }
         let chain = &self.config.mic.chain;
         let osd = match &action {
-            HotkeyAction::QuickPanel => return,
+            // A sound is heard; a popup on every press would only be in the way.
+            HotkeyAction::QuickPanel
+            | HotkeyAction::SoundpadStop
+            | HotkeyAction::SoundpadPauseToggle
+            | HotkeyAction::SoundpadRandom
+            | HotkeyAction::SoundpadPlay(_) => return,
             HotkeyAction::MasterVolumeUp
             | HotkeyAction::MasterVolumeDown
             | HotkeyAction::MasterMute => Osd::Volume {
@@ -375,6 +405,12 @@ impl DaemonHost {
         };
         crate::osd::show(osd, self.config.ui.osd);
     }
+}
+
+/// The action of a binding id: secondary shortcuts are stored as `<action>#secondary`. Sound
+/// ids may contain `#` themselves, so only that suffix is cut.
+pub(super) fn base_action(binding: &str) -> &str {
+    binding.strip_suffix("#secondary").unwrap_or(binding)
 }
 
 pub(super) fn osd_prefs(config: OsdConfig) -> OsdPrefs {

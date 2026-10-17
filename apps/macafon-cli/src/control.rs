@@ -175,6 +175,31 @@ pub(super) fn run(json: bool, command: Ctl) -> Result<()> {
             }
             return Ok(());
         }
+        Ctl::Soundpad { command } => {
+            let request = match command {
+                None | Some(SoundpadCommand::List) => {
+                    let state: Option<macafon_ipc::SoundpadState> =
+                        client.call_as(Request::SoundpadGet)?;
+                    let state = state.context("the soundpad is not available here")?;
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&state.sounds)?);
+                    } else {
+                        for sound in &state.sounds {
+                            println!("{}	{}", sound.id, sound.name);
+                        }
+                    }
+                    return Ok(());
+                }
+                Some(SoundpadCommand::Play { id }) => Request::SoundpadPlay { id },
+                Some(SoundpadCommand::Random { category }) => {
+                    Request::SoundpadPlayRandom { category }
+                }
+                Some(SoundpadCommand::Stop) => Request::SoundpadStop,
+                Some(SoundpadCommand::Pause) => Request::SoundpadSetPaused { paused: None },
+            };
+            client.call(request)?;
+            return Ok(());
+        }
         Ctl::Doctor => {
             let report: macafon_ipc::DoctorReport = client.call_as(Request::DoctorRun)?;
             if json {

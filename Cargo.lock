@@ -2531,6 +2531,7 @@ version = "0.1.0"
 dependencies = [
  "macafon-dsp",
  "macafon-engine",
+ "macafon-soundpad",
  "thiserror 2.0.21",
 ]
 
@@ -2691,6 +2692,7 @@ dependencies = [
  "macafon-dsp",
  "macafon-engine",
  "macafon-ipc",
+ "macafon-soundpad",
  "serde",
  "serde_json",
  "tracing",

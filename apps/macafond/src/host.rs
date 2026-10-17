@@ -7,6 +7,7 @@ mod microphone;
 mod mixer;
 mod presets;
 mod requests;
+mod soundpad;
 
 use crate::ab::Ab;
 use crate::calibration::Recording;
@@ -86,6 +87,8 @@ pub struct DaemonHost {
     pressed_hotkeys: std::collections::HashSet<String>,
     volume_repeats: hotkeys::VolumeRepeats,
     icons: macafon_apps::icons::IconResolver,
+    /// Created when the daemon starts, where the platform has a soundpad (§7.6).
+    soundpad: Option<crate::soundpad::Soundpad>,
     quit: bool,
     server: Option<(Endpoint, ControlSender<ControlMessage>)>,
     _socket: Option<SocketGuard>,
@@ -140,6 +143,7 @@ impl DaemonHost {
             pressed_hotkeys: std::collections::HashSet::new(),
             volume_repeats: hotkeys::VolumeRepeats::default(),
             icons: macafon_apps::icons::IconResolver::from_env(),
+            soundpad: None,
             quit: false,
             server: Some((endpoint, control)),
             _socket: None,
@@ -343,6 +347,7 @@ impl MicrophoneHost for DaemonHost {
                 self.tray = Tray::spawn(TrayState::default(), control.clone());
                 self.changed();
             }
+            self.start_soundpad();
             // Spawned after signals are blocked, like the tray (HK-003).
             self.hotkeys = Some(crate::hotkeys::Hotkeys::spawn(control.clone()));
             if self
@@ -434,6 +439,19 @@ impl MicrophoneHost for DaemonHost {
         self.ab.take_request()
     }
 
+    fn soundpad_tap(
+        &mut self,
+        output: macafon_backend::SoundpadOutput,
+    ) -> Option<macafon_backend::SoundpadTap> {
+        Some(self.soundpad.as_mut()?.tap(output))
+    }
+
+    fn soundpad_monitor(&self) -> Option<Option<String>> {
+        self.soundpad
+            .as_ref()?
+            .monitor_wanted(&self.config.soundpad)
+    }
+
     fn player_failed(&mut self, error: Error) {
         tracing::warn!(%error, "Cannot start A/B playback");
         self.ab.player_lost();
@@ -444,6 +462,9 @@ impl MicrophoneHost for DaemonHost {
         if ready != self.virtual_mic_ready {
             self.virtual_mic_ready = ready;
             self.changed();
+            if self.soundpad.is_some() {
+                self.soundpad_changed();
+            }
         }
     }
 
@@ -556,6 +577,7 @@ impl MicrophoneHost for DaemonHost {
 
     fn tick(&mut self) {
         self.repeat_hotkeys(Instant::now());
+        self.tick_soundpad(Instant::now());
         self.refresh_input();
         self.mixer.collect_garbage();
         self.mixer.poll_default_sink(&self.config.mixer);

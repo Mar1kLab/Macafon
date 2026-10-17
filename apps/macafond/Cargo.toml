@@ -15,6 +15,7 @@ macafon-config.workspace = true
 macafon-dsp.workspace = true
 macafon-engine.workspace = true
 macafon-ipc.workspace = true
+macafon-soundpad.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 macafon-backend.workspace = true

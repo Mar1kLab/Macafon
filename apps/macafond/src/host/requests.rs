@@ -214,6 +214,25 @@ impl DaemonHost {
             | Request::AppsSetManaged { .. }
             | Request::AppsForget { .. }
             | Request::AppsSetVolume { .. }) => return self.respond_mixer(request),
+            request @ (Request::SoundpadGet
+            | Request::SoundpadRescan
+            | Request::SoundpadOpenFolder
+            | Request::SoundpadPlay { .. }
+            | Request::SoundpadPlayRandom { .. }
+            | Request::SoundpadStop
+            | Request::SoundpadSetPaused { .. }
+            | Request::SoundpadSeek { .. }
+            | Request::SoundpadSetLooping { .. }
+            | Request::SoundpadSetPrefs { .. }
+            | Request::SoundpadSetMonitorDevice { .. }
+            | Request::SoundpadSetSound { .. }
+            | Request::SoundpadRename { .. }
+            | Request::SoundpadMove { .. }
+            | Request::SoundpadDelete { .. }
+            | Request::SoundpadCreateCategory { .. }
+            | Request::SoundpadRenameCategory { .. }
+            | Request::SoundpadDeleteCategory { .. }
+            | Request::SoundpadUpload { .. }) => return self.respond_soundpad(request),
             Request::AppsIcon { icon } => return Ok(serde_json::json!(self.icons.data_url(&icon))),
             Request::DoctorRun => {
                 const WINDOW: Duration = Duration::from_secs(600);

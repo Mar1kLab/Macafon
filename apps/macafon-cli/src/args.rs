@@ -124,6 +124,11 @@ pub(super) enum Ctl {
     /// Play the channels into this output (node.name); `default` follows the previous system
     /// default (OUT-001, OUT-003).
     Output { name: String },
+    /// List the soundpad's sounds, or play and stop them; for desktop hotkeys (HK-004).
+    Soundpad {
+        #[command(subcommand)]
+        command: Option<SoundpadCommand>,
+    },
     /// Run the self-checks (§9.6) and print them.
     Doctor,
     /// Print meter frames (dBFS) as JSON lines.
@@ -175,6 +180,22 @@ pub(super) enum ChannelAction {
     },
     /// Make it the channel new apps start in (CH-003).
     Default,
+}
+
+#[derive(Subcommand)]
+pub(super) enum SoundpadCommand {
+    List,
+    /// Play a sound by id, `Memes/airhorn.mp3`.
+    Play {
+        id: String,
+    },
+    /// Play a random sound, of one category if given.
+    Random {
+        category: Option<String>,
+    },
+    Stop,
+    /// Pause or resume.
+    Pause,
 }
 
 #[derive(Subcommand)]

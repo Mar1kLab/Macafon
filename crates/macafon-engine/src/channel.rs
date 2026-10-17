@@ -72,6 +72,13 @@ impl ChannelControl {
     ) -> Result<(), EngineError> {
         settings.validate()?;
         self.collect_garbage();
+        // No audio thread runs this channel (Windows channels are volume groups, the PipeWire
+        // node is gone): keep the settings, there is nobody to queue them for.
+        if self.commands.is_abandoned() {
+            self.settings = *settings;
+            self.master_gain = master_gain;
+            return Ok(());
+        }
         if self.commands.is_full() {
             return Err(EngineError::Busy);
         }
@@ -231,5 +238,20 @@ mod tests {
         assert_no_alloc(|| rt.process(&mut left, &mut right));
         assert_no_alloc(|| rt.process(&mut left, &mut right));
         assert_eq!(left[127], 0.0);
+    }
+
+    #[test]
+    fn changes_never_fill_up_when_no_audio_thread_runs_the_channel() {
+        let main = ChannelSettings::template(ChannelTemplate::Main);
+        let (mut control, rt) = channel(&main, 1.0, Arc::default()).expect("valid channel");
+        drop(rt);
+        let mut settings = main;
+        for step in 0..=QUEUE_CAPACITY * 2 {
+            settings.volume_pct = (step % 100) as f32;
+            control
+                .apply(&settings, 1.0)
+                .expect("no Busy without a consumer");
+        }
+        assert_eq!(control.settings().volume_pct, settings.volume_pct);
     }
 }

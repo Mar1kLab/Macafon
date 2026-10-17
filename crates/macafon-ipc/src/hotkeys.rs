@@ -93,8 +93,10 @@ impl HotkeyAction {
     }
 }
 
-/// The UI opens just its quick panel with `--quick-panel`, or closes it when it is open.
+/// Toggle the tray panel in the UI.
 pub const QUICK_PANEL_ARG: &str = "--quick-panel";
+/// Toggle the centered hotkey overlay in the UI.
+pub const OVERLAY_ARG: &str = "--overlay";
 
 /// How the daemon registers shortcuts (HK-003).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

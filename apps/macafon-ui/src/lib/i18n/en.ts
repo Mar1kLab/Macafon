@@ -364,6 +364,10 @@ export const en = {
     mute: 'Mute {name}',
     mixerOff: 'Turn the mixer on to set channel volumes here.',
     hotkey: 'Opens and closes this panel',
+
+    // Tray panel actions.
+    trayClose: 'Close panel',
+    trayQuit: 'Quit Macafon',
   },
   mixer: {
     section: 'Mixer',

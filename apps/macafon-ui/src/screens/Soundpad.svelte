@@ -56,7 +56,8 @@
   let sort = $state<SoundSort>(savedSort());
   let selected = $state<string | null>(null);
   let editing = $state<string | null>(null);
-  let dropTarget = $state<SoundScope | 'screen' | null>(null);
+  const SCREEN_TARGET = Symbol('screen');
+  let dropTarget = $state<SoundScope | typeof SCREEN_TARGET>(null);
   let fileInput: HTMLInputElement | undefined = $state();
   let listElement: HTMLUListElement | undefined = $state();
   let categoryDialog = $state<{ from: string | null; name: string } | null>(null);
@@ -141,21 +142,22 @@
   const hasFiles = (event: DragEvent) => event.dataTransfer?.types.includes('Files') ?? false;
   const hasSound = (event: DragEvent) => event.dataTransfer?.types.includes(SOUND_MIME) ?? false;
 
-  function ondragover(event: DragEvent, target: SoundScope | 'screen') {
-    if (!hasFiles(event) && !(hasSound(event) && target !== 'screen' && target !== FAVORITES && target !== null)) return;
+  function ondragover(event: DragEvent, target: SoundScope | typeof SCREEN_TARGET) {
+    if (!hasFiles(event) && !(hasSound(event) && target !== SCREEN_TARGET && target !== FAVORITES && target !== null)) return;
     event.preventDefault();
     event.stopPropagation();
     if (event.dataTransfer) event.dataTransfer.dropEffect = hasFiles(event) ? 'copy' : 'move';
     dropTarget = target;
   }
 
-  function ondrop(event: DragEvent, target: SoundScope | 'screen') {
+  function ondrop(event: DragEvent, target: SoundScope | typeof SCREEN_TARGET) {
     event.preventDefault();
     event.stopPropagation();
     dropTarget = null;
-    const category = target === 'screen' ? uploadCategory : target === FAVORITES || target === UNCATEGORIZED ? null : target;
+    const category = target === SCREEN_TARGET ? uploadCategory : target === FAVORITES || target === UNCATEGORIZED ? null : target;
     const moving = event.dataTransfer?.getData(SOUND_MIME);
     if (moving) {
+      if (target === SCREEN_TARGET || target === FAVORITES || target === null) return;
       const sound = sounds.find((item) => item.id === moving);
       if (sound && sound.category !== category) void daemon.setSoundpad(daemon.client.call('soundpad.move', { id: moving, category }));
       return;
@@ -196,11 +198,11 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="screen"
-    ondragover={(event) => ondragover(event, 'screen')}
+    ondragover={(event) => ondragover(event, SCREEN_TARGET)}
     ondragleave={(event) => {
       if (event.currentTarget === event.target || !event.relatedTarget) dropTarget = null;
     }}
-    ondrop={(event) => ondrop(event, 'screen')}
+    ondrop={(event) => ondrop(event, SCREEN_TARGET)}
   >
     <header class="top">
       <h1 class="hud-label">{t('soundpad.section')}</h1>
@@ -416,7 +418,7 @@
         <Ticks color="var(--accent)" />
         <Upload size={20} strokeWidth={1.5} />
         <span class="hud-label">
-          {dropTarget === 'screen'
+          {dropTarget === SCREEN_TARGET
             ? uploadCategory
               ? t('soundpad.dropTo', { name: uploadCategory })
               : t('soundpad.drop')

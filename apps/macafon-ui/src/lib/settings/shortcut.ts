@@ -2,6 +2,20 @@
 // Mirrors `Accel` in macafond/src/hotkeys/accel.rs: the same keys, modifier order and rule
 // that a bare letter or digit needs Ctrl, Alt or Super.
 
+import type { HotkeyBinding } from '../ipc/protocol';
+
+/** Build once per hotkey update, instead of scanning every binding for every sound row. */
+export function indexShortcuts(bindings: readonly Pick<HotkeyBinding, 'action' | 'shortcut'>[]): Map<string, string | null> {
+  const shortcuts = new Map<string, string | null>();
+  for (const binding of bindings) {
+    // Match Array.find: the first binding wins, even if it has no shortcut.
+    if (!shortcuts.has(binding.action)) {
+      shortcuts.set(binding.action, binding.shortcut ? displayShortcut(binding.shortcut) : null);
+    }
+  }
+  return shortcuts;
+}
+
 /** Keys the daemon accepts besides letters, digits and F-keys; `KeyboardEvent.code` names. */
 const NAMED = new Set([
   'Space',

@@ -4,8 +4,12 @@ use crate::{Error, library::MAX_FILE_BYTES};
 use macafon_dsp::SAMPLE_RATE_HZ;
 use std::{fs::File, path::Path};
 use symphonia::core::{
-    audio::SampleBuffer, codecs::CODEC_TYPE_NULL, errors::Error as DecodeError,
-    formats::FormatReader, io::MediaSourceStream, probe::Hint,
+    audio::SampleBuffer,
+    codecs::CODEC_TYPE_NULL,
+    errors::Error as DecodeError,
+    formats::{FormatReader, Track},
+    io::MediaSourceStream,
+    probe::Hint,
 };
 
 pub const MAX_DURATION_S: u32 = 600;
@@ -88,17 +92,21 @@ fn open(path: &Path) -> Result<Box<dyn FormatReader>, Error> {
 fn decode_error(error: DecodeError) -> Error {
     Error::Decode(error.to_string())
 }
-pub fn probe_duration_ms(path: &Path) -> Result<Option<u32>, Error> {
-    let format = open(path)?;
-    let track = format
+fn audio_track(format: &dyn FormatReader) -> Result<&Track, Error> {
+    format
         .default_track()
         .or_else(|| {
             format
                 .tracks()
                 .iter()
-                .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+                .find(|track| track.codec_params.codec != CODEC_TYPE_NULL)
         })
-        .ok_or(Error::UnsupportedFormat)?;
+        .ok_or(Error::UnsupportedFormat)
+}
+
+pub fn probe_duration_ms(path: &Path) -> Result<Option<u32>, Error> {
+    let format = open(path)?;
+    let track = audio_track(format.as_ref())?;
     Ok(track
         .codec_params
         .n_frames
@@ -113,15 +121,7 @@ pub fn probe_duration_ms(path: &Path) -> Result<Option<u32>, Error> {
 }
 pub fn decode_file(path: &Path) -> Result<Sound, Error> {
     let mut format = open(path)?;
-    let track = format
-        .default_track()
-        .or_else(|| {
-            format
-                .tracks()
-                .iter()
-                .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-        })
-        .ok_or(Error::UnsupportedFormat)?;
+    let track = audio_track(format.as_ref())?;
     if track
         .codec_params
         .n_frames

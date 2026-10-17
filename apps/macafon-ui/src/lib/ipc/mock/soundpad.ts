@@ -51,6 +51,7 @@ export class MockSoundpad {
   private timer: number | undefined;
   private startedAt = 0;
   private offsetMs = 0;
+  private looping = false;
   private uploads = new Map<string, number>();
 
   constructor(private emit: (event: Event) => void, windows: boolean) {
@@ -113,7 +114,8 @@ export class MockSoundpad {
         }
         return null;
       case 'soundpad.set_looping':
-        if (s.playback) s.playback.looping = Boolean(p.looping);
+        this.looping = Boolean(p.looping);
+        if (s.playback) s.playback.looping = this.looping;
         this.progress();
         return null;
       case 'soundpad.set_prefs':
@@ -216,7 +218,7 @@ export class MockSoundpad {
       position_ms: 0,
       duration_ms: target.duration_ms,
       paused: false,
-      looping: this.state.playback?.looping ?? false,
+      looping: this.looping,
       loading: false,
     };
     this.startedAt = performance.now();

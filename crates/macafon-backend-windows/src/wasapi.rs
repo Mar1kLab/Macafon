@@ -2,11 +2,12 @@
 
 use crate::Error;
 use crate::devices::device_by_id;
+use assert_no_alloc::assert_no_alloc;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::Media::Audio::{
-    AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
+    AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
     AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, IAudioClient,
-    IAudioClient3, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
+    IAudioClient3, IAudioRenderClient, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
 };
 use windows::Win32::System::Com::{CLSCTX_ALL, CoTaskMemFree};
 use windows::Win32::System::Threading::{
@@ -213,6 +214,60 @@ impl Drop for Stream {
         unsafe {
             let _ = self.client.Stop();
             let _ = CloseHandle(self.event);
+        }
+    }
+}
+
+/// Stereo render stream shared by A/B playback and the soundpad monitor.
+/// The caller initializes COM and retains its guard for this stream's lifetime.
+pub(crate) struct RenderStream {
+    client: IAudioRenderClient,
+    stream: Stream,
+}
+
+impl RenderStream {
+    pub fn open(device_id: &str) -> Result<Self, Error> {
+        let stream = Stream::open(device_id, 2, 0)?;
+        // SAFETY: the client was initialized by Stream::open; prefill with silence before Start.
+        let client = unsafe {
+            let client: IAudioRenderClient = stream.client.GetService()?;
+            client.GetBuffer(stream.buffer_frames)?;
+            client.ReleaseBuffer(stream.buffer_frames, AUDCLNT_BUFFERFLAGS_SILENT.0 as u32)?;
+            stream.client.Start()?;
+            client
+        };
+        Ok(Self { stream, client })
+    }
+
+    pub fn wait(&self, timeout_ms: u32) -> bool {
+        self.stream.wait(timeout_ms)
+    }
+
+    /// Fill available frames, capped for callers with fixed-size scratch buffers.
+    /// The callback runs under the same allocation guard for both playback paths.
+    pub fn render_available(
+        &self,
+        max_frames: u32,
+        render: impl FnOnce(&mut [f32], usize),
+    ) -> windows::core::Result<()> {
+        // SAFETY: the render client belongs to this float32 stream. GetBuffer returns room
+        // for `frames` interleaved frames, released immediately after the callback fills it.
+        unsafe {
+            let padding = self.stream.client.GetCurrentPadding()?;
+            let frames = self
+                .stream
+                .buffer_frames
+                .min(max_frames)
+                .saturating_sub(padding);
+            if frames == 0 {
+                return Ok(());
+            }
+            let channels = usize::from(self.stream.channels);
+            let data = self.client.GetBuffer(frames)?;
+            let output =
+                std::slice::from_raw_parts_mut(data.cast::<f32>(), frames as usize * channels);
+            assert_no_alloc(|| render(output, channels));
+            self.client.ReleaseBuffer(frames, 0)
         }
     }
 }

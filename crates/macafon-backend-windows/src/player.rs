@@ -2,15 +2,12 @@
 
 use crate::Error;
 use crate::com::ComGuard;
-use crate::wasapi::{ProAudioThread, Stream};
-use assert_no_alloc::assert_no_alloc;
+use crate::wasapi::{ProAudioThread, RenderStream};
 use macafon_engine::AbRt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use windows::Win32::Media::Audio::{AUDCLNT_BUFFERFLAGS_SILENT, IAudioRenderClient};
 
-const CHANNELS: u16 = 2;
 const WAIT_TIMEOUT_MS: u32 = 200;
 /// Largest render request handled in one piece: one second.
 const MAX_FRAMES: usize = macafon_dsp::SAMPLE_RATE_HZ as usize;
@@ -32,21 +29,10 @@ impl Player {
             .spawn(move || {
                 let outcome = (|| {
                     let com = ComGuard::new()?;
-                    let stream = Stream::open(&device_id, CHANNELS, 0)?;
-                    // SAFETY: the client was initialised by Stream::open.
-                    let client: IAudioRenderClient = unsafe { stream.client.GetService() }?;
-                    // SAFETY: prefill with silence before Start, as WASAPI expects.
-                    unsafe {
-                        client.GetBuffer(stream.buffer_frames)?;
-                        client.ReleaseBuffer(
-                            stream.buffer_frames,
-                            AUDCLNT_BUFFERFLAGS_SILENT.0 as u32,
-                        )?;
-                        stream.client.Start()?;
-                    }
-                    Ok::<_, Error>((com, stream, client))
+                    let stream = RenderStream::open(&device_id)?;
+                    Ok::<_, Error>((com, stream))
                 })();
-                let (_com, stream, client) = match outcome {
+                let (_com, stream) = match outcome {
                     Ok(opened_stream) => {
                         let _ = opened.send(Ok(()));
                         opened_stream
@@ -58,38 +44,17 @@ impl Player {
                 };
                 let _mmcss = ProAudioThread::register();
                 let mut mono = vec![0.0f32; MAX_FRAMES].into_boxed_slice();
-                let buffer_frames = stream.buffer_frames.min(MAX_FRAMES as u32);
-                let channels = usize::from(stream.channels);
                 while !stopping.load(Ordering::Acquire) {
                     if !stream.wait(WAIT_TIMEOUT_MS) {
                         continue;
                     }
-                    // SAFETY: GetBuffer returns room for `frames` interleaved float32 frames,
-                    // released right after filling.
-                    let written = unsafe {
-                        (|| {
-                            let padding = stream.client.GetCurrentPadding()?;
-                            let frames = buffer_frames.saturating_sub(padding);
-                            if frames == 0 {
-                                return Ok(());
-                            }
-                            let data = client.GetBuffer(frames)?;
-                            let out = std::slice::from_raw_parts_mut(
-                                data.cast::<f32>(),
-                                frames as usize * channels,
-                            );
-                            let block = &mut mono[..frames as usize];
-                            assert_no_alloc(|| {
-                                player.process(block);
-                                for (frame, sample) in
-                                    out.chunks_exact_mut(channels).zip(block.iter())
-                                {
-                                    frame.fill(*sample);
-                                }
-                            });
-                            client.ReleaseBuffer(frames, 0)
-                        })()
-                    };
+                    let written = stream.render_available(MAX_FRAMES as u32, |output, channels| {
+                        let block = &mut mono[..output.len() / channels];
+                        player.process(block);
+                        for (frame, sample) in output.chunks_exact_mut(channels).zip(block.iter()) {
+                            frame.fill(*sample);
+                        }
+                    });
                     if let Err(error) = written {
                         tracing::warn!(%error, "A/B playback stopped");
                         break;

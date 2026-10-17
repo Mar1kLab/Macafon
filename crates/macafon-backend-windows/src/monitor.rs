@@ -3,15 +3,12 @@
 
 use crate::Error;
 use crate::com::ComGuard;
-use crate::wasapi::{ProAudioThread, Stream};
-use assert_no_alloc::assert_no_alloc;
+use crate::wasapi::{ProAudioThread, RenderStream};
 use macafon_backend::SoundpadTap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use windows::Win32::Media::Audio::{AUDCLNT_BUFFERFLAGS_SILENT, IAudioRenderClient};
 
-const CHANNELS: u16 = 2;
 const WAIT_TIMEOUT_MS: u32 = 200;
 
 /// Plays until dropped or until the device fails ([`Monitor::is_running`]).
@@ -31,21 +28,10 @@ impl Monitor {
             .spawn(move || {
                 let outcome = (|| {
                     let com = ComGuard::new()?;
-                    let stream = Stream::open(&device_id, CHANNELS, 0)?;
-                    // SAFETY: the client was initialised by Stream::open.
-                    let client: IAudioRenderClient = unsafe { stream.client.GetService() }?;
-                    // SAFETY: prefill with silence before Start, as WASAPI expects.
-                    unsafe {
-                        client.GetBuffer(stream.buffer_frames)?;
-                        client.ReleaseBuffer(
-                            stream.buffer_frames,
-                            AUDCLNT_BUFFERFLAGS_SILENT.0 as u32,
-                        )?;
-                        stream.client.Start()?;
-                    }
-                    Ok::<_, Error>((com, stream, client))
+                    let stream = RenderStream::open(&device_id)?;
+                    Ok::<_, Error>((com, stream))
                 })();
-                let (_com, stream, client) = match outcome {
+                let (_com, stream) = match outcome {
                     Ok(opened_stream) => {
                         let _ = opened.send(Ok(()));
                         opened_stream
@@ -56,32 +42,14 @@ impl Monitor {
                     }
                 };
                 let _mmcss = ProAudioThread::register();
-                let channels = usize::from(stream.channels);
                 while !stopping.load(Ordering::Acquire) {
                     if !stream.wait(WAIT_TIMEOUT_MS) {
                         continue;
                     }
-                    // SAFETY: GetBuffer returns room for `frames` interleaved float32 frames,
-                    // released right after filling.
-                    let written = unsafe {
-                        (|| {
-                            let padding = stream.client.GetCurrentPadding()?;
-                            let frames = stream.buffer_frames.saturating_sub(padding);
-                            if frames == 0 {
-                                return Ok(());
-                            }
-                            let data = client.GetBuffer(frames)?;
-                            let out = std::slice::from_raw_parts_mut(
-                                data.cast::<f32>(),
-                                frames as usize * channels,
-                            );
-                            assert_no_alloc(|| {
-                                out.fill(0.0);
-                                tap.mix(out, channels);
-                            });
-                            client.ReleaseBuffer(frames, 0)
-                        })()
-                    };
+                    let written = stream.render_available(u32::MAX, |output, channels| {
+                        output.fill(0.0);
+                        tap.mix(output, channels);
+                    });
                     if let Err(error) = written {
                         tracing::warn!(%error, "Soundpad monitor stopped");
                         break;

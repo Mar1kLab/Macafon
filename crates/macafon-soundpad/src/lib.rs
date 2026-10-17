@@ -1,4 +1,6 @@
 //! Portable sound library, background decoder, and two-output real-time playback.
+pub mod cache;
+pub mod decode;
 pub mod library;
 
 #[derive(Debug, thiserror::Error)]

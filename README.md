@@ -6,23 +6,24 @@
 </p>
 
 <p align="center">
-  <b>Lightweight, open-source microphone processing and per-app audio mixer for Linux and Windows.</b>
+  <b>Open-source microphone processing and per-app audio mixer for Windows 11. Linux support is experimental.</b>
 </p>
 
 <p align="center">
   <img alt="License: GPL-3.0-only" src="https://img.shields.io/badge/license-GPL--3.0--only-blue">
   <img alt="Rust 2024" src="https://img.shields.io/badge/rust-2024-orange">
-  <img alt="Linux: PipeWire" src="https://img.shields.io/badge/linux-PipeWire-informational">
-  <img alt="Windows: VB-CABLE" src="https://img.shields.io/badge/windows-VB--CABLE-informational">
+  <img alt="Windows 11: working" src="https://img.shields.io/badge/Windows_11-working-success">
+  <img alt="Linux: experimental" src="https://img.shields.io/badge/Linux-experimental-orange">
 </p>
 
-![Microphone screen](docs/images/microphone.png)
+![Windows microphone screen](docs/images/microphone.png)
 
 ## What it does
 
 **A clean voice in every app.** Macafon takes your physical microphone, runs it through a studio chain —
 Gain → High-pass → AI noise suppression → Expander → EQ → Compressor → De-esser → Limiter — and exposes
-the result as a virtual microphone, **Macafon Microphone**, that you pick in Discord, OBS, Zoom or games.
+the result as a virtual microphone for Discord, OBS, Zoom or games. On Windows, select
+**CABLE Output (VB-Audio Virtual Cable)** in those apps.
 
 - One slider per module, with every parameter one click away under *Advanced*.
 - Two-step auto-calibration (stay silent, read a sentence) sets gain, noise gate and noise suppression.
@@ -35,65 +36,103 @@ and are dragged between channels; Macafon remembers where each app belongs.
 
 ![Mixer screen](docs/images/mixer.png)
 
-**Stays out of the way.** A small daemon runs in the tray and starts with your session; the window
-unloads completely when closed. Global hotkeys (mute, push-to-talk, presets, channel volume), a CLI for
-scripts, and a *Doctor* that checks the setup and fixes common problems in one click. No accounts, no
-cloud, no telemetry.
+**Windows controls.** Master follows the actual Windows volume and mute in both directions. Every action
+supports primary and secondary hotkeys, with separate left/right Ctrl and Alt. Volume shortcuts repeat
+while held and use your chosen step. Assigned shortcuts appear beside the controls.
 
-## Platforms
+**Always within reach.** A tray panel, a hotkey mixer overlay and volume popups on the active or primary
+monitor. The daemon keeps processing with the main window closed; on Windows the hidden panel stays
+ready in the background. Autostart, CLI commands and a *Doctor* for setup checks are included.
 
-| | Linux | Windows 10 22H2+ / 11 |
-|---|---|---|
-| Virtual microphone | Created by Macafon in PipeWire | The free [VB-CABLE](https://vb-audio.com/Cable/) driver, installed by you |
-| Mic latency without noise suppression | ≈ 2.7 ms (one graph cycle) | Higher: two WASAPI passes plus the cable buffer |
-| Mixer channels | Real virtual devices with per-channel EQ, noise suppression, compressor, limiter | Volume groups over Windows audio sessions, no per-channel effects |
-| Requirements | PipeWire ≥ 1.0, WirePlumber ≥ 0.5 | VB-CABLE; no administrator rights for Macafon itself |
+**Optional DAC controls.** When an iBasso Jr. Macaron is connected, device settings expose hardware volume,
+balance, digital filter, gain and output mode. Volume is read from the device and follows its buttons.
 
-Why Windows works this way is explained in [ADR-0004](docs/adr/0004-windows-free-vb-cable.md).
+Audio processing runs locally. No accounts, cloud audio processing or telemetry.
 
 ## Status
 
-Pre-release. The Linux microphone (M1) and mixer (M2) and the Windows port (M3) are implemented and
-tested locally; there are no published releases yet. Known gaps and measured limits are tracked in the
-[release checklist](docs/qa/release-checklist.md) — notably the Lite noise suppression latency (≈ 22.7 ms
-against a 13 ms target) and the Windows microphone latency, which depends mostly on the VB-CABLE buffer.
+**Windows 11: working.** The microphone chain, calibration, Before/After recording, application mixer,
+system Master, tray, hotkeys, overlays, Macaron controls and installer are implemented and tested locally
+on Windows 11. The project is currently version **0.1.0**; the available Windows features are functional.
+
+**Linux: experimental.** The PipeWire backend, virtual microphone and channel effects are implemented,
+but Linux builds and desktop integration need further validation. Linux is not covered by the Windows
+build workflow.
+
+Latency depends on the microphone and VB-CABLE buffers. Measurements and remaining release criteria
+are recorded in the [release checklist](docs/qa/release-checklist.md).
+
+## Download for Windows 11
+
+1. Open [Windows 11 build](https://github.com/Mar1kLab/Macafon/actions/workflows/windows-build.yml).
+2. Open the latest successful run and download **Macafon-Windows11-x64** from **Artifacts**.
+3. Extract the ZIP and run `Macafon_0.1.0_x64-setup.exe`. `SHA256SUMS.txt` contains its SHA-256 checksum.
+4. For the virtual microphone, install the free [VB-CABLE](https://vb-audio.com/Cable/) separately,
+   then select **CABLE Output (VB-Audio Virtual Cable)** in Discord, OBS, Zoom or your game.
+
+GitHub requires sign-in and repository access to download workflow artifacts. Artifacts are retained
+for 30 days. The per-user installer does not require administrator rights for Macafon itself; installing
+the separate VB-CABLE driver does. The current installer is unsigned.
+
+An upgrade stops the running daemon, replaces the binaries and starts it again, keeping settings and
+autostart. Uninstall restores default audio devices and managed application volumes; explicit changes
+to system Master volume remain yours.
+
+## Platforms
+
+| | Windows 11 | Linux (experimental) |
+|---|---|---|
+| Virtual microphone | Free VB-CABLE, installed separately | Created by Macafon in PipeWire |
+| Mixer | Up to eight application volume groups over Windows audio sessions | Virtual channels with EQ and effects |
+| Master | System output volume and mute | Master gain over Macafon channels |
+| Channel effects | Unavailable in Windows sessions mode; the future extra-cable mode is disabled | EQ, noise suppression, compressor and limiter |
+| Requirements | VB-CABLE for microphone processing; WebView2 for the UI | PipeWire >= 1.0, WirePlumber >= 0.5 |
+
+Windows architecture: [ADR-0004](docs/adr/0004-windows-free-vb-cable.md).
 
 ## Building
 
-You need stable Rust, Node.js with pnpm (Corepack is fine) and the platform prerequisites below.
+### Windows 11
 
-### Linux
+Install stable Rust, Node.js 24, Python 3.12 or newer, and the
+[Tauri Windows prerequisites](https://v2.tauri.app/start/prerequisites/#windows)
+(Microsoft C++ Build Tools with Desktop development with C++, and WebView2).
+The workflow uses Rust 1.99.0 and pnpm 12.11.2.
+
+```powershell
+npm install --global corepack@0.35.0
+corepack enable
+corepack pnpm -C apps/macafon-ui install --frozen-lockfile
+python tools/package-windows.py            # target/release/bundle/nsis/
+python tools/package-windows.py --install  # build, then install or upgrade
+```
+
+The manual [Windows workflow](.github/workflows/windows-build.yml) runs the same packaging script on a
+GitHub-hosted Windows runner and uploads the installer and checksum. It does not install the app or
+VB-CABLE on the runner.
+
+### Linux (experimental)
+
+You need stable Rust, Node.js with pnpm, Python 3 and the platform dependencies:
 
 ```sh
 # Ubuntu / Debian
 sudo apt install build-essential pkg-config libclang-dev libpipewire-0.3-dev pipewire-bin \
                  libwebkit2gtk-4.1-dev libgtk-3-dev libdbus-1-dev
-pnpm -C apps/macafon-ui install --frozen-lockfile
-python3 tools/package-linux.py      # deb, rpm and AppImage under target/release/bundle/
+corepack pnpm -C apps/macafon-ui install --frozen-lockfile
+python3 tools/package-linux.py     # deb, rpm and AppImage under target/release/bundle/
 ```
 
-Or run from source without packaging:
+Or run from source:
 
 ```sh
 cargo build --release -p macafond -p macafon-cli
 target/release/macafond devices
-target/release/macafond run --input '<physical node.name>'   # remembered afterwards
-pnpm -C apps/macafon-ui tauri dev                           # the desktop UI
+target/release/macafond run --input '<physical node.name>'
+corepack pnpm -C apps/macafon-ui tauri dev
 ```
 
-Then select **Macafon Microphone** in your apps. An AUR recipe is under `packaging/aur/`.
-
-### Windows
-
-```sh
-python tools/package-windows.py     # per-user NSIS installer under target/release/bundle/nsis/
-python tools/package-windows.py --install   # build, then install or upgrade in place
-```
-
-The installer needs no administrator rights and does not include VB-CABLE: onboarding links to the
-official VB-Audio download page. Uninstalling gives back your default microphone, output and app volumes.
-An upgrade over a running Macafon stops the daemon, replaces the binaries and starts it again;
-settings and autostart are kept.
+Select **Macafon Microphone** in your apps. An experimental AUR recipe is under `packaging/aur/`.
 
 ## Command line
 
@@ -103,6 +142,7 @@ macafon ctl preset broadcast        # natural, discord-clear, noisy-room, broadc
 macafon ctl mute                    # toggle; also mute on|off, bypass on|off
 macafon ctl mic mute toggle         # for desktop shortcuts
 macafon ctl channel voice volume +5
+macafon ctl channel master volume -5
 macafon ctl apps move bin:firefox music
 macafon ctl doctor
 ```
@@ -115,7 +155,7 @@ The UI runs in a regular browser against a mock daemon — no audio stack needed
 pnpm -C apps/macafon-ui dev         # http://127.0.0.1:1420, add ?platform=windows for the Windows UI
 ```
 
-Checks are targeted and local (there is no cloud CI):
+Checks remain targeted and local. GitHub Actions currently provides the manual Windows installer build:
 
 ```sh
 cargo fmt

@@ -1039,8 +1039,9 @@ mic_mute_toggle = "Ctrl+Alt+M"
 | PipeWire integration | Headless PipeWire + WirePlumber in a CI container: node creation, moving streams (`pw-play` as an "application"), nodes disappearing when the daemon stops | GitHub Actions |
 | UI | Component tests (Vitest), e2e (WebDriver through `tauri-driver`) for onboarding and D&D | CI |
 
-Per [AGENTS.md](../AGENTS.md) there is no cloud CI for now: these checks run locally (the headless PipeWire
-tests through `tools/tests/*.py`).
+These checks run locally (the headless PipeWire tests through `tools/tests/*.py`). The owner authorized
+a manual GitHub Actions Windows installer build on 2026-10-17; other cloud CI remains out of scope per
+[AGENTS.md](../AGENTS.md).
 
 ### 14.2 Manual testing
 
@@ -1069,9 +1070,11 @@ Steam + a Proton game, a native game (SDL), mpv, OBS (as a consumer of the virtu
 | Windows: a per-user installer (no administrator rights) | P0 (M3) | Authenticode signing through SignPath Foundation (free for OSS); the user installs VB-CABLE themselves |
 | Auto-update | P1 | Only a new-version notification (opt-in); updating through the package manager / installer |
 
-Build: lint (`clippy -D warnings`, `rustfmt`, eslint/prettier), tests, benchmarks, building packages on a
-`v*` tag. Planned for GitHub Actions; per [AGENTS.md](../AGENTS.md) it runs locally until the owner decides
-otherwise.
+Windows 11 is the working platform; Linux remains experimental (owner decision, 2026-10-17).
+The manual `Windows 11 build` GitHub Actions workflow builds the x64 per-user NSIS installer and uploads
+it with SHA-256 checksums as a 30-day artifact. It uses the existing Windows packaging script; no driver,
+installation on the runner, signing or automatic release publishing is added. Other checks and Linux
+packaging remain local per [AGENTS.md](../AGENTS.md).
 
 ## 16. Risks
 
@@ -1140,7 +1143,8 @@ available there (ADR-0004).
 The basis is §12.2 and [ADR-0004](adr/0004-windows-free-vb-cable.md): only the free VB-CABLE (one cable) for
 the virtual microphone, the mixer as volume groups without effects. No driver, APO or services of our own.
 Checks run locally on a Windows test machine (Windows 10 22H2 and Windows 11 24H2/25H2 with VB-CABLE
-installed), there is no cloud CI (AGENTS.md). Progress — [windows-m3.md](development/windows-m3.md).
+installed). A manual GitHub Actions workflow also builds the Windows x64 installer (owner authorization,
+2026-10-17); live audio checks remain local. Progress — [windows-m3.md](development/windows-m3.md).
 
 | Step | Content | Done when |
 |---|---|---|

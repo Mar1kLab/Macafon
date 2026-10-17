@@ -1,13 +1,13 @@
 # AGENTS.md — guidelines for agents and Macafon developers
 
 Read this file before any work in the repository. On process questions it overrides the PRD: if the
-PRD mentions something this file forbids (for example, CI on GitHub Actions), this file wins.
+PRD mentions something this file forbids, this file wins.
 
 ## 1. Project context
 
 Macafon is a lightweight open-source Rust application: microphone processing (DSP chain + virtual
-microphone) and a per-channel audio mixer with drag & drop of applications. Linux (PipeWire) first,
-Windows second.
+microphone) and a per-channel audio mixer with drag & drop of applications. Windows 11 is the working platform;
+Linux (PipeWire) is experimental (owner decision, 2026-10-17).
 
 | Document | Why read it |
 |---|---|
@@ -22,8 +22,9 @@ features without a direct request, but keep things extensible where the PRD expl
 
 ## 2. Process
 
-- **No GitHub Actions** until the owner explicitly says otherwise. Do not create `.github/workflows/`
-  and do not propose "adding CI" as part of a task. All checks run locally.
+- **GitHub Actions scope.** The owner authorized a manual Windows 11 x64 installer build on
+  2026-10-17 (`.github/workflows/windows-build.yml`). Keep other checks local; additional cloud CI,
+  Linux workflows and automated release publishing need explicit owner authorization.
 - **No bureaucracy.** No issue/PR templates, CHANGELOG ceremonies, extra READMEs in every folder or
   documents "for the future". Write an ADR only for real architecture decisions (choosing an approach
   that is hard to roll back) — short, following `docs/adr/0001-*.md`.
@@ -119,7 +120,7 @@ Short:
 
 ## 8. Forbidden without the owner's explicit permission
 
-- GitHub Actions and any cloud CI.
+- Cloud CI beyond the authorized manual Windows installer workflow.
 - Telemetry, analytics, network requests (except the opt-in update check from the PRD).
 - Root/administrator actions at runtime beyond what the PRD describes (none on Windows, except the
   WIN-MIC-010 option).

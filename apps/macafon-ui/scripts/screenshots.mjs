@@ -44,14 +44,14 @@ async function onboardingTo(page, step) {
 
 const scenarios = {
   'macaron-unknown': async (page) => {
-    await page.goto(`${base}?platform=windows&screen=mixer&macaron=connected`);
+    await page.goto(`${base}?platform=windows&screen=mixer&macaron=unknown`);
     await page.getByRole('button', { name: 'Device settings', exact: true }).click();
-    await page.getByText('Current value unknown').first().waitFor();
+    await page.getByRole('slider', { name: 'Volume', exact: true }).waitFor();
   },
   'macaron-live': async (page) => {
     await page.goto(`${base}?platform=windows&screen=mixer&macaron=live`);
     await page.getByRole('button', { name: 'Device settings', exact: true }).click();
-    await page.getByText('Volume updated from device').waitFor();
+    await page.waitForFunction(() => document.querySelector('[role="slider"][aria-label="Volume"]')?.getAttribute('aria-valuenow') === '81');
   },
   'macaron-known': async (page) => {
     await page.goto(`${base}?platform=windows&screen=mixer&macaron=known`);
@@ -70,7 +70,7 @@ const scenarios = {
   'macaron-disconnected': async (page) => {
     await page.goto(`${base}?platform=windows&screen=mixer&macaron=disconnect`);
     await page.getByRole('button', { name: 'Device settings', exact: true }).click();
-    await page.getByText('Device disconnected or daemon unavailable. Reconnect the device to continue.').waitFor();
+    await page.getByText('Disconnected', { exact: true }).waitFor();
   },
   'macaron-absent': async (page) => {
     await page.goto(`${base}?platform=windows&screen=mixer`);

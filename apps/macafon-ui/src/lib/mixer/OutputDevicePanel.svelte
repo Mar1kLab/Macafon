@@ -14,6 +14,7 @@
   let busy = $state(false);
   let error = $state('');
   let queued: Partial<MacaronSettings> | null = null;
+  let pendingPair: Partial<MacaronSettings> = {};
   let pairTimer = $state<ReturnType<typeof setTimeout> | undefined>();
   let disposed = false;
   onDestroy(() => { disposed = true; clearTimeout(pairTimer); queued = null; });
@@ -47,36 +48,33 @@
       if (next && connected) void set(next);
     }
   }
-  function schedulePair() {
-    if (!pairKnown || pairTimer) return;
-    pairTimer = setTimeout(() => { pairTimer = undefined; void set({ volume, balance }); }, 80);
+  function schedulePair(patch: Partial<MacaronSettings>) {
+    pendingPair = { ...pendingPair, ...patch };
+    if (pairTimer) return;
+    pairTimer = setTimeout(() => {
+      pairTimer = undefined;
+      const next = pendingPair;
+      pendingPair = {};
+      void set(next);
+    }, 80);
   }
-  function setVolume(value: number) { volume = value; schedulePair(); }
-  function setBalance(value: number) { balance = value; schedulePair(); }
+  function setVolume(value: number) { volume = value; schedulePair({ volume }); }
+  function setBalance(value: number) { balance = value; schedulePair({ balance }); }
 </script>
 
 <Dialog open title={device?.name ?? t('outputDevice.macaron')} {onclose} width="580px">
-  <div class="device-panel">
-    <p class="hint">{t('outputDevice.scope')}</p>
-    <p class="notice">{t('outputDevice.writeOnly')}</p>
+  <div class="device-panel" aria-busy={busy}>
     {#if !connected}
       <p role="status" class="error">{t('outputDevice.disconnected')}</p>
     {:else}
-      <fieldset class="pair">
-        <legend class="hud-label">{t('outputDevice.volumeBalance')}</legend>
-        {#if !pairKnown}<span class="badge">{t('outputDevice.unknown')}</span>{/if}
-        {#if device?.live_volume}<span class="badge">{t('outputDevice.liveVolume')}</span>{/if}
+      <section class="pair" aria-label={t('outputDevice.volumeBalance')}>
         <div class="sliders">
         <RulerSlider value={volume} min={0} max={100} step={1} decimals={0} defaultValue={0}
-          label={t('outputDevice.volume')} format={(v) => `${v}`} color="teal" onchange={setVolume} />
+          label={t('outputDevice.volume')} format={(v) => pairKnown ? `${v}` : '—'} disabled={!pairKnown} color="teal" onchange={setVolume} />
         <RulerSlider value={balance} min={-10} max={10} step={1} decimals={0} defaultValue={0} origin={0}
-          label={t('outputDevice.balance')} format={formatBalance} color="teal" onchange={setBalance} />
+          label={t('outputDevice.balance')} format={(v) => pairKnown ? formatBalance(v) : '—'} disabled={!pairKnown} color="teal" onchange={setBalance} />
         </div>
-        {#if !pairKnown}
-          <p class="hint">{t('outputDevice.pairHint')}</p>
-          <button class="btn small" disabled={busy} onclick={() => set({ volume, balance })}>{t('outputDevice.applyPair')}</button>
-        {/if}
-      </fieldset>
+      </section>
       {#each [
         { key: 'filter' as const, title: t('outputDevice.filter'), options: filters },
         { key: 'gain' as const, title: t('outputDevice.gain'), options: gains },
@@ -84,7 +82,6 @@
       ] as group (group.key)}
         <fieldset class:filter={group.key === 'filter'}>
           <legend class="hud-label">{group.title}</legend>
-          {#if device?.settings[group.key] == null}<span class="badge">{t('outputDevice.unknown')}</span>{/if}
           <div class="choices">
             {#each group.options as label, value}
               <button class="btn small" class:selected={device?.settings[group.key] === value}
@@ -93,7 +90,6 @@
           </div>
         </fieldset>
       {/each}
-      <p class="hint" role="status">{busy ? t('outputDevice.applying') : t('outputDevice.session')}</p>
     {/if}
     {#if error || device?.error}<p class="error" role="alert">{error || device?.error}</p>{/if}
   </div>
@@ -103,11 +99,8 @@
   .device-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-height: calc(100vh - 160px); overflow-y: auto; }
   .device-panel > p, .pair, .filter { grid-column: 1 / -1; }
   .sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  .hint { color: var(--muted); font-size: 12px; line-height: 1.5; }
-  .notice { border-left: 2px solid var(--app-amber); padding-left: 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
-  fieldset { border: 1px solid var(--line); padding: 12px; display: grid; gap: 12px; min-width: 0; }
+  fieldset, .pair { border: 1px solid var(--line); padding: 12px; display: grid; gap: 12px; min-width: 0; }
   legend { padding: 0 4px; }
-  .badge { justify-self: start; }
   .choices { display: flex; flex-wrap: wrap; gap: 4px; }
   .selected { border-color: var(--app-teal); color: var(--app-teal-ink); }
   .error { color: var(--danger); font-size: 12px; overflow-wrap: anywhere; }

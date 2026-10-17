@@ -22,7 +22,11 @@ pub(super) enum Top {
     /// Restore the previous system microphone and output, including without a running daemon.
     RestoreDefault,
     /// Open the quick panel with every volume and the microphone switches, or close it.
-    QuickPanel,
+    QuickPanel {
+        /// Open the compact tray panel instead of the centered hotkey overlay.
+        #[arg(long)]
+        tray: bool,
+    },
     /// Send a command to the running macafond.
     Ctl {
         /// Print raw JSON replies.

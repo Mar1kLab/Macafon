@@ -423,3 +423,20 @@ loop such copies are dropped.
   sends its apps to the default channel.
 - `Config::offer_default_hotkeys` runs once per `HOTKEY_DEFAULTS_REVISION` at daemon start.
   `types_with_altgr` checks every installed layout with `ToUnicodeEx` (Ctrl+Alt held).
+
+
+## Quick panel: black main window and two modes (2026-10-17, HK-007)
+
+Open Macafon created the main WebView2 window inside a synchronous Tauri IPC command. On Windows,
+WebView2 initialization waits for the event thread that the command itself blocks, leaving a black,
+unresponsive window (also warned about in Tauri's WebviewWindowBuilder documentation). Window creation
+now runs on a worker for panel commands, single-instance requests and initial launches; the panel closes
+only after the main window is built. Focus-loss closing is guarded during that creation because
+WebView2 can take focus before Tauri registers the new window. Windows tray right-click opens the compact
+`--quick-panel` mode with Close and Quit Macafon; the hotkey and CLI use `--overlay` on the foreground monitor. Switching
+modes replaces the shared `quick-panel` window without exiting the UI between windows.
+
+Verified with the installed NSIS build: Open Macafon renders the main UI, normal launch and the Explorer
+icon default action work, both modes toggle and replace one another, Close/Esc work, and Quit stops the
+daemon and UI. Right/middle tray callbacks were injected through Win32; physical right-click remains
+unverified because cursor injection was unavailable in this automation session.

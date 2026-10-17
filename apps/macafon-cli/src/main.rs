@@ -16,8 +16,13 @@ fn main() -> Result<()> {
             return launch::run("macafond", std::iter::once("run".into()).chain(args));
         }
         Some(Top::RestoreDefault) => return restore_defaults(),
-        Some(Top::QuickPanel) => {
-            return launch::run("macafon-ui", [macafon_ipc::QUICK_PANEL_ARG.into()]);
+        Some(Top::QuickPanel { tray }) => {
+            let arg = if tray {
+                macafon_ipc::QUICK_PANEL_ARG
+            } else {
+                macafon_ipc::OVERLAY_ARG
+            };
+            return launch::run("macafon-ui", [arg.into()]);
         }
         Some(Top::Ctl { json, command }) => (json, command),
     };

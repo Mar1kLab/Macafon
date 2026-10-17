@@ -126,6 +126,12 @@ impl DaemonHost {
                 Ok(())
             }),
             Request::ChannelUpdate { id, patch } => self.update_mixer(|config| {
+                if patch.enabled == Some(false) && config.mixer.default_channel == id {
+                    return Err(ErrorBody::new(
+                        ErrorCode::InvalidParams,
+                        "the default channel cannot be switched off",
+                    ));
+                }
                 let channel = config.mixer.channel_mut(&id).ok_or_else(|| missing(&id))?;
                 if let Some(name) = patch.name {
                     channel.name = name.trim().to_owned();
@@ -135,6 +141,10 @@ impl DaemonHost {
                 }
                 if let Some(icon) = patch.icon {
                     channel.icon = icon;
+                }
+                if let Some(enabled) = patch.enabled {
+                    // Rules stay: the apps come back when the channel does.
+                    channel.enabled = enabled;
                 }
                 Ok(())
             }),
@@ -183,7 +193,17 @@ impl DaemonHost {
                 Ok(())
             }),
             Request::ChannelSetDefault { id } => self.update_mixer(|config| {
-                config.mixer.channel(&id).ok_or_else(|| missing(&id))?;
+                if !config
+                    .mixer
+                    .channel(&id)
+                    .ok_or_else(|| missing(&id))?
+                    .enabled
+                {
+                    return Err(ErrorBody::new(
+                        ErrorCode::InvalidParams,
+                        "switch the channel on before making it the default",
+                    ));
+                }
                 config.mixer.default_channel = id;
                 Ok(())
             }),
@@ -203,10 +223,17 @@ impl DaemonHost {
                 Ok(())
             }),
             Request::AppsMove { app_key, channel } => self.update_mixer(|config| {
-                config
+                if !config
                     .mixer
                     .channel(&channel)
-                    .ok_or_else(|| missing(&channel))?;
+                    .ok_or_else(|| missing(&channel))?
+                    .enabled
+                {
+                    return Err(ErrorBody::new(
+                        ErrorCode::InvalidParams,
+                        format!("channel {channel:?} is off"),
+                    ));
+                }
                 crate::mixer::assign(&mut config.apps, &app_key, &channel);
                 if let Some(rule) = config
                     .apps

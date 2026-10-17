@@ -68,12 +68,24 @@ pub struct ChannelConfig {
     pub color: String,
     #[serde(default = "default_icon")]
     pub icon: String,
+    /// A channel switched off has no node; its apps play through the default channel until it
+    /// is back, and keep their rules meanwhile.
+    #[serde(default = "enabled", skip_serializing_if = "is_enabled")]
+    pub enabled: bool,
     #[serde(flatten)]
     pub settings: ChannelSettings,
 }
 
 fn default_icon() -> String {
     CHANNEL_ICONS[0].to_owned()
+}
+
+fn enabled() -> bool {
+    true
+}
+
+fn is_enabled(enabled: &bool) -> bool {
+    *enabled
 }
 
 impl ChannelConfig {
@@ -83,6 +95,7 @@ impl ChannelConfig {
             name: name.to_owned(),
             color: color.to_owned(),
             icon: icon.to_owned(),
+            enabled: true,
             settings: ChannelSettings::template(template),
         }
     }
@@ -146,6 +159,20 @@ impl MixerConfig {
         self.channels.iter_mut().find(|channel| channel.id == id)
     }
 
+    /// A channel that exists and is switched on: apps can play through it.
+    pub fn active(&self, id: &str) -> bool {
+        self.channel(id).is_some_and(|channel| channel.enabled)
+    }
+
+    /// Where an app assigned to `id` plays: there while it is on, else the default channel.
+    pub fn effective_channel<'a>(&'a self, id: &'a str) -> &'a str {
+        if self.active(id) {
+            id
+        } else {
+            &self.default_channel
+        }
+    }
+
     /// Linear Master gain applied inside every channel (CH-006).
     pub fn master_gain(&self) -> f32 {
         if self.master_muted {
@@ -162,11 +189,17 @@ impl MixerConfig {
         CHANNEL_VOLUME_PCT
             .check(self.master_volume_pct)
             .map_err(|error| error.to_string())?;
-        if self.channel(&self.default_channel).is_none() {
-            return Err(format!(
-                "unknown default channel {:?}",
-                self.default_channel
-            ));
+        match self.channel(&self.default_channel) {
+            None => {
+                return Err(format!(
+                    "unknown default channel {:?}",
+                    self.default_channel
+                ));
+            }
+            Some(channel) if !channel.enabled => {
+                return Err("the default channel cannot be switched off".into());
+            }
+            Some(_) => {}
         }
         for (index, channel) in self.channels.iter().enumerate() {
             if !valid_id(&channel.id) {
@@ -232,5 +265,26 @@ mod tests {
         mixer.default_channel = "main".into();
         mixer.channels[2].id = "Main Two".into();
         assert!(mixer.validate().is_err());
+    }
+
+    #[test]
+    fn switched_off_channels_send_apps_to_the_default_and_stay_off_after_a_reload() {
+        let mut mixer = MixerConfig::default();
+        mixer.channels[2].enabled = false;
+        assert_eq!(mixer.effective_channel("music"), "main");
+        assert_eq!(mixer.effective_channel("voice"), "voice");
+        assert_eq!(mixer.effective_channel("gone"), "main");
+        let text = toml::to_string(&mixer).expect("serialize");
+        let parsed = toml::from_str::<MixerConfig>(&text).expect("parse");
+        assert_eq!(parsed, mixer);
+        // A config written before channels could be switched off has them all on.
+        let mut old: toml::Table = toml::from_str(&text).expect("table");
+        for channel in old["channels"].as_array_mut().expect("channels") {
+            channel.as_table_mut().expect("channel").remove("enabled");
+        }
+        let old: MixerConfig = old.try_into().expect("old config");
+        assert!(old.channels.iter().all(|channel| channel.enabled));
+        mixer.channels[0].enabled = false;
+        assert!(mixer.validate().is_err(), "the default channel stays on");
     }
 }

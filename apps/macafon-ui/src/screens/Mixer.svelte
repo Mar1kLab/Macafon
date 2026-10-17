@@ -176,6 +176,7 @@
               channels={mixer.channels}
               apps={appsOf(channel.id)}
               isDefault={channel.id === mixer.default_channel}
+              defaultName={mixer.channels.find((c) => c.id === mixer.default_channel)?.name ?? ''}
               {dragging}
               {flashing}
               onpanel={(panel) => (drawer = { id: channel.id, panel })}

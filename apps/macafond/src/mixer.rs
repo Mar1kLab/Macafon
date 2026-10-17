@@ -55,7 +55,7 @@ impl Mixer {
         self.controls.clear();
         self.requests.clear();
         if config.enabled {
-            for channel in &config.channels {
+            for channel in config.channels.iter().filter(|channel| channel.enabled) {
                 self.create(channel, config.master_gain())?;
             }
         }
@@ -98,7 +98,11 @@ impl Mixer {
             return Ok(());
         }
         let wanted: Vec<&ChannelConfig> = if config.enabled {
-            config.channels.iter().collect()
+            config
+                .channels
+                .iter()
+                .filter(|channel| channel.enabled)
+                .collect()
         } else {
             Vec::new()
         };
@@ -233,13 +237,14 @@ impl Mixer {
     }
 
     /// The channel an app belongs to: its rule, else the built-in classification (APP-006),
-    /// else the default channel; channels that no longer exist fall back to the default.
+    /// else the default channel; channels that no longer exist or are off fall back to the
+    /// default.
     fn channel_for(&self, config: &Config, app: &AppIdentity) -> String {
         let mixer = &config.mixer;
-        let exists = |id: &str| mixer.channel(id).is_some();
+        let exists = |id: &str| mixer.active(id);
         if let Some(rule) = config.apps.rule(&app.key) {
-            if exists(&rule.channel) {
-                return rule.channel.clone();
+            if mixer.channel(&rule.channel).is_some() {
+                return mixer.effective_channel(&rule.channel).to_owned();
             }
         }
         if mixer.auto_classify {
@@ -358,11 +363,7 @@ impl Mixer {
                         key: rule.key.clone(),
                         name: rule_name(&rule.key),
                         icon: None,
-                        channel: if mixer.channel(&rule.channel).is_some() {
-                            rule.channel.clone()
-                        } else {
-                            mixer.default_channel.clone()
-                        },
+                        channel: mixer.effective_channel(&rule.channel).to_owned(),
                         active: false,
                         streams: 0,
                         managed: rule.managed,
@@ -390,6 +391,7 @@ impl Mixer {
                     name: channel.name.clone(),
                     color: channel.color.clone(),
                     icon: channel.icon.clone(),
+                    enabled: channel.enabled,
                     settings: channel.settings,
                     latency_samples: channel.settings.latency_samples(),
                 })
@@ -551,6 +553,46 @@ mod tests {
         assert_eq!(mixer.stream_volume(&config, &mixer.streams[1]), 1.0);
         config.mixer.enabled = false;
         assert_eq!(mixer.route(&config, &mixer.streams[0]), Route::Release);
+    }
+
+    #[test]
+    fn a_switched_off_channel_loses_its_node_and_lends_its_apps_to_the_default() {
+        let mut config = Config::default();
+        config.mixer.enabled = true;
+        let mut mixer = Mixer::default();
+        mixer.start_session(&config.mixer).expect("channels build");
+        mixer.take_requests();
+        mixer.streams_changed(&[stream(1, "Discord"), stream(2, "firefox")]);
+        assign(&mut config.apps, "bin:firefox", "voice");
+        let voice = Route::Channel("voice".into());
+        assert_eq!(mixer.route(&config, &mixer.streams[0]), voice);
+        config.mixer.channel_mut("voice").expect("voice").enabled = false;
+        let main = Route::Channel("main".into());
+        assert_eq!(mixer.route(&config, &mixer.streams[0]), main);
+        assert_eq!(mixer.route(&config, &mixer.streams[1]), main);
+        assert!(
+            mixer
+                .state(&config)
+                .apps
+                .iter()
+                .all(|app| app.channel == "main")
+        );
+        mixer.sync(&config.mixer).expect("sync");
+        assert!(matches!(
+            mixer.take_requests().as_slice(),
+            [ChannelRequest::Remove { id }] if id == "voice"
+        ));
+        assert_eq!(
+            config.apps.rule("bin:firefox").expect("kept").channel,
+            "voice"
+        );
+        config.mixer.channel_mut("voice").expect("voice").enabled = true;
+        assert_eq!(mixer.route(&config, &mixer.streams[1]), voice);
+        mixer.sync(&config.mixer).expect("sync");
+        assert!(matches!(
+            mixer.take_requests().as_slice(),
+            [ChannelRequest::Create { id, .. }] if id == "voice"
+        ));
     }
 
     #[test]

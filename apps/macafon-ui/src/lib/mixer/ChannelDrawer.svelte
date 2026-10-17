@@ -207,10 +207,23 @@
       </div>
       <div class="row module">
         <div>
+          <p class="name">{t('mixer.channelSwitch')}</p>
+          <p class="help">{isDefault ? t('mixer.channelSwitchDefault') : t('mixer.channelSwitchHint')}</p>
+        </div>
+        <Toggle
+          checked={channel.enabled}
+          color={channel.color}
+          disabled={isDefault}
+          label={t('mixer.channelSwitch')}
+          onchange={(enabled) => daemon.setMixer(daemon.client.call('channel.update', { id: channel.id, patch: { enabled } }))}
+        />
+      </div>
+      <div class="row module">
+        <div>
           <p class="name">{t('mixer.makeDefault')}</p>
           <p class="help">{t('mixer.makeDefaultHint')}</p>
         </div>
-        <button class="btn" disabled={isDefault} onclick={() => daemon.setMixer(daemon.client.call('channel.set_default', { id: channel.id }))}>
+        <button class="btn" disabled={isDefault || !channel.enabled} onclick={() => daemon.setMixer(daemon.client.call('channel.set_default', { id: channel.id }))}>
           {isDefault ? t('mixer.default') : t('mixer.makeDefaultAction')}
         </button>
       </div>

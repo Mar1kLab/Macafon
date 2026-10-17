@@ -11,6 +11,8 @@ pub struct ChannelState {
     pub name: String,
     pub color: String,
     pub icon: String,
+    /// Off: no node, its apps play through the default channel.
+    pub enabled: bool,
     pub settings: ChannelSettings,
     pub latency_samples: u32,
 }
@@ -90,4 +92,7 @@ pub struct ChannelPatch {
     pub color: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// Switch the channel on or off; the default channel stays on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
 }

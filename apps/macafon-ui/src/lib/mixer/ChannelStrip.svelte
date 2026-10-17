@@ -2,12 +2,14 @@
   // Channel strip (design system §6, PRD §9.4): colour bar, name, app chips (a drop target),
   // fader with a stereo meter, % and dB, M / EQ / FX. While a chip is dragged over it the
   // strip lights up in its colour with corner ticks; a new app flashes in. The channel icon is
-  // the handle that reorders strips (CH-007): drag it, or focus it and press ← / →.
+  // the handle that reorders strips (CH-007): drag it, or focus it and press ← / →. A switched
+  // off channel folds to its header; its apps show in the default channel meanwhile.
   import { Settings2 } from '@lucide/svelte';
   import AppChip from './AppChip.svelte';
   import Fader from './Fader.svelte';
   import StereoMeter from './StereoMeter.svelte';
   import Ticks from '../components/Ticks.svelte';
+  import Toggle from '../components/Toggle.svelte';
   import { channelIcon } from './icons';
   import { daemon } from '../state';
   import { formatVolumeDb } from '../dsp/format';
@@ -19,6 +21,8 @@
     channels: ChannelState[];
     apps: AppState[];
     isDefault: boolean;
+    /** Where this channel's apps play while it is off. */
+    defaultName: string;
     dragging: string | null;
     flashing: Set<string>;
     onpanel: (panel: 'eq' | 'fx' | 'channel') => void;
@@ -38,6 +42,7 @@
     channels,
     apps,
     isDefault,
+    defaultName,
     dragging,
     flashing,
     onpanel,
@@ -57,7 +62,11 @@
   const Icon = $derived(channelIcon(channel.icon));
   const eqOn = $derived(s.eq.enabled && !s.bypass);
   const fxOn = $derived(!s.bypass && (s.noise_suppression.enabled || s.compressor.enabled || s.limiter.enabled));
-  const target = $derived(dragging !== null && !apps.some((app) => app.key === dragging));
+  const target = $derived(channel.enabled && dragging !== null && !apps.some((app) => app.key === dragging));
+
+  function setEnabled(enabled: boolean) {
+    void daemon.setMixer(daemon.client.call('channel.update', { id: channel.id, patch: { enabled } }));
+  }
 
   function move(key: string, to: string) {
     void daemon.setMixer(daemon.client.call('apps.move', { app_key: key, channel: to }));
@@ -78,7 +87,7 @@
     }
     over = false;
     const key = event.dataTransfer?.getData('application/x-macafon-app');
-    if (key && !apps.some((app) => app.key === key)) move(key, channel.id);
+    if (key && channel.enabled && !apps.some((app) => app.key === key)) move(key, channel.id);
   }
 </script>
 
@@ -87,6 +96,7 @@
   class:over={over && target}
   class:target
   class:lifted={reordering === channel.id}
+  class:off={!channel.enabled}
   class:insert-before={insert === 'before'}
   class:insert-after={insert === 'after'}
   aria-label={channel.name}
@@ -142,10 +152,22 @@
     </button>
     <h2>{channel.name}</h2>
     {#if isDefault}<span class="badge">{t('mixer.default')}</span>{/if}
-    <button class="btn icon ghost small settings" aria-label={t('mixer.channelSettings', { name: channel.name })} title={t('mixer.channelSettings', { name: channel.name })} onclick={() => onpanel('channel')}>
-      <Settings2 size={13} strokeWidth={1.5} />
-    </button>
+    <span class="tools">
+      {#if !isDefault}
+        <Toggle checked={channel.enabled} color={channel.color} label={t('mixer.channelOn', { name: channel.name })} onchange={setEnabled} />
+      {/if}
+      <button class="btn icon ghost small" aria-label={t('mixer.channelSettings', { name: channel.name })} title={t('mixer.channelSettings', { name: channel.name })} onclick={() => onpanel('channel')}>
+        <Settings2 size={13} strokeWidth={1.5} />
+      </button>
+    </span>
   </header>
+  {#if !channel.enabled}
+    <div class="folded">
+      <span class="hud-label">{t('mixer.channelOff')}</span>
+      <p>{t('mixer.channelOffBody', { name: defaultName })}</p>
+      <button class="btn small" onclick={() => setEnabled(true)}>{t('mixer.switchOn')}</button>
+    </div>
+  {:else}
   <ul class="apps" aria-label={t('mixer.appsIn', { name: channel.name })}>
     {#each apps as app (app.key)}
       <li class:flash={flashing.has(app.key)}>
@@ -199,6 +221,7 @@
       <button class="btn small" title={t('mixer.channelFxLinuxBody')} onclick={() => onpanel('channel')}>{t('mixer.panels.channel')}</button>
     {/if}
   </footer>
+  {/if}
 </section>
 
 <style>
@@ -246,8 +269,37 @@
     color: var(--ink-strong);
   }
 
-  .settings {
+  .tools {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     margin-left: auto;
+  }
+
+  .strip.off {
+    grid-template-rows: auto 1fr;
+    border-top-color: var(--line-strong);
+    background: var(--bg);
+  }
+
+  .strip.off header {
+    color: var(--faint);
+  }
+
+  .strip.off h2 {
+    color: var(--muted);
+  }
+
+  .folded {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .folded p {
+    font-size: 12px;
+    color: var(--faint);
   }
 
   .handle {

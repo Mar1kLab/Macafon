@@ -42,7 +42,7 @@
     if (Number.isInteger(index) && index >= 0 && index < channels.length) {
       event.preventDefault();
       const target = channels[index]!;
-      if (target.id !== app.channel) onmove(target.id);
+      if (target.id !== app.channel && target.enabled) onmove(target.id);
     } else if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
       event.preventDefault();
       const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
@@ -160,7 +160,7 @@
     <li class="hud-label" role="presentation">{t('mixer.moveTo')}</li>
     {#each channels as channel, index (channel.id)}
       <li role="none">
-        <button role="menuitem" disabled={channel.id === app.channel || !app.movable} onclick={() => choose(() => onmove(channel.id))}>
+        <button role="menuitem" disabled={channel.id === app.channel || !app.movable || !channel.enabled} onclick={() => choose(() => onmove(channel.id))}>
           <span class="swatch" style:background="var(--app-{channel.color})"></span>{channel.name}<kbd>{index + 1}</kbd>
         </button>
       </li>

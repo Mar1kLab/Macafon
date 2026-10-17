@@ -10,7 +10,7 @@ export const DEVICES: Device[] = [
 ];
 
 export function channel(id: string, name: string, color: string, icon: string, settings: ChannelSettings): ChannelState {
-  return { id, name, color, icon, settings: structuredClone(settings), latency_samples: channelLatency(settings) };
+  return { id, name, color, icon, enabled: true, settings: structuredClone(settings), latency_samples: channelLatency(settings) };
 }
 
 function app(key: string, name: string, channel: string, active: boolean, streams = 1): AppState {

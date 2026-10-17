@@ -8,6 +8,8 @@ import { SILENT, voiceLevel } from './signals';
 
 export class MockMixer {
   readonly state: MixerState;
+  /** Apps lent to the default channel while their own is off, by app key. */
+  private lent = new Map<string, string>();
 
   constructor(enabled: boolean, private started: number, private emit: (event: Event) => void) {
     this.state = initialMixer(enabled);
@@ -49,7 +51,22 @@ export class MockMixer {
       }
       case 'channel.update': {
         const target = this.channel(String(p.id));
-        Object.assign(target, p.patch as object);
+        const patch = p.patch as Partial<ChannelState>;
+        if (patch.enabled === false && target.id === this.state.default_channel) {
+          throw new DaemonError('invalid_params', 'the default channel cannot be switched off');
+        }
+        Object.assign(target, patch);
+        if (patch.enabled === false) {
+          for (const app of this.state.apps.filter((a) => a.channel === target.id)) {
+            this.lent.set(app.key, target.id);
+            app.channel = this.state.default_channel;
+          }
+        } else if (patch.enabled === true) {
+          for (const app of this.state.apps.filter((a) => this.lent.get(a.key) === target.id)) {
+            this.lent.delete(app.key);
+            app.channel = target.id;
+          }
+        }
         return this.changed();
       }
       case 'channel.delete': {
@@ -76,7 +93,7 @@ export class MockMixer {
         return this.changed();
       }
       case 'channel.set_default':
-        this.channel(String(p.id));
+        if (!this.channel(String(p.id)).enabled) throw new DaemonError('invalid_params', 'the channel is off');
         this.state.default_channel = String(p.id);
         return this.changed();
       case 'channel.reorder': {
@@ -85,7 +102,8 @@ export class MockMixer {
         return this.changed();
       }
       case 'apps.move': {
-        this.channel(String(p.channel));
+        if (!this.channel(String(p.channel)).enabled) throw new DaemonError('invalid_params', 'the channel is off');
+        this.lent.delete(String(p.app_key));
         const target = this.state.apps.find((a) => a.key === p.app_key);
         if (target) {
           target.channel = String(p.channel);

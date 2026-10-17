@@ -84,6 +84,7 @@ pub struct DaemonHost {
     /// What the hotkey service registered last.
     bound_hotkeys: Option<Vec<crate::hotkeys::Binding>>,
     pressed_hotkeys: std::collections::HashSet<String>,
+    volume_repeats: hotkeys::VolumeRepeats,
     icons: macafon_apps::icons::IconResolver,
     quit: bool,
     server: Option<(Endpoint, ControlSender<ControlMessage>)>,
@@ -137,6 +138,7 @@ impl DaemonHost {
             hotkey_status: None,
             bound_hotkeys: None,
             pressed_hotkeys: std::collections::HashSet::new(),
+            volume_repeats: hotkeys::VolumeRepeats::default(),
             icons: macafon_apps::icons::IconResolver::from_env(),
             quit: false,
             server: Some((endpoint, control)),
@@ -553,6 +555,7 @@ impl MicrophoneHost for DaemonHost {
     }
 
     fn tick(&mut self) {
+        self.repeat_hotkeys(Instant::now());
         self.refresh_input();
         self.mixer.collect_garbage();
         self.mixer.poll_default_sink(&self.config.mixer);
@@ -610,6 +613,62 @@ mod tests {
         return Endpoint::socket("unused");
         #[cfg(windows)]
         Endpoint::pipe("unused")
+    }
+
+    #[test]
+    fn volume_hotkeys_repeat_after_delay_and_stop_on_release_or_rebind() {
+        use std::time::Duration;
+        let (sender, _receiver) = crate::platform::control_channel();
+        let mut config = Config::default();
+        config.ui.volume_step_pct = 3;
+        config.mixer.channels[0].settings.volume_pct = 50.0;
+        config.mixer.master_volume_pct = 50.0;
+        let mut host = DaemonHost::new(
+            config,
+            None,
+            PresetStore::in_memory(),
+            unused_endpoint(),
+            sender,
+            false,
+        );
+        let now = Instant::now();
+        let at = |ms| now + Duration::from_millis(ms);
+        host.hotkey_at("channel_volume_up.main", true, at(0));
+        host.hotkey_at("channel_volume_up.main", true, at(100));
+        host.repeat_hotkeys(at(399));
+        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 53.0);
+        host.repeat_hotkeys(at(400));
+        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 56.0);
+        host.repeat_hotkeys(at(499));
+        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 56.0);
+        host.repeat_hotkeys(at(500));
+        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 59.0);
+        host.hotkey_at("channel_volume_down.main#secondary", true, at(500));
+        host.hotkey_at("channel_volume_up.main", false, at(510));
+        host.repeat_hotkeys(at(900));
+        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 53.0);
+        host.hotkey_at("channel_volume_down.main#secondary", false, at(901));
+        host.repeat_hotkeys(at(10000));
+        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 53.0);
+        host.hotkey_at("master_volume_up#secondary", true, at(11000));
+        host.repeat_hotkeys(at(16000));
+        assert_eq!(
+            host.config.mixer.master_volume_pct, 56.0,
+            "no catch-up burst after a stall"
+        );
+        host.hotkey_at("master_volume_up#secondary", false, at(16001));
+        host.hotkey_at("mic_mute_toggle", true, at(17000));
+        host.repeat_hotkeys(at(20000));
+        assert!(host.config.mic.chain.muted, "toggles do not repeat");
+        let (service, _bindings) = crate::hotkeys::Hotkeys::fake();
+        host.hotkeys = Some(service);
+        host.hotkey_at("channel_volume_up.main", true, at(21000));
+        host.rebind_hotkeys();
+        host.repeat_hotkeys(at(22000));
+        assert_eq!(
+            host.config.mixer.channels[0].settings.volume_pct, 56.0,
+            "rebinding cancels a repeat"
+        );
     }
 
     #[test]

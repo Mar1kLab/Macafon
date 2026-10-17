@@ -148,7 +148,7 @@ unsafe extern "system" fn callback(code: i32, wparam: WPARAM, lparam: LPARAM) ->
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
 
-fn virtual_key(key: &str) -> Option<u32> {
+pub(super) fn virtual_key(key: &str) -> Option<u32> {
     if key.len() == 1 {
         return Some(u32::from(key.as_bytes()[0]));
     }

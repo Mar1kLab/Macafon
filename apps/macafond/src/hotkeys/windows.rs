@@ -8,8 +8,8 @@ use macafon_ipc::HotkeyBackend;
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, TryRecvError};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyboardLayoutList, HKL, MAPVK_VK_TO_VSC, MapVirtualKeyExW, ToUnicodeEx, VK_CONTROL,
-    VK_LCONTROL, VK_MENU, VK_OEM_3, VK_RMENU, VK_SHIFT,
+    GetAsyncKeyState, GetKeyboardLayoutList, HKL, MAPVK_VK_TO_VSC, MapVirtualKeyExW, ToUnicodeEx,
+    VK_CONTROL, VK_LCONTROL, VK_MENU, VK_OEM_3, VK_RMENU, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, GetMessageW, KillTimer, MSG, SetTimer,
@@ -20,6 +20,7 @@ struct Backend {
     manager: GlobalHotKeyManager,
     registered: Vec<HotKey>,
     actions: HashMap<u32, String>,
+    accelerators: HashMap<u32, super::accel::Accel>,
     held: HashSet<u32>,
     timer: usize,
 }
@@ -37,6 +38,7 @@ impl Backend {
             manager,
             registered: Vec::new(),
             actions: HashMap::new(),
+            accelerators: HashMap::new(),
             held: HashSet::new(),
             timer,
         })
@@ -60,6 +62,7 @@ impl Backend {
             }
         }
         self.actions.clear();
+        self.accelerators.clear();
         let mut errors = HashMap::new();
         let (sided, bindings): (Vec<_>, Vec<_>) = bindings
             .into_iter()
@@ -85,6 +88,7 @@ impl Backend {
             match result {
                 Ok(key) => {
                     self.actions.insert(key.id(), binding.action);
+                    self.accelerators.insert(key.id(), binding.accel);
                     self.registered.push(key);
                 }
                 Err(error) => {
@@ -118,6 +122,25 @@ impl Backend {
                 press(control, action, pressed);
             }
         }
+        // RegisterHotKey's release notification only watches the main key. Stop a hold
+        // as soon as any modifier is released or the physical combination changes.
+        self.held.retain(|id| {
+            let Some(accel) = self.accelerators.get(id) else {
+                return false;
+            };
+            // SAFETY: read-only queries of virtual key states on the hotkey message thread.
+            let down = |vk| unsafe { GetAsyncKeyState(vk) } < 0;
+            let m = accel.modifiers;
+            let active = super::sided::virtual_key(&accel.key).is_some_and(|vk| down(vk as i32))
+                && m.ctrl == down(0x11)
+                && m.alt == down(0x12)
+                && m.shift == down(0x10)
+                && m.super_ == (down(0x5b) || down(0x5c));
+            if !active && let Some(action) = self.actions.get(id) {
+                press(control, action, false);
+            }
+            active
+        });
     }
 }
 

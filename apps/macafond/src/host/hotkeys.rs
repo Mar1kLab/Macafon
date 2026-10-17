@@ -7,7 +7,14 @@ use macafon_ipc::{
     ErrorBody, ErrorCode, Event, HotkeyAction, HotkeyBackend, HotkeyBinding, HotkeysState,
     OsdPrefs, Request,
 };
-use std::time::Instant;
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+const REPEAT_DELAY: Duration = Duration::from_millis(400);
+const REPEAT_INTERVAL: Duration = Duration::from_millis(100);
+
+#[derive(Default)]
+pub(super) struct VolumeRepeats(HashMap<String, Instant>);
 
 impl DaemonHost {
     /// Every action available now: the global ones and three per channel.
@@ -70,6 +77,7 @@ impl DaemonHost {
         if self.bound_hotkeys.as_ref() == Some(&bindings) {
             return;
         }
+        self.volume_repeats.0.clear();
         service.bind(bindings.clone());
         self.bound_hotkeys = Some(bindings);
     }
@@ -183,12 +191,57 @@ impl DaemonHost {
 
     /// Run a hotkey action like the matching request (HK-001), then show what it changed
     /// (HK-006).
+    pub(super) fn repeat_hotkeys(&mut self, now: Instant) {
+        let due: Vec<String> = self
+            .volume_repeats
+            .0
+            .iter_mut()
+            .filter_map(|(binding, next)| {
+                if now < *next {
+                    return None;
+                }
+                // Skip missed ticks rather than producing a burst after a stalled control loop.
+                *next = now + REPEAT_INTERVAL;
+                Some(binding.clone())
+            })
+            .collect();
+        for binding in due {
+            if let Some(action) = HotkeyAction::parse(binding.split('#').next().unwrap_or(&binding))
+            {
+                self.apply_hotkey(action, true);
+            }
+        }
+    }
+
     pub(super) fn hotkey(&mut self, action: &str, pressed: bool) {
+        self.hotkey_at(action, pressed, Instant::now());
+    }
+
+    pub(super) fn hotkey_at(&mut self, action: &str, pressed: bool, now: Instant) {
         let binding = action.to_owned();
         let action = action.split('#').next().unwrap_or(action);
         let Some(action) = HotkeyAction::parse(action) else {
             return;
         };
+        if matches!(
+            action,
+            HotkeyAction::ChannelVolumeUp(_)
+                | HotkeyAction::ChannelVolumeDown(_)
+                | HotkeyAction::MasterVolumeUp
+                | HotkeyAction::MasterVolumeDown
+        ) {
+            if !pressed {
+                self.volume_repeats.0.remove(&binding);
+                return;
+            }
+            if let std::collections::hash_map::Entry::Vacant(entry) =
+                self.volume_repeats.0.entry(binding.clone())
+            {
+                entry.insert(now + REPEAT_DELAY);
+            } else {
+                return;
+            }
+        }
         if action.held() {
             if pressed {
                 self.pressed_hotkeys.insert(binding);
@@ -206,6 +259,10 @@ impl DaemonHost {
         if !pressed && !action.held() {
             return;
         }
+        self.apply_hotkey(action, pressed);
+    }
+
+    fn apply_hotkey(&mut self, action: HotkeyAction, pressed: bool) {
         let request = match &action {
             HotkeyAction::QuickPanel => {
                 crate::ui::overlay();

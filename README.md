@@ -64,14 +64,15 @@ are recorded in the [release checklist](docs/qa/release-checklist.md).
 
 ## Download for Windows 11
 
-1. Open [Windows 11 build](https://github.com/Mar1kLab/Macafon/actions/workflows/windows-build.yml).
-2. Open the latest successful run and download **Macafon-Windows11-x64** from **Artifacts**.
-3. Extract the ZIP and run `Macafon_0.1.0_x64-setup.exe`. `SHA256SUMS.txt` contains its SHA-256 checksum.
-4. For the virtual microphone, install the free [VB-CABLE](https://vb-audio.com/Cable/) separately,
+1. Open the [latest release](https://github.com/Mar1kLab/Macafon/releases/latest).
+2. Download and run `Macafon_0.1.0_x64-setup.exe` from **Assets**. `SHA256SUMS.txt` contains its SHA-256 checksum.
+3. For the virtual microphone, install the free [VB-CABLE](https://vb-audio.com/Cable/) separately,
    then select **CABLE Output (VB-Audio Virtual Cable)** in Discord, OBS, Zoom or your game.
 
-GitHub requires sign-in and repository access to download workflow artifacts. Artifacts are retained
-for 30 days. The per-user installer does not require administrator rights for Macafon itself; installing
+GitHub requires sign-in and repository access while this repository is private. Builds are also available
+from [Windows 11 build](https://github.com/Mar1kLab/Macafon/actions/workflows/windows-build.yml) as the
+**Macafon-Windows11-x64** artifact, retained for 30 days; release downloads have no artifact expiry.
+The per-user installer does not require administrator rights for Macafon itself; installing
 the separate VB-CABLE driver does. The current installer is unsigned.
 
 An upgrade stops the running daemon, replaces the binaries and starts it again, keeping settings and

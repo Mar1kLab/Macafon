@@ -119,6 +119,14 @@ impl Soundpad {
         &self.categories
     }
 
+    pub fn category_sound_ids(&self, category: &str) -> Vec<String> {
+        self.entries
+            .iter()
+            .filter(|entry| entry.category.as_deref() == Some(category))
+            .map(|entry| entry.id.clone())
+            .collect()
+    }
+
     pub fn entry(&self, id: &str) -> Result<&SoundEntry, ErrorBody> {
         self.entries
             .iter()
@@ -227,8 +235,8 @@ impl Soundpad {
             .get(&entry.id, &entry.path, entry.modified_unix_ms)
         {
             Some(sound) => {
-                let gain = config.sound(id).volume_pct / 100.0;
-                let token = self.control.play(sound, gain, 0, config.looping);
+                let gain_lin = config.sound(id).volume_pct / 100.0;
+                let token = self.control.play(sound, gain_lin, 0, config.looping);
                 self.playing = Some((token, entry.id));
                 self.pending = None;
                 Ok(true)
@@ -344,7 +352,6 @@ impl Soundpad {
 
     /// Control-loop housekeeping, every 100 ms.
     pub fn tick(&mut self, config: &SoundpadConfig, now: Instant) -> TickOutcome {
-        let mut outcome = TickOutcome::default();
         self.control.tick(now);
         if self.playing.is_some() || self.pending.is_some() {
             self.last_active = Some(now);
@@ -356,6 +363,21 @@ impl Soundpad {
         {
             self.playing = None;
         }
+        let mut outcome = self.poll_loaded_sounds(config);
+        if self
+            .scanned_at
+            .is_none_or(|at| now.saturating_duration_since(at) >= RESCAN_INTERVAL)
+        {
+            outcome.library_changed |= self.rescan();
+        }
+        outcome.library_changed |= self.probe_durations();
+        self.uploads
+            .retain(|_, upload| now.saturating_duration_since(upload.touched) < STALE_UPLOAD);
+        outcome
+    }
+
+    fn poll_loaded_sounds(&mut self, config: &SoundpadConfig) -> TickOutcome {
+        let mut outcome = TickOutcome::default();
         for loaded in self.loader.poll() {
             let entry = self.entries.iter().find(|entry| entry.id == loaded.id);
             match loaded.result {
@@ -368,8 +390,8 @@ impl Soundpad {
                         outcome.library_changed |= known.and_then(|(_, d)| d) != duration;
                     }
                     if self.pending.as_deref() == Some(loaded.id.as_str()) {
-                        let gain = config.sound(&loaded.id).volume_pct / 100.0;
-                        let token = self.control.play(sound, gain, 0, config.looping);
+                        let gain_lin = config.sound(&loaded.id).volume_pct / 100.0;
+                        let token = self.control.play(sound, gain_lin, 0, config.looping);
                         self.pending = None;
                         self.playing = Some((token, loaded.id.clone()));
                         outcome.played = Some(loaded.id);
@@ -385,15 +407,6 @@ impl Soundpad {
                 }
             }
         }
-        if self
-            .scanned_at
-            .is_none_or(|at| now.saturating_duration_since(at) >= RESCAN_INTERVAL)
-        {
-            outcome.library_changed |= self.rescan();
-        }
-        outcome.library_changed |= self.probe_durations();
-        self.uploads
-            .retain(|_, upload| now.saturating_duration_since(upload.touched) < STALE_UPLOAD);
         outcome
     }
 
@@ -543,9 +556,12 @@ pub fn library_error(error: macafon_soundpad::Error) -> ErrorBody {
         | Error::UnsupportedFormat
         | Error::TooLarge
         | Error::TooLong => ErrorCode::InvalidParams,
-        Error::Io(io) if io.kind() == std::io::ErrorKind::AlreadyExists => ErrorCode::AlreadyExists,
-        Error::Io(io) if io.kind() == std::io::ErrorKind::NotFound => ErrorCode::NotFound,
-        _ => ErrorCode::Internal,
+        Error::Io(io) => match io.kind() {
+            std::io::ErrorKind::AlreadyExists => ErrorCode::AlreadyExists,
+            std::io::ErrorKind::NotFound => ErrorCode::NotFound,
+            _ => ErrorCode::Internal,
+        },
+        Error::Decode(_) | Error::WorkerUnavailable => ErrorCode::Internal,
     };
     ErrorBody::new(code, error.to_string())
 }

@@ -20,6 +20,12 @@ struct Key {
     modified_unix_ms: u64,
     generation: u64,
 }
+impl Key {
+    fn matches_file(&self, path: &Path, modified_unix_ms: u64) -> bool {
+        self.path == path && self.modified_unix_ms == modified_unix_ms
+    }
+}
+
 struct Request {
     id: String,
     key: Key,
@@ -49,6 +55,7 @@ pub struct SoundLoader {
     used_bytes: usize,
     serial: u64,
 }
+
 impl SoundLoader {
     /// Starts one worker. The daemon normally supplies a 512 MiB budget.
     pub fn new(budget_bytes: usize) -> Self {
@@ -85,7 +92,7 @@ impl SoundLoader {
     }
     pub fn get(&mut self, id: &str, path: &Path, modified_unix_ms: u64) -> Option<Arc<Sound>> {
         let cached = self.cache.get_mut(id)?;
-        if cached.key.path != path || cached.key.modified_unix_ms != modified_unix_ms {
+        if !cached.key.matches_file(path, modified_unix_ms) {
             return None;
         }
         self.serial = self.serial.wrapping_add(1);
@@ -97,7 +104,7 @@ impl SoundLoader {
             || self
                 .pending
                 .get(id)
-                .is_some_and(|k| k.path == path && k.modified_unix_ms == modified_unix_ms)
+                .is_some_and(|key| key.matches_file(path, modified_unix_ms))
         {
             return;
         }
@@ -136,31 +143,7 @@ impl SoundLoader {
             self.pending.remove(&id);
             if let Ok(sound) = &finished.result {
                 self.remove(&id);
-                let bytes = sound.byte_size();
-                if bytes <= self.budget_bytes {
-                    while self.used_bytes > self.budget_bytes - bytes {
-                        let oldest = self
-                            .cache
-                            .iter()
-                            .min_by_key(|(_, c)| c.used)
-                            .map(|(id, _)| id.clone());
-                        if let Some(oldest) = oldest {
-                            self.remove(&oldest);
-                        } else {
-                            break;
-                        }
-                    }
-                    self.serial = self.serial.wrapping_add(1);
-                    self.used_bytes += bytes;
-                    self.cache.insert(
-                        id.clone(),
-                        Cached {
-                            key,
-                            sound: Arc::clone(sound),
-                            used: self.serial,
-                        },
-                    );
-                }
+                self.cache_sound(&id, key, sound);
             }
             results.push(LoadResult {
                 id,
@@ -169,6 +152,35 @@ impl SoundLoader {
         }
         results
     }
+    fn cache_sound(&mut self, id: &str, key: Key, sound: &Arc<Sound>) {
+        let bytes = sound.byte_size();
+        if bytes > self.budget_bytes {
+            return;
+        }
+        while self.used_bytes > self.budget_bytes - bytes {
+            let oldest = self
+                .cache
+                .iter()
+                .min_by_key(|(_, c)| c.used)
+                .map(|(id, _)| id.clone());
+            if let Some(oldest) = oldest {
+                self.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+        self.serial = self.serial.wrapping_add(1);
+        self.used_bytes += bytes;
+        self.cache.insert(
+            id.to_owned(),
+            Cached {
+                key,
+                sound: Arc::clone(sound),
+                used: self.serial,
+            },
+        );
+    }
+
     fn remove(&mut self, id: &str) {
         if let Some(cached) = self.cache.remove(id) {
             self.used_bytes -= cached.sound.byte_size();

@@ -4,7 +4,8 @@ use super::DaemonHost;
 use crate::soundpad::{Soundpad, library_error, open_folder};
 use macafon_config::soundpad::clamp_volume;
 use macafon_ipc::{
-    ErrorBody, ErrorCode, Event, HotkeyAction, Request, SoundpadPrefs, SoundpadState,
+    ErrorBody, ErrorCode, Event, HotkeyAction, Request, SoundpadPrefs, SoundpadPrefsPatch,
+    SoundpadState,
 };
 use macafon_soundpad::library;
 use std::time::Instant;
@@ -120,16 +121,7 @@ impl DaemonHost {
             return;
         }
         self.config.soundpad.rename_sound(from, to);
-        for suffix in ["", "#secondary"] {
-            let old = format!(
-                "{}{suffix}",
-                HotkeyAction::SoundpadPlay(from.to_owned()).id()
-            );
-            if let Some(shortcut) = self.config.hotkeys.remove(&old) {
-                let new = format!("{}{suffix}", HotkeyAction::SoundpadPlay(to.to_owned()).id());
-                self.config.hotkeys.insert(new, shortcut);
-            }
-        }
+        self.update_sound_hotkeys(from, Some(to));
         if let Some(soundpad) = &mut self.soundpad {
             soundpad.renamed(from, to);
         }
@@ -139,26 +131,32 @@ impl DaemonHost {
     /// A deleted sound takes its settings and hotkeys along.
     fn sound_removed(&mut self, id: &str) {
         self.config.soundpad.sounds.remove(id);
-        for suffix in ["", "#secondary"] {
-            let action = format!("{}{suffix}", HotkeyAction::SoundpadPlay(id.to_owned()).id());
-            self.config.hotkeys.remove(&action);
-        }
+        self.update_sound_hotkeys(id, None);
         if let Some(soundpad) = &mut self.soundpad {
             soundpad.removed(id);
         }
         self.changed_at = Some(Instant::now());
     }
 
+    fn update_sound_hotkeys(&mut self, from: &str, to: Option<&str>) {
+        let from = HotkeyAction::SoundpadPlay(from.to_owned()).id();
+        let to = to.map(|id| HotkeyAction::SoundpadPlay(id.to_owned()).id());
+        for suffix in ["", "#secondary"] {
+            if let Some(shortcut) = self.config.hotkeys.remove(&format!("{from}{suffix}"))
+                && let Some(to) = &to
+            {
+                self.config
+                    .hotkeys
+                    .insert(format!("{to}{suffix}"), shortcut);
+            }
+        }
+    }
+
     pub(super) fn respond_soundpad(
         &mut self,
         request: Request,
     ) -> Result<serde_json::Value, ErrorBody> {
-        let Some(soundpad) = &mut self.soundpad else {
-            return Err(ErrorBody::new(
-                ErrorCode::BadRequest,
-                "the soundpad is not available on this platform",
-            ));
-        };
+        let soundpad = self.soundpad.as_mut().ok_or_else(soundpad_unavailable)?;
         let folder = soundpad.folder().to_owned();
         let null = Ok(serde_json::Value::Null);
         match request {
@@ -173,74 +171,17 @@ impl DaemonHost {
                     .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))?;
                 return null;
             }
-            Request::SoundpadPlay { id } => {
-                if soundpad.play(&id, &self.config.soundpad)? {
-                    self.count_play(&id);
-                    self.soundpad_changed();
-                }
-                self.tick_playback();
-                return null;
-            }
-            Request::SoundpadPlayRandom { category } => {
-                let candidates: Vec<String> = soundpad
-                    .sounds(&self.config.soundpad)
-                    .into_iter()
-                    .filter(|sound| {
-                        sound.error.is_none()
-                            && category
-                                .as_ref()
-                                .is_none_or(|category| sound.category.as_ref() == Some(category))
-                    })
-                    .map(|sound| sound.id)
-                    .collect();
-                let id = random_pick(&candidates)
-                    .ok_or_else(|| ErrorBody::new(ErrorCode::NotFound, "no sounds to play"))?
-                    .clone();
-                return self.respond_soundpad(Request::SoundpadPlay { id });
-            }
-            Request::SoundpadStop => {
-                soundpad.stop();
-                self.tick_playback();
-                return null;
-            }
-            Request::SoundpadSetPaused { paused } => {
-                soundpad.set_paused(paused);
-                self.tick_playback();
-                return null;
-            }
-            Request::SoundpadSeek { position_ms } => {
-                soundpad.seek(position_ms);
-                self.tick_playback();
-                return null;
-            }
-            Request::SoundpadSetLooping { looping } => {
-                soundpad.set_looping(looping);
-                self.config.soundpad.looping = looping;
-                self.changed_at = Some(Instant::now());
-                self.tick_playback();
-                return null;
+            Request::SoundpadPlay { .. }
+            | Request::SoundpadPlayRandom { .. }
+            | Request::SoundpadStop
+            | Request::SoundpadSetPaused { .. }
+            | Request::SoundpadSeek { .. }
+            | Request::SoundpadSetLooping { .. } => {
+                return self.respond_soundpad_transport(request);
             }
             Request::SoundpadSetPrefs { patch } => {
-                let config = &mut self.config.soundpad;
-                if let Some(value) = patch.to_microphone {
-                    config.to_microphone = value;
-                }
-                if let Some(value) = patch.to_headphones {
-                    config.to_headphones = value;
-                }
-                if let Some(value) = patch.microphone_volume_pct {
-                    config.microphone_volume_pct = clamp_volume(value);
-                }
-                if let Some(value) = patch.headphones_volume_pct {
-                    config.headphones_volume_pct = clamp_volume(value);
-                }
-                if let Some(value) = patch.mute_voice_while_playing {
-                    config.mute_voice_while_playing = value;
-                }
-                if let Some(value) = patch.show_in_overlay {
-                    config.show_in_overlay = value;
-                }
-                soundpad.apply(config);
+                apply_prefs(&mut self.config.soundpad, patch);
+                soundpad.apply(&self.config.soundpad);
                 self.changed_at = Some(Instant::now());
                 self.soundpad_changed();
             }
@@ -293,44 +234,11 @@ impl DaemonHost {
                 self.soundpad_changed();
             }
             Request::SoundpadRenameCategory { from, to } => {
-                let moved: Vec<String> = soundpad
-                    .entries()
-                    .iter()
-                    .filter(|entry| entry.category.as_deref() == Some(from.as_str()))
-                    .map(|entry| entry.id.clone())
-                    .collect();
-                library::rename_category(&folder, &from, &to).map_err(library_error)?;
-                soundpad.rescan();
-                for id in moved {
-                    let file = id.rsplit('/').next().unwrap_or(&id);
-                    self.sound_renamed(&id, &format!("{to}/{file}"));
-                }
+                self.rename_soundpad_category(&from, &to)?;
                 self.soundpad_changed();
             }
             Request::SoundpadDeleteCategory { name } => {
-                let moved: Vec<String> = soundpad
-                    .entries()
-                    .iter()
-                    .filter(|entry| entry.category.as_deref() == Some(name.as_str()))
-                    .map(|entry| entry.id.clone())
-                    .collect();
-                library::delete_category(&folder, &name).map_err(library_error)?;
-                soundpad.rescan();
-                // Sounds move to the folder itself; one that had to be renamed loses its
-                // settings rather than taking another sound's.
-                let present: Vec<String> = soundpad
-                    .entries()
-                    .iter()
-                    .map(|entry| entry.id.clone())
-                    .collect();
-                for id in moved {
-                    let file = id.rsplit('/').next().unwrap_or(&id).to_owned();
-                    if present.contains(&file) && !self.config.soundpad.sounds.contains_key(&file) {
-                        self.sound_renamed(&id, &file);
-                    } else {
-                        self.sound_removed(&id);
-                    }
-                }
+                self.delete_soundpad_category(&name)?;
                 self.soundpad_changed();
             }
             Request::SoundpadUpload {
@@ -355,13 +263,100 @@ impl DaemonHost {
                 self.soundpad_changed();
             }
             _ => {
-                return Err(ErrorBody::new(
-                    ErrorCode::BadRequest,
-                    "not a soundpad request",
-                ));
+                return Err(not_soundpad_request());
             }
         }
         self.soundpad_value()
+    }
+
+    fn rename_soundpad_category(&mut self, from: &str, to: &str) -> Result<(), ErrorBody> {
+        let soundpad = self.soundpad.as_mut().ok_or_else(soundpad_unavailable)?;
+        let folder = soundpad.folder().to_owned();
+        let moved = soundpad.category_sound_ids(from);
+        library::rename_category(&folder, from, to).map_err(library_error)?;
+        soundpad.rescan();
+        for id in moved {
+            let file = id.rsplit('/').next().unwrap_or(&id);
+            self.sound_renamed(&id, &format!("{to}/{file}"));
+        }
+        Ok(())
+    }
+
+    fn delete_soundpad_category(&mut self, name: &str) -> Result<(), ErrorBody> {
+        let soundpad = self.soundpad.as_mut().ok_or_else(soundpad_unavailable)?;
+        let folder = soundpad.folder().to_owned();
+        let moved = soundpad.category_sound_ids(name);
+        library::delete_category(&folder, name).map_err(library_error)?;
+        soundpad.rescan();
+        // Sounds move to the folder itself; one that had to be renamed loses its
+        // settings rather than taking another sound's.
+        let present: Vec<String> = soundpad
+            .entries()
+            .iter()
+            .map(|entry| entry.id.clone())
+            .collect();
+        for id in moved {
+            let file = id.rsplit('/').next().unwrap_or(&id).to_owned();
+            if present.contains(&file) && !self.config.soundpad.sounds.contains_key(&file) {
+                self.sound_renamed(&id, &file);
+            } else {
+                self.sound_removed(&id);
+            }
+        }
+        Ok(())
+    }
+
+    fn respond_soundpad_transport(
+        &mut self,
+        request: Request,
+    ) -> Result<serde_json::Value, ErrorBody> {
+        let soundpad = self.soundpad.as_mut().ok_or_else(soundpad_unavailable)?;
+        match request {
+            Request::SoundpadPlay { id } => {
+                if soundpad.play(&id, &self.config.soundpad)? {
+                    self.count_play(&id);
+                    self.soundpad_changed();
+                }
+                self.tick_playback();
+            }
+            Request::SoundpadPlayRandom { category } => {
+                let candidates: Vec<String> = soundpad
+                    .sounds(&self.config.soundpad)
+                    .into_iter()
+                    .filter(|sound| {
+                        sound.error.is_none()
+                            && category
+                                .as_ref()
+                                .is_none_or(|category| sound.category.as_ref() == Some(category))
+                    })
+                    .map(|sound| sound.id)
+                    .collect();
+                let id = random_pick(&candidates)
+                    .ok_or_else(|| ErrorBody::new(ErrorCode::NotFound, "no sounds to play"))?
+                    .clone();
+                return self.respond_soundpad(Request::SoundpadPlay { id });
+            }
+            Request::SoundpadStop => {
+                soundpad.stop();
+                self.tick_playback();
+            }
+            Request::SoundpadSetPaused { paused } => {
+                soundpad.set_paused(paused);
+                self.tick_playback();
+            }
+            Request::SoundpadSeek { position_ms } => {
+                soundpad.seek(position_ms);
+                self.tick_playback();
+            }
+            Request::SoundpadSetLooping { looping } => {
+                soundpad.set_looping(looping);
+                self.config.soundpad.looping = looping;
+                self.changed_at = Some(Instant::now());
+                self.tick_playback();
+            }
+            _ => return Err(not_soundpad_request()),
+        }
+        Ok(serde_json::Value::Null)
     }
 
     /// Send a playback change at once instead of on the next tick.
@@ -370,6 +365,38 @@ impl DaemonHost {
             self.hub.broadcast(&Event::SoundpadPlayback(playback));
         }
     }
+}
+
+fn apply_prefs(config: &mut macafon_config::SoundpadConfig, patch: SoundpadPrefsPatch) {
+    if let Some(value) = patch.to_microphone {
+        config.to_microphone = value;
+    }
+    if let Some(value) = patch.to_headphones {
+        config.to_headphones = value;
+    }
+    if let Some(value) = patch.microphone_volume_pct {
+        config.microphone_volume_pct = clamp_volume(value);
+    }
+    if let Some(value) = patch.headphones_volume_pct {
+        config.headphones_volume_pct = clamp_volume(value);
+    }
+    if let Some(value) = patch.mute_voice_while_playing {
+        config.mute_voice_while_playing = value;
+    }
+    if let Some(value) = patch.show_in_overlay {
+        config.show_in_overlay = value;
+    }
+}
+
+fn soundpad_unavailable() -> ErrorBody {
+    ErrorBody::new(
+        ErrorCode::BadRequest,
+        "the soundpad is not available on this platform",
+    )
+}
+
+fn not_soundpad_request() -> ErrorBody {
+    ErrorBody::new(ErrorCode::BadRequest, "not a soundpad request")
 }
 
 /// Good enough for "play a random sound": the clock's nanoseconds, no extra dependency.

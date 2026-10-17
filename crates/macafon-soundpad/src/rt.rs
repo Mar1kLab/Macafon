@@ -414,6 +414,27 @@ struct Voice {
     looping: bool,
 }
 impl Voice {
+    fn new(
+        sound: Arc<Sound>,
+        lease: usize,
+        position: usize,
+        gain_lin: f32,
+        paused: bool,
+        looping: bool,
+    ) -> Self {
+        Self {
+            lease,
+            sound,
+            last: [0.0; 2],
+            position,
+            gain_lin,
+            target_gain_lin: gain_lin,
+            envelope: 0.0,
+            paused,
+            looping,
+        }
+    }
+
     fn sample(&mut self, retiring: bool) -> [f32; 2] {
         let target = if retiring || self.paused { 0.0 } else { 1.0 };
         self.envelope = approach(self.envelope, target, 1.0 / FADE_FRAMES as f32);
@@ -498,31 +519,27 @@ impl SoundpadTap {
                 self.token = command.token;
                 self.position = command.position;
                 self.finished = false;
-                self.current = command.sound.map(|sound| Voice {
-                    lease: command.lease,
-                    sound,
-                    last: [0.0; 2],
-                    position: command.position,
-                    gain_lin: command.gain_lin,
-                    target_gain_lin: command.gain_lin,
-                    envelope: 0.0,
-                    paused: command.paused,
-                    looping: command.looping,
+                self.current = command.sound.map(|sound| {
+                    Voice::new(
+                        sound,
+                        command.lease,
+                        command.position,
+                        command.gain_lin,
+                        command.paused,
+                        command.looping,
+                    )
                 });
             } else {
                 if let Some(sound) = command.sound {
                     if self.current.is_none() && command.revision != self.revision {
-                        self.current = Some(Voice {
-                            lease: command.lease,
+                        self.current = Some(Voice::new(
                             sound,
-                            last: [0.0; 2],
-                            position: command.position,
-                            gain_lin: command.gain_lin,
-                            target_gain_lin: command.gain_lin,
-                            envelope: 0.0,
-                            paused: command.paused,
-                            looping: command.looping,
-                        });
+                            command.lease,
+                            command.position,
+                            command.gain_lin,
+                            command.paused,
+                            command.looping,
+                        ));
                     } else {
                         self.give_back(sound, command.lease);
                     }

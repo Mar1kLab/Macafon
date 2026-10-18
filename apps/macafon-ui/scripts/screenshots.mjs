@@ -363,6 +363,17 @@ const scenarios = {
     await page.waitForSelector('.pads');
     await page.waitForTimeout(600);
   },
+  'dropdown-small-window': async (page) => {
+    // The smallest window: the headphones device list opens upward inside the side panel.
+    await page.setViewportSize({ width: 960, height: 640 });
+    await page.goto(`${base}?platform=windows&screen=soundpad`);
+    await page.waitForSelector('.list');
+    await page.getByRole('button', { name: 'Headphones device' }).click();
+    await page.waitForSelector('[role="listbox"]');
+    const grown = await page.evaluate(() => document.documentElement.scrollHeight > innerHeight || document.body.scrollHeight > innerHeight);
+    if (grown) throw new Error('the open list made the page taller than the window');
+    await page.waitForTimeout(300);
+  },
   'soundpad-folder': async (page) => {
     await page.goto(`${base}?platform=windows&screen=soundpad`);
     await page.waitForSelector('.list');

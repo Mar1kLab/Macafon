@@ -1,5 +1,13 @@
+<script lang="ts" module>
+  const LIST_MAX_PX = 320;
+  const MIN_LIST_PX = 96;
+  const GAP_PX = 4;
+</script>
+
 <script lang="ts" generics="T">
-  // Listbox dropdown with keyboard support (arrows, Enter, Escape, type-ahead free).
+  // Listbox dropdown with keyboard support (arrows, Enter, Escape, type-ahead free). The list
+  // opens where it fits inside the window and every scrolling or clipping container around it:
+  // below, or above when there is more room there, never growing the page under it.
   import { tick, type Snippet } from 'svelte';
   import { ChevronDown } from '@lucide/svelte';
 
@@ -32,7 +40,37 @@
   let active = $state(0);
   let root: HTMLDivElement | undefined = $state();
   let list: HTMLUListElement | undefined = $state();
+  let panel: HTMLDivElement | undefined = $state();
+  let upward = $state(false);
+  let maxHeight = $state(LIST_MAX_PX);
   const id = `dropdown-${Math.random().toString(36).slice(2)}`;
+
+  /** The visible area the list may use: the window cut by every clipping ancestor. */
+  function bounds(element: HTMLElement) {
+    let top = 0;
+    let bottom = window.innerHeight;
+    for (let node = element.parentElement; node && node !== document.body; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (style.overflowY === 'visible' && style.overflowX === 'visible') continue;
+      const rect = node.getBoundingClientRect();
+      top = Math.max(top, rect.top);
+      bottom = Math.min(bottom, rect.bottom);
+    }
+    return { top, bottom };
+  }
+
+  /** Below if the list fits there, else on the side with more room, scrolling inside. */
+  function place() {
+    if (!root || !list || !panel) return;
+    const trigger = root.getBoundingClientRect();
+    const area = bounds(root);
+    const chrome = panel.offsetHeight - list.offsetHeight;
+    const wanted = Math.min(list.scrollHeight, LIST_MAX_PX) + chrome;
+    const below = area.bottom - trigger.bottom - GAP_PX * 2;
+    const above = trigger.top - area.top - GAP_PX * 2;
+    upward = below < wanted && above > below;
+    maxHeight = Math.max(MIN_LIST_PX, Math.min(LIST_MAX_PX, (upward ? above : below) - chrome));
+  }
 
   const selected = $derived(options.find((o) => o.value === value));
 
@@ -40,8 +78,13 @@
     if (disabled) return;
     open = true;
     active = Math.max(0, options.findIndex((o) => o.value === value));
+    upward = false;
+    maxHeight = LIST_MAX_PX;
     onopen?.();
-    void tick().then(() => list?.focus());
+    void tick().then(() => {
+      place();
+      list?.focus({ preventScroll: true });
+    });
   }
 
   function close() {
@@ -89,7 +132,11 @@
       if (root && !root.contains(event.target as Node)) close();
     };
     window.addEventListener('pointerdown', onpointer, true);
-    return () => window.removeEventListener('pointerdown', onpointer, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('pointerdown', onpointer, true);
+      window.removeEventListener('resize', close);
+    };
   });
 </script>
 
@@ -115,8 +162,9 @@
     <ChevronDown size={14} strokeWidth={1.5} />
   </button>
   {#if open}
-    <div class="panel">
+    <div class="panel" class:upward bind:this={panel}>
       <ul
+        style:max-height="{maxHeight}px"
         {id}
         bind:this={list}
         role="listbox"
@@ -200,6 +248,11 @@
     min-width: 100%;
     background: var(--bg-raised);
     border: 1px solid var(--line-strong);
+  }
+
+  .panel.upward {
+    top: auto;
+    bottom: calc(100% + 4px);
   }
 
   ul {

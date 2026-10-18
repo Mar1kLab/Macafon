@@ -31,9 +31,21 @@
   const initial = $derived(app.name.trim().charAt(0).toUpperCase() || '?');
   const icon = $derived(daemon.appIcon(app.icon));
 
+  /** Keep a fixed popover inside the window: shifted left, or flipped above `top - flip`. */
+  function inside(element: HTMLElement | undefined, at: { x: number; y: number }, flip: number) {
+    if (!element) return at;
+    const margin = 8;
+    const { width, height } = element.getBoundingClientRect();
+    const x = Math.max(margin, Math.min(at.x, window.innerWidth - width - margin));
+    const fits = at.y + height <= window.innerHeight - margin;
+    const y = fits ? at.y : Math.max(margin, Math.min(at.y - flip - height, window.innerHeight - height - margin));
+    return { x, y };
+  }
+
   async function openMenu(x: number, y: number) {
     menu = { x, y };
     await tick();
+    menu = inside(list, menu, 0);
     list?.querySelector('button')?.focus();
   }
 
@@ -65,6 +77,7 @@
     const rect = chip.getBoundingClientRect();
     volume = { x: rect.left, y: rect.bottom + 4 };
     await tick();
+    volume = inside(popover, volume, rect.height + 8);
     popover?.querySelector<HTMLElement>('[role="slider"]')?.focus();
   }
 

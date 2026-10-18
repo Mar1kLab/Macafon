@@ -27,7 +27,7 @@
 </script>
 
 {#if soundpad && variant === 'button'}
-  <button class="btn" title={t('soundpad.changeFolderHint')} onclick={change}><FolderSearch size={13} strokeWidth={1.5} />{t('soundpad.changeFolder')}</button>
+  <button class="btn tool" title={t('soundpad.changeFolderHint')} aria-label={t('soundpad.changeFolder')} onclick={change}><FolderSearch size={13} strokeWidth={1.5} /><span class="label">{t('soundpad.changeFolder')}</span></button>
 {:else if soundpad}
   <div class="folder">
     <code class="path" title={soundpad.folder}>{soundpad.folder}</code>

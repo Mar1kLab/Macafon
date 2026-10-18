@@ -215,12 +215,12 @@
         saveSort(value);
       }} />
       <span class="spacer"></span>
-      <button class="btn" title={t('soundpad.randomHint')} disabled={visible.every((sound) => sound.error)} onclick={() => {
+      <button class="btn tool" title={t('soundpad.randomHint')} aria-label={t('soundpad.random')} disabled={visible.every((sound) => sound.error)} onclick={() => {
         const pool = visible.filter((sound) => !sound.error);
         const pick = pool[Math.floor(Math.random() * pool.length)];
         if (pick) daemon.playSound(pick.id);
-      }}><Shuffle size={13} strokeWidth={1.5} />{t('soundpad.random')}</button>
-      <button class="btn" title={soundpad.folder} onclick={() => daemon.run(daemon.client.call('soundpad.open_folder'))}><FolderOpen size={13} strokeWidth={1.5} />{t('soundpad.openFolder')}</button>
+      }}><Shuffle size={13} strokeWidth={1.5} /><span class="label">{t('soundpad.random')}</span></button>
+      <button class="btn tool" title={soundpad.folder} aria-label={t('soundpad.openFolder')} onclick={() => daemon.run(daemon.client.call('soundpad.open_folder'))}><FolderOpen size={13} strokeWidth={1.5} /><span class="label">{t('soundpad.openFolder')}</span></button>
       <LibraryFolder variant="button" />
       <button class="btn invert" onclick={() => fileInput?.click()}><Plus size={13} strokeWidth={1.5} />{t('soundpad.addFiles')}</button>
       <input
@@ -497,6 +497,13 @@
     color: var(--ink);
     white-space: nowrap;
     margin-right: 8px;
+  }
+
+  /* A narrow window keeps the toolbar on one line: its tools show only their icons. */
+  @media (max-width: 1240px) {
+    .top :global(.tool .label) {
+      display: none;
+    }
   }
 
   .search {

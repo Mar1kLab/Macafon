@@ -28,7 +28,7 @@ impl Monitor {
             .spawn(move || {
                 let outcome = (|| {
                     let com = ComGuard::new()?;
-                    let stream = RenderStream::open(&device_id)?;
+                    let stream = RenderStream::open_soundpad(&device_id)?;
                     Ok::<_, Error>((com, stream))
                 })();
                 let (_com, stream) = match outcome {

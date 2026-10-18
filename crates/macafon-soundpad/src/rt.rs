@@ -186,6 +186,8 @@ impl SoundpadControl {
             token: 0,
             position: 0,
             finished: true,
+            voice_level: VoiceLevel::default(),
+            limiter: PeakLimiter::default(),
         }
     }
     pub fn play(&mut self, sound: Arc<Sound>, gain_lin: f32, start_ms: u32, looping: bool) -> u64 {
@@ -435,7 +437,7 @@ impl Voice {
         }
     }
 
-    fn sample(&mut self, retiring: bool) -> [f32; 2] {
+    fn sample(&mut self, retiring: bool, target_rms_lin: f32) -> [f32; 2] {
         let target = if retiring || self.paused { 0.0 } else { 1.0 };
         self.envelope = approach(self.envelope, target, 1.0 / FADE_FRAMES as f32);
         self.gain_lin = smooth(self.gain_lin, self.target_gain_lin);
@@ -456,7 +458,11 @@ impl Voice {
             samples.get(offset + 1).copied().unwrap_or(0.0),
         ];
         self.position += 1;
-        self.last = value.map(|s| sanitize(s * self.gain_lin * self.envelope));
+        self.last = value.map(|s| {
+            sanitize(
+                s * self.sound.normalization_gain(target_rms_lin) * self.gain_lin * self.envelope,
+            )
+        });
         self.last
     }
 }
@@ -477,6 +483,8 @@ pub struct SoundpadTap {
     token: u64,
     position: usize,
     finished: bool,
+    voice_level: VoiceLevel,
+    limiter: PeakLimiter,
 }
 impl SoundpadTap {
     fn give_back(&mut self, sound: Arc<Sound>, lease: usize) {
@@ -568,8 +576,12 @@ impl SoundpadTap {
     fn next(&mut self) -> ([f32; 2], f32) {
         let mut sound = [0.0; 2];
         let mut playing = false;
+        let target_rms_lin = match self.output {
+            Output::Microphone => self.voice_level.rms_lin,
+            Output::Monitor => 0.063_095_73, // -24 dBFS gated RMS.
+        };
         if let Some(current) = &mut self.current {
-            sound = current.sample(false);
+            sound = current.sample(false, target_rms_lin);
             self.position = current.position;
             playing = !current.paused && current.position < current.sound.frames();
             if (current.sound.frames() == 0 || !current.looping)
@@ -583,7 +595,7 @@ impl SoundpadTap {
             }
         }
         if let Some(tail) = &mut self.tail {
-            let value = tail.sample(true);
+            let value = tail.sample(true, target_rms_lin);
             sound[0] += value[0];
             sound[1] += value[1];
             if tail.envelope <= 0.0 || (!tail.looping && tail.position >= tail.sound.frames()) {
@@ -640,6 +652,9 @@ impl SoundpadTap {
         if channels != 0 {
             for frame in out.chunks_exact_mut(channels) {
                 let (sound, _) = self.next();
+                let peak = sound.iter().fold(0.0_f32, |p, s| p.max(s.abs()));
+                let gain = self.limiter.gain(peak);
+                let sound = sound.map(|s| sanitize(s * gain));
                 if channels == 1 {
                     frame[0] = sanitize(frame[0] + (sound[0] + sound[1]) * 0.5);
                 } else {
@@ -654,20 +669,88 @@ impl SoundpadTap {
         let active = self.begin();
         if channels != 0 {
             for (index, frame) in out.chunks_exact_mut(channels).enumerate() {
+                let voice_sample = sanitize(voice.get(index).copied().unwrap_or(0.0));
+                self.voice_level.observe(voice_sample);
                 let (sound, duck) = if active { self.next() } else { ([0.0; 2], 1.0) };
-                let input = sanitize(voice.get(index).copied().unwrap_or(0.0)) * duck;
+                let input = voice_sample * duck;
+                let peak = if channels == 1 {
+                    sanitize(input + (sound[0] + sound[1]) * 0.5).abs()
+                } else {
+                    sanitize(input + sound[0])
+                        .abs()
+                        .max(sanitize(input + sound[1]).abs())
+                };
+                let gain = self.limiter.gain(peak);
                 for (channel, sample) in frame.iter_mut().enumerate() {
                     let added = if channels == 1 {
                         (sound[0] + sound[1]) * 0.5
                     } else {
                         sound[channel % 2]
                     };
-                    *sample = sanitize(input + added).clamp(-1.0, 1.0);
+                    *sample =
+                        sanitize(sanitize(input + added) * gain).clamp(-MIX_CEILING, MIX_CEILING);
                 }
             }
         }
         if active {
             self.publish();
+        }
+    }
+}
+// Zero-lookahead linked limiter: immediate attack protects the first transient;
+// 100 ms release avoids hard-clamp distortion on sustained peaks.
+const MIX_CEILING: f32 = 0.891_250_9;
+struct PeakLimiter {
+    gain_lin: f32,
+}
+impl Default for PeakLimiter {
+    fn default() -> Self {
+        Self { gain_lin: 1.0 }
+    }
+}
+impl PeakLimiter {
+    fn gain(&mut self, peak_lin: f32) -> f32 {
+        let required = if peak_lin > MIX_CEILING {
+            MIX_CEILING / peak_lin
+        } else {
+            1.0
+        };
+        self.gain_lin = required.min(self.gain_lin + (1.0 - self.gain_lin) / 4800.0);
+        self.gain_lin
+    }
+}
+// Processed mono voice before ducking, never the mixed sound. Silence retains the
+// last estimate. Calibration targets -18 dBFS speech RMS; actual DSP output wins.
+struct VoiceLevel {
+    power: f64,
+    frames: usize,
+    rms_lin: f32,
+    target_rms_lin: f32,
+}
+impl Default for VoiceLevel {
+    fn default() -> Self {
+        Self {
+            power: 0.0,
+            frames: 0,
+            rms_lin: 0.125_892_53,
+            target_rms_lin: 0.125_892_53,
+        }
+    }
+}
+impl VoiceLevel {
+    fn observe(&mut self, sample: f32) {
+        self.rms_lin = smooth(self.rms_lin, self.target_rms_lin);
+        self.power += f64::from(sample).powi(2);
+        self.frames += 1;
+        if self.frames == 19_200 {
+            let rms = (self.power / self.frames as f64).sqrt() as f32;
+            if rms > 0.003_162_28 {
+                // -50 dBFS gate.
+                let target = rms.clamp(0.015_848_93, 0.251_188_64); // -36 to -12 dBFS.
+                self.target_rms_lin += (target - self.target_rms_lin) * 0.125;
+            }
+            self.power = 0.0;
+            self.frames = 0;
         }
     }
 }
@@ -728,6 +811,55 @@ mod tests {
         out
     }
     #[test]
+    fn limiter_protects_first_peak_and_releases_without_allocations() {
+        let mut limiter = PeakLimiter::default();
+        assert_no_alloc(|| {
+            for peak in [0.0, 8.0, 2.0, 0.1, 32.0, 0.0] {
+                let gain = limiter.gain(peak);
+                assert!(peak * gain <= MIX_CEILING + f32::EPSILON);
+            }
+            let before = limiter.gain_lin;
+            let after = limiter.gain(0.0);
+            assert!(after > before && after - before < 0.001);
+        });
+        let mut control = SoundpadControl::new();
+        let mut tap = control.tap(Output::Microphone);
+        control.set_output_gain(Output::Microphone, 2.0);
+        control.play(constant(1.0, 48_000), 2.0, 0, true);
+        let voice = [2.0; 512];
+        let mut output = [0.0; 1024];
+        assert_no_alloc(|| tap.mix_with_voice(&voice, &mut output, 2));
+        assert!(
+            output
+                .iter()
+                .all(|s| s.is_finite() && s.abs() <= MIX_CEILING)
+        );
+    }
+    #[test]
+    fn processed_voice_reference_tracks_speech_and_holds_during_silence() {
+        let mut level = VoiceLevel::default();
+        assert_no_alloc(|| {
+            for _ in 0..19_200 * 48 {
+                level.observe(0.05);
+            }
+        });
+        assert!((level.rms_lin - 0.05).abs() < 0.001);
+        let held = level.target_rms_lin;
+        assert_no_alloc(|| {
+            for _ in 0..19_200 * 10 {
+                level.observe(0.0);
+            }
+        });
+        assert_eq!(level.target_rms_lin, held);
+        // The microphone's 100% sound follows the processed voice reference.
+        let mut control = SoundpadControl::new();
+        let mut tap = control.tap(Output::Microphone);
+        tap.voice_level = level;
+        control.play(constant(0.5, 4800), 1.0, 0, false);
+        let output = render(&mut tap, 1000);
+        assert!((output[1998] - 0.05).abs() < 0.001);
+    }
+    #[test]
     fn replace_stop_and_garbage_return_are_allocation_free() {
         let mut control = SoundpadControl::new();
         let mut tap = control.tap(Output::Monitor);
@@ -735,7 +867,7 @@ mod tests {
         let weak = Arc::downgrade(&old);
         control.play(old, 1.0, 0, false);
         let first = render(&mut tap, 512);
-        assert!((first[1022] - 0.5).abs() < 0.001);
+        assert!((first[1022] - 0.063_095_73).abs() < 0.001);
         control.play(constant(-0.5, 48_000), 1.0, 0, false);
         let replaced = render(&mut tap, 512);
         let mut previous = first[1022];
@@ -789,7 +921,7 @@ mod tests {
         let mut tap = control.tap(Output::Monitor);
         control.play(constant(0.25, 480), 1.0, 0, true);
         let out = render(&mut tap, 2000);
-        assert!(out[960..].iter().all(|s| (*s - 0.25).abs() < 0.001));
+        assert!(out[960..].iter().all(|s| (*s - 0.063_095_73).abs() < 0.001));
         control.set_paused(true);
         let out = render(&mut tap, 512);
         assert_eq!(out[1022], 0.0);
@@ -798,7 +930,7 @@ mod tests {
         assert_eq!(tap.position, held);
         control.set_paused(false);
         let out = render(&mut tap, 512);
-        assert!(out[1022] > 0.24);
+        assert!(out[1022] > 0.062);
         control.set_output_enabled(Output::Monitor, false);
         let before = tap.position;
         let out = render(&mut tap, 127);
@@ -819,7 +951,7 @@ mod tests {
         control.tick(Instant::now());
         assert!(control.status().token.is_some());
         let out = render(&mut tap, 300);
-        assert!(out[598] > 0.24);
+        assert!(out[598] > 0.060, "resumed sample: {}", out[598]);
     }
     #[test]
     fn voice_duck_clamp_sanitize_and_channel_mapping() {
@@ -831,7 +963,7 @@ mod tests {
         let mut out = [0.0; 512 * 4];
         assert_no_alloc(|| tap.mix_with_voice(&voice, &mut out, 4));
         assert!(out.chunks_exact(4).all(|f| f.iter().all(|s| *s == f[0])));
-        assert!((out[out.len() - 1] - 0.25).abs() < 0.001);
+        assert!((out[out.len() - 1] - 0.125_892_53).abs() < 0.001);
         control.set_duck_voice(false);
         control.set_sound_gain(10.0);
         assert_no_alloc(|| tap.mix_with_voice(&voice, &mut out, 4));
@@ -853,12 +985,12 @@ mod tests {
         render(&mut monitor, 300);
         let mut multichannel = [0.1; 8];
         assert_no_alloc(|| monitor.mix(&mut multichannel, 4));
-        assert!((multichannel[0] - 0.3).abs() < 0.001);
-        assert!((multichannel[1] - 0.7).abs() < 0.001);
+        assert!((multichannel[0] - (0.1 + 0.2 * 0.063_095_73 / 0.2_f32.sqrt())).abs() < 0.001);
+        assert!((multichannel[1] - (0.1 + 0.6 * 0.063_095_73 / 0.2_f32.sqrt())).abs() < 0.001);
         assert_eq!(multichannel[2], 0.1);
         let mut mono = [0.1];
         assert_no_alloc(|| monitor.mix(&mut mono, 1));
-        assert!((mono[0] - 0.5).abs() < 0.001);
+        assert!((mono[0] - (0.1 + 0.4 * 0.063_095_73 / 0.2_f32.sqrt())).abs() < 0.001);
         assert_no_alloc(|| {
             monitor.mix(&mut mono, 0);
             monitor.mix_with_voice(&[], &mut mono, 0);
@@ -873,7 +1005,7 @@ mod tests {
         let voice = [0.5; 512];
         let mut out = [0.0; 1024];
         assert_no_alloc(|| mic.mix_with_voice(&voice, &mut out, 2));
-        assert!((out[1022] - 0.25).abs() < 0.001);
+        assert!((out[1022] - 0.125_892_53).abs() < 0.001);
         control.set_output_enabled(Output::Microphone, false);
         assert_no_alloc(|| mic.mix_with_voice(&voice, &mut out, 2));
         assert!((out[1022] - 0.5).abs() < 0.001);
@@ -889,7 +1021,7 @@ mod tests {
         let mut silence = [0.0; 64];
         assert_no_alloc(|| old.mix(&mut silence, 2));
         assert_eq!(silence, [0.0; 64]);
-        assert!(render(&mut tap, 500)[998] > 0.19);
+        assert!(render(&mut tap, 500)[998] > 0.062);
         let mut weak = Vec::new();
         for round in 0..20 {
             for _ in 0..100 {

@@ -18,6 +18,8 @@ pub struct Sound {
     samples: Vec<f32>,
     peak_lin: f32,
     rms_dbfs: f32,
+    reference_gain_lin: f32,
+    peak_gain_lin: f32,
 }
 impl Sound {
     /// Sanitizes non-finite samples and discards an incomplete final stereo frame.
@@ -46,6 +48,16 @@ impl Sound {
             samples,
             peak_lin,
             rms_dbfs,
+            reference_gain_lin: if rms_dbfs.is_finite() {
+                10.0_f32.powf((-18.0 - rms_dbfs) / 20.0)
+            } else {
+                0.0
+            },
+            peak_gain_lin: if peak_lin > 0.0 {
+                0.891_250_9 / peak_lin
+            } else {
+                0.0
+            },
         }
     }
     pub fn frames(&self) -> usize {
@@ -62,6 +74,13 @@ impl Sound {
     }
     pub fn rms_dbfs(&self) -> f32 {
         self.rms_dbfs
+    }
+    /// Gated RMS normalization relative to -18 dBFS, capped at +40 dB and -1 dBFS peak.
+    /// User trims are applied after this gain.
+    pub(crate) fn normalization_gain(&self, target_rms_lin: f32) -> f32 {
+        (self.reference_gain_lin * target_rms_lin / 0.125_892_53)
+            .min(100.0)
+            .min(self.peak_gain_lin)
     }
     pub fn byte_size(&self) -> usize {
         self.samples.capacity() * size_of::<f32>()
@@ -287,6 +306,29 @@ pub(crate) mod tests {
         let silent = Sound::from_interleaved_stereo(vec![f32::NAN, f32::INFINITY, 0.0, 0.0]);
         assert_eq!(silent.rms_dbfs(), f32::NEG_INFINITY);
         assert_eq!(silent.peak_lin(), 0.0);
+    }
+    #[test]
+    fn normalization_matches_reference_and_caps_transient_peaks() {
+        let sine = Sound::from_interleaved_stereo(
+            (0..48_000)
+                .flat_map(|i| {
+                    let value = 0.5 * (i as f32 * std::f32::consts::TAU / 48.0).sin();
+                    [value; 2]
+                })
+                .collect(),
+        );
+        let gain = sine.normalization_gain(0.063_095_73);
+        assert!((sine.rms_dbfs() + 9.0309).abs() < 0.001);
+        assert!((gain * 0.5 / 2.0_f32.sqrt() - 0.063_095_73).abs() < 0.0001);
+        let mut transient = vec![0.01; 96_000];
+        transient[0] = 1.0;
+        let sound = Sound::from_interleaved_stereo(transient);
+        assert!((sound.normalization_gain(0.25) * sound.peak_lin() - 0.891_250_9).abs() < 1e-6);
+        let silent = Sound::from_interleaved_stereo(vec![0.0; 128]);
+        assert_eq!(silent.normalization_gain(0.25), 0.0);
+        let quiet = Sound::from_interleaved_stereo(vec![0.0011; 96_000]);
+        assert!((quiet.normalization_gain(0.063_095_73) * 0.0011 - 0.063_095_73).abs() < 1e-6);
+        assert_eq!(quiet.normalization_gain(0.25), 100.0);
     }
     #[test]
     fn duration_limit_is_checked_before_decoding_pcm() {

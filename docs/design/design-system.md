@@ -44,7 +44,7 @@
 
 ### 2.1 Module and channel colors
 
-The `--app` / `--app-ink` palette from ArtCraft. `--app` — fills (channel bar, meter fill, EQ points),
+The `--app` / `--app-ink` palette, in the spirit of ArtCraft's. `--app` — fills (channel bar, meter fill, EQ points),
 `--app-ink` — text/icons on a dark background.
 
 | Token | `--app` | `--app-ink` (dark) | Default use |

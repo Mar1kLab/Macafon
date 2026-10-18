@@ -67,6 +67,22 @@
 
   const sounds = $derived(soundpad?.sounds ?? []);
   const visible = $derived(sortSounds(sounds.filter((sound) => inScope(sound, scope) && matches(sound, query)), sort));
+  // Rows are drawn a page at a time, so a library of thousands of sounds opens at once; a new
+  // filter or order starts from the first page again.
+  const ROWS_PAGE = 100;
+  let shown = $state(ROWS_PAGE);
+  const rendered = $derived(visible.slice(0, shown));
+  $effect(() => {
+    void query;
+    void scope;
+    void sort;
+    shown = ROWS_PAGE;
+  });
+
+  function onrowsscroll(event: Event) {
+    const list = event.currentTarget as HTMLElement;
+    if (shown < visible.length && list.scrollTop + list.clientHeight > list.scrollHeight - list.clientHeight) shown += ROWS_PAGE;
+  }
   const editingSound = $derived(editing ? sounds.find((sound) => sound.id === editing) : undefined);
   /** Uploads land in the category on screen; favorites and "all" add to the folder itself. */
   const uploadCategory = $derived(scope && scope !== FAVORITES ? scope : null);
@@ -166,8 +182,10 @@
   // --- Keyboard: arrows move, Enter plays, F2 edits, Delete deletes (PRD §9.8) -----------
 
   async function focusRow(index: number) {
-    const sound = visible[Math.min(Math.max(index, 0), visible.length - 1)];
+    const target = Math.min(Math.max(index, 0), visible.length - 1);
+    const sound = visible[target];
     if (!sound) return;
+    if (target >= shown) shown = target + ROWS_PAGE;
     selected = sound.id;
     await tick();
     listElement?.querySelector<HTMLElement>(`[data-id="${CSS.escape(sound.id)}"]`)?.focus();
@@ -335,8 +353,8 @@
             <span>{t('soundpad.columns.hotkey')}</span>
             <span></span>
           </div>
-          <ul class="rows" bind:this={listElement} role="listbox" aria-label={t('soundpad.section')}>
-            {#each visible as sound, index (sound.id)}
+          <ul class="rows" bind:this={listElement} role="listbox" aria-label={t('soundpad.section')} onscroll={onrowsscroll}>
+            {#each rendered as sound, index (sound.id)}
               {@const playing = playback?.sound_id === sound.id}
             {@const shortcut = shortcuts.get(`soundpad_play.${sound.id}`) ?? null}
               <li

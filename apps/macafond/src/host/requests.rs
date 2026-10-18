@@ -217,6 +217,7 @@ impl DaemonHost {
             request @ (Request::SoundpadGet
             | Request::SoundpadRescan
             | Request::SoundpadOpenFolder
+            | Request::SoundpadSetFolder { .. }
             | Request::SoundpadPlay { .. }
             | Request::SoundpadPlayRandom { .. }
             | Request::SoundpadStop

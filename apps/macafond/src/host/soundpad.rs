@@ -8,6 +8,7 @@ use macafon_ipc::{
     SoundpadState,
 };
 use macafon_soundpad::library;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 impl DaemonHost {
@@ -36,6 +37,7 @@ impl DaemonHost {
         let config = &self.config.soundpad;
         Some(SoundpadState {
             folder: soundpad.folder().display().to_string(),
+            default_folder: config.folder.is_none(),
             categories: soundpad.categories().to_vec(),
             sounds: soundpad.sounds(config),
             prefs: SoundpadPrefs {
@@ -170,6 +172,30 @@ impl DaemonHost {
                 open_folder(&folder)
                     .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))?;
                 return null;
+            }
+            Request::SoundpadSetFolder { folder } => {
+                let chosen = library_folder(folder.as_deref())?;
+                let path = chosen
+                    .clone()
+                    .unwrap_or_else(macafon_config::soundpad::default_folder);
+                std::fs::create_dir_all(&path).map_err(|error| {
+                    ErrorBody::new(
+                        ErrorCode::InvalidParams,
+                        format!("cannot use {}: {error}", path.display()),
+                    )
+                })?;
+                if !path.is_dir() {
+                    return Err(ErrorBody::new(
+                        ErrorCode::InvalidParams,
+                        format!("{} is not a folder", path.display()),
+                    ));
+                }
+                if folder_path(&path) != folder_path(soundpad.folder()) {
+                    soundpad.set_folder(path);
+                }
+                self.config.soundpad.folder = chosen;
+                self.changed_at = Some(Instant::now());
+                self.soundpad_changed();
             }
             Request::SoundpadPlay { .. }
             | Request::SoundpadPlayRandom { .. }
@@ -396,6 +422,27 @@ fn apply_prefs(config: &mut macafon_config::SoundpadConfig, patch: SoundpadPrefs
     if let Some(value) = patch.show_in_overlay {
         config.show_in_overlay = value;
     }
+}
+
+/// A picked folder must be absolute; empty or the default one means the default.
+fn library_folder(folder: Option<&str>) -> Result<Option<PathBuf>, ErrorBody> {
+    let Some(folder) = folder.map(str::trim).filter(|folder| !folder.is_empty()) else {
+        return Ok(None);
+    };
+    let path = PathBuf::from(folder);
+    if !path.is_absolute() {
+        return Err(ErrorBody::new(
+            ErrorCode::InvalidParams,
+            format!("{folder} is not a full path"),
+        ));
+    }
+    let default = macafon_config::soundpad::default_folder();
+    Ok((folder_path(&path) != folder_path(&default)).then_some(path))
+}
+
+/// The same folder written with another case or trailing separator compares equal.
+fn folder_path(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned())
 }
 
 fn soundpad_unavailable() -> ErrorBody {

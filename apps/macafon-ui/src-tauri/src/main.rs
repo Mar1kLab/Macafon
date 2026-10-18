@@ -107,6 +107,27 @@ fn open_vb_cable_page() -> Result<(), BridgeError> {
         })
 }
 
+/// The system folder picker for the soundpad library (SND-001); any drive. `None` when the
+/// user cancels.
+#[tauri::command]
+async fn pick_folder(app: AppHandle, current: Option<String>) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let mut dialog = app.dialog().file();
+    if let Some(window) = app.get_webview_window("main") {
+        dialog = dialog.set_parent(&window);
+    }
+    if let Some(current) = current.filter(|path| std::path::Path::new(path).is_dir()) {
+        dialog = dialog.set_directory(current);
+    }
+    let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_folder())
+        .await
+        .ok()??;
+    picked
+        .into_path()
+        .ok()
+        .map(|path| path.display().to_string())
+}
+
 /// The main window from `tauri.conf.json`, created on demand: the UI starts without it when
 /// the daemon warms it up or a panel asks.
 fn show_main(app: &AppHandle) -> bool {
@@ -205,6 +226,7 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             open_requested(app, request_from_args(&args));
         }))
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let args: Vec<String> = std::env::args().collect();
             let endpoint = macafon_ipc::Endpoint::for_current_user()
@@ -229,6 +251,7 @@ fn main() {
             daemon_status,
             daemon_retry,
             open_vb_cable_page,
+            pick_folder,
             quick_panel::quick_panel_fit,
             quick_panel::quick_panel_pending,
             quick_panel::quick_panel_close,

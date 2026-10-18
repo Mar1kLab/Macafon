@@ -91,6 +91,21 @@ impl Soundpad {
         &self.folder
     }
 
+    /// Switch to another library folder: what plays stops, and everything known about the old
+    /// folder (sounds, decodes, unfinished uploads) goes.
+    pub fn set_folder(&mut self, folder: PathBuf) {
+        self.stop();
+        self.loader.clear();
+        self.uploads.clear();
+        self.entries.clear();
+        self.categories.clear();
+        self.durations.clear();
+        self.errors.clear();
+        self.added.clear();
+        self.folder = folder;
+        self.rescan();
+    }
+
     /// Output volumes and switches into the taps.
     pub fn apply(&mut self, config: &SoundpadConfig) {
         let control = &self.control;
@@ -686,6 +701,25 @@ mod tests {
             assert!(Instant::now() < deadline, "renamed sound stayed loading");
             std::thread::sleep(Duration::from_millis(2));
         }
+        drop(soundpad);
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn another_folder_replaces_the_library_and_stops_playback() {
+        let (root, config, mut soundpad) = test_soundpad("set-folder");
+        write_wav(&soundpad.folder.join("old.wav"));
+        soundpad.rescan();
+        soundpad.play("old.wav", &config).expect("play");
+        let other = root.join("D drive").join("Sounds");
+        std::fs::create_dir_all(other.join("Memes")).expect("other folder");
+        write_wav(&other.join("Memes").join("new.wav"));
+        soundpad.set_folder(other.clone());
+        assert_eq!(soundpad.folder(), other);
+        assert_eq!(soundpad.playback(), None);
+        let ids: Vec<&str> = soundpad.entries().iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, ["Memes/new.wav"]);
+        assert_eq!(soundpad.categories(), ["Memes"]);
         drop(soundpad);
         std::fs::remove_dir_all(root).expect("cleanup");
     }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Single text field dialog (preset names).
+  // Single text field dialog (preset names, a typed folder path).
   import Dialog from './Dialog.svelte';
   import { t } from '../i18n';
 
@@ -9,18 +9,19 @@
     label: string;
     initial?: string;
     confirm: string;
+    maxlength?: number;
     onsubmit: (value: string) => void;
     onclose: () => void;
   }
 
-  let { open, title, label, initial = '', confirm, onsubmit, onclose }: Props = $props();
+  let { open, title, label, initial = '', confirm, maxlength = 64, onsubmit, onclose }: Props = $props();
   let text = $state('');
 
   $effect(() => {
     if (open) text = initial;
   });
 
-  const valid = $derived(text.trim().length > 0 && text.trim().length <= 64);
+  const valid = $derived(text.trim().length > 0 && text.trim().length <= maxlength);
 
   function submit(event: SubmitEvent) {
     event.preventDefault();
@@ -36,7 +37,7 @@
 <Dialog {open} {title} {onclose}>
   <form id="prompt-form" onsubmit={submit}>
     <label class="hud-label" for="prompt-input">{label}</label>
-    <input id="prompt-input" bind:value={text} maxlength="64" autocomplete="off" use:focus />
+    <input id="prompt-input" bind:value={text} {maxlength} autocomplete="off" use:focus />
   </form>
   {#snippet actions()}
     <button class="btn" type="button" onclick={onclose}>{t('common.cancel')}</button>

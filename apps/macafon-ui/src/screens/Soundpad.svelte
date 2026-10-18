@@ -25,6 +25,7 @@
   import RulerSlider from '../lib/components/RulerSlider.svelte';
   import Ticks from '../lib/components/Ticks.svelte';
   import Toggle from '../lib/components/Toggle.svelte';
+  import LibraryFolder from '../lib/soundpad/LibraryFolder.svelte';
   import SoundDialog from '../lib/soundpad/SoundDialog.svelte';
   import Transport from '../lib/soundpad/Transport.svelte';
   import {
@@ -220,6 +221,7 @@
         if (pick) daemon.playSound(pick.id);
       }}><Shuffle size={13} strokeWidth={1.5} />{t('soundpad.random')}</button>
       <button class="btn" title={soundpad.folder} onclick={() => daemon.run(daemon.client.call('soundpad.open_folder'))}><FolderOpen size={13} strokeWidth={1.5} />{t('soundpad.openFolder')}</button>
+      <LibraryFolder variant="button" />
       <button class="btn invert" onclick={() => fileInput?.click()}><Plus size={13} strokeWidth={1.5} />{t('soundpad.addFiles')}</button>
       <input
         bind:this={fileInput}
@@ -320,6 +322,7 @@
               <div class="actions">
                 <button class="btn invert" onclick={() => fileInput?.click()}><Plus size={13} strokeWidth={1.5} />{t('soundpad.addFiles')}</button>
                 <button class="btn" onclick={() => daemon.run(daemon.client.call('soundpad.open_folder'))}><FolderOpen size={13} strokeWidth={1.5} />{t('soundpad.openFolder')}</button>
+                <LibraryFolder variant="button" />
               </div>
             </div>
           </div>

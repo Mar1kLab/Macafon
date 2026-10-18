@@ -67,6 +67,8 @@ pub struct SoundpadPrefs {
 pub struct SoundpadState {
     /// Absolute path of the library folder.
     pub folder: String,
+    /// The folder is the default one (`Music\Macafon Sounds`), not picked by the user.
+    pub default_folder: bool,
     /// Every first-level subfolder, including empty ones.
     pub categories: Vec<String>,
     pub sounds: Vec<SoundInfo>,

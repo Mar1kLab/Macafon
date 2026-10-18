@@ -103,6 +103,7 @@ interface Results {
   'soundpad.get': SoundpadState;
   'soundpad.rescan': SoundpadState;
   'soundpad.open_folder': null;
+  'soundpad.set_folder': SoundpadState;
   'soundpad.play': null;
   'soundpad.play_random': null;
   'soundpad.stop': null;

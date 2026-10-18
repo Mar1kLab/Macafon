@@ -226,6 +226,10 @@ pub enum Request {
     /// Open the library folder in the file manager.
     #[serde(rename = "soundpad.open_folder")]
     SoundpadOpenFolder,
+    /// Use another library folder, on any drive; `null` goes back to the default one. A missing
+    /// folder is created. Playback stops; settings and hotkeys of sounds stay by their ids.
+    #[serde(rename = "soundpad.set_folder")]
+    SoundpadSetFolder { folder: Option<String> },
     /// SND-002: play a sound from the start, replacing what plays.
     #[serde(rename = "soundpad.play")]
     SoundpadPlay { id: String },

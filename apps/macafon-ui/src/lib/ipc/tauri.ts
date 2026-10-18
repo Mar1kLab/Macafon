@@ -26,6 +26,15 @@ export async function openVbCablePage(): Promise<void> {
   else window.open(VB_CABLE_URL, '_blank', 'noopener');
 }
 
+/**
+ * The system folder picker, starting at `current`; `null` when cancelled, `undefined` in a
+ * browser, where the caller asks for a typed path instead.
+ */
+export async function pickFolder(current: string): Promise<string | null | undefined> {
+  if (!isTauri()) return undefined;
+  return invoke<string | null>('pick_folder', { current });
+}
+
 export class TauriTransport implements Transport {
   async call(method: string, params: unknown): Promise<unknown> {
     try {

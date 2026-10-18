@@ -46,6 +46,10 @@ function initialSounds(): SoundInfo[] {
   ];
 }
 
+function defaultFolder(windows: boolean): string {
+  return windows ? 'C:\\Users\\Alex\\Music\\Macafon Sounds' : '/home/alex/Music/Macafon Sounds';
+}
+
 export class MockSoundpad {
   readonly state: SoundpadState;
   private timer: number | undefined;
@@ -54,9 +58,10 @@ export class MockSoundpad {
   private looping = false;
   private uploads = new Map<string, number>();
 
-  constructor(private emit: (event: Event) => void, windows: boolean) {
+  constructor(private emit: (event: Event) => void, private windows: boolean) {
     this.state = {
-      folder: windows ? 'C:\\Users\\Alex\\Music\\Macafon Sounds' : '/home/alex/Music/Macafon Sounds',
+      folder: defaultFolder(windows),
+      default_folder: true,
       categories: ['Memes', 'Music', 'Reactions'],
       sounds: initialSounds(),
       prefs: {
@@ -81,6 +86,15 @@ export class MockSoundpad {
         return clone(s);
       case 'soundpad.open_folder':
         return null;
+      case 'soundpad.set_folder': {
+        const folder = ((p.folder as string | null) ?? '').trim();
+        const absolute = this.windows ? /^[a-zA-Z]:[\\/]|^\\\\/.test(folder) : folder.startsWith('/');
+        if (folder && !absolute) throw new DaemonError('invalid_params', `${folder} is not a full path`);
+        this.stop();
+        s.folder = folder || defaultFolder(this.windows);
+        s.default_folder = !folder || folder === defaultFolder(this.windows);
+        return this.changed();
+      }
       case 'soundpad.play':
         this.play(this.sound(String(p.id)));
         return null;

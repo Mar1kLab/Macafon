@@ -11,7 +11,8 @@ use macafon_dsp::{ChannelTelemetry, Telemetry};
 use macafon_ipc::Endpoint;
 use macafon_ipc::{
     ErrorBody, ErrorCode, Event, FrameError, Hello, MAX_METER_HZ, Outcome, PROTOCOL_VERSION,
-    Platform, Request, Response, ServerMessage, decode_request, encode, read_protocol_line,
+    Platform, Request, Response, ServerMessage, SoundpadState, decode_request, encode,
+    read_protocol_line,
 };
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
@@ -45,16 +46,35 @@ pub struct Hub {
     /// Live channels in display order; empty while the mixer is off.
     mixer_telemetry: Mutex<Vec<(String, Arc<ChannelTelemetry>)>>,
     next_id: AtomicU64,
+    soundpad_updates: mpsc::SyncSender<SoundpadState>,
 }
 
 impl Hub {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self {
-            clients: Mutex::default(),
-            meters_wanted: Condvar::new(),
-            telemetry: Arc::default(),
-            mixer_telemetry: Mutex::default(),
-            next_id: AtomicU64::new(1),
+        let (soundpad_updates, updates) = mpsc::sync_channel(1);
+        Arc::new_cyclic(|weak: &std::sync::Weak<Self>| {
+            let weak = weak.clone();
+            if let Err(error) = std::thread::Builder::new()
+                .name("macafon-soundpad-events".into())
+                .spawn(move || {
+                    while let Ok(state) = updates.recv() {
+                        let Some(hub) = weak.upgrade() else {
+                            break;
+                        };
+                        hub.broadcast(&Event::SoundpadChanged(state));
+                    }
+                })
+            {
+                tracing::warn!(%error, "Cannot start soundpad event worker");
+            }
+            Self {
+                clients: Mutex::default(),
+                meters_wanted: Condvar::new(),
+                telemetry: Arc::default(),
+                mixer_telemetry: Mutex::default(),
+                next_id: AtomicU64::new(1),
+                soundpad_updates,
+            }
         })
     }
 
@@ -81,6 +101,16 @@ impl Hub {
         for (out, _) in self.clients().registered.values() {
             let _ = out.try_send(line.clone());
         }
+    }
+
+    pub fn has_clients(&self) -> bool {
+        !self.clients().registered.is_empty()
+    }
+
+    /// Serialize large sound inventories away from the control loop. A full queue is retried
+    /// from the latest daemon state on a later tick instead of accumulating stale snapshots.
+    pub fn broadcast_soundpad(&self, state: SoundpadState) -> bool {
+        self.soundpad_updates.try_send(state).is_ok()
     }
 
     pub fn set_mixer_telemetry(&self, channels: Vec<(String, Arc<ChannelTelemetry>)>) {
@@ -437,6 +467,38 @@ fn send(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deferred_library_broadcast_preserves_the_full_event_shape() {
+        let hub = Hub::new();
+        let (out, incoming) = mpsc::sync_channel(1);
+        hub.clients().registered.insert(1, (out, None));
+        let state = SoundpadState {
+            folder: "sounds".into(),
+            default_folder: false,
+            categories: vec!["Empty".into()],
+            sounds: Vec::new(),
+            prefs: macafon_ipc::SoundpadPrefs {
+                to_microphone: true,
+                to_headphones: true,
+                microphone_volume_pct: 100.0,
+                headphones_volume_pct: 100.0,
+                mute_voice_while_playing: false,
+                monitor_device: None,
+                show_in_overlay: true,
+            },
+            playback: None,
+            microphone_ready: false,
+        };
+        let expected = encode(&Event::SoundpadChanged(state.clone())).expect("event");
+        assert!(hub.broadcast_soundpad(state));
+        assert_eq!(
+            incoming
+                .recv_timeout(Duration::from_secs(5))
+                .expect("deferred event"),
+            expected
+        );
+    }
 
     #[test]
     fn broadcast_preserves_event_wire_format() {

@@ -17,6 +17,7 @@ pub struct SoundEntry {
     pub category: Option<String>,
     pub size_bytes: u64,
     pub modified_unix_ms: u64,
+    pub added_unix_ms: u64,
 }
 
 pub fn validate_name(name: &str) -> Result<(), Error> {
@@ -75,7 +76,7 @@ fn is_hidden(path: &Path, _meta: &fs::Metadata) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
-        if _meta.file_attributes() & 2 != 0 {
+        if _meta.file_attributes() & (2 | 4) != 0 {
             return true;
         }
     }
@@ -87,6 +88,13 @@ fn prepare_root(root: &Path) -> Result<PathBuf, Error> {
 }
 fn sound_entry(root: &Path, path: &Path) -> Result<SoundEntry, Error> {
     let meta = ordinary_metadata(path)?;
+    sound_entry_with_metadata(root, path, &meta)
+}
+fn sound_entry_with_metadata(
+    root: &Path,
+    path: &Path,
+    meta: &fs::Metadata,
+) -> Result<SoundEntry, Error> {
     if !meta.is_file() {
         return Err(Error::InvalidId(path.display().to_string()));
     }
@@ -108,6 +116,13 @@ fn sound_entry(root: &Path, path: &Path) -> Result<SoundEntry, Error> {
             .unwrap_or("")
             .into(),
         size_bytes: meta.len(),
+        added_unix_ms: meta
+            .created()
+            .or_else(|_| meta.modified())?
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+            .min(u64::MAX as u128) as u64,
         modified_unix_ms: meta
             .modified()?
             .duration_since(UNIX_EPOCH)
@@ -144,7 +159,9 @@ pub fn categories(root: &Path) -> Result<Vec<String>, Error> {
         if let Ok(meta) = ordinary_metadata(&path) {
             if meta.is_dir() && !is_hidden(&path, &meta) {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    names.push(name.into());
+                    if validate_name(name).is_ok() {
+                        names.push(name.into());
+                    }
                 }
             }
         }
@@ -153,28 +170,45 @@ pub fn categories(root: &Path) -> Result<Vec<String>, Error> {
     Ok(names)
 }
 pub fn scan(root: &Path) -> Result<Vec<SoundEntry>, Error> {
+    scan_library(root).map(|(entries, _)| entries)
+}
+
+/// One inventory including empty first-level category folders.
+pub fn scan_library(root: &Path) -> Result<(Vec<SoundEntry>, Vec<String>), Error> {
     let root = prepare_root(root)?;
     let mut entries = Vec::new();
     let mut dirs = vec![root.clone()];
-    dirs.extend(categories(&root)?.iter().map(|n| root.join(n)));
+    let categories = categories(&root)?;
+    dirs.extend(categories.iter().map(|n| root.join(n)));
     for dir in dirs {
-        for item in fs::read_dir(dir)? {
-            let path = item?.path();
-            if let Ok(meta) = ordinary_metadata(&path) {
-                if meta.is_file() && !is_hidden(&path, &meta) && is_supported(&path) {
-                    entries.push(sound_entry(&root, &path)?);
-                }
-            }
-        }
+        scan_directory(&root, &dir, &mut entries)?;
     }
-    entries.sort_by_key(|e| {
+    entries.sort_by_cached_key(|e| {
         (
             e.category.as_ref().map(|s| s.to_lowercase()),
             e.name.to_lowercase(),
             e.id.clone(),
         )
     });
-    Ok(entries)
+    Ok((entries, categories))
+}
+fn scan_directory(root: &Path, dir: &Path, entries: &mut Vec<SoundEntry>) -> Result<(), Error> {
+    for item in fs::read_dir(dir)? {
+        let path = item?.path();
+        if let Ok(meta) = ordinary_metadata(&path) {
+            if meta.is_file()
+                && !is_hidden(&path, &meta)
+                && is_supported(&path)
+                && path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| validate_name(n).is_ok())
+            {
+                entries.push(sound_entry_with_metadata(root, &path, &meta)?);
+            }
+        }
+    }
+    Ok(())
 }
 fn category_directory(root: &Path, category: Option<&str>) -> Result<PathBuf, Error> {
     let root = prepare_root(root)?;
@@ -240,6 +274,33 @@ pub fn import(root: &Path, source: &Path, category: Option<&str>) -> Result<Soun
     }
     sound_entry(&prepare_root(root)?, &target)
 }
+fn rename_no_replace(source: &Path, target: &Path) -> Result<(), Error> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn MoveFileW(source: *const u16, target: *const u16) -> i32;
+        }
+        let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+        let target: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+        // SAFETY: both pointers reference terminated paths live for this synchronous call.
+        if unsafe { MoveFileW(source.as_ptr(), target.as_ptr()) } == 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        if source.is_dir() {
+            fs::rename(source, target)?;
+        } else {
+            fs::hard_link(source, target)?;
+            fs::remove_file(source)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn rename(root: &Path, id: &str, new_name: &str) -> Result<SoundEntry, Error> {
     validate_name(new_name)?;
     let source = resolve(root, id)?;
@@ -252,7 +313,7 @@ pub fn rename(root: &Path, id: &str, new_name: &str) -> Result<SoundEntry, Error
     if target.symlink_metadata().is_ok() {
         return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists).into());
     }
-    fs::rename(source, &target)?;
+    rename_no_replace(&source, &target)?;
     sound_entry(&prepare_root(root)?, &target)
 }
 pub fn move_to_category(
@@ -293,7 +354,7 @@ pub fn rename_category(root: &Path, from: &str, to: &str) -> Result<(), Error> {
     if target.symlink_metadata().is_ok() {
         return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists).into());
     }
-    fs::rename(source, target)?;
+    rename_no_replace(&source, &target)?;
     Ok(())
 }
 pub fn delete_category(root: &Path, name: &str) -> Result<Vec<(String, String)>, Error> {
@@ -304,10 +365,10 @@ pub fn delete_category(root: &Path, name: &str) -> Result<Vec<(String, String)>,
         return Err(Error::InvalidName(name.into()));
     }
     let mut moved = Vec::new();
-    for sound in scan(&root)?
-        .into_iter()
-        .filter(|e| e.category.as_deref() == Some(name))
-    {
+    let mut sounds = Vec::new();
+    scan_directory(&root, &dir, &mut sounds)?;
+    sounds.sort_by(|a, b| a.id.cmp(&b.id));
+    for sound in sounds {
         let destination = move_to_category(&root, &sound.id, None)?;
         moved.push((sound.id, destination.id));
     }
@@ -321,6 +382,65 @@ pub fn delete_category(root: &Path, name: &str) -> Result<Vec<(String, String)>,
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+    #[test]
+    fn explorer_folders_include_empty_categories_and_ignore_unmanaged_content() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::write(root.join("root.wav"), b"root").unwrap();
+        fs::create_dir_all(root.join("Short sounds/deeper")).unwrap();
+        fs::write(root.join("Short sounds/tone.wav"), b"tone").unwrap();
+        fs::write(root.join("Short sounds/deeper/ignored.wav"), b"nested").unwrap();
+        fs::write(root.join("Short sounds/notes.txt"), b"notes").unwrap();
+        fs::write(root.join(".hidden.wav"), b"hidden").unwrap();
+        fs::create_dir(root.join("Empty")).unwrap();
+        let (entries, categories) = scan_library(root).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(categories, ["Empty", "Short sounds"]);
+        fs::rename(root.join("Short sounds"), root.join("Renamed")).unwrap();
+        fs::remove_dir(root.join("Empty")).unwrap();
+        assert_eq!(super::categories(root).unwrap(), ["Renamed"]);
+        assert!(
+            scan(root)
+                .unwrap()
+                .iter()
+                .any(|e| e.id == "Renamed/tone.wav")
+        );
+        delete_category(root, "Renamed").unwrap();
+        assert!(root.join("tone.wav").exists());
+        // Never destroy unsupported or deeper content to make a category disappear.
+        assert!(root.join("Renamed/notes.txt").exists());
+        assert!(root.join("Renamed/deeper/ignored.wav").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_hidden_and_system_files_are_not_managed() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        for (name, attributes) in [("hidden.wav", 2), ("system.wav", 4)] {
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .attributes(attributes)
+                .open(temp.path().join(name))
+                .unwrap();
+        }
+        assert!(scan(temp.path()).unwrap().is_empty());
+        assert!(temp.path().join("system.wav").exists());
+    }
+
+    #[test]
+    fn moves_never_replace_a_destination_created_after_collision_selection() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source.wav");
+        let target = temp.path().join("target.wav");
+        fs::write(&source, b"source").unwrap();
+        fs::write(&target, b"destination").unwrap();
+        assert!(rename_no_replace(&source, &target).is_err());
+        assert_eq!(fs::read(source).unwrap(), b"source");
+        assert_eq!(fs::read(target).unwrap(), b"destination");
+    }
+
     #[test]
     fn deleting_category_reports_collision_renames() {
         let temp = tempfile::tempdir().unwrap();

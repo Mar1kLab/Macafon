@@ -1,7 +1,7 @@
 # Macafon — design system
 
-> Part of the [Macafon PRD](../PRD.md). Based on the visual language of [getartcraft.com/apps](https://getartcraft.com/apps)
-> (tokens taken from the site's production CSS), adapted for an audio utility. **Dark theme only.**
+> Part of the [Macafon PRD](../PRD.md). Inspired by the visual language of [getartcraft.com/apps](https://getartcraft.com/apps)
+> and adapted for an audio utility. **Dark theme only.**
 
 ## 1. Principles
 

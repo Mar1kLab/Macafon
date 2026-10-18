@@ -157,7 +157,7 @@ impl Drop for Backend {
 /// Whether Ctrl+Alt+key is AltGr+key that types a character in any installed layout.
 pub fn types_with_altgr(accel: &super::accel::Accel) -> bool {
     let m = accel.modifiers;
-    if !(m.ctrl && m.alt) || m.super_ {
+    if !(m.ctrl && m.alt) || m.super_ || m.alt_side == 1 {
         return false;
     }
     let key = accel.key.as_bytes();

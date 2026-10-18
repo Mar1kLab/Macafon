@@ -36,6 +36,11 @@ describe('shortcut recording', () => {
 
   it('retains the physical Ctrl and Alt sides', () => {
     expect(recordShortcut(key('KeyM', { ctrl: true, alt: true }), new Set(['ControlRight', 'AltLeft']))).toEqual({ kind: 'done', shortcut: 'RCtrl+LAlt+M' });
+    for (const sides of [new Set(['AltRight']), new Set(['ControlLeft', 'AltRight'])]) {
+      expect(recordShortcut(key('PageUp', { ctrl: true, alt: true }), sides)).toEqual({ kind: 'done', shortcut: 'RAlt+PageUp' });
+    }
+    expect(recordShortcut(key('KeyZ', { ctrl: true, alt: true }), new Set(['ControlLeft', 'AltLeft']))).toEqual({ kind: 'done', shortcut: 'LCtrl+LAlt+Z' });
+    expect(displayShortcut('RAlt+PageDown')).toBe('RAlt+PageDown');
   });
 
   it('records the console key like the daemon and shows it as its character', () => {

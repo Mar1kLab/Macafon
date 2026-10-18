@@ -119,12 +119,7 @@ unsafe extern "system" fn callback(code: i32, wparam: WPARAM, lparam: LPARAM) ->
                 let mut consumed = false;
                 for key in &mut state.keys {
                     let m = key.binding.accel.modifiers;
-                    let matches = m.ctrl == (ctrl != 0)
-                        && m.alt == (alt != 0)
-                        && (m.ctrl_side == 0 || m.ctrl_side == ctrl)
-                        && (m.alt_side == 0 || m.alt_side == alt)
-                        && m.shift == (d[0xa0] || d[0xa1])
-                        && m.super_ == (d[0x5b] || d[0x5c]);
+                    let matches = m.matches(ctrl, alt, d[0xa0] || d[0xa1], d[0x5b] || d[0x5c]);
                     if key.held && (!d[key.vk as usize] || !matches) {
                         key.held = false;
                         press(&state.control, &key.binding.action, false);

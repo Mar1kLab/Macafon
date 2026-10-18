@@ -31,12 +31,23 @@ pub struct Preferences {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct OsdPrefs {
     #[serde(default)]
+    pub look: OsdLook,
+    #[serde(default)]
     pub primary_monitor: bool,
     pub style: OsdStyle,
     /// `left`/`right` for `vertical`, `top`/`bottom` for `horizontal`.
     pub edge: OsdEdge,
     /// Percent of the screen from the edge toward the center, 0…`OSD_MAX_OFFSET_PCT`.
     pub offset_pct: f32,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum OsdLook {
+    #[default]
+    Classic,
+    Sketch,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -354,4 +365,28 @@ fn input_channel_is_auto(channel: &InputChannel) -> bool {
 }
 fn device_kind_is_unknown(kind: &DeviceKind) -> bool {
     *kind == DeviceKind::Unknown
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_osd_preferences_default_to_classic() {
+        let prefs: OsdPrefs = serde_json::from_value(serde_json::json!({
+            "style": "horizontal", "edge": "bottom", "offset_pct": 10.0
+        }))
+        .expect("old preferences");
+        assert_eq!(prefs.look, OsdLook::Classic);
+        let sketch = OsdPrefs {
+            look: OsdLook::Sketch,
+            ..prefs
+        };
+        let json = serde_json::to_value(sketch).expect("encode");
+        assert_eq!(json["look"], "sketch");
+        assert_eq!(
+            serde_json::from_value::<OsdPrefs>(json).expect("decode"),
+            sketch
+        );
+    }
 }

@@ -101,6 +101,8 @@ const LEGACY_HOTKEYS: [(&str, &str); 8] = [
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OsdConfig {
+    #[serde(default)]
+    pub look: OsdLook,
     pub primary_monitor: bool,
     pub style: OsdStyle,
     /// Left or right for the vertical style, top or bottom for the horizontal one.
@@ -111,6 +113,14 @@ pub struct OsdConfig {
 
 /// The farthest the popup moves from its edge toward the center.
 pub const OSD_MAX_OFFSET_PCT: f32 = 40.0;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OsdLook {
+    #[default]
+    Classic,
+    Sketch,
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -148,6 +158,7 @@ impl OsdConfig {
             0.0
         };
         Self {
+            look: self.look,
             primary_monitor: self.primary_monitor,
             style: self.style,
             edge,
@@ -372,8 +383,26 @@ mod tests {
     }
 
     #[test]
+    fn old_overlay_preferences_keep_the_classic_layout() {
+        let config: Config =
+            toml::from_str("[ui.osd]\nstyle = 'horizontal'\n[soundpad]\nshow_in_overlay = false\n")
+                .expect("old config");
+        assert_eq!(config.ui.osd.look, OsdLook::Classic);
+        assert_eq!(
+            config.soundpad.overlay_view,
+            soundpad::SoundpadOverlayView::Grid
+        );
+        assert_eq!(
+            config.soundpad.overlay_controls,
+            soundpad::SoundpadOverlayControls::Top
+        );
+        assert!(!config.soundpad.show_in_overlay);
+    }
+
+    #[test]
     fn osd_setup_keeps_an_edge_of_its_style_and_a_sane_offset() {
         let fixed = OsdConfig {
+            look: Default::default(),
             primary_monitor: false,
             style: OsdStyle::Horizontal,
             edge: OsdEdge::Right,
@@ -388,6 +417,7 @@ mod tests {
         };
         assert_eq!(broken.normalized().offset_pct, 0.0);
         let kept = OsdConfig {
+            look: Default::default(),
             primary_monitor: true,
             style: OsdStyle::Vertical,
             edge: OsdEdge::Left,

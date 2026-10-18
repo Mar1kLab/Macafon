@@ -7,6 +7,23 @@ use std::path::{Path, PathBuf};
 /// Per-sound and output volumes go up to twice the file's level.
 pub const SOUNDPAD_MAX_VOLUME_PCT: f32 = 200.0;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SoundpadOverlayView {
+    #[default]
+    Grid,
+    List,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SoundpadOverlayControls {
+    #[default]
+    Top,
+    Bottom,
+    Hidden,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SoundpadConfig {
@@ -22,6 +39,10 @@ pub struct SoundpadConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub monitor_device: Option<String>,
     pub show_in_overlay: bool,
+    #[serde(default)]
+    pub overlay_view: SoundpadOverlayView,
+    #[serde(default)]
+    pub overlay_controls: SoundpadOverlayControls,
     pub looping: bool,
     /// Output volumes are trims around the normalized level (owner request, 2026-10-18).
     /// Missing in older configs, whose volumes compensated for unnormalized sounds.
@@ -42,6 +63,8 @@ impl Default for SoundpadConfig {
             mute_voice_while_playing: false,
             monitor_device: None,
             show_in_overlay: true,
+            overlay_view: SoundpadOverlayView::default(),
+            overlay_controls: SoundpadOverlayControls::default(),
             looping: false,
             normalized_levels: true,
             sounds: BTreeMap::new(),

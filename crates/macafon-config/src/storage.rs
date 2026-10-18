@@ -283,6 +283,7 @@ volume_pct = 300.0
                 close_hint_shown: false,
                 quit_on_close: true,
                 osd: OsdConfig {
+                    look: crate::OsdLook::Sketch,
                     primary_monitor: false,
                     style: OsdStyle::Horizontal,
                     edge: OsdEdge::Top,
@@ -298,6 +299,8 @@ volume_pct = 300.0
             soundpad: {
                 let mut soundpad = crate::SoundpadConfig {
                     monitor_device: Some("headphones".into()),
+                    overlay_view: crate::soundpad::SoundpadOverlayView::List,
+                    overlay_controls: crate::soundpad::SoundpadOverlayControls::Hidden,
                     ..Default::default()
                 };
                 soundpad.edit_sound("Memes/air horn.mp3", |sound| sound.favorite = true);

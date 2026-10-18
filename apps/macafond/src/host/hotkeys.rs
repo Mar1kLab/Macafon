@@ -11,10 +11,19 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 const REPEAT_DELAY: Duration = Duration::from_millis(400);
-const REPEAT_INTERVAL: Duration = Duration::from_millis(100);
+const REPEAT_INTERVAL: Duration = Duration::from_millis(50);
 
-#[derive(Default)]
-pub(super) struct VolumeRepeats(HashMap<String, Instant>);
+pub(super) struct VolumeRepeats(HashMap<String, Instant>, crate::hotkeys::RepeatTimer);
+
+impl VolumeRepeats {
+    pub(super) fn new(control: macafon_backend::ControlSender<super::ControlMessage>) -> Self {
+        Self(HashMap::new(), crate::hotkeys::RepeatTimer::spawn(control))
+    }
+
+    fn schedule(&self) {
+        self.1.schedule(self.0.values().copied().min());
+    }
+}
 
 impl DaemonHost {
     /// Every action available now: the global ones and three per channel.
@@ -99,6 +108,7 @@ impl DaemonHost {
             return;
         }
         self.volume_repeats.0.clear();
+        self.volume_repeats.schedule();
         service.bind(bindings.clone());
         self.bound_hotkeys = Some(bindings);
     }
@@ -220,13 +230,15 @@ impl DaemonHost {
                     return None;
                 }
                 // Skip missed ticks rather than producing a burst after a stalled control loop.
-                *next = now + REPEAT_INTERVAL;
+                let late_ns = now.duration_since(*next).as_nanos() % REPEAT_INTERVAL.as_nanos();
+                *next = now - Duration::from_nanos(late_ns as u64) + REPEAT_INTERVAL;
                 Some(binding.clone())
             })
             .collect();
+        self.volume_repeats.schedule();
         for binding in due {
             if let Some(action) = HotkeyAction::parse(base_action(&binding)) {
-                self.apply_hotkey(action, true);
+                self.apply_hotkey(action, true, 0.5);
             }
         }
     }
@@ -250,12 +262,14 @@ impl DaemonHost {
         ) {
             if !pressed {
                 self.volume_repeats.0.remove(&binding);
+                self.volume_repeats.schedule();
                 return;
             }
             if let std::collections::hash_map::Entry::Vacant(entry) =
                 self.volume_repeats.0.entry(binding.clone())
             {
                 entry.insert(now + REPEAT_DELAY);
+                self.volume_repeats.schedule();
             } else {
                 return;
             }
@@ -277,10 +291,11 @@ impl DaemonHost {
         if !pressed && !action.held() {
             return;
         }
-        self.apply_hotkey(action, pressed);
+        self.apply_hotkey(action, pressed, 1.0);
     }
 
-    fn apply_hotkey(&mut self, action: HotkeyAction, pressed: bool) {
+    fn apply_hotkey(&mut self, action: HotkeyAction, pressed: bool, step_scale: f32) {
+        let step_pct = f32::from(self.config.ui.volume_step_pct) * step_scale;
         let request = match &action {
             HotkeyAction::QuickPanel => {
                 crate::ui::overlay();
@@ -290,7 +305,7 @@ impl DaemonHost {
                 Request::MixerSetMaster {
                     volume_pct: Some(
                         (self.config.mixer.master_volume_pct
-                            + f32::from(self.config.ui.volume_step_pct)
+                            + step_pct
                                 * if matches!(action, HotkeyAction::MasterVolumeUp) {
                                     1.0
                                 } else {
@@ -315,11 +330,11 @@ impl DaemonHost {
             HotkeyAction::PresetPrevious => Request::MicCyclePreset { step: -1 },
             HotkeyAction::ChannelVolumeUp(id) => Request::ChannelAdjustVolume {
                 id: id.clone(),
-                delta_pct: f32::from(self.config.ui.volume_step_pct),
+                delta_pct: step_pct,
             },
             HotkeyAction::ChannelVolumeDown(id) => Request::ChannelAdjustVolume {
                 id: id.clone(),
-                delta_pct: -f32::from(self.config.ui.volume_step_pct),
+                delta_pct: -step_pct,
             },
             HotkeyAction::ChannelMute(id) => Request::ChannelToggleMute { id: id.clone() },
             HotkeyAction::SoundpadStop => Request::SoundpadStop,
@@ -412,6 +427,10 @@ pub(super) fn base_action(binding: &str) -> &str {
 
 pub(super) fn osd_prefs(config: OsdConfig) -> OsdPrefs {
     OsdPrefs {
+        look: match config.look {
+            macafon_config::OsdLook::Classic => macafon_ipc::OsdLook::Classic,
+            macafon_config::OsdLook::Sketch => macafon_ipc::OsdLook::Sketch,
+        },
         primary_monitor: config.primary_monitor,
         style: match config.style {
             OsdStyle::Vertical => macafon_ipc::OsdStyle::Vertical,
@@ -430,6 +449,10 @@ pub(super) fn osd_prefs(config: OsdConfig) -> OsdPrefs {
 /// Settings may send any combination: the edge is fixed up to the style, the offset clamped.
 pub(super) fn osd_config(prefs: OsdPrefs) -> OsdConfig {
     OsdConfig {
+        look: match prefs.look {
+            macafon_ipc::OsdLook::Classic => macafon_config::OsdLook::Classic,
+            macafon_ipc::OsdLook::Sketch => macafon_config::OsdLook::Sketch,
+        },
         primary_monitor: prefs.primary_monitor,
         style: match prefs.style {
             macafon_ipc::OsdStyle::Vertical => OsdStyle::Vertical,

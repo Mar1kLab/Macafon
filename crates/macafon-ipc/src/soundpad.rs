@@ -6,6 +6,25 @@ use serde::{Deserialize, Serialize};
 /// Largest decoded chunk of `soundpad.upload`; its base64 stays under `MAX_LINE_BYTES`.
 pub const SOUNDPAD_UPLOAD_CHUNK_BYTES: usize = 512 * 1024;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum SoundpadOverlayView {
+    #[default]
+    Grid,
+    List,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum SoundpadOverlayControls {
+    #[default]
+    Top,
+    Bottom,
+    Hidden,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SoundInfo {
@@ -60,6 +79,10 @@ pub struct SoundpadPrefs {
     pub monitor_device: Option<String>,
     /// Show the soundpad panel in the hotkey overlay.
     pub show_in_overlay: bool,
+    #[serde(default)]
+    pub overlay_view: SoundpadOverlayView,
+    #[serde(default)]
+    pub overlay_controls: SoundpadOverlayControls,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -94,6 +117,10 @@ pub struct SoundpadPrefsPatch {
     pub mute_voice_while_playing: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_in_overlay: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlay_view: Option<SoundpadOverlayView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlay_controls: Option<SoundpadOverlayControls>,
 }
 
 /// `soundpad.set_sound`: absent fields stay.
@@ -104,4 +131,22 @@ pub struct SoundPatch {
     pub volume_pct: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub favorite: Option<bool>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_soundpad_preferences_default_to_grid_with_top_controls() {
+        let prefs: SoundpadPrefs = serde_json::from_value(serde_json::json!({
+            "to_microphone": true, "to_headphones": true,
+            "microphone_volume_pct": 100.0, "headphones_volume_pct": 70.0,
+            "mute_voice_while_playing": false, "monitor_device": null,
+            "show_in_overlay": true
+        }))
+        .expect("old preferences");
+        assert_eq!(prefs.overlay_view, SoundpadOverlayView::Grid);
+        assert_eq!(prefs.overlay_controls, SoundpadOverlayControls::Top);
+    }
 }

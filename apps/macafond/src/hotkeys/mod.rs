@@ -268,3 +268,87 @@ fn run_x11(
         );
     }
 }
+
+/// Sleeps until the control loop's next volume deadline. Only one wake can be pending:
+/// after sending it, wait for the host to supply the next deadline (or cancellation).
+/// This thread never touches audio or runs hotkey actions.
+pub(super) struct RepeatTimer(mpsc::Sender<Option<std::time::Instant>>);
+
+impl RepeatTimer {
+    pub(super) fn spawn(control: ControlSender<ControlMessage>) -> Self {
+        let (sender, receiver) = mpsc::channel::<Option<std::time::Instant>>();
+        let spawned = std::thread::Builder::new()
+            .name("macafon-hotkey-repeat".into())
+            .spawn(move || {
+                let mut deadline: Option<std::time::Instant> = None;
+                loop {
+                    let result = if let Some(at) = deadline {
+                        receiver
+                            .recv_timeout(at.saturating_duration_since(std::time::Instant::now()))
+                    } else {
+                        receiver
+                            .recv()
+                            .map_err(|_| mpsc::RecvTimeoutError::Disconnected)
+                    };
+                    match result {
+                        Ok(next) => deadline = next,
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            deadline = None;
+                            if control.send(ControlMessage::HotkeyRepeat).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            });
+        if let Err(error) = spawned {
+            tracing::warn!(%error, "Cannot start the hotkey repeat timer");
+        }
+        Self(sender)
+    }
+
+    pub(super) fn schedule(&self, deadline: Option<std::time::Instant>) {
+        let _ = self.0.send(deadline);
+    }
+}
+
+#[cfg(test)]
+mod repeat_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn timer_wakes_without_backend_ticks_and_waits_for_rearming() {
+        let (sender, receiver) = mpsc::channel();
+        let control =
+            ControlSender::new(move |message| sender.send(message).map_err(|error| error.0));
+        let timer = RepeatTimer::spawn(control);
+        let deadline = Instant::now() + Duration::from_millis(20);
+        timer.schedule(Some(deadline));
+        assert!(matches!(
+            receiver
+                .recv_timeout(Duration::from_secs(2))
+                .expect("timer wake"),
+            ControlMessage::HotkeyRepeat
+        ));
+        assert!(Instant::now() >= deadline, "never fire before the deadline");
+        assert!(
+            receiver.recv_timeout(Duration::from_millis(75)).is_err(),
+            "a stalled host cannot build up repeat messages"
+        );
+        timer.schedule(Some(Instant::now()));
+        assert!(matches!(
+            receiver
+                .recv_timeout(Duration::from_secs(2))
+                .expect("rearmed timer"),
+            ControlMessage::HotkeyRepeat
+        ));
+        timer.schedule(Some(Instant::now() + Duration::from_millis(20)));
+        timer.schedule(None);
+        assert!(
+            receiver.recv_timeout(Duration::from_millis(75)).is_err(),
+            "release cancels the timer"
+        );
+    }
+}

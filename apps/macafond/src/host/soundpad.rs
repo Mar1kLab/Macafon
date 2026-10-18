@@ -48,6 +48,25 @@ impl DaemonHost {
                 mute_voice_while_playing: config.mute_voice_while_playing,
                 monitor_device: config.monitor_device.clone(),
                 show_in_overlay: config.show_in_overlay,
+                overlay_controls: match config.overlay_controls {
+                    macafon_config::soundpad::SoundpadOverlayControls::Top => {
+                        macafon_ipc::SoundpadOverlayControls::Top
+                    }
+                    macafon_config::soundpad::SoundpadOverlayControls::Bottom => {
+                        macafon_ipc::SoundpadOverlayControls::Bottom
+                    }
+                    macafon_config::soundpad::SoundpadOverlayControls::Hidden => {
+                        macafon_ipc::SoundpadOverlayControls::Hidden
+                    }
+                },
+                overlay_view: match config.overlay_view {
+                    macafon_config::soundpad::SoundpadOverlayView::Grid => {
+                        macafon_ipc::SoundpadOverlayView::Grid
+                    }
+                    macafon_config::soundpad::SoundpadOverlayView::List => {
+                        macafon_ipc::SoundpadOverlayView::List
+                    }
+                },
             },
             playback: soundpad.playback(),
             microphone_ready: self.virtual_mic_ready,
@@ -421,6 +440,29 @@ impl DaemonHost {
 }
 
 fn apply_prefs(config: &mut macafon_config::SoundpadConfig, patch: SoundpadPrefsPatch) {
+    if let Some(value) = patch.overlay_controls {
+        config.overlay_controls = match value {
+            macafon_ipc::SoundpadOverlayControls::Top => {
+                macafon_config::soundpad::SoundpadOverlayControls::Top
+            }
+            macafon_ipc::SoundpadOverlayControls::Bottom => {
+                macafon_config::soundpad::SoundpadOverlayControls::Bottom
+            }
+            macafon_ipc::SoundpadOverlayControls::Hidden => {
+                macafon_config::soundpad::SoundpadOverlayControls::Hidden
+            }
+        };
+    }
+    if let Some(value) = patch.overlay_view {
+        config.overlay_view = match value {
+            macafon_ipc::SoundpadOverlayView::Grid => {
+                macafon_config::soundpad::SoundpadOverlayView::Grid
+            }
+            macafon_ipc::SoundpadOverlayView::List => {
+                macafon_config::soundpad::SoundpadOverlayView::List
+            }
+        };
+    }
     if let Some(value) = patch.to_microphone {
         config.to_microphone = value;
     }
@@ -485,4 +527,35 @@ fn random_pick<T>(items: &[T]) -> Option<&T> {
         });
     // A multiplicative hash spreads consecutive nanosecond readings.
     items.get(seed.wrapping_mul(0x9E37_79B9) % items.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn overlay_prefs_patch_preserves_absent_fields_and_round_trips() {
+        let mut config = macafon_config::SoundpadConfig::default();
+        let patch = serde_json::from_value(serde_json::json!({
+            "overlay_view": "list", "overlay_controls": "bottom"
+        }))
+        .expect("overlay patch");
+        apply_prefs(&mut config, patch);
+        apply_prefs(&mut config, SoundpadPrefsPatch::default());
+        assert_eq!(
+            config.overlay_view,
+            macafon_config::soundpad::SoundpadOverlayView::List
+        );
+        assert_eq!(
+            config.overlay_controls,
+            macafon_config::soundpad::SoundpadOverlayControls::Bottom
+        );
+        assert!(config.show_in_overlay);
+        let saved = serde_json::to_string(&config).expect("save preferences");
+        assert_eq!(
+            serde_json::from_str::<macafon_config::SoundpadConfig>(&saved)
+                .expect("load preferences"),
+            config
+        );
+    }
 }

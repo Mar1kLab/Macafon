@@ -40,6 +40,8 @@ pub enum ControlMessage {
         reply: mpsc::Sender<Outcome>,
     },
     Disconnected,
+    /// Wake the control loop at the next held-volume deadline.
+    HotkeyRepeat,
     /// A global shortcut went down or up (HK-001).
     Hotkey {
         action: String,
@@ -143,7 +145,7 @@ impl DaemonHost {
             hotkey_status: None,
             bound_hotkeys: None,
             pressed_hotkeys: std::collections::HashSet::new(),
-            volume_repeats: hotkeys::VolumeRepeats::default(),
+            volume_repeats: hotkeys::VolumeRepeats::new(control.clone()),
             icons: macafon_apps::icons::IconResolver::from_env(),
             soundpad: None,
             soundpad_dirty: false,
@@ -522,6 +524,7 @@ impl MicrophoneHost for DaemonHost {
 
     fn handle(&mut self, message: ControlMessage) {
         let message = match message {
+            ControlMessage::HotkeyRepeat => return self.repeat_hotkeys(Instant::now()),
             ControlMessage::Hotkey { action, pressed } => return self.hotkey(&action, pressed),
             ControlMessage::HotkeyStatus(status) => {
                 self.hotkey_status = Some(status);
@@ -580,7 +583,6 @@ impl MicrophoneHost for DaemonHost {
     }
 
     fn tick(&mut self) {
-        self.repeat_hotkeys(Instant::now());
         self.tick_soundpad(Instant::now());
         self.refresh_input();
         self.mixer.collect_garbage();
@@ -786,22 +788,26 @@ mod tests {
         host.repeat_hotkeys(at(399));
         assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 53.0);
         host.repeat_hotkeys(at(400));
+        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 54.5);
+        host.repeat_hotkeys(at(449));
+        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 54.5);
+        host.repeat_hotkeys(at(450));
         assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 56.0);
-        host.repeat_hotkeys(at(499));
-        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 56.0);
-        host.repeat_hotkeys(at(500));
-        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 59.0);
-        host.hotkey_at("channel_volume_down.main#secondary", true, at(500));
+        host.hotkey_at("channel_volume_down.main#secondary", true, at(450));
         host.hotkey_at("channel_volume_up.main", false, at(510));
+        host.repeat_hotkeys(at(875));
+        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 51.5);
+        host.repeat_hotkeys(at(899));
+        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 51.5);
         host.repeat_hotkeys(at(900));
-        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 53.0);
+        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 50.0);
         host.hotkey_at("channel_volume_down.main#secondary", false, at(901));
         host.repeat_hotkeys(at(10000));
-        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 53.0);
+        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 50.0);
         host.hotkey_at("master_volume_up#secondary", true, at(11000));
         host.repeat_hotkeys(at(16000));
         assert_eq!(
-            host.config.mixer.master_volume_pct, 56.0,
+            host.config.mixer.master_volume_pct, 54.5,
             "no catch-up burst after a stall"
         );
         host.hotkey_at("master_volume_up#secondary", false, at(16001));
@@ -814,7 +820,7 @@ mod tests {
         host.rebind_hotkeys();
         host.repeat_hotkeys(at(22000));
         assert_eq!(
-            host.config.mixer.channels[0].settings.volume_pct, 56.0,
+            host.config.mixer.channels[0].settings.volume_pct, 53.0,
             "rebinding cancels a repeat"
         );
     }

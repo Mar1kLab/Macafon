@@ -44,13 +44,13 @@ pub const MAX_METER_HZ: u32 = 60;
 
 pub use request::Request;
 pub use soundpad::{
-    SOUNDPAD_UPLOAD_CHUNK_BYTES, SoundInfo, SoundPatch, SoundpadPlayback, SoundpadPrefs,
-    SoundpadPrefsPatch, SoundpadState,
+    SOUNDPAD_UPLOAD_CHUNK_BYTES, SoundInfo, SoundPatch, SoundpadOverlayControls,
+    SoundpadOverlayView, SoundpadPlayback, SoundpadPrefs, SoundpadPrefsPatch, SoundpadState,
 };
 pub use state::{
     AbRecording, AbSide, AbState, AbWaveform, AutostartMethod, AutostartState, CalibrationFailure,
     CalibrationState, CalibrationStep, Capabilities, CloseAction, ConfigRecovery, Device,
-    DeviceKind, Hello, MicState, OsdEdge, OsdPrefs, OsdStyle, Platform, PlaybackDevice,
+    DeviceKind, Hello, MicState, OsdEdge, OsdLook, OsdPrefs, OsdStyle, Platform, PlaybackDevice,
     PlaybackDeviceKind, Preferences, PresetInfo,
 };
 pub use wire::{ErrorBody, ErrorCode, Event, Outcome, RequestEnvelope, Response, ServerMessage};

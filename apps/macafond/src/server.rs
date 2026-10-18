@@ -486,6 +486,8 @@ mod tests {
                 mute_voice_while_playing: false,
                 monitor_device: None,
                 show_in_overlay: true,
+                overlay_view: Default::default(),
+                overlay_controls: Default::default(),
             },
             playback: None,
             microphone_ready: false,

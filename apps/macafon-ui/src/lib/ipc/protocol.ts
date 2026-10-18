@@ -389,9 +389,11 @@ export type UiTarget = "main" | "tray_panel" | "overlay";
 
 export type OsdStyle = "vertical" | "horizontal";
 
+export type OsdLook = "classic" | "sketch";
+
 export type OsdEdge = "left" | "right" | "top" | "bottom";
 
-export type OsdPrefs = { primary_monitor: boolean, style: OsdStyle,
+export type OsdPrefs = { look: OsdLook, primary_monitor: boolean, style: OsdStyle,
 /**
  * `left`/`right` for `vertical`, `top`/`bottom` for `horizontal`.
  */
@@ -453,6 +455,10 @@ export type SoundpadPlayback = { sound_id: string, position_ms: number, duration
  */
 loading: boolean, };
 
+export type SoundpadOverlayView = "grid" | "list";
+
+export type SoundpadOverlayControls = "top" | "bottom" | "hidden";
+
 export type SoundpadPrefs = {
 /**
  * Play into Macafon Microphone, heard by the voice chat.
@@ -481,7 +487,7 @@ monitor_device: string | null,
 /**
  * Show the soundpad panel in the hotkey overlay.
  */
-show_in_overlay: boolean, };
+show_in_overlay: boolean, overlay_view: SoundpadOverlayView, overlay_controls: SoundpadOverlayControls, };
 
 export type SoundpadState = {
 /**
@@ -501,6 +507,6 @@ categories: Array<string>, sounds: Array<SoundInfo>, prefs: SoundpadPrefs, playb
  */
 microphone_ready: boolean, };
 
-export type SoundpadPrefsPatch = { to_microphone?: boolean | null, to_headphones?: boolean | null, microphone_volume_pct?: number | null, headphones_volume_pct?: number | null, mute_voice_while_playing?: boolean | null, show_in_overlay?: boolean | null, };
+export type SoundpadPrefsPatch = { to_microphone?: boolean | null, to_headphones?: boolean | null, microphone_volume_pct?: number | null, headphones_volume_pct?: number | null, mute_voice_while_playing?: boolean | null, show_in_overlay?: boolean | null, overlay_view?: SoundpadOverlayView | null, overlay_controls?: SoundpadOverlayControls | null, };
 
 export type SoundPatch = { volume_pct?: number | null, favorite?: boolean | null, };

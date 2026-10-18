@@ -3,7 +3,7 @@
 //! loop paces itself on `DwmFlush` while anything moves.
 use super::icons::ICONS;
 use super::{Osd, StatusIcon};
-use macafon_config::{OsdConfig, OsdEdge, OsdStyle};
+use macafon_config::{OsdConfig, OsdEdge, OsdLook, OsdStyle};
 use std::collections::HashMap;
 use std::sync::{OnceLock, mpsc};
 use std::time::{Duration, Instant};
@@ -225,7 +225,7 @@ impl Spring {
 /// Spring tunings: (frequency in Hz, damping ratio).
 const ENTER: (f32, f32) = (3.2, 0.62);
 const EXIT: (f32, f32) = (3.6, 1.0);
-const LEVEL: (f32, f32) = (6.0, 0.9);
+const LEVEL: (f32, f32) = (7.0, 1.0);
 const FADE: (f32, f32) = (5.0, 1.0);
 const BOUNCE: (f32, f32) = (4.0, 0.35);
 const KICK: f32 = 18.0;
@@ -377,11 +377,7 @@ impl Popup {
                 } else {
                     self.alert.snap(target);
                 }
-                let text = self
-                    .painter
-                    .text_width(title, &self.painter.title)
-                    .max(self.painter.text_width(value, &self.painter.value));
-                self.status_width = (64.0 + text + 24.0).clamp(STATUS_MIN_W, STATUS_MAX_W);
+                self.status_width = self.painter.status_width(title, value, setup.look);
             }
         }
         self.view = Some(osd);
@@ -631,6 +627,10 @@ struct Painter {
     /// The panel's transform for this frame: icons are placed relative to it.
     panel: Matrix3x2,
     icons: HashMap<(&'static str, u32, u32), ID2D1SvgDocument>,
+    mono: IDWriteTextFormat,
+    mono_center: IDWriteTextFormat,
+    hud: IDWriteTextFormat,
+    hud_center: IDWriteTextFormat,
     percent: IDWriteTextFormat,
     name: IDWriteTextFormat,
     label: IDWriteTextFormat,
@@ -648,6 +648,24 @@ impl Painter {
                 CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER)?;
             let display = w!("Segoe UI Variable Display");
             let text = w!("Segoe UI Variable Text");
+            let mut fonts = None;
+            dwrite.GetSystemFontCollection(&mut fonts, false)?;
+            let mut family = w!("Consolas");
+            if let Some(fonts) = fonts {
+                for candidate in [w!("Geist Mono"), w!("Cascadia Mono"), w!("Consolas")] {
+                    let mut index = 0;
+                    let mut exists = BOOL(0);
+                    fonts.FindFamilyName(candidate, &mut index, &mut exists)?;
+                    if exists.as_bool() {
+                        family = candidate;
+                        break;
+                    }
+                }
+            }
+            let mono = format(&dwrite, family, DWRITE_FONT_WEIGHT_MEDIUM, 13.0, false)?;
+            let mono_center = format(&dwrite, family, DWRITE_FONT_WEIGHT_MEDIUM, 13.0, true)?;
+            let hud = format(&dwrite, family, DWRITE_FONT_WEIGHT_MEDIUM, 11.0, false)?;
+            let hud_center = format(&dwrite, family, DWRITE_FONT_WEIGHT_MEDIUM, 11.0, true)?;
             let percent = format(&dwrite, display, DWRITE_FONT_WEIGHT_SEMI_BOLD, 15.0, true)?;
             let name = format(&dwrite, text, DWRITE_FONT_WEIGHT_SEMI_BOLD, 12.0, true)?;
             let label = format(&dwrite, text, DWRITE_FONT_WEIGHT_SEMI_BOLD, 12.0, false)?;
@@ -669,6 +687,10 @@ impl Painter {
                 height: 0,
                 panel: IDENTITY,
                 icons: HashMap::new(),
+                mono,
+                mono_center,
+                hud,
+                hud_center,
                 percent,
                 name,
                 label,
@@ -754,6 +776,18 @@ impl Painter {
         }
     }
 
+    fn status_width(&self, title: &str, value: &str, look: OsdLook) -> f32 {
+        let text = if look == OsdLook::Sketch {
+            let title = title.to_uppercase();
+            (self.text_width(&title, &self.hud) + title.chars().count() as f32 * 1.65)
+                .max(self.text_width(value, &self.mono))
+        } else {
+            self.text_width(title, &self.title)
+                .max(self.text_width(value, &self.value))
+        };
+        (64.0 + text + 24.0).clamp(STATUS_MIN_W, STATUS_MAX_W)
+    }
+
     fn paint(&mut self, scene: &Scene, layout: Layout, backdrop: Option<u32>) -> Result<()> {
         let Some(target) = self.target.clone() else {
             return Ok(());
@@ -782,25 +816,313 @@ impl Painter {
             target.SetTransform(&IDENTITY);
             target.Clear(Some(&backdrop.map_or(rgba(0, 0.0), |hex| rgba(hex, 1.0))));
             target.SetTransform(&self.panel);
-            let drawn = match scene.view {
-                Osd::Volume {
-                    name, color, icon, ..
-                } if horizontal => self.bar(&target, scene, bounds, name, color, icon),
-                Osd::Volume {
-                    name, color, icon, ..
-                } => self.volume(&target, scene, bounds, name, color, icon),
-                Osd::Status { .. } => {
-                    let radius = if horizontal {
-                        BAR_RADIUS
-                    } else {
-                        STATUS_H / 2.0
-                    };
-                    self.status(&target, scene, bounds, radius)
+            let drawn = if layout.setup.look == OsdLook::Sketch {
+                self.sketch(&target, scene, bounds, horizontal)
+            } else {
+                match scene.view {
+                    Osd::Volume {
+                        name, color, icon, ..
+                    } if horizontal => self.bar(&target, scene, bounds, name, color, icon),
+                    Osd::Volume {
+                        name, color, icon, ..
+                    } => self.volume(&target, scene, bounds, name, color, icon),
+                    Osd::Status { .. } => {
+                        let radius = if horizontal {
+                            BAR_RADIUS
+                        } else {
+                            STATUS_H / 2.0
+                        };
+                        self.status(&target, scene, bounds, radius)
+                    }
                 }
             };
             let ended = target.EndDraw(None, None);
             drawn.and(ended)
         }
+    }
+
+    /// Square frame and ruler, using the same animated scene as Classic.
+    unsafe fn sketch(
+        &mut self,
+        target: &ID2D1RenderTarget,
+        scene: &Scene,
+        bounds: D2D_RECT_F,
+        horizontal: bool,
+    ) -> Result<()> {
+        let positive = scene.stretch.max(0.0) * STRETCH / KICK * 4.0;
+        let negative = (-scene.stretch).max(0.0) * STRETCH / KICK * 4.0;
+        let bounds = if matches!(scene.view, Osd::Volume { .. }) {
+            if horizontal {
+                rect(
+                    bounds.left - negative,
+                    bounds.top,
+                    bounds.right + positive,
+                    bounds.bottom,
+                )
+            } else {
+                rect(
+                    bounds.left,
+                    bounds.top - positive,
+                    bounds.right,
+                    bounds.bottom + negative,
+                )
+            }
+        } else {
+            bounds
+        };
+        // SAFETY: called between BeginDraw and EndDraw on this thread's target.
+        unsafe {
+            let surface = target.CreateSolidColorBrush(&rgba(BG_RAISED, 1.0), None)?;
+            let line = target.CreateSolidColorBrush(&rgba(INK, 0.15), None)?;
+            let strong = target.CreateSolidColorBrush(&rgba(INK, 0.4), None)?;
+            target.FillRectangle(&bounds, &surface);
+            target.DrawRectangle(&bounds, &line, 1.0, None);
+            for x in [bounds.left, bounds.right] {
+                for y in [bounds.top, bounds.bottom] {
+                    target.DrawLine(
+                        Vector2 { X: x - 5.5, Y: y },
+                        Vector2 { X: x + 5.5, Y: y },
+                        &strong,
+                        1.0,
+                        None,
+                    );
+                    target.DrawLine(
+                        Vector2 { X: x, Y: y - 5.5 },
+                        Vector2 { X: x, Y: y + 5.5 },
+                        &strong,
+                        1.0,
+                        None,
+                    );
+                }
+            }
+            match scene.view {
+                Osd::Volume {
+                    name, color, icon, ..
+                } => {
+                    let (fill, ink) = channel_colors(color);
+                    let track = if horizontal {
+                        rect(
+                            bounds.left + 54.0,
+                            bounds.top + 34.0,
+                            bounds.right - 64.0,
+                            bounds.bottom - 12.0,
+                        )
+                    } else {
+                        rect(
+                            bounds.left + 14.0,
+                            bounds.top + 46.0,
+                            bounds.right - 14.0,
+                            bounds.bottom - 46.0,
+                        )
+                    };
+                    let sunken = target.CreateSolidColorBrush(&rgba(0x060607, 1.0), None)?;
+                    let fill =
+                        target.CreateSolidColorBrush(&rgba(fill, 1.0 - 0.75 * scene.mute), None)?;
+                    target.FillRectangle(&track, &sunken);
+                    let level = scene.level.clamp(0.0, 1.0);
+                    let head = if horizontal {
+                        track.left + (track.right - track.left) * level
+                    } else {
+                        track.bottom - (track.bottom - track.top) * level
+                    };
+                    let filled = if horizontal {
+                        rect(track.left, track.top, head, track.bottom)
+                    } else {
+                        rect(track.left, head, track.right, track.bottom)
+                    };
+                    target.FillRectangle(&filled, &fill);
+                    target.DrawRectangle(&track, &line, 1.0, None);
+                    for tick in 0..=10 {
+                        let t = tick as f32 / 10.0;
+                        let length = if tick % 5 == 0 { 7.0 } else { 4.0 };
+                        let (from, to) = if horizontal {
+                            let x = track.left + (track.right - track.left) * t;
+                            (
+                                Vector2 {
+                                    X: x,
+                                    Y: track.bottom,
+                                },
+                                Vector2 {
+                                    X: x,
+                                    Y: track.bottom - length,
+                                },
+                            )
+                        } else {
+                            let y = track.bottom - (track.bottom - track.top) * t;
+                            (
+                                Vector2 {
+                                    X: track.left,
+                                    Y: y,
+                                },
+                                Vector2 {
+                                    X: track.left + length,
+                                    Y: y,
+                                },
+                            )
+                        };
+                        target.DrawLine(from, to, &strong, 1.0, None);
+                    }
+                    let head_brush =
+                        target.CreateSolidColorBrush(&rgba(ink, 1.0 - 0.5 * scene.mute), None)?;
+                    let (from, to) = if horizontal {
+                        (
+                            Vector2 {
+                                X: head,
+                                Y: track.top - 3.0,
+                            },
+                            Vector2 {
+                                X: head,
+                                Y: track.bottom + 3.0,
+                            },
+                        )
+                    } else {
+                        (
+                            Vector2 {
+                                X: track.left - 3.0,
+                                Y: head,
+                            },
+                            Vector2 {
+                                X: track.right + 3.0,
+                                Y: head,
+                            },
+                        )
+                    };
+                    target.DrawLine(from, to, &head_brush, 2.0, None);
+                    let (caption, value, format) = if horizontal {
+                        self.icon(
+                            icon,
+                            ink,
+                            1.0 - 0.4 * scene.mute,
+                            bounds.left + 27.0,
+                            (bounds.top + bounds.bottom) / 2.0,
+                            20.0,
+                        )?;
+                        (
+                            rect(track.left, bounds.top + 8.0, track.right, bounds.top + 29.0),
+                            rect(
+                                bounds.right - 60.0,
+                                bounds.top,
+                                bounds.right - 8.0,
+                                bounds.bottom,
+                            ),
+                            &self.mono_center,
+                        )
+                    } else {
+                        (
+                            rect(
+                                bounds.left + 4.0,
+                                bounds.bottom - 38.0,
+                                bounds.right - 4.0,
+                                bounds.bottom - 12.0,
+                            ),
+                            rect(
+                                bounds.left + 4.0,
+                                bounds.top + 12.0,
+                                bounds.right - 4.0,
+                                bounds.top + 36.0,
+                            ),
+                            &self.mono_center,
+                        )
+                    };
+                    self.hud_text(target, name, caption, rgba(ink, 1.0), !horizontal)?;
+                    self.text(
+                        target,
+                        &format!("{:.0}%", level * 100.0),
+                        format,
+                        value,
+                        mix(rgba(INK, 1.0), rgba(DANGER, 1.0), scene.mute),
+                    )?;
+                }
+                Osd::Status {
+                    icon, title, value, ..
+                } => {
+                    let x = bounds.left + STATUS_H / 2.0;
+                    let y = (bounds.top + bounds.bottom) / 2.0;
+                    let badge = target.CreateSolidColorBrush(
+                        &mix(rgba(ACCENT, 1.0), rgba(DANGER, 1.0), scene.alert),
+                        None,
+                    )?;
+                    target.FillRectangle(&rect(x - 20.0, y - 20.0, x + 20.0, y + 20.0), &badge);
+                    let id = match icon {
+                        StatusIcon::Mic => "mic",
+                        StatusIcon::MicOff => "mic-off",
+                        StatusIcon::Processing => "processing",
+                        StatusIcon::Preset => "preset",
+                    };
+                    self.icon(id, WHITE, 1.0, x, y, 22.0)?;
+                    self.hud_text(
+                        target,
+                        title,
+                        rect(
+                            bounds.left + STATUS_H,
+                            bounds.top + 9.0,
+                            bounds.right - 16.0,
+                            bounds.top + 30.0,
+                        ),
+                        rgba(INK, 0.6),
+                        false,
+                    )?;
+                    self.text(
+                        target,
+                        value,
+                        &self.mono,
+                        rect(
+                            bounds.left + STATUS_H,
+                            bounds.top + 29.0,
+                            bounds.right - 16.0,
+                            bounds.bottom - 8.0,
+                        ),
+                        rgba(INK, 1.0),
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    unsafe fn hud_text(
+        &self,
+        target: &ID2D1RenderTarget,
+        text: &str,
+        area: D2D_RECT_F,
+        color: D2D1_COLOR_F,
+        centered: bool,
+    ) -> Result<()> {
+        let text: Vec<u16> = text.to_uppercase().encode_utf16().collect();
+        // SAFETY: the layout copies the text and is drawn on this thread's active target.
+        unsafe {
+            let layout = self.dwrite.CreateTextLayout(
+                &text,
+                if centered {
+                    &self.hud_center
+                } else {
+                    &self.hud
+                },
+                area.right - area.left,
+                area.bottom - area.top,
+            )?;
+            let spaced: IDWriteTextLayout1 = layout.cast()?;
+            spaced.SetCharacterSpacing(
+                0.0,
+                1.65,
+                0.0,
+                DWRITE_TEXT_RANGE {
+                    startPosition: 0,
+                    length: text.len() as u32,
+                },
+            )?;
+            let brush = target.CreateSolidColorBrush(&color, None)?;
+            target.DrawTextLayout(
+                Vector2 {
+                    X: area.left,
+                    Y: area.top,
+                },
+                &layout,
+                &brush,
+                D2D1_DRAW_TEXT_OPTIONS_NONE,
+            );
+        }
+        Ok(())
     }
 
     /// A raised pill with a soft shadow and a hairline border.
@@ -1375,74 +1697,76 @@ mod tests {
             ("vertical", OsdStyle::Vertical, OsdEdge::Right),
             ("horizontal", OsdStyle::Horizontal, OsdEdge::Bottom),
         ];
-        for (style_name, style, edge) in layouts {
-            let layout = Layout {
-                setup: OsdConfig {
-                    primary_monitor: false,
-                    style,
-                    edge,
-                    offset_pct: 0.0,
-                },
-                pad: MARGIN,
-            };
-            painter.resize(1.5, layout.window()).expect("surfaces");
-            for (label, view, stretch) in &views {
-                let (level, mute, alert) = match view {
-                    Osd::Volume {
-                        volume_pct, muted, ..
-                    } => (volume_pct / 100.0, f32::from(u8::from(*muted)), 0.0),
-                    Osd::Status { alert, .. } => (0.0, 0.0, f32::from(u8::from(*alert))),
+        for (look_name, look) in [("classic", OsdLook::Classic), ("sketch", OsdLook::Sketch)] {
+            for (style_name, style, edge) in layouts {
+                let layout = Layout {
+                    setup: OsdConfig {
+                        look,
+                        primary_monitor: false,
+                        style,
+                        edge,
+                        offset_pct: 0.0,
+                    },
+                    pad: MARGIN,
                 };
-                let status_width = match view {
-                    Osd::Status { title, value, .. } => (64.0
-                        + painter
-                            .text_width(title, &painter.title)
-                            .max(painter.text_width(value, &painter.value))
-                        + 24.0)
-                        .clamp(STATUS_MIN_W, STATUS_MAX_W),
-                    Osd::Volume { .. } => STATUS_MIN_W,
+                painter.resize(1.5, layout.window()).expect("surfaces");
+                for (label, view, stretch) in &views {
+                    let (level, mute, alert) = match view {
+                        Osd::Volume {
+                            volume_pct, muted, ..
+                        } => (volume_pct / 100.0, f32::from(u8::from(*muted)), 0.0),
+                        Osd::Status { alert, .. } => (0.0, 0.0, f32::from(u8::from(*alert))),
+                    };
+                    let status_width = match view {
+                        Osd::Status { title, value, .. } => {
+                            painter.status_width(title, value, look)
+                        }
+                        Osd::Volume { .. } => STATUS_MIN_W,
+                    };
+                    let scene = Scene {
+                        view,
+                        enter: 1.0,
+                        level,
+                        mute,
+                        alert,
+                        stretch: *stretch,
+                        status_width,
+                    };
+                    painter
+                        .paint(&scene, layout, Some(0x3a4a5c))
+                        .expect("paint");
+                    painter
+                        .save_png(&directory.join(format!(
+                            "2026-10-18-osd-{look_name}-{style_name}-{label}.png"
+                        )))
+                        .expect("png");
+                }
+                // The entrance: frames along the spring, the bounce included.
+                let view = volume("Main", "blue", "speaker", 67.0, false);
+                let mut enter = Spring {
+                    target: 1.0,
+                    ..Spring::default()
                 };
-                let scene = Scene {
-                    view,
-                    enter: 1.0,
-                    level,
-                    mute,
-                    alert,
-                    stretch: *stretch,
-                    status_width,
-                };
-                painter
-                    .paint(&scene, layout, Some(0x3a4a5c))
-                    .expect("paint");
-                painter
-                    .save_png(&directory.join(format!("2026-10-17-osd-{style_name}-{label}.png")))
-                    .expect("png");
-            }
-            // The entrance: frames along the spring, the bounce included.
-            let view = volume("Main", "blue", "speaker", 67.0, false);
-            let mut enter = Spring {
-                target: 1.0,
-                ..Spring::default()
-            };
-            for frame in 0..8 {
-                let scene = Scene {
-                    view: &view,
-                    enter: enter.value,
-                    level: 0.67,
-                    mute: 0.0,
-                    alert: 0.0,
-                    stretch: 0.0,
-                    status_width: STATUS_MIN_W,
-                };
-                painter
-                    .paint(&scene, layout, Some(0x3a4a5c))
-                    .expect("paint");
-                painter
-                    .save_png(
-                        &directory.join(format!("2026-10-17-osd-{style_name}-enter-{frame}.png")),
-                    )
-                    .expect("png");
-                enter.step(1.0 / 30.0, ENTER.0, ENTER.1);
+                for frame in 0..8 {
+                    let scene = Scene {
+                        view: &view,
+                        enter: enter.value,
+                        level: 0.67,
+                        mute: 0.0,
+                        alert: 0.0,
+                        stretch: 0.0,
+                        status_width: STATUS_MIN_W,
+                    };
+                    painter
+                        .paint(&scene, layout, Some(0x3a4a5c))
+                        .expect("paint");
+                    painter
+                        .save_png(&directory.join(format!(
+                            "2026-10-18-osd-{look_name}-{style_name}-enter-{frame}.png"
+                        )))
+                        .expect("png");
+                    enter.step(1.0 / 30.0, ENTER.0, ENTER.1);
+                }
             }
         }
     }

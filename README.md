@@ -29,27 +29,56 @@ Compressor → De-esser → Limiter and comes out as a virtual microphone for Di
 
 **Mixer.** Apps appear automatically; drag them between channels (Main, Voice, Music, up to eight) to
 control their volume with one fader. Pick the output device or a priority list for automatic switching.
+Your soundpad's headphone playback is an app of its own, so it goes into any channel too.
 
 ![Mixer screen](docs/images/mixer.png)
 
 **Soundpad.** Play sounds into your voice chat — you hear them in your headphones too.
 
-- Drop audio files on the window or put them in `Music\Macafon Sounds`; subfolders become categories.
-- MP3, WAV, OGG, FLAC, M4A, AAC. Search, sort, favorites, per-sound volume and hotkeys.
+- Drop audio files on the window or into the library folder — `Music\Macafon Sounds` or any folder on
+  any drive. Each subfolder is a category: new folders show up in the app, and moving a sound to
+  another category moves its file.
+- Sounds are loudness-normalized: at 100 % they are about as loud as your voice, and a limiter keeps
+  the voice chat from clipping.
+- MP3, WAV, OGG, FLAC, M4A, AAC. Search, sort, favorites, per-sound volume and hotkeys; large libraries
+  load in the background.
 - Your voice processing is not applied to sounds. Optionally mute your voice while a sound plays.
 
 ![Soundpad screen](docs/images/soundpad.png)
 
-**Always at hand.** Global hotkeys (push-to-talk, mute, volume, sounds) work with the window closed and
-show a small on-screen popup. The tray icon opens a quick panel; a hotkey opens an overlay with volumes
-and a searchable soundpad. **Doctor** checks your audio setup.
+**Always at hand.** Global hotkeys (push-to-talk, mute, volume, sounds; left and right Ctrl/Alt are
+told apart) work with the window closed and show a small on-screen popup. The tray icon opens a quick
+panel; `LCtrl+LAlt+Z` opens an overlay with volumes and a searchable soundpad. **Doctor** checks your
+audio setup.
 
 <details>
 <summary>More screenshots</summary>
+<br>
 
-![Settings](docs/images/settings.png)
-![Tray quick panel](docs/images/tray-panel.png)
-![Hotkey overlay with soundpad](docs/images/hotkey-overlay.png)
+<p align="center">
+  <img alt="Hotkey overlay" src="docs/images/hotkey-overlay.png" width="720"><br>
+  <sub><b>Hotkey overlay</b> (<code>LCtrl+LAlt+Z</code>): channel volumes, microphone, processing and preset over any app.</sub>
+</p>
+
+<p align="center">
+  <img alt="Hotkey overlay with sounds" src="docs/images/hotkey-overlay-sounds.png" width="720"><br>
+  <sub><b>Overlay with sounds</b>: the round button opens the soundpad — search, categories, one click to play.</sub>
+</p>
+
+<p align="center">
+  <img alt="Tray quick panel" src="docs/images/tray-panel.png" width="360"><br>
+  <sub><b>Tray panel</b> (right-click the tray icon): quick toggles, preset and volumes.</sub>
+</p>
+
+<p align="center">
+  <img alt="Settings: hotkey popup" src="docs/images/settings.png" width="720"><br>
+  <sub><b>Settings → Hotkey popup</b>: pick the popup style, edge and monitor from pictures of where it appears.</sub>
+</p>
+
+<p align="center">
+  <img alt="Settings: soundpad folder" src="docs/images/settings-soundpad.png" width="720"><br>
+  <sub><b>Settings → Soundpad</b>: use any folder on any drive as the sound library.</sub>
+</p>
 
 </details>
 
@@ -64,8 +93,6 @@ and a searchable soundpad. **Doctor** checks your audio setup.
 
 Macafon must keep running in the tray — without it the cable is silent. Uninstalling restores your
 original audio devices and app volumes.
-
-> The published v0.1.0 installer predates Soundpad. Build from source to try it until the next release.
 
 ## Linux (experimental)
 

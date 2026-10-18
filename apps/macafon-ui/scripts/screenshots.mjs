@@ -383,6 +383,18 @@ const scenarios = {
     await page.getByRole('button', { name: 'Play Elevator loop' }).click();
     await page.waitForTimeout(2500);
   },
+  'tray-panel': async (page) => {
+    await page.goto(`${base}?platform=windows&view=quick-panel`);
+    await page.waitForSelector('.panel .tiles');
+    await page.waitForTimeout(600);
+  },
+  'tray-panel-sketch': async (page) => {
+    // The tray panel follows the popup's look; the microphone muted shows the alert marks.
+    await page.goto(`${base}?platform=windows&view=quick-panel&look=sketch`);
+    await page.waitForSelector('.panel .tiles');
+    await page.getByRole('switch', { name: /Microphone/ }).click();
+    await page.waitForTimeout(600);
+  },
   'settings-look': async (page) => {
     await page.goto(`${base}?platform=windows&screen=settings&section=popup`);
     await page.waitForSelector('#settings-popup');

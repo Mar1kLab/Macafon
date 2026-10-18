@@ -307,7 +307,7 @@ export const en = {
       previewHint: 'Every change above shows the popup too',
       previewRun: 'Show popup',
       look: 'Look',
-      lookHint: 'For this popup and the quick controls overlay',
+      lookHint: 'For this popup, the quick controls overlay and the tray panel',
       looks: { classic: 'Classic', sketch: 'Sketch' },
       lookHints: {
         classic: 'Rounded pills and soft shadows',

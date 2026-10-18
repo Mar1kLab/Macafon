@@ -9,10 +9,12 @@
     color: string;
     muted?: boolean;
     mutedText: string;
+    /** Sketch: the app's ruler with sharp corners instead of the rounded pill. */
+    sketch?: boolean;
     onchange: (value: number) => void;
   }
 
-  let { value, label, name, color, muted = false, mutedText, onchange }: Props = $props();
+  let { value, label, name, color, muted = false, mutedText, sketch = false, onchange }: Props = $props();
   let track: HTMLDivElement | undefined = $state();
   let dragging = $state(false);
 
@@ -52,6 +54,7 @@
   class="pill"
   class:muted
   class:dragging
+  class:sketch
   bind:this={track}
   role="slider"
   tabindex="0"
@@ -75,6 +78,12 @@
   onpointercancel={() => (dragging = false)}
 >
   <span class="fill"></span>
+  {#if sketch}
+    {#each [10, 20, 30, 40, 50, 60, 70, 80, 90] as tick (tick)}
+      <span class="tick" class:major={tick === 50} style:left="{tick}%"></span>
+    {/each}
+    <span class="head"></span>
+  {/if}
   <span class="name">{name}</span>
   <span class="value">{muted ? mutedText : `${Math.round(value)}%`}</span>
 </div>
@@ -144,7 +153,69 @@
     color: var(--danger);
   }
 
+  /* Sketch: a ruler — sharp corners, ticks every 10 % (major at 50 %), a straight head line. */
+  .sketch {
+    border-radius: 0;
+  }
+
+  .sketch .fill {
+    opacity: 0.85;
+  }
+
+  .sketch.muted .fill {
+    opacity: 0.2;
+  }
+
+  .tick {
+    position: absolute;
+    bottom: 0;
+    width: 1px;
+    height: 6px;
+    background: var(--faint);
+    pointer-events: none;
+  }
+
+  .tick.major {
+    height: 10px;
+    background: var(--line-strong);
+  }
+
+  .head {
+    position: absolute;
+    top: -1px;
+    bottom: -1px;
+    left: calc(var(--fill) - 1px);
+    width: 2px;
+    background: var(--ink-strong);
+    pointer-events: none;
+    transition: left var(--dur) var(--ease);
+  }
+
+  .dragging .head {
+    transition: none;
+  }
+
+  .sketch .name {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+
+  .sketch .value {
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .sketch:focus-visible {
+    border-color: var(--line);
+    outline: 1px solid var(--accent);
+    outline-offset: 2px;
+  }
+
   @media (prefers-reduced-motion: reduce) {
+    .head,
     .fill {
       transition: none;
     }

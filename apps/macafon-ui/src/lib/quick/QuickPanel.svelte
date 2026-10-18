@@ -49,6 +49,8 @@
   const preset = $derived(daemon.presets.find((p) => p.id === mic?.preset)?.name ?? t('quick.custom'));
   const output = $derived(mixer?.outputs.find((o) => o.name === mixer.output)?.description ?? null);
   const shortcut = $derived(daemon.hotkeys?.bindings.find((b) => b.action === 'quick_panel')?.shortcut ?? null);
+  /** The look picked for the hotkey popup: the tray panel follows it, like the overlay (HK-006). */
+  const sketch = $derived(daemon.prefs?.osd.look === 'sketch');
 
   function openMain() {
     if (tauri) void invoke('open_main').catch((error) => (quitError = String(error)));
@@ -56,7 +58,11 @@
 
 </script>
 
-<div class="panel">
+<div class="panel" class:sketch>
+  {#if sketch}
+    <!-- The overlay's frame: straight lines along the edges that run past the corners. -->
+    <span class="frame" aria-hidden="true"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></span>
+  {/if}
   <header>
     <span class="brand"><span class="logo"><Logo label="" inactive={muted} bypass={bypass} /></span><b>Macafon</b></span>
     <button class="round" aria-label={t('quick.openApp')} title={t('quick.openApp')} onclick={openMain}>
@@ -141,6 +147,7 @@
             color="teal"
             muted={mixer.master_muted}
             mutedText={t('quick.muted')}
+            {sketch}
             onchange={(volume_pct) => daemon.setMaster({ volume_pct })}
           />
         </div>
@@ -165,6 +172,7 @@
               color={channel.color}
               muted={channel.settings.muted}
               mutedText={t('quick.muted')}
+            {sketch}
               onchange={(value) => daemon.editChannel(channel.id, (s) => (s.volume_pct = value))}
             />
           </div>
@@ -412,6 +420,143 @@
     font-family: var(--font-mono);
     font-size: 11px;
     color: var(--muted);
+  }
+
+  /* Sketch: the app's own look, picked with the hotkey popup's — sharp corners, HUD labels,
+     accent marks instead of fills, and the overlay's frame. */
+  .sketch {
+    position: relative;
+    padding: 24px;
+  }
+
+  .frame {
+    position: absolute;
+    inset: 8px;
+    pointer-events: none;
+  }
+
+  .frame i {
+    position: absolute;
+    background: var(--line-strong);
+  }
+
+  .frame .t,
+  .frame .b {
+    left: -6px;
+    right: -6px;
+    height: 1px;
+  }
+
+  .frame .l,
+  .frame .r {
+    top: -6px;
+    bottom: -6px;
+    width: 1px;
+  }
+
+  .frame .t { top: 0; }
+  .frame .b { bottom: 0; }
+  .frame .l { left: 0; }
+  .frame .r { right: 0; }
+
+  .sketch header {
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .sketch .round,
+  .sketch .tile,
+  .sketch kbd {
+    border-radius: 0;
+  }
+
+  .sketch .round {
+    color: var(--muted);
+  }
+
+  .sketch .round:hover {
+    color: var(--ink-strong);
+  }
+
+  .sketch .round.channel {
+    color: var(--c-ink);
+  }
+
+  .sketch .round.alert {
+    color: var(--danger);
+  }
+
+  .sketch .tile {
+    position: relative;
+  }
+
+  .sketch .tile.on {
+    background: var(--bg-sunken);
+    border-color: var(--line);
+    color: var(--ink-strong);
+  }
+
+  .sketch .tile:hover {
+    background: var(--bg);
+  }
+
+  .sketch .tile.on :global(svg) {
+    color: var(--accent-ink);
+  }
+
+  .sketch .tile.on::before,
+  .sketch .tile.alert::before {
+    content: '';
+    position: absolute;
+    left: -1px;
+    top: -1px;
+    bottom: -1px;
+    width: 2px;
+    background: var(--accent);
+  }
+
+  .sketch .tile.alert {
+    border-color: var(--line);
+  }
+
+  .sketch .tile.alert::before {
+    background: var(--danger);
+  }
+
+  .sketch .tile.alert .state {
+    color: var(--danger);
+  }
+
+  .sketch .state {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    opacity: 1;
+  }
+
+  .sketch .quit {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .sketch .quit:hover:not(:disabled) {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  .sketch kbd {
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+  }
+
+  .sketch footer {
+    font-family: var(--font-mono);
+    font-size: 11px;
   }
 
   @media (prefers-reduced-motion: reduce) {

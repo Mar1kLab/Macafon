@@ -63,8 +63,11 @@ function keyName(code: string): string | null {
 
 /** Physical keys (`code`), so the shortcut does not depend on the keyboard layout. */
 export function recordShortcut(event: KeyLike, sides?: ReadonlySet<string>): Recorded {
+  // Windows AltGr reports Ctrl+Alt and may also emit ControlLeft. Match the
+  // backend's RAlt semantics instead of recording its synthetic Ctrl.
+  const altgr = event.altKey && sides?.has('AltRight') && !sides.has('AltLeft');
   const prefix = [
-    event.ctrlKey && (sides?.has('ControlLeft') && sides.has('ControlRight') ? 'LCtrl+RCtrl' : sides?.has('ControlLeft') ? 'LCtrl' : sides?.has('ControlRight') ? 'RCtrl' : 'Ctrl'),
+    event.ctrlKey && (altgr ? sides?.has('ControlRight') && 'RCtrl' : sides?.has('ControlLeft') && sides.has('ControlRight') ? 'LCtrl+RCtrl' : sides?.has('ControlLeft') ? 'LCtrl' : sides?.has('ControlRight') ? 'RCtrl' : 'Ctrl'),
     event.altKey && (sides?.has('AltLeft') && sides.has('AltRight') ? 'LAlt+RAlt' : sides?.has('AltLeft') ? 'LAlt' : sides?.has('AltRight') ? 'RAlt' : 'Alt'),
     event.shiftKey && 'Shift',
     event.metaKey && 'Super',

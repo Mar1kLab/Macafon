@@ -187,9 +187,6 @@ impl DaemonHost {
             }
             Some(text) => {
                 let accel = crate::hotkeys::accel::Accel::parse(&text).map_err(invalid)?;
-                if !cfg!(windows) && accel.sided() {
-                    return Err(invalid("Side-specific modifiers require Windows".into()));
-                }
                 let canonical = accel.to_string();
                 if let Some((other, _)) = self.config.hotkeys.iter().find(|(other, bound)| {
                     other.as_str() != action

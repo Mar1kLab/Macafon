@@ -422,7 +422,18 @@ loop such copies are dropped.
 - A channel switched off (`enabled = false` in `[[mixer.channels]]`) has no node; `MixerConfig::effective_channel`
   sends its apps to the default channel.
 - `Config::offer_default_hotkeys` runs once per `HOTKEY_DEFAULTS_REVISION` at daemon start.
-  `types_with_altgr` checks every installed layout with `ToUnicodeEx` (Ctrl+Alt held).
+  Revision 2 (owner request, 2026-10-18) applies only to an unoffered empty hotkey map or the
+  exact full revision-1 map. Any custom, partial, secondary or cleared map stays unchanged;
+  partial maps skipped for an old layout are conservatively treated as user configuration.
+  Missing channel IDs receive no new defaults. Main uses `RCtrl+PageUp/PageDown`, Voice
+  `RAlt+PageUp/PageDown`, and the quick panel `LCtrl+LAlt+Z`; microphone and Music defaults stay.
+  Side-specific shortcuts use the existing `WH_KEYBOARD_LL` hook. An RAlt binding without
+  Ctrl ignores Windows' AltGr synthetic LCtrl; LCtrl+LAlt does not match. The recorder uses the
+  same rule (physical LCtrl+RAlt is indistinguishable from AltGr). Generic Ctrl/Alt retain
+  either-side behavior; conflict checks include AltGr overlap. Linux uses modifier families
+  for both registration and conflict checks, so side tokens fall back to either side.
+  `types_with_altgr` checks every installed layout with `ToUnicodeEx` (Ctrl+Alt held), except
+  explicit LAlt bindings, which cannot be triggered by AltGr.
 
 
 ## Quick panel: black main window and two modes (2026-10-17, HK-007)

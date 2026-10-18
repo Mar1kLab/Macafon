@@ -11,6 +11,23 @@ pub struct Modifiers {
     pub super_: bool,
 }
 
+impl Modifiers {
+    /// Side masks: bit 0 is left, bit 1 is right. Windows synthesizes left Ctrl
+    /// with AltGr: an explicitly right-Alt binding without Ctrl ignores that bit.
+    #[cfg(any(windows, test))]
+    pub fn matches(self, mut ctrl: u8, alt: u8, shift: bool, super_: bool) -> bool {
+        if self.alt_side == 2 && !self.ctrl && alt == 2 {
+            ctrl &= !1;
+        }
+        self.ctrl == (ctrl != 0)
+            && self.alt == (alt != 0)
+            && (self.ctrl_side == 0 || self.ctrl_side == ctrl)
+            && (self.alt_side == 0 || self.alt_side == alt)
+            && self.shift == shift
+            && self.super_ == super_
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Accel {
     pub modifiers: Modifiers,
@@ -120,19 +137,27 @@ impl Accel {
         Ok(Self { modifiers, key })
     }
 
+    #[cfg(windows)]
     pub fn sided(&self) -> bool {
         self.modifiers.ctrl_side != 0 || self.modifiers.alt_side != 0
     }
 
     pub fn overlaps(&self, other: &Self) -> bool {
         let (a, b) = (self.modifiers, other.modifiers);
-        self.key == other.key
-            && a.ctrl == b.ctrl
-            && a.alt == b.alt
-            && a.shift == b.shift
-            && a.super_ == b.super_
-            && (a.ctrl_side == 0 || b.ctrl_side == 0 || a.ctrl_side == b.ctrl_side)
-            && (a.alt_side == 0 || b.alt_side == 0 || a.alt_side == b.alt_side)
+        if self.key != other.key || a.shift != b.shift || a.super_ != b.super_ {
+            return false;
+        }
+        #[cfg(windows)]
+        return (0..=3).any(|ctrl| {
+            (0..=3).any(|alt| {
+                a.matches(ctrl, alt, a.shift, a.super_) && b.matches(ctrl, alt, a.shift, a.super_)
+            })
+        });
+        // Linux backends resolve side-specific tokens to their modifier family.
+        #[cfg(not(windows))]
+        {
+            a.ctrl == b.ctrl && a.alt == b.alt
+        }
     }
 
     /// xdg shortcuts spec trigger: `CTRL+ALT+m`, keys as XKB keysym names.
@@ -229,8 +254,32 @@ mod tests {
         let right = Accel::parse("RCtrl+RAlt+M").expect("right");
         assert_eq!(left.to_string(), "LCtrl+LAlt+M");
         assert_eq!(right.to_string(), "RCtrl+RAlt+M");
-        assert!(!left.overlaps(&right));
+        assert_eq!(left.overlaps(&right), !cfg!(windows));
         assert!(left.overlaps(&Accel::parse("Ctrl+Alt+M").expect("either")));
+        let altgr = Accel::parse("RAlt+PageUp").expect("AltGr");
+        let m = altgr.modifiers;
+        assert!(m.matches(0, 2, false, false));
+        assert!(m.matches(1, 2, false, false));
+        assert!(!m.matches(1, 1, false, false));
+        assert!(!m.matches(2, 2, false, false));
+        let main = Accel::parse("RCtrl+PageUp").expect("Main");
+        assert!(main.modifiers.matches(2, 0, false, false));
+        assert!(!main.modifiers.matches(1, 0, false, false));
+        assert!(!main.overlaps(&altgr));
+        #[cfg(windows)]
+        assert!(altgr.overlaps(&Accel::parse("Ctrl+Alt+PageUp").expect("generic")));
+        let defaults: Vec<_> = macafon_config::DEFAULT_HOTKEYS
+            .into_iter()
+            .flatten()
+            .map(|(_, shortcut)| Accel::parse(shortcut).expect("default"))
+            .collect();
+        for (index, binding) in defaults.iter().enumerate() {
+            assert!(
+                defaults[index + 1..]
+                    .iter()
+                    .all(|other| !binding.overlaps(other))
+            );
+        }
     }
 
     #[test]

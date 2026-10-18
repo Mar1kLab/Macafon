@@ -65,30 +65,37 @@ impl Default for UiConfig {
     }
 }
 
-/// Default shortcuts for one hand on the left of the keyboard: Ctrl+Alt (pinky and thumb) plus
-/// a key under the other fingers. The number row's left and the letters below it work like
-/// faders: `W`/`S` Main, `E`/`D` Voice, `R`/`F` Music, up on top. `Q` mutes the microphone and
-/// `` ` `` (the console key) opens the quick panel. None of them is a Windows, GNOME or KDE
-/// default or a common overlay key (Game Bar, GeForce, Steam, Discord, AMD). Each group is
-/// added whole or not at all.
+/// Defaults are offered as whole groups, only for channels that still exist.
 pub const DEFAULT_HOTKEYS: [&[(&str, &str)]; 5] = [
-    &[("quick_panel", "Ctrl+Alt+Backquote")],
+    &[("quick_panel", "LCtrl+LAlt+Z")],
     &[("mic_mute_toggle", "Ctrl+Alt+Q")],
     &[
-        ("channel_volume_up.main", "Ctrl+Alt+W"),
-        ("channel_volume_down.main", "Ctrl+Alt+S"),
+        ("channel_volume_up.main", "RCtrl+PageUp"),
+        ("channel_volume_down.main", "RCtrl+PageDown"),
     ],
     &[
-        ("channel_volume_up.voice", "Ctrl+Alt+E"),
-        ("channel_volume_down.voice", "Ctrl+Alt+D"),
+        ("channel_volume_up.voice", "RAlt+PageUp"),
+        ("channel_volume_down.voice", "RAlt+PageDown"),
     ],
     &[
         ("channel_volume_up.music", "Ctrl+Alt+R"),
         ("channel_volume_down.music", "Ctrl+Alt+F"),
     ],
 ];
-/// Raised when `DEFAULT_HOTKEYS` gains shortcuts existing configs should get.
-pub const HOTKEY_DEFAULTS_REVISION: u32 = 1;
+pub const HOTKEY_DEFAULTS_REVISION: u32 = 2;
+
+/// Exact previous shipped set: partial or customized maps cannot safely be identified as
+/// untouched, including maps with deliberately cleared or secondary bindings.
+const LEGACY_HOTKEYS: [(&str, &str); 8] = [
+    ("quick_panel", "Ctrl+Alt+Backquote"),
+    ("mic_mute_toggle", "Ctrl+Alt+Q"),
+    ("channel_volume_up.main", "Ctrl+Alt+W"),
+    ("channel_volume_down.main", "Ctrl+Alt+S"),
+    ("channel_volume_up.voice", "Ctrl+Alt+E"),
+    ("channel_volume_down.voice", "Ctrl+Alt+D"),
+    ("channel_volume_up.music", "Ctrl+Alt+R"),
+    ("channel_volume_down.music", "Ctrl+Alt+F"),
+];
 
 /// How the hotkey popup looks and where it sits (HK-006, Windows).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
@@ -171,17 +178,38 @@ pub const DEFAULT_QUANTUM_FRAMES: u32 = 128;
 pub const QUANTUM_CHOICES: [u32; 4] = [64, 128, 256, 512];
 
 impl Config {
-    /// Offer `DEFAULT_HOTKEYS` once per revision: a group is added only if none of its
-    /// actions is bound and none of its shortcuts is taken, and `usable` accepts them all (on
-    /// Windows a Ctrl+Alt shortcut must not swallow an AltGr character). Returns whether the
-    /// config changed.
+    /// Offer defaults to fresh configs or migrate the exact untouched previous set. All
+    /// other maps are preserved, including cleared bindings. `usable` protects typing on
+    /// installed keyboard layouts. Returns whether the config changed.
     pub fn offer_default_hotkeys(&mut self, usable: impl Fn(&str) -> bool) -> bool {
         if self.ui.hotkey_defaults >= HOTKEY_DEFAULTS_REVISION {
             return false;
         }
+        let fresh = self.ui.hotkey_defaults == 0 && self.hotkeys.is_empty();
+        let legacy = self.hotkeys.len() == LEGACY_HOTKEYS.len()
+            && LEGACY_HOTKEYS.iter().all(|(action, shortcut)| {
+                self.hotkeys
+                    .get(*action)
+                    .is_some_and(|bound| bound == shortcut)
+            });
+        self.ui.hotkey_defaults = HOTKEY_DEFAULTS_REVISION;
+        if !(fresh || legacy) {
+            return true;
+        }
+        if legacy {
+            for (action, _) in DEFAULT_HOTKEYS[0]
+                .iter()
+                .chain(DEFAULT_HOTKEYS[2])
+                .chain(DEFAULT_HOTKEYS[3])
+            {
+                self.hotkeys.remove(*action);
+            }
+        }
         for group in DEFAULT_HOTKEYS {
             let free = group.iter().all(|(action, shortcut)| {
-                !self.hotkeys.contains_key(*action)
+                action.split_once('.').is_none_or(|(_, channel)| {
+                    self.mixer.channels.iter().any(|item| item.id == channel)
+                }) && !self.hotkeys.contains_key(*action)
                     && !self.hotkeys.values().any(|bound| bound == shortcut)
                     && usable(shortcut)
             });
@@ -192,7 +220,6 @@ impl Config {
                 }
             }
         }
-        self.ui.hotkey_defaults = HOTKEY_DEFAULTS_REVISION;
         true
     }
 }
@@ -287,21 +314,61 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_hotkeys_are_offered_once_and_never_take_a_used_key() {
+    fn default_hotkeys_migrate_only_fresh_or_exact_legacy_maps() {
         let mut config = Config::default();
-        config
-            .hotkeys
-            .insert("bypass_toggle".into(), "Ctrl+Alt+W".into());
-        assert!(config.offer_default_hotkeys(|shortcut| shortcut != "Ctrl+Alt+E"));
-        assert_eq!(config.hotkeys["quick_panel"], "Ctrl+Alt+Backquote");
+        assert!(config.offer_default_hotkeys(|_| true));
+        assert_eq!(config.hotkeys["quick_panel"], "LCtrl+LAlt+Z");
+        assert_eq!(config.hotkeys["channel_volume_up.main"], "RCtrl+PageUp");
+        assert_eq!(config.hotkeys["channel_volume_down.voice"], "RAlt+PageDown");
         assert_eq!(config.hotkeys["mic_mute_toggle"], "Ctrl+Alt+Q");
         assert_eq!(config.hotkeys["channel_volume_down.music"], "Ctrl+Alt+F");
-        // Main's up key is taken and Voice's would type a character: both pairs stay unset.
-        assert!(!config.hotkeys.contains_key("channel_volume_down.main"));
-        assert!(!config.hotkeys.contains_key("channel_volume_down.voice"));
+        let expected = config.hotkeys.clone();
         config.hotkeys.remove("mic_mute_toggle");
         assert!(!config.offer_default_hotkeys(|_| true));
         assert!(!config.hotkeys.contains_key("mic_mute_toggle"));
+
+        let legacy: BTreeMap<String, String> = LEGACY_HOTKEYS
+            .iter()
+            .map(|(action, shortcut)| ((*action).into(), (*shortcut).into()))
+            .collect();
+        for revision in [0, 1] {
+            let mut old = Config::default();
+            old.ui.hotkey_defaults = revision;
+            old.hotkeys = legacy.clone();
+            assert!(old.offer_default_hotkeys(|_| true));
+            assert_eq!(old.hotkeys, expected);
+            assert!(!old.offer_default_hotkeys(|_| true));
+        }
+        for edit in ["custom", "cleared", "secondary", "all_cleared"] {
+            let mut old = Config::default();
+            old.ui.hotkey_defaults = 1;
+            old.hotkeys = legacy.clone();
+            match edit {
+                "custom" => {
+                    old.hotkeys
+                        .insert("quick_panel".into(), "Ctrl+Alt+Z".into());
+                }
+                "cleared" => {
+                    old.hotkeys.remove("quick_panel");
+                }
+                "secondary" => {
+                    old.hotkeys
+                        .insert("quick_panel#secondary".into(), "F8".into());
+                }
+                _ => old.hotkeys.clear(),
+            }
+            let before = old.hotkeys.clone();
+            assert!(old.offer_default_hotkeys(|_| true));
+            assert_eq!(old.hotkeys, before, "{edit}");
+        }
+        let mut missing = Config::default();
+        missing
+            .mixer
+            .channels
+            .retain(|channel| channel.id != "voice");
+        missing.offer_default_hotkeys(|shortcut| shortcut != "RCtrl+PageUp");
+        assert!(!missing.hotkeys.contains_key("channel_volume_down.main"));
+        assert!(!missing.hotkeys.contains_key("channel_volume_down.voice"));
     }
 
     #[test]

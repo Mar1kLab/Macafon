@@ -13,10 +13,11 @@ mkdirSync(out, { recursive: true });
 /** Chromium from the Playwright cache unless CHROMIUM is set. */
 function executable() {
   if (process.env.CHROMIUM) return process.env.CHROMIUM;
-  const cache = join(homedir(), '.cache/ms-playwright');
+  const windows = process.platform === 'win32';
+  const cache = windows ? join(process.env.LOCALAPPDATA ?? homedir(), 'ms-playwright') : join(homedir(), '.cache/ms-playwright');
   const dir = existsSync(cache) ? readdirSync(cache).find((name) => name.startsWith('chromium-')) : undefined;
   if (!dir) throw new Error('no Chromium found; set CHROMIUM');
-  return join(cache, dir, 'chrome-linux64/chrome');
+  return join(cache, dir, windows ? 'chrome-win64/chrome.exe' : 'chrome-linux64/chrome');
 }
 
 /** Click through the first-run flow up to `step` (0 = welcome). */
@@ -326,6 +327,42 @@ const scenarios = {
     await page.goto(`${base}?screen=settings`);
     await page.waitForSelector('section');
     await page.waitForTimeout(600);
+  },
+  'settings-popup': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=settings&section=popup`);
+    await page.waitForSelector('#settings-popup');
+    await page.waitForTimeout(900);
+  },
+  'settings-popup-bar': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=settings&section=popup`);
+    await page.waitForSelector('#settings-popup');
+    await page.getByRole('radio', { name: /Windows 11/ }).click();
+    await page.waitForTimeout(300);
+    await page.getByRole('radio', { name: 'Top', exact: true }).click();
+    await page.waitForTimeout(300);
+    await page.locator('#settings-popup').getByRole('slider').focus();
+    for (let i = 0; i < 3; i += 1) await page.keyboard.press('PageUp');
+    await page.locator('#settings-popup .live').evaluate((element) => element.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(900);
+  },
+  'settings-overlay': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=settings&section=popup`);
+    await page.waitForSelector('#settings-popup');
+    await page.locator('#settings-popup .row.column').last().evaluate((element) => element.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(900);
+  },
+  'soundpad-folder': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=soundpad`);
+    await page.waitForSelector('.list');
+    await page.waitForTimeout(600);
+  },
+  'settings-soundpad': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=settings&section=soundpad`);
+    await page.waitForSelector('#settings-soundpad');
+    await page.getByRole('button', { name: 'Change folder' }).click();
+    await page.locator('#prompt-input').fill('D:\\Audio\\Stream sounds');
+    await page.getByRole('button', { name: 'Use folder' }).click();
+    await page.waitForTimeout(900);
   },
   unavailable: async (page) => {
     await page.goto(`${base}?daemon=down`);

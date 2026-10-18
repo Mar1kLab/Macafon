@@ -460,7 +460,7 @@ library folder ─► decoder (48 kHz stereo, cache) ─► SoundpadControl ─�
 
 | ID | Requirement | Priority |
 |---|---|---|
-| SND-001 | A library folder (default `Music\Macafon Sounds`): files in it and in its first-level subfolders (= categories) are the library; files copied in by hand appear within 3 s. MP3, WAV, OGG, FLAC, M4A, AAC up to 200 MB and 10 minutes. The UI adds files by a file picker or by dropping them anywhere on the window (uploaded to the daemon in chunks; the Soundpad screen opens), opens the folder, creates, renames and deletes categories, renames, moves and deletes sounds | P0 |
+| SND-001 | A library folder (default `Music\Macafon Sounds`; any folder on any drive can be picked with the system folder dialog in Settings → Soundpad or on the Soundpad screen, and reset to the default — owner request, 2026-10-18; switching stops playback, settings and hotkeys of sounds stay by their relative paths): files in it and in its first-level subfolders (= categories) are the library; files copied in by hand appear within 3 s. MP3, WAV, OGG, FLAC, M4A, AAC up to 200 MB and 10 minutes. The UI adds files by a file picker or by dropping them anywhere on the window (uploaded to the daemon in chunks; the Soundpad screen opens), opens the folder, creates, renames and deletes categories, renames, moves and deletes sounds | P0 |
 | SND-002 | Playing a sound replaces the current one (short fade, no clicks). It is mixed after the microphone chain into the cable, so mute/bypass of the voice do not affect it, and into a monitor stream on the default or a chosen output. Each target has an on/off switch and a 0–200 % volume; each sound has its own 0–200 % volume | P0 |
 | SND-003 | Transport: play/stop per sound, pause/resume, stop, repeat, seek on a progress ruler, play a random sound (of the visible list or a category); progress about 10 Hz | P0 |
 | SND-004 | Every sound can have primary and secondary global hotkeys (`soundpad_play.<id>`, HK-009 rules); global actions stop, pause/resume and random. Hotkeyed sounds are decoded ahead, so they start at once. Renaming or moving a sound keeps its settings and hotkeys | P0 |
@@ -612,9 +612,13 @@ Every step can be skipped; onboarding is available again from Settings.
 |---|---|
 | General | Start with system, Close button behaviour (tray / quit), Check for updates (GitHub releases, opt-in), Re-run onboarding |
 | Audio | Preferred quantum (64 / 128 / 256 / 512 frames; 128 = 2.7 ms by default), Output device priority list, Mic fallback device, Mono/Stereo virtual mic |
+| Soundpad | Library folder (SND-001) |
 | Hotkeys | A list of actions, shortcut assignment, backend status (Portal / X11 / Unavailable → CLI commands) |
+| Hotkey popup | Style, position, offset and monitor (HK-006) and the overlay's soundpad bar (SND-006), each shown as a picture of the screen with the popup or overlay where it appears |
 | Doctor | Diagnostics (§9.6) |
 | About | Version, third-party licenses (RNNoise, DeepFilterNet, fonts), GitHub links |
+
+A section list on the left of Settings follows the scroll and jumps to a section (owner request, 2026-10-18).
 
 ### 9.6 Doctor (diagnostics)
 

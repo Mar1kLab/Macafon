@@ -103,13 +103,13 @@ export class MockTransport implements Transport {
   private autostart: AutostartState = { enabled: true, method: this.windows ? 'windows_run' : 'systemd' };
   private shortcuts = new Map<string, string>([
     // The daemon's defaults (DEFAULT_HOTKEYS in macafon-config) plus push to talk.
-    ['quick_panel', 'Ctrl+Alt+Backquote'],
+    ['quick_panel', 'LCtrl+LAlt+Z'],
     ['mic_mute_toggle', 'Ctrl+Alt+Q'],
     ['push_to_talk', 'F9'],
-    ['channel_volume_up.main', 'Ctrl+Alt+W'],
-    ['channel_volume_down.main', 'Ctrl+Alt+S'],
-    ['channel_volume_up.voice', 'Ctrl+Alt+E'],
-    ['channel_volume_down.voice', 'Ctrl+Alt+D'],
+    ['channel_volume_up.main', 'RCtrl+PageUp'],
+    ['channel_volume_down.main', 'RCtrl+PageDown'],
+    ['channel_volume_up.voice', 'RAlt+PageUp'],
+    ['channel_volume_down.voice', 'RAlt+PageDown'],
     ['channel_volume_up.music', 'Ctrl+Alt+R'],
     ['channel_volume_down.music', 'Ctrl+Alt+F'],
     ['soundpad_stop', 'Ctrl+Alt+X'],

@@ -274,6 +274,44 @@ pub fn import(root: &Path, source: &Path, category: Option<&str>) -> Result<Soun
     }
     sound_entry(&prepare_root(root)?, &target)
 }
+/// Stage uploads on the library's volume so finalization is a rename, including other drives.
+pub fn upload_directory(root: &Path) -> Result<PathBuf, Error> {
+    let directory = prepare_root(root)?.join(".macafon-uploads");
+    match fs::create_dir(&directory) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    if !ordinary_metadata(&directory)?.is_dir() {
+        return Err(Error::InvalidId(directory.display().to_string()));
+    }
+    Ok(directory)
+}
+
+/// Consume a completed staged upload without copying its payload on the control loop.
+pub fn commit_upload(
+    root: &Path,
+    source: &Path,
+    category: Option<&str>,
+) -> Result<SoundEntry, Error> {
+    let metadata = ordinary_metadata(source)?;
+    if !metadata.is_file() || !is_supported(source) {
+        return Err(Error::UnsupportedFormat);
+    }
+    if metadata.len() > MAX_FILE_BYTES {
+        return Err(Error::TooLarge);
+    }
+    let name = source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| Error::InvalidId(source.display().to_string()))?;
+    validate_name(name)?;
+    let directory = category_directory(root, category)?;
+    let target = unique_path(&directory, name);
+    rename_no_replace(source, &target)?;
+    sound_entry(&prepare_root(root)?, &target)
+}
+
 fn rename_no_replace(source: &Path, target: &Path) -> Result<(), Error> {
     #[cfg(windows)]
     {
@@ -427,6 +465,25 @@ mod tests {
         }
         assert!(scan(temp.path()).unwrap().is_empty());
         assert!(temp.path().join("system.wav").exists());
+    }
+
+    #[test]
+    fn staged_uploads_finalize_in_the_category_without_overwriting_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let stage = upload_directory(temp.path()).unwrap().join("upload");
+        fs::create_dir(&stage).unwrap();
+        fs::write(stage.join("tone.wav"), b"first").unwrap();
+        commit_upload(temp.path(), &stage.join("tone.wav"), Some("Short sounds")).unwrap();
+        fs::write(stage.join("tone.wav"), b"second").unwrap();
+        let second =
+            commit_upload(temp.path(), &stage.join("tone.wav"), Some("Short sounds")).unwrap();
+        assert_eq!(second.id, "Short sounds/tone (2).wav");
+        assert!(!stage.join("tone.wav").exists());
+        assert_eq!(
+            fs::read(temp.path().join("Short sounds/tone.wav")).unwrap(),
+            b"first"
+        );
+        assert_eq!(fs::read(second.path).unwrap(), b"second");
     }
 
     #[test]

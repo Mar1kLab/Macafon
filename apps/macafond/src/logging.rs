@@ -14,8 +14,10 @@ const MAX_BYTES: u64 = 2 * 1024 * 1024;
 const BACKUPS: usize = 4;
 
 pub fn init() {
-    let filter =
-        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
+    // Decoders note every odd container atom of every probed sound: a large library would push
+    // the useful lines out of the size-capped log.
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "info,symphonia=error".into());
     let file = log_path().and_then(|path| LogWriter::open(path, MAX_BYTES));
     let file_layer = match file {
         Ok(writer) => Some(

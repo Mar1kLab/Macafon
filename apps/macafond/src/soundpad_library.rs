@@ -1,4 +1,4 @@
-//! Bounded offline library inventory and header probing; never runs on the control/audio loop.
+//! Bounded offline library inventory and duration probing; never runs on the control/audio loop.
 use macafon_soundpad::library::{self, SoundEntry};
 use std::{
     collections::HashMap,

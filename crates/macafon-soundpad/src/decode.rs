@@ -10,6 +10,7 @@ use symphonia::core::{
     formats::{FormatReader, Track},
     io::MediaSourceStream,
     probe::Hint,
+    units::TimeBase,
 };
 
 pub const MAX_DURATION_S: u32 = 600;
@@ -124,19 +125,65 @@ fn audio_track(format: &dyn FormatReader) -> Result<&Track, Error> {
 }
 
 pub fn probe_duration_ms(path: &Path) -> Result<Option<u32>, Error> {
-    let format = open(path)?;
+    let mut format = open(path)?;
     let track = audio_track(format.as_ref())?;
-    Ok(track
+    // `n_frames` counts audio frames, so it is measured in the sample rate, not the time base.
+    if let Some(duration_ms) = track
         .codec_params
         .n_frames
-        .zip(track.codec_params.sample_rate)
-        .and_then(|(n, rate)| {
-            if rate == 0 {
-                None
-            } else {
-                Some((u128::from(n) * 1000 / u128::from(rate)).min(u128::from(u32::MAX)) as u32)
+        .and_then(|frames| timestamp_ms(frames, None, track.codec_params.sample_rate))
+    {
+        return Ok(Some(duration_ms));
+    }
+    if let Ok(Some(duration_ms)) = packet_duration_ms(format.as_mut()) {
+        return Ok(Some(duration_ms));
+    }
+    // Reopen from the beginning only when packet timing could not establish the length.
+    decode_file(path).map(|sound| Some(sound.duration_ms()))
+}
+
+fn timestamp_ms(ticks: u64, time_base: Option<TimeBase>, sample_rate: Option<u32>) -> Option<u32> {
+    let (numer, denom) = match time_base {
+        Some(base) if base.numer != 0 && base.denom != 0 => (base.numer, base.denom),
+        _ => (1, sample_rate.filter(|rate| *rate != 0)?),
+    };
+    Some(
+        (u128::from(ticks) * u128::from(numer) * 1000 / u128::from(denom)).min(u128::from(u32::MAX))
+            as u32,
+    )
+}
+
+/// Scan encoded packets without constructing a decoder or allocating PCM buffers.
+fn packet_duration_ms(format: &mut dyn FormatReader) -> Result<Option<u32>, Error> {
+    let track = audio_track(format)?;
+    let track_id = track.id;
+    let time_base = track.codec_params.time_base;
+    let sample_rate = track.codec_params.sample_rate;
+    let start_ts = track.codec_params.start_ts;
+    let mut end_ts = None;
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(DecodeError::ResetRequired) => break,
+            Err(DecodeError::IoError(error))
+                if error.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
+                break;
             }
-        }))
+            Err(error) => return Err(decode_error(error)),
+        };
+        if packet.track_id() == track_id {
+            // A zero duration provides no endpoint; let decoding handle missing packet timing.
+            end_ts = if packet.dur() != 0 {
+                packet.ts().checked_add(packet.dur())
+            } else {
+                None
+            };
+        }
+    }
+    Ok(end_ts
+        .and_then(|end| end.checked_sub(start_ts))
+        .and_then(|ticks| timestamp_ms(ticks, time_base, sample_rate)))
 }
 pub fn decode_file(path: &Path) -> Result<Sound, Error> {
     let mut format = open(path)?;
@@ -281,6 +328,16 @@ pub(crate) mod tests {
             bytes.extend(value.to_le_bytes());
         }
         std::fs::write(path, bytes).unwrap();
+    }
+    #[test]
+    fn packet_scan_measures_duration_without_header_frame_count() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("tone.wav");
+        wav(&path, 44_100, 54_243);
+        let mut format = open(&path).unwrap();
+        // Exercise the fallback directly: this generated WAV normally supplies n_frames.
+        let duration_ms = packet_duration_ms(format.as_mut()).unwrap().unwrap();
+        assert!(duration_ms.abs_diff(1230) <= 3);
     }
     #[test]
     fn mono_wav_resampled_and_measured() {

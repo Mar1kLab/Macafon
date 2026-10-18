@@ -89,6 +89,8 @@ pub struct DaemonHost {
     icons: macafon_apps::icons::IconResolver,
     /// Created when the daemon starts, where the platform has a soundpad (§7.6).
     soundpad: Option<crate::soundpad::Soundpad>,
+    soundpad_dirty: bool,
+    soundpad_broadcast_at: Option<Instant>,
     quit: bool,
     server: Option<(Endpoint, ControlSender<ControlMessage>)>,
     _socket: Option<SocketGuard>,
@@ -144,6 +146,8 @@ impl DaemonHost {
             volume_repeats: hotkeys::VolumeRepeats::default(),
             icons: macafon_apps::icons::IconResolver::from_env(),
             soundpad: None,
+            soundpad_dirty: false,
+            soundpad_broadcast_at: None,
             quit: false,
             server: Some((endpoint, control)),
             _socket: None,
@@ -635,6 +639,73 @@ mod tests {
         return Endpoint::socket("unused");
         #[cfg(windows)]
         Endpoint::pipe("unused")
+    }
+
+    #[test]
+    fn explorer_category_rename_keeps_settings_and_both_hotkeys() {
+        let root = std::env::temp_dir().join(format!("macafon-explorer-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("sounds/Short sounds")).expect("category");
+        std::fs::write(root.join("sounds/Short sounds/tone.wav"), b"tone").expect("sound");
+        let mut config = Config::default();
+        config.soundpad.folder = Some(root.join("sounds"));
+        config
+            .soundpad
+            .edit_sound("Short sounds/tone.wav", |sound| {
+                sound.favorite = true;
+                sound.play_count = 9;
+            });
+        for (suffix, key) in [("", "Ctrl+F8"), ("#secondary", "Ctrl+F9")] {
+            config.hotkeys.insert(
+                format!("soundpad_play.Short sounds/tone.wav{suffix}"),
+                key.into(),
+            );
+        }
+        let (sender, _receiver) = crate::platform::control_channel();
+        let mut host = DaemonHost::new(
+            config,
+            None,
+            PresetStore::in_memory(),
+            unused_endpoint(),
+            sender,
+            false,
+        );
+        host.soundpad = Some(crate::soundpad::Soundpad::new(
+            &host.config.soundpad,
+            &root.join("state"),
+        ));
+        let wait_for = |host: &mut DaemonHost, id: &str| {
+            host.respond_soundpad(macafon_ipc::Request::SoundpadRescan)
+                .expect("request scan");
+            let deadline = Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                host.tick_soundpad(Instant::now());
+                if host.soundpad.as_ref().expect("soundpad").entry(id).is_ok() {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "inventory did not arrive");
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        };
+        wait_for(&mut host, "Short sounds/tone.wav");
+        std::fs::rename(
+            root.join("sounds/Short sounds"),
+            root.join("sounds/Renamed"),
+        )
+        .expect("Explorer rename");
+        wait_for(&mut host, "Renamed/tone.wav");
+        assert!(host.config.soundpad.sound("Renamed/tone.wav").favorite);
+        assert_eq!(host.config.soundpad.sound("Renamed/tone.wav").play_count, 9);
+        for (suffix, key) in [("", "Ctrl+F8"), ("#secondary", "Ctrl+F9")] {
+            assert_eq!(
+                host.config
+                    .hotkeys
+                    .get(&format!("soundpad_play.Renamed/tone.wav{suffix}"))
+                    .map(String::as_str),
+                Some(key)
+            );
+        }
+        drop(host);
+        std::fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]

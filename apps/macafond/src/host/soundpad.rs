@@ -9,7 +9,7 @@ use macafon_ipc::{
 };
 use macafon_soundpad::library;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 impl DaemonHost {
     /// Create the soundpad where the platform plays it: only in the running daemon, so tests
@@ -62,9 +62,7 @@ impl DaemonHost {
     /// Sounds, categories or preferences changed: tell the clients, and register the hotkeys
     /// of the sounds that exist now.
     pub(super) fn soundpad_changed(&mut self) {
-        if let Some(state) = self.soundpad_state() {
-            self.hub.broadcast(&Event::SoundpadChanged(state));
-        }
+        self.soundpad_dirty = true;
         let bound = self.bound_hotkeys.clone();
         self.rebind_hotkeys();
         if self.bound_hotkeys != bound {
@@ -78,7 +76,7 @@ impl DaemonHost {
         let Some(soundpad) = &mut self.soundpad else {
             return;
         };
-        let ids: Vec<String> = self
+        let ids: std::collections::BTreeSet<String> = self
             .config
             .hotkeys
             .keys()
@@ -102,8 +100,25 @@ impl DaemonHost {
         if let Some(id) = &outcome.played {
             self.count_play(id);
         }
-        if outcome.library_changed || outcome.played.is_some() {
+        for (from, to) in outcome.renamed {
+            self.sound_renamed(&from, &to);
+        }
+        if outcome.library_changed {
             self.soundpad_changed();
+        }
+        if self.soundpad_dirty
+            && self
+                .soundpad_broadcast_at
+                .is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_secs(1))
+            && self.hub.has_clients()
+            && let Some(state) = self.soundpad_state()
+            && self.hub.broadcast_soundpad(state)
+        {
+            self.soundpad_dirty = false;
+            self.soundpad_broadcast_at = Some(now);
+        }
+        if outcome.preload_ready {
+            self.preload_sounds();
         }
         if let Some(playback) = playback {
             self.hub.broadcast(&Event::SoundpadPlayback(playback));
@@ -111,6 +126,7 @@ impl DaemonHost {
     }
 
     fn count_play(&mut self, id: &str) {
+        self.soundpad_dirty = true;
         self.config.soundpad.edit_sound(id, |sound| {
             sound.play_count = sound.play_count.saturating_add(1)
         });
@@ -164,9 +180,7 @@ impl DaemonHost {
         match request {
             Request::SoundpadGet => {}
             Request::SoundpadRescan => {
-                if soundpad.rescan() {
-                    self.soundpad_changed();
-                }
+                soundpad.rescan();
             }
             Request::SoundpadOpenFolder => {
                 open_folder(&folder)
@@ -290,7 +304,8 @@ impl DaemonHost {
                 if entry.is_none() {
                     return null;
                 }
-                self.soundpad_changed();
+                self.soundpad_dirty = true;
+                return null;
             }
             _ => {
                 return Err(not_soundpad_request());
@@ -306,12 +321,15 @@ impl DaemonHost {
             .ok_or_else(soundpad_unavailable)?
             .folder()
             .to_owned();
-        // From the folder itself: files may have arrived after the last scan.
-        let moved: Vec<String> = library::scan(&folder)
-            .map_err(library_error)?
-            .into_iter()
+        // Only known sounds can have settings; the folder rename itself also moves new files.
+        let moved: Vec<String> = self
+            .soundpad
+            .as_ref()
+            .ok_or_else(soundpad_unavailable)?
+            .entries()
+            .iter()
             .filter(|entry| entry.category.as_deref() == Some(from))
-            .map(|entry| entry.id)
+            .map(|entry| entry.id.clone())
             .collect();
         library::rename_category(&folder, from, to).map_err(library_error)?;
         for id in moved {
@@ -351,7 +369,6 @@ impl DaemonHost {
             Request::SoundpadPlay { id } => {
                 if soundpad.play(&id, &self.config.soundpad)? {
                     self.count_play(&id);
-                    self.soundpad_changed();
                 }
                 self.tick_playback();
             }

@@ -23,36 +23,35 @@
 </script>
 
 <script lang="ts">
-  // The soundpad in the hotkey overlay (§7.6, SND-006): collapsed on every opening, expanded by
-  // its own button into searchable pads with a category filter. The category, search and scroll
-  // position are remembered, so a long library opens where the user left it.
-  import { tick } from 'svelte';
-  import { AudioWaveform, ChevronDown, ChevronUp, Search, Square, Star } from '@lucide/svelte';
+  // The soundpad in the hotkey overlay (§7.6, SND-006), shown while its round button in the
+  // overlay is on: searchable pads with a category filter. The category, search and scroll
+  // position are remembered, so a long library opens where the user left it. Pads are drawn a
+  // page at a time, so a library of thousands of sounds opens as fast as a small one.
+  import { onMount, tick } from 'svelte';
+  import { Search, Square, Star } from '@lucide/svelte';
   import { indexShortcuts } from '../settings/shortcut';
   import { FAVORITES, inScope, matches, savedSort, sortSounds, type SoundScope } from '../soundpad/format';
   import { daemon } from '../state';
   import { t } from '../i18n';
 
-  let { opened = 0 }: { opened?: number } = $props();
+  /** Pads per page: five columns of 60 px rows, a little more than the visible area. */
+  const PAGE = 60;
+  const ROW_PX = 60;
+  const COLUMNS = 5;
 
   const soundpad = $derived(daemon.soundpad);
   const playback = $derived(daemon.soundpadPlayback);
   const place = loadPlace();
-  let expanded = $state(false);
   let scope = $state<SoundScope>(place.scope);
   let query = $state(place.query);
   let scrollTop = place.scrollTop;
   let list: HTMLDivElement | undefined = $state();
   let search: HTMLInputElement | undefined = $state();
   let saveFrame = 0;
-  /** The order picked on the Soundpad screen, read again on every expand. */
-  let order = $state(savedSort());
-
-  // Every opening of the overlay starts with the sounds folded away.
-  $effect(() => {
-    void opened;
-    expanded = false;
-  });
+  /** The order picked on the Soundpad screen, read on every opening. */
+  const order = savedSort();
+  /** Enough pads to reach the remembered scroll position, then a page more on demand. */
+  let shown = $state(Math.max(PAGE, Math.ceil(place.scrollTop / ROW_PX + 8) * COLUMNS));
 
   const scopes = $derived([
     { value: null as SoundScope, label: t('soundpad.all') },
@@ -67,7 +66,16 @@
       order,
     ).sort((a, b) => Number(b.favorite) - Number(a.favorite)),
   );
+  const visible = $derived(pads.slice(0, shown));
   const playing = $derived(playback && soundpad?.sounds.find((sound) => sound.id === playback.sound_id));
+
+  onMount(() => {
+    void tick().then(() => {
+      if (list) list.scrollTop = scrollTop;
+      search?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(saveFrame);
+  });
 
   function save() {
     cancelAnimationFrame(saveFrame);
@@ -76,101 +84,81 @@
     });
   }
 
-  async function toggle() {
-    expanded = !expanded;
-    if (!expanded) return;
-    order = savedSort();
-    await tick();
-    if (list) list.scrollTop = scrollTop;
-    search?.focus({ preventScroll: true });
+  function restart() {
+    scrollTop = 0;
+    shown = PAGE;
+    if (list) list.scrollTop = 0;
+    save();
   }
 
   function setScope(value: SoundScope) {
     scope = value;
-    scrollTop = 0;
-    if (list) list.scrollTop = 0;
+    restart();
+  }
+
+  function onscroll() {
+    if (!list) return;
+    scrollTop = list.scrollTop;
+    if (list.scrollTop + list.clientHeight > list.scrollHeight - ROW_PX * 2 && shown < pads.length) shown += PAGE;
     save();
   }
 
   const shortcuts = $derived(indexShortcuts(daemon.hotkeys?.bindings ?? []));
 </script>
 
-<section class="soundpad" aria-label={t('quick.soundpad')}>
+<section id="overlay-sounds" class="soundpad" aria-label={t('quick.soundpad')}>
   <div class="bar">
-    <button class="expand" class:open={expanded} aria-expanded={expanded} aria-controls="overlay-sounds" title={expanded ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} onclick={toggle}>
-      <AudioWaveform size={16} strokeWidth={1.5} />
-      <span>{t('quick.soundpadShow')}</span>
-      <small>{soundpad?.sounds.length ?? 0}</small>
-      {#if expanded}<ChevronUp size={14} strokeWidth={1.5} />{:else}<ChevronDown size={14} strokeWidth={1.5} />{/if}
-    </button>
-    {#if expanded}
-      <label class="search">
-        <Search size={13} strokeWidth={1.5} />
-        <input
-          bind:this={search}
-          type="search"
-          bind:value={query}
-          placeholder={t('soundpad.searchPlaceholder')}
-          aria-label={t('quick.soundpadSearch')}
-          oninput={() => {
-            scrollTop = 0;
-            if (list) list.scrollTop = 0;
-            save();
-          }}
-          onkeydown={(event) => {
-            if (event.key === 'Enter' && pads[0]) {
-              event.preventDefault();
-              daemon.playSound(pads[0].id);
-            }
-          }}
-        />
-      </label>
-    {/if}
+    <label class="search">
+      <Search size={13} strokeWidth={1.5} />
+      <input
+        bind:this={search}
+        type="search"
+        bind:value={query}
+        placeholder={t('soundpad.searchPlaceholder')}
+        aria-label={t('quick.soundpadSearch')}
+        oninput={restart}
+        onkeydown={(event) => {
+          if (event.key === 'Enter' && pads[0]) {
+            event.preventDefault();
+            daemon.playSound(pads[0].id);
+          }
+        }}
+      />
+    </label>
+    <div class="scopes" role="radiogroup" aria-label={t('soundpad.categories')}>
+      {#each scopes as item (item.value)}
+        <button class="chip" role="radio" aria-checked={activeScope === item.value} class:active={activeScope === item.value} onclick={() => setScope(item.value)}>
+          {#if item.value === FAVORITES}<Star size={11} strokeWidth={1.5} />{/if}{item.label}
+        </button>
+      {/each}
+    </div>
     <span class="now" aria-live="polite">{playing?.name ?? ''}</span>
     <button class="round stop" disabled={!playback} aria-label={t('quick.soundpadStop')} title={t('quick.soundpadStop')} onclick={() => daemon.stopSound()}>
       <Square size={14} strokeWidth={1.5} />
     </button>
   </div>
 
-  {#if expanded}
-    <div id="overlay-sounds" class="sounds">
-      <div class="scopes" role="radiogroup" aria-label={t('soundpad.categories')}>
-        {#each scopes as item (item.value)}
-          <button class="chip" role="radio" aria-checked={activeScope === item.value} class:active={activeScope === item.value} onclick={() => setScope(item.value)}>
-            {#if item.value === FAVORITES}<Star size={11} strokeWidth={1.5} />{/if}{item.label}
-          </button>
-        {/each}
-      </div>
-      {#if (soundpad?.sounds.length ?? 0) === 0}
-        <p class="empty">{t('quick.soundpadEmpty')}</p>
-      {:else if pads.length === 0}
-        <p class="empty">{t('quick.soundpadNoMatches', { query })}</p>
-      {:else}
-        <div
-          class="pads"
-          bind:this={list}
-          onscroll={() => {
-            scrollTop = list?.scrollTop ?? 0;
-            save();
-          }}
+  {#if (soundpad?.sounds.length ?? 0) === 0}
+    <p class="empty">{t('quick.soundpadEmpty')}</p>
+  {:else if pads.length === 0}
+    <p class="empty">{t('quick.soundpadNoMatches', { query })}</p>
+  {:else}
+    <div class="pads" bind:this={list} {onscroll}>
+      {#each visible as sound (sound.id)}
+        {@const active = playback?.sound_id === sound.id}
+        {@const shortcut = shortcuts.get(`soundpad_play.${sound.id}`) ?? null}
+        <button
+          class="pad"
+          class:active
+          aria-label={t('quick.soundpadPlay', { name: sound.name })}
+          title={sound.name}
+          style:--progress={active && playback ? `${Math.min(playback.position_ms / Math.max(playback.duration_ms, 1), 1) * 100}%` : '0%'}
+          onclick={() => (active ? daemon.stopSound() : daemon.playSound(sound.id))}
         >
-          {#each pads as sound (sound.id)}
-            {@const active = playback?.sound_id === sound.id}
-            {@const shortcut = shortcuts.get(`soundpad_play.${sound.id}`) ?? null}
-            <button
-              class="pad"
-              class:active
-              aria-label={t('quick.soundpadPlay', { name: sound.name })}
-              title={sound.name}
-              style:--progress={active && playback ? `${Math.min(playback.position_ms / Math.max(playback.duration_ms, 1), 1) * 100}%` : '0%'}
-              onclick={() => (active ? daemon.stopSound() : daemon.playSound(sound.id))}
-            >
-              <span class="name">{#if sound.favorite}<Star size={11} strokeWidth={1.5} />{/if}{sound.name}</span>
-              {#if shortcut}<kbd>{shortcut}</kbd>{/if}
-            </button>
-          {/each}
-        </div>
-      {/if}
+          <span class="name">{#if sound.favorite}<Star size={11} strokeWidth={1.5} />{/if}{sound.name}</span>
+          {#if shortcut}<kbd>{shortcut}</kbd>{/if}
+        </button>
+      {/each}
     </div>
   {/if}
 </section>
@@ -191,49 +179,13 @@
     min-width: 0;
   }
 
-  .expand {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    flex: none;
-    height: 36px;
-    padding: 0 12px;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: var(--bg-sunken);
-    font-size: 12px;
-    color: var(--ink);
-    transition:
-      border-color var(--dur) var(--ease),
-      background var(--dur) var(--ease);
-  }
-
-  .expand:hover {
-    border-color: var(--line-strong);
-    background: var(--bg);
-  }
-
-  .expand.open {
-    border-color: var(--accent);
-  }
-
-  .expand.open > :global(svg:first-child) {
-    color: var(--accent-ink);
-  }
-
-  .expand small {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--muted);
-  }
-
   .search {
     display: flex;
     align-items: center;
     gap: 8px;
-    flex: 1;
-    max-width: 280px;
-    height: 36px;
+    flex: none;
+    width: 220px;
+    height: 32px;
     padding: 0 12px;
     border: 1px solid var(--line);
     border-radius: 12px;
@@ -260,16 +212,13 @@
     color: var(--faint);
   }
 
-  .sounds {
-    display: grid;
-    gap: 10px;
-  }
-
   .scopes {
+    flex: 1;
     display: flex;
     gap: 6px;
     min-width: 0;
     overflow-x: auto;
+    scrollbar-width: none;
   }
 
   .chip {
@@ -292,8 +241,8 @@
   }
 
   .now {
-    margin-left: auto;
-    max-width: 200px;
+    flex: none;
+    max-width: 160px;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -398,8 +347,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .pad,
-    .expand {
+    .pad {
       transition: none;
     }
   }

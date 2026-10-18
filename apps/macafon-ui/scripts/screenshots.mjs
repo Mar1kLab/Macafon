@@ -351,6 +351,18 @@ const scenarios = {
     await page.locator('#settings-popup .row.column').last().evaluate((element) => element.scrollIntoView({ block: 'center' }));
     await page.waitForTimeout(900);
   },
+  'overlay-collapsed': async (page) => {
+    await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay`);
+    await page.waitForSelector('.overlay .sounds');
+    await page.waitForTimeout(600);
+  },
+  'overlay-sounds': async (page) => {
+    await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay`);
+    await page.waitForSelector('.overlay .sounds');
+    await page.getByRole('button', { name: 'Show the soundpad sounds' }).click();
+    await page.waitForSelector('.pads');
+    await page.waitForTimeout(600);
+  },
   'soundpad-folder': async (page) => {
     await page.goto(`${base}?platform=windows&screen=soundpad`);
     await page.waitForSelector('.list');

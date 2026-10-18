@@ -1,6 +1,7 @@
 <script lang="ts">
   // The quick controls overlay (HK-007) on a miniature monitor: centered in its upper middle,
-  // with the soundpad bar under the sliders when it is on (SND-006).
+  // in its sketch frame. With the soundpad on (SND-006) a round button under the toggles opens
+  // the pads below.
   import ScreenPicture from './ScreenPicture.svelte';
 
   let { soundpad }: { soundpad: boolean } = $props();
@@ -14,6 +15,7 @@
 
 <ScreenPicture>
   <span class="overlay" aria-hidden="true">
+    <span class="frame"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></span>
     <span class="head"><span class="title"></span><span class="close"></span></span>
     <span class="body">
       <span class="sliders">
@@ -21,19 +23,18 @@
           <span class="pill"><span class="level" style:height="{slider.level}%" style:background="var(--app-{slider.color})"></span></span>
         {/each}
       </span>
-      <span class="tiles"><span></span><span></span><span></span></span>
+      <span class="tiles">
+        <span></span><span></span><span></span>
+        {#if soundpad}<span class="round"><span class="wave"></span></span>{/if}
+      </span>
     </span>
     {#if soundpad}
-      <span class="sounds">
-        <span class="chip"><span class="wave"></span></span>
-        <span class="pads"><span></span><span></span><span></span><span></span></span>
-      </span>
+      <span class="pads"><span></span><span></span><span></span><span></span><span></span></span>
     {/if}
   </span>
 </ScreenPicture>
 
 <style>
-  /* The overlay's rounded corners are an owner exception to the design system (HK-007). */
   .overlay {
     position: absolute;
     left: 24cqw;
@@ -43,9 +44,47 @@
     flex-direction: column;
     gap: 1.4cqw;
     padding: 1.6cqw;
-    border: 1px solid var(--line-strong);
-    border-radius: 2cqw;
     background: var(--bg-raised);
+  }
+
+  .frame {
+    position: absolute;
+    inset: 0.6cqw;
+  }
+
+  .frame i {
+    position: absolute;
+    background: var(--line-strong);
+  }
+
+  .frame .t,
+  .frame .b {
+    left: -0.6cqw;
+    right: -0.6cqw;
+    height: 1px;
+  }
+
+  .frame .l,
+  .frame .r {
+    top: -0.6cqw;
+    bottom: -0.6cqw;
+    width: 1px;
+  }
+
+  .frame .t {
+    top: 0;
+  }
+
+  .frame .b {
+    bottom: 0;
+  }
+
+  .frame .l {
+    left: 0;
+  }
+
+  .frame .r {
+    right: 0;
   }
 
   .head {
@@ -113,34 +152,29 @@
     background: var(--bg-sunken);
   }
 
-  .sounds {
+  .tiles .round {
     display: flex;
     align-items: center;
-    gap: 1.4cqw;
-    padding-top: 1.2cqw;
-    border-top: 1px solid var(--line);
-  }
-
-  .chip {
-    display: flex;
-    align-items: center;
-    width: 9cqw;
+    justify-content: center;
+    width: 3cqw;
     height: 3cqw;
-    padding-left: 1cqw;
     border: 1px solid var(--accent-ink);
-    border-radius: 0.8cqw;
+    border-radius: 50%;
+    background: none;
+    align-self: flex-start;
   }
 
-  .wave {
-    width: 2.4cqw;
-    height: 1.2cqw;
-    background: repeating-linear-gradient(90deg, var(--accent-ink) 0 1px, transparent 1px 0.6cqw);
+  .tiles .wave {
+    width: 1.4cqw;
+    height: 1cqw;
+    border: 0;
+    border-radius: 0;
+    background: repeating-linear-gradient(90deg, var(--accent-ink) 0 1px, transparent 1px 0.4cqw);
   }
 
   .pads {
-    flex: 1;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 0.8cqw;
   }
 

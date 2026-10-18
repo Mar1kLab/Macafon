@@ -310,7 +310,7 @@ export const en = {
     soundpadOverlay: 'Quick controls overlay',
     overlay: {
       withSounds: 'With sounds',
-      withSoundsHint: 'A soundpad bar under the sliders that opens into pads',
+      withSoundsHint: 'A small round button under the toggles opens the pads',
       withoutSounds: 'Without sounds',
       withoutSoundsHint: 'Only volumes, microphone and preset',
     },

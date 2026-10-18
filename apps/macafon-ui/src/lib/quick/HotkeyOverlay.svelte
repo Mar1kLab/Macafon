@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AudioLines, ChevronLeft, ChevronRight, Mic, MicOff, SlidersHorizontal, Volume2, VolumeX, X } from '@lucide/svelte';
+  import { AudioLines, AudioWaveform, ChevronLeft, ChevronRight, Mic, MicOff, SlidersHorizontal, Square, Volume2, VolumeX, X } from '@lucide/svelte';
   import Logo from '../components/Logo.svelte';
   import VerticalSlider from './VerticalSlider.svelte';
   import SoundpadOverlay from './SoundpadOverlay.svelte';
@@ -16,11 +16,22 @@
   const channels = $derived(mixer?.channels.filter((channel) => channel.enabled) ?? []);
   const preset = $derived(daemon.presets.find((item) => item.id === mic?.preset)?.name ?? t('quick.custom'));
   const shortcut = $derived(daemon.hotkeys?.bindings.find((binding) => binding.action === 'quick_panel')?.shortcut);
+  const soundpad = $derived(daemon.soundpad?.prefs.show_in_overlay ? daemon.soundpad : null);
+  const playback = $derived(daemon.soundpadPlayback);
+  const playing = $derived(playback && soundpad?.sounds.find((sound) => sound.id === playback.sound_id));
+  /** SND-006: the sounds open under the controls by their round button. */
+  let sounds = $state(false);
 
-
+  // Every opening of the overlay starts with the sounds folded away.
+  $effect(() => {
+    void opened;
+    sounds = false;
+  });
 </script>
 
 <div class="overlay">
+  <!-- A sketch-like frame: straight lines along the edges that run past the corners. -->
+  <span class="frame" aria-hidden="true"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></span>
   <header>
     <span class="brand"><span class="logo"><Logo label="" inactive={muted} {bypass} /></span><b>{t('app.name')}</b></span>
     <span class="hud-label">{t('quick.overlayTitle')}</span>
@@ -69,6 +80,17 @@
         <button class="toggle" class:active={mixer?.enabled} role="switch" aria-checked={mixer?.enabled ?? false} disabled={!mixer} onclick={() => mixer && daemon.setMixer(daemon.client.call('mixer.set_enabled', { enabled: !mixer.enabled }))}>
           <SlidersHorizontal size={18} strokeWidth={1.5} /><span>{t('quick.mixer')}</span><small>{mixer?.enabled ? t('quick.on') : t('quick.off')}</small>
         </button>
+        {#if soundpad}
+          <div class="sounds">
+            <button class="round sounds-toggle" class:open={sounds} aria-expanded={sounds} aria-controls="overlay-sounds" aria-label={sounds ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} title={sounds ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} onclick={() => (sounds = !sounds)}>
+              <AudioWaveform size={16} strokeWidth={1.5} />
+            </button>
+            <span class="sounds-label">{#if playing}<b title={playing.name}>{playing.name}</b>{:else}{t('quick.soundpadShow')}<small>{soundpad.sounds.length}</small>{/if}</span>
+            {#if playback && !sounds}
+              <button class="round" aria-label={t('quick.soundpadStop')} title={t('quick.soundpadStop')} onclick={() => daemon.stopSound()}><Square size={12} strokeWidth={1.5} /></button>
+            {/if}
+          </div>
+        {/if}
         <div class="preset">
           <span class="hud-label">{t('quick.preset')}</span>
           <div class="preset-nav">
@@ -79,15 +101,24 @@
         </div>
       </section>
     </div>
-    {#if daemon.soundpad?.prefs.show_in_overlay}
-      <SoundpadOverlay {opened} />
+    {#if soundpad && sounds}
+      <SoundpadOverlay />
     {/if}
   {/if}
 </div>
 
 <style>
   :global(html), :global(body) { background: var(--bg-raised); background-image: none; overflow: hidden; }
-  .overlay { width: 840px; min-height: 368px; padding: 20px 24px; border: 1px solid var(--line); border-radius: 24px; background: var(--bg-raised); }
+  .overlay { position: relative; width: 840px; min-height: 368px; padding: 28px 32px 24px; background: var(--bg-raised); }
+  /* Lines 12 px inside the window edge, each running 8 px past the corners. */
+  .frame { position: absolute; inset: 12px; pointer-events: none; }
+  .frame i { position: absolute; background: var(--line-strong); }
+  .frame .t, .frame .b { left: -8px; right: -8px; height: 1px; }
+  .frame .l, .frame .r { top: -8px; bottom: -8px; width: 1px; }
+  .frame .t { top: 0; }
+  .frame .b { bottom: 0; }
+  .frame .l { left: 0; }
+  .frame .r { right: 0; }
   header { display: flex; align-items: center; gap: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
   .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-size: 18px; letter-spacing: -0.03em; color: var(--ink-strong); }
   .logo { display: inline-flex; width: 24px; height: 28px; }
@@ -111,6 +142,11 @@
   .toggle.alert small { color: var(--danger); }
   .toggle:hover { background: var(--bg); }
   .toggle:disabled { opacity: 0.5; }
+  .sounds { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 4px 0 0 2px; }
+  .sounds-toggle.open { color: var(--accent-ink); border-color: var(--accent); }
+  .sounds-label { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--muted); }
+  .sounds-label b { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 400; color: var(--accent-ink); }
+  .sounds-label small { font-family: var(--font-mono); font-size: 10px; color: var(--faint); }
   .preset { margin-top: auto; padding-top: 8px; }
   .preset .hud-label { font-size: 9px; }
   .preset-nav { display: flex; gap: 8px; align-items: center; margin-top: 6px; }

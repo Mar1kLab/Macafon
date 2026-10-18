@@ -232,11 +232,26 @@ fn place(
             ),
         )
     };
-    window.set_position(at(width, height))?;
-    window.set_size(PhysicalSize::new(width as u32, height as u32))?;
-    // Windows retains a hidden caption on shadowed undecorated windows. Align the actual frame.
+    // Windows retains a hidden caption on shadowed undecorated windows: the frame is larger
+    // than the page. Place the frame where it ends up, in one move, and only when it changes:
+    // moving to the page's size first and correcting after made the overlay jump on every
+    // resize (opening the sounds).
+    let (inner, outer) = (window.inner_size()?, window.outer_size()?);
+    let extra_width = outer.width as i32 - inner.width as i32;
+    let extra_height = outer.height as i32 - inner.height as i32;
+    let size = PhysicalSize::new(width as u32, height as u32);
+    let target = at(width + extra_width, height + extra_height);
+    if window.outer_position().ok() != Some(target) {
+        window.set_position(target)?;
+    }
+    if inner != size {
+        window.set_size(size)?;
+    }
     let outer = window.outer_size()?;
-    window.set_position(at(outer.width as i32, outer.height as i32))?;
+    let settled = at(outer.width as i32, outer.height as i32);
+    if settled != target {
+        window.set_position(settled)?;
+    }
     Ok(())
 }
 

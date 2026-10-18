@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
   import { t } from '../i18n';
 
   interface Props {
@@ -6,10 +6,12 @@
     label: string;
     color: string;
     muted?: boolean;
+    /** Sketch: the app's ruler with sharp corners instead of the rounded pill. */
+    sketch?: boolean;
     onchange: (value: number) => void;
   }
 
-  let { value, label, color, muted = false, onchange }: Props = $props();
+  let { value, label, color, muted = false, sketch = false, onchange }: Props = $props();
   let track: HTMLDivElement | undefined = $state();
   let pointer: number | null = $state(null);
   const clamp = (next: number) => Math.min(100, Math.max(0, Math.round(next)));
@@ -37,7 +39,7 @@
   }
 </script>
 
-<div class="fader" class:muted style:--color="var(--app-{color})" style:--color-ink="var(--app-{color}-ink)">
+<div class="fader" class:muted class:sketch style:--color="var(--app-{color})" style:--color-ink="var(--app-{color}-ink)">
   <span class="readout" aria-hidden="true">{t('quick.volumeValue', { value: percent })}</span>
   <div
     class="track"
@@ -74,7 +76,13 @@
     onlostpointercapture={() => (pointer = null)}
   >
     <span class="fill"></span>
-    <span class="ticks"></span>
+    {#if sketch}
+      {#each [10, 20, 30, 40, 50, 60, 70, 80, 90] as tick (tick)}
+        <span class="tick" class:major={tick === 50} style:bottom="{tick}%"></span>
+      {/each}
+    {:else}
+      <span class="ticks"></span>
+    {/if}
     <span class="thumb"></span>
   </div>
   <span class="state" class:quiet={!muted} aria-hidden="true">{muted ? t('quick.muted') : t('quick.on')}</span>
@@ -94,5 +102,14 @@
   .muted .fill { opacity: 0.25; }
   .muted .readout { color: var(--muted); }
   .dragging .fill, .dragging .thumb { transition: none; }
+  /* Sketch: a ruler — sharp corners, ticks every 10 % (major at 50 %), a straight head line. */
+  .sketch .track { width: 36px; border-radius: 0; }
+  .sketch .fill { border-radius: 0; opacity: 0.85; }
+  .sketch .tick { position: absolute; left: 0; width: 8px; height: 1px; background: var(--faint); pointer-events: none; }
+  .sketch .tick.major { width: 14px; background: var(--line-strong); }
+  .sketch .thumb { left: -1px; right: -1px; bottom: calc(var(--fill) - 1px); height: 2px; border-radius: 0; }
+  .sketch .readout, .sketch .state { letter-spacing: 0.1em; text-transform: uppercase; }
+  .sketch .track:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+  .muted.sketch .fill { opacity: 0.2; }
   @media (prefers-reduced-motion: reduce) { .fill, .thumb { transition: none; } }
 </style>

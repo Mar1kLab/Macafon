@@ -59,6 +59,7 @@ export class MockSoundpad {
   private uploads = new Map<string, number>();
 
   constructor(private emit: (event: Event) => void, private windows: boolean) {
+    const query = new URLSearchParams(globalThis.location?.search);
     this.state = {
       folder: defaultFolder(windows),
       default_folder: true,
@@ -72,6 +73,8 @@ export class MockSoundpad {
         mute_voice_while_playing: false,
         monitor_device: null,
         show_in_overlay: true,
+        overlay_view: query.get('sounds') === 'list' ? 'list' : 'grid',
+        overlay_controls: query.get('controls') === 'bottom' ? 'bottom' : query.get('controls') === 'hidden' ? 'hidden' : 'top',
       },
       playback: null,
       microphone_ready: true,

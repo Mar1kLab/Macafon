@@ -41,16 +41,21 @@
   import SeekBar from '../soundpad/SeekBar.svelte';
   import { indexShortcuts } from '../settings/shortcut';
   import { FAVORITES, formatDuration, inScope, matches, sortOptions, sortSounds, type SoundScope } from '../soundpad/format';
-  import type { SoundInfo } from '../ipc/protocol';
+  import type { SoundInfo, SoundpadOverlayView } from '../ipc/protocol';
   import { daemon } from '../state';
   import { t } from '../i18n';
 
-  /** Pads per page: five columns of 60 px rows, a little more than the visible area. */
+  /** Pads per page: a little more than the visible area in either view. */
   const PAGE = 60;
-  const ROW_PX = 60;
-  const COLUMNS = 5;
 
   const soundpad = $derived(daemon.soundpad);
+  /** SND-006: pads in a grid or rows in a list; the player above or below them, or none. */
+  const view = $derived(soundpad?.prefs.overlay_view ?? 'grid');
+  const controls = $derived(soundpad?.prefs.overlay_controls ?? 'top');
+  const sketch = $derived(daemon.prefs?.osd.look === 'sketch');
+  /** Row height and columns of the view, to load enough rows for a scroll position. */
+  const metricsOf = (layout: SoundpadOverlayView) => (layout === 'list' ? { row: 32, columns: 1 } : { row: 60, columns: 5 });
+  const metrics = $derived(metricsOf(view));
   const playback = $derived(daemon.soundpadPlayback);
   const place = loadPlace();
   let scope = $state<SoundScope>(place.scope);
@@ -62,7 +67,8 @@
   let saveFrame = 0;
   const sorts = sortOptions();
   /** Enough pads to reach the remembered scroll position, then a page more on demand. */
-  let shown = $state(Math.max(PAGE, Math.ceil(place.scrollTop / ROW_PX + 8) * COLUMNS));
+  const first = metricsOf(daemon.soundpad?.prefs.overlay_view ?? 'grid');
+  let shown = $state(Math.max(PAGE, Math.ceil(place.scrollTop / first.row + 8) * first.columns));
 
   const scopes = $derived([
     { value: null as SoundScope, label: t('soundpad.all') },
@@ -122,14 +128,47 @@
   function onscroll() {
     if (!list) return;
     scrollTop = list.scrollTop;
-    if (list.scrollTop + list.clientHeight > list.scrollHeight - ROW_PX * 2 && shown < pads.length) shown += PAGE;
+    if (list.scrollTop + list.clientHeight > list.scrollHeight - metrics.row * 2 && shown < pads.length) shown += PAGE;
     save();
   }
 
   const shortcuts = $derived(indexShortcuts(daemon.hotkeys?.bindings ?? []));
 </script>
 
-<section id="overlay-sounds" class="soundpad" aria-label={t('quick.soundpad')}>
+{#snippet player()}
+  <div class="player">
+    <button
+      class="round"
+      class:on={playback && !playback.paused}
+      disabled={!playback}
+      aria-label={playback?.paused ? t('soundpad.resume') : t('soundpad.pause')}
+      title={playback?.paused ? t('soundpad.resume') : t('soundpad.pause')}
+      onclick={() => daemon.run(daemon.client.call('soundpad.set_paused', { paused: null }))}
+    >
+      {#if !playback || playback.paused}<Play size={13} strokeWidth={1.5} />{:else}<Pause size={13} strokeWidth={1.5} />{/if}
+    </button>
+    <button class="round" disabled={!playback} aria-label={t('quick.soundpadStop')} title={t('quick.soundpadStop')} onclick={() => daemon.stopSound()}>
+      <Square size={12} strokeWidth={1.5} />
+    </button>
+    <span class="now" aria-live="polite" title={playing?.name}>
+      {#if playback}{playback.loading ? t('soundpad.loading') : (playing?.name ?? playback.sound_id)}{:else}<span class="idle">{t('soundpad.nothingPlaying')}</span>{/if}
+    </span>
+    <SeekBar compact />
+    <span class="time">{formatDuration(playback?.position_ms ?? 0)}<span class="total">&nbsp;/ {formatDuration(playback?.duration_ms ?? null)}</span></span>
+    {#if soundpad}
+      <span class="volume" class:off={!soundpad.prefs.to_microphone} title={t('soundpad.microphoneVolume')}>
+        <Mic size={13} strokeWidth={1.5} />
+        <RulerSlider compact label={t('soundpad.microphoneVolume')} value={soundpad.prefs.microphone_volume_pct} min={0} max={200} step={1} defaultValue={100} origin={100} color="violet" disabled={!soundpad.prefs.to_microphone} format={(value) => `${value}%`} onchange={(microphone_volume_pct) => daemon.setSoundpadPrefs({ microphone_volume_pct })} />
+      </span>
+      <span class="volume" class:off={!soundpad.prefs.to_headphones} title={t('soundpad.headphonesVolume')}>
+        <Headphones size={13} strokeWidth={1.5} />
+        <RulerSlider compact label={t('soundpad.headphonesVolume')} value={soundpad.prefs.headphones_volume_pct} min={0} max={200} step={1} defaultValue={70} origin={100} color="teal" disabled={!soundpad.prefs.to_headphones} format={(value) => `${value}%`} onchange={(headphones_volume_pct) => daemon.setSoundpadPrefs({ headphones_volume_pct })} />
+      </span>
+    {/if}
+  </div>
+{/snippet}
+
+<section id="overlay-sounds" class="soundpad" class:sketch aria-label={t('quick.soundpad')}>
   <div class="bar">
     <label class="search">
       <Search size={13} strokeWidth={1.5} />
@@ -158,46 +197,14 @@
     <div class="sort"><Dropdown label={t('soundpad.sort')} options={sorts} value={sort} width="150px" onchange={setSort} /></div>
   </div>
 
-  <div class="player">
-    <button
-      class="round"
-      class:on={playback && !playback.paused}
-      disabled={!playback}
-      aria-label={playback?.paused ? t('soundpad.resume') : t('soundpad.pause')}
-      title={playback?.paused ? t('soundpad.resume') : t('soundpad.pause')}
-      onclick={() => daemon.run(daemon.client.call('soundpad.set_paused', { paused: null }))}
-    >
-      {#if !playback || playback.paused}<Play size={14} strokeWidth={1.5} />{:else}<Pause size={14} strokeWidth={1.5} />{/if}
-    </button>
-    <button class="round" disabled={!playback} aria-label={t('quick.soundpadStop')} title={t('quick.soundpadStop')} onclick={() => daemon.stopSound()}>
-      <Square size={13} strokeWidth={1.5} />
-    </button>
-    <span class="now" aria-live="polite" title={playing?.name}>
-      {#if playback}{playback.loading ? t('soundpad.loading') : (playing?.name ?? playback.sound_id)}{:else}<span class="idle">{t('soundpad.nothingPlaying')}</span>{/if}
-    </span>
-    <SeekBar compact />
-    <span class="time">{formatDuration(playback?.position_ms ?? 0)}<span class="total">&nbsp;/ {formatDuration(playback?.duration_ms ?? null)}</span></span>
-  </div>
-
-  {#if soundpad}
-    <div class="volumes">
-      <div class="volume" class:off={!soundpad.prefs.to_microphone} title={t('soundpad.microphoneVolume')}>
-          <Mic size={13} strokeWidth={1.5} /><span class="hud-label">{t('soundpad.toMicrophone')}</span>
-          <RulerSlider compact label={t('soundpad.microphoneVolume')} value={soundpad.prefs.microphone_volume_pct} min={0} max={200} step={1} defaultValue={100} origin={100} color="violet" disabled={!soundpad.prefs.to_microphone} format={(value) => `${value}%`} onchange={(microphone_volume_pct) => daemon.setSoundpadPrefs({ microphone_volume_pct })} />
-        </div>
-        <div class="volume" class:off={!soundpad.prefs.to_headphones} title={t('soundpad.headphonesVolume')}>
-          <Headphones size={13} strokeWidth={1.5} /><span class="hud-label">{t('soundpad.toHeadphones')}</span>
-          <RulerSlider compact label={t('soundpad.headphonesVolume')} value={soundpad.prefs.headphones_volume_pct} min={0} max={200} step={1} defaultValue={70} origin={100} color="teal" disabled={!soundpad.prefs.to_headphones} format={(value) => `${value}%`} onchange={(headphones_volume_pct) => daemon.setSoundpadPrefs({ headphones_volume_pct })} />
-      </div>
-    </div>
-  {/if}
+  {#if controls === 'top'}{@render player()}{/if}
 
   {#if (soundpad?.sounds.length ?? 0) === 0}
     <p class="empty">{t('quick.soundpadEmpty')}</p>
   {:else if pads.length === 0}
     <p class="empty">{t('quick.soundpadNoMatches', { query })}</p>
   {:else}
-    <div class="pads" bind:this={list} {onscroll}>
+    <div class="pads" class:list={view === 'list'} bind:this={list} {onscroll}>
       {#each visible as sound (sound.id)}
         {@const active = playback?.sound_id === sound.id}
         {@const shortcut = shortcuts.get(`soundpad_play.${sound.id}`) ?? null}
@@ -219,6 +226,8 @@
       {/each}
     </div>
   {/if}
+
+  {#if controls === 'bottom'}{@render player()}{/if}
 </section>
 
 <style>
@@ -301,13 +310,19 @@
   .player {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     min-width: 0;
+    height: 28px;
+  }
+
+  .player .round {
+    width: 28px;
+    height: 28px;
   }
 
   .now {
     flex: none;
-    width: 220px;
+    width: 120px;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -330,33 +345,39 @@
     color: var(--muted);
   }
 
-  .volumes {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 24px;
-  }
-
   .volume {
+    flex: none;
+    width: 132px;
     display: grid;
-    grid-template-columns: auto 84px 1fr;
+    grid-template-columns: auto 1fr;
     align-items: center;
-    gap: 8px;
-    min-width: 0;
+    gap: 6px;
+    margin-left: 4px;
     color: var(--muted);
   }
 
-  .volume .hud-label {
-    font-size: 9px;
+  .volume.off {
+    opacity: 0.5;
+  }
+
+  /* A narrower ruler: a short track and a tight readout. */
+  .volume :global(.ruler.compact) {
+    grid-template-columns: 1fr 34px;
+    gap: 6px;
+  }
+
+  .volume :global(.ruler.compact .track) {
+    height: 16px;
+  }
+
+  .volume :global(.ruler.compact .value) {
+    font-size: 11px;
   }
 
   .sort :global(.trigger) {
     height: 32px;
     border-radius: 12px;
     font-size: 12px;
-  }
-
-  .volume.off {
-    opacity: 0.5;
   }
 
   .round {
@@ -480,6 +501,66 @@
     font-family: var(--font-mono);
     font-size: 10px;
     color: var(--muted);
+  }
+
+  .pads.list {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .list .pad {
+    height: 28px;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-radius: 8px;
+  }
+
+  .list .name {
+    flex: 1;
+  }
+
+  .list .meta {
+    flex: none;
+    max-width: 50%;
+    flex-direction: row-reverse;
+  }
+
+  .list .meta kbd {
+    margin-left: 0;
+  }
+
+  .list .length {
+    width: 76px;
+    text-align: right;
+  }
+
+  .list .pad.active::after {
+    height: 2px;
+  }
+
+  /* Sketch: the app's own look, picked with the hotkey popup's (HK-006). */
+  .sketch .search,
+  .sketch .chip,
+  .sketch .round,
+  .sketch .pad,
+  .sketch .sort :global(.trigger) {
+    border-radius: 0;
+  }
+
+  .sketch .pad.active {
+    border-color: var(--line-strong);
+  }
+
+  .sketch .pad.active::before {
+    content: '';
+    position: absolute;
+    left: -1px;
+    top: -1px;
+    bottom: -1px;
+    width: 2px;
+    background: var(--accent);
   }
 
   .empty {

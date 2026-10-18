@@ -370,6 +370,30 @@ const scenarios = {
     await page.getByRole('button', { name: 'Play Elevator loop' }).click();
     await page.waitForTimeout(2500);
   },
+  'overlay-sketch-list': async (page) => {
+    // The sketch look with the sounds in a list and the player below them.
+    await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay&look=sketch&sounds=list&controls=bottom`);
+    await page.waitForSelector('.pads');
+    await page.getByRole('button', { name: 'Play Elevator loop' }).click();
+    await page.waitForTimeout(2500);
+  },
+  'overlay-sketch-grid': async (page) => {
+    await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay&look=sketch`);
+    await page.waitForSelector('.pads');
+    await page.getByRole('button', { name: 'Play Elevator loop' }).click();
+    await page.waitForTimeout(2500);
+  },
+  'settings-look': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=settings&section=popup`);
+    await page.waitForSelector('#settings-popup');
+    await page.waitForTimeout(900);
+  },
+  'settings-overlay-sounds': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=settings&section=popup`);
+    await page.waitForSelector('#settings-popup');
+    await page.getByRole('radiogroup', { name: 'Sounds as' }).scrollIntoViewIfNeeded();
+    await page.waitForTimeout(900);
+  },
   'overlay-sort': async (page) => {
     await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay`);
     await page.waitForSelector('.pads');

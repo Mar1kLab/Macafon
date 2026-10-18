@@ -18,6 +18,8 @@
   const shortcut = $derived(daemon.hotkeys?.bindings.find((binding) => binding.action === 'quick_panel')?.shortcut);
   const soundpad = $derived(daemon.soundpad?.prefs.show_in_overlay ? daemon.soundpad : null);
   const playback = $derived(daemon.soundpadPlayback);
+  /** The look picked for the hotkey popup: the overlay follows it (HK-006, HK-007). */
+  const sketch = $derived(daemon.prefs?.osd.look === 'sketch');
   const playing = $derived(playback && soundpad?.sounds.find((sound) => sound.id === playback.sound_id));
   /** SND-006: the sounds open under the controls by their round button; the overlay opens
    * with them the way it was last closed, across openings and UI restarts. */
@@ -36,7 +38,7 @@
   });
 </script>
 
-<div class="overlay">
+<div class="overlay" class:sketch>
   <!-- A sketch-like frame: straight lines along the edges that run past the corners. -->
   <span class="frame" aria-hidden="true"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></span>
   <header>
@@ -56,7 +58,7 @@
         {#if mixer?.enabled}
           <div class="strip master" style:--channel-ink="var(--app-teal-ink)">
             <span class="strip-name" title={t('mixer.master')}>{t('mixer.master')}</span>
-            <VerticalSlider value={mixer.master_volume_pct} label={t('mixer.masterVolume')} color="teal" muted={mixer.master_muted} onchange={(volume_pct) => daemon.setMaster({ volume_pct })} />
+            <VerticalSlider {sketch} value={mixer.master_volume_pct} label={t('mixer.masterVolume')} color="teal" muted={mixer.master_muted} onchange={(volume_pct) => daemon.setMaster({ volume_pct })} />
             <button class="round mute" class:alert={mixer.master_muted} aria-pressed={mixer.master_muted} aria-label={t('quick.mute', { name: t('mixer.master') })} title={t('quick.mute', { name: t('mixer.master') })} onclick={() => mixer && daemon.setMaster({ muted: !mixer.master_muted })}>
               {#if mixer.master_muted}<VolumeX size={18} strokeWidth={1.5} />{:else}<Volume2 size={18} strokeWidth={1.5} />{/if}
             </button>
@@ -65,7 +67,7 @@
             {@const Icon = channelIcon(channel.icon)}
             <div class="strip" style:--channel-ink="var(--app-{channel.color}-ink)">
               <span class="strip-name" title={channel.name}>{channel.name}</span>
-              <VerticalSlider value={channel.settings.volume_pct} label={t('mixer.volume', { name: channel.name })} color={channel.color} muted={channel.settings.muted} onchange={(value) => daemon.editChannel(channel.id, (settings) => (settings.volume_pct = value))} />
+              <VerticalSlider {sketch} value={channel.settings.volume_pct} label={t('mixer.volume', { name: channel.name })} color={channel.color} muted={channel.settings.muted} onchange={(value) => daemon.editChannel(channel.id, (settings) => (settings.volume_pct = value))} />
               <button class="round mute" class:alert={channel.settings.muted} aria-pressed={channel.settings.muted} aria-label={t('quick.mute', { name: channel.name })} title={t('quick.mute', { name: channel.name })} onclick={() => daemon.editChannel(channel.id, (settings) => (settings.muted = !settings.muted))}>
                 {#if channel.settings.muted}<VolumeX size={18} strokeWidth={1.5} />{:else}<Icon size={18} strokeWidth={1.5} />{/if}
               </button>
@@ -160,5 +162,13 @@
   .preset-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 12px; }
   .preset-name small { display: block; font-size: 9px; color: var(--app-amber-ink); }
   .status { flex: 1; align-self: center; padding: 24px; font-size: 13px; color: var(--muted); }
+  /* Sketch: the app's own look — sharp corners, HUD labels, accent marks instead of fills. */
+  .sketch .round, .sketch .toggle, .sketch kbd { border-radius: 0; }
+  .sketch .toggle { position: relative; }
+  .sketch .toggle small { font-family: var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; }
+  .sketch .toggle.active::before, .sketch .toggle.alert::before { content: ''; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 2px; background: var(--accent); }
+  .sketch .toggle.alert::before { background: var(--danger); }
+  .sketch .toggle.alert { border-color: var(--line); }
+  .sketch .strip-name { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
   @media (prefers-reduced-motion: reduce) { .round { transition: none; } }
 </style>

@@ -4,7 +4,9 @@
 // microphone, `?config=recovered` a config reset at startup, `?overload` a Studio overload,
 // `?mixer=off` a mixer that is not turned on yet, `?hotkeys=unavailable` a desktop without a
 // global shortcut service. `?platform=windows` acts like the Windows daemon (VB-CABLE, no
-// channel effects); add `&cable=missing` for a system without VB-CABLE.
+// channel effects); add `&cable=missing` for a system without VB-CABLE. `?look=sketch` picks the
+// sketch look of the popup and overlay; `?sounds=list` and `?controls=bottom|hidden` lay out the
+// overlay's soundpad.
 
 import { DaemonError, type DaemonStatus, type Transport } from './client';
 import { BUILTIN_PRESETS } from './dsp';
@@ -98,7 +100,7 @@ export class MockTransport implements Transport {
     volume_step_pct: 5,
     quantum_frames: 128,
     close_action: 'tray',
-    osd: { primary_monitor: false, style: 'vertical', edge: 'right', offset_pct: 0 },
+    osd: { primary_monitor: false, style: 'vertical', edge: 'right', offset_pct: 0, look: this.query.get('look') === 'sketch' ? 'sketch' : 'classic' },
   };
   private autostart: AutostartState = { enabled: true, method: this.windows ? 'windows_run' : 'systemd' };
   private shortcuts = new Map<string, string>([

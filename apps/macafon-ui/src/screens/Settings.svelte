@@ -21,9 +21,19 @@
   import OverlayPicture from '../lib/settings/OverlayPicture.svelte';
   import PictureChoice from '../lib/settings/PictureChoice.svelte';
   import PopupPicture from '../lib/settings/PopupPicture.svelte';
+  import LookPicture from '../lib/settings/LookPicture.svelte';
   import LibraryFolder from '../lib/soundpad/LibraryFolder.svelte';
   import { t } from '../lib/i18n';
-  import type { CloseAction, InputChannel, OsdEdge, OsdPrefs, OsdStyle } from '../lib/ipc/protocol';
+  import type {
+    CloseAction,
+    InputChannel,
+    OsdEdge,
+    OsdLook,
+    OsdPrefs,
+    OsdStyle,
+    SoundpadOverlayControls,
+    SoundpadOverlayView,
+  } from '../lib/ipc/protocol';
   import { OSD_MAX_OFFSET_PCT, QUANTUM_CHOICES, SAMPLE_RATE_HZ } from '../lib/ipc/dsp';
 
   let { onnavigate }: { onnavigate: (screen: 'microphone' | 'mixer') => void } = $props();
@@ -89,6 +99,16 @@
   const osdEdgeOptions = $derived(
     OSD_EDGES[prefs?.osd.style ?? 'vertical'].map((value) => ({ value, label: t(`settings.osd.edges.${value}`) })),
   );
+  const lookOptions = (['classic', 'sketch'] as OsdLook[]).map((value) => ({
+    value,
+    label: t(`settings.osd.looks.${value}`),
+    hint: t(`settings.osd.lookHints.${value}`),
+  }));
+  const overlayViewOptions = (['grid', 'list'] as SoundpadOverlayView[]).map((value) => ({ value, label: t(`settings.overlay.views.${value}`) }));
+  const overlayControlsOptions = (['top', 'bottom', 'hidden'] as SoundpadOverlayControls[]).map((value) => ({
+    value,
+    label: t(`settings.overlay.controlsPlaces.${value}`),
+  }));
   const monitorOptions = [false, true].map((value) => ({
     value,
     label: t(value ? 'settings.osd.primaryMonitor' : 'settings.osd.activeMonitor'),
@@ -399,6 +419,15 @@
         <section id="settings-popup">
           <h2 class="hud-label" tabindex="-1">{t('settings.osd.title')}</h2>
           <div class="row column">
+            <div>
+              <p class="name">{t('settings.osd.look')}</p>
+              <p class="hint">{t('settings.osd.lookHint')}</p>
+            </div>
+            <PictureChoice label={t('settings.osd.look')} options={lookOptions} value={prefs.osd.look} onchange={(look) => setOsd({ look })}>
+              {#snippet picture(look)}<LookPicture {look} />{/snippet}
+            </PictureChoice>
+          </div>
+          <div class="row column">
             <p class="name">{t('settings.osd.style')}</p>
             <PictureChoice label={t('settings.osd.style')} options={osdStyleOptions} value={prefs.osd.style} onchange={(style) => setOsd({ style })}>
               {#snippet picture(style)}
@@ -456,6 +485,31 @@
                 {#snippet picture(soundpad)}<OverlayPicture {soundpad} />{/snippet}
               </PictureChoice>
             </div>
+            {#if daemon.soundpad.prefs.show_in_overlay}
+              <div class="row">
+                <p class="name">{t('settings.overlay.view')}</p>
+                <Segmented
+                  label={t('settings.overlay.view')}
+                  layout="inline"
+                  options={overlayViewOptions}
+                  value={daemon.soundpad.prefs.overlay_view}
+                  onchange={(overlay_view) => daemon.setSoundpadPrefs({ overlay_view })}
+                />
+              </div>
+              <div class="row">
+                <div>
+                  <p class="name">{t('settings.overlay.controls')}</p>
+                  <p class="hint">{t('settings.overlay.controlsHint')}</p>
+                </div>
+                <Segmented
+                  label={t('settings.overlay.controls')}
+                  layout="inline"
+                  options={overlayControlsOptions}
+                  value={daemon.soundpad.prefs.overlay_controls}
+                  onchange={(overlay_controls) => daemon.setSoundpadPrefs({ overlay_controls })}
+                />
+              </div>
+            {/if}
           {/if}
         </section>
       {/if}

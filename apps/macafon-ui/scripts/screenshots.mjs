@@ -363,6 +363,20 @@ const scenarios = {
     await page.waitForSelector('.pads');
     await page.waitForTimeout(600);
   },
+  'overlay-sounds-playing': async (page) => {
+    // The sounds stay open from the previous opening; a pad plays with its transport.
+    await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay`);
+    await page.waitForSelector('.pads');
+    await page.getByRole('button', { name: 'Play Elevator loop' }).click();
+    await page.waitForTimeout(2500);
+  },
+  'overlay-sort': async (page) => {
+    await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay`);
+    await page.waitForSelector('.pads');
+    await page.getByRole('button', { name: 'Sort' }).click();
+    await page.waitForSelector('[role="listbox"]');
+    await page.waitForTimeout(300);
+  },
   'dropdown-small-window': async (page) => {
     // The smallest window: the headphones device list opens upward inside the side panel.
     await page.setViewportSize({ width: 960, height: 640 });

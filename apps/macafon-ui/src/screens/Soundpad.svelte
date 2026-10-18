@@ -36,6 +36,7 @@
     matches,
     saveSort,
     savedSort,
+    sortOptions,
     sortSounds,
     type SoundScope,
     type SoundSort,
@@ -95,14 +96,7 @@
   const categories = $derived(
     (soundpad?.categories ?? []).map((name) => ({ name, count: sounds.filter((s) => s.category === name).length })),
   );
-  const sortOptions = $derived([
-    { value: 'newest' as SoundSort, label: t('soundpad.sortNewest') },
-    { value: 'oldest' as SoundSort, label: t('soundpad.sortOldest') },
-    { value: 'name' as SoundSort, label: t('soundpad.sortName') },
-    { value: 'plays' as SoundSort, label: t('soundpad.sortPlays') },
-    { value: 'duration' as SoundSort, label: t('soundpad.sortDuration') },
-    { value: 'category' as SoundSort, label: t('soundpad.sortCategory') },
-  ]);
+  const sorts = sortOptions();
   const monitorOptions = $derived([
     { value: null as string | null, label: t('soundpad.followDefault') },
     ...(daemon.mixer?.outputs ?? []).map((output) => ({ value: output.name as string | null, label: output.description })),
@@ -228,7 +222,7 @@
         <input type="search" bind:value={query} placeholder={t('soundpad.searchPlaceholder')} aria-label={t('soundpad.search')} />
       </label>
       <span class="hud-label">{t('soundpad.sort')}</span>
-      <Dropdown label={t('soundpad.sort')} options={sortOptions} value={sort} width="170px" onchange={(value) => {
+      <Dropdown label={t('soundpad.sort')} options={sorts} value={sort} width="170px" onchange={(value) => {
         sort = value;
         saveSort(value);
       }} />

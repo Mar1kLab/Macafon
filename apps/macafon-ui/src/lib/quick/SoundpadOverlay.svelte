@@ -1,9 +1,13 @@
 <script lang="ts" module>
+  import { SOUND_SORTS, savedSort, type SoundSort } from '../soundpad/format';
+
   /** Where the user was in the sounds: kept across openings and UI restarts. */
   interface Place {
     scope: string | null;
     query: string;
     scrollTop: number;
+    /** The overlay's own order; the Soundpad screen's until the user picks one here. */
+    sort: SoundSort;
   }
 
   const PLACE_KEY = 'macafon.overlay.soundpad';
@@ -15,23 +19,29 @@
         scope: typeof saved?.scope === 'string' ? saved.scope : null,
         query: typeof saved?.query === 'string' ? saved.query : '',
         scrollTop: typeof saved?.scrollTop === 'number' ? saved.scrollTop : 0,
+        sort: SOUND_SORTS.includes(saved?.sort as SoundSort) ? (saved?.sort as SoundSort) : savedSort(),
       };
     } catch {
-      return { scope: null, query: '', scrollTop: 0 };
+      return { scope: null, query: '', scrollTop: 0, sort: savedSort() };
     }
   }
 </script>
 
 <script lang="ts">
   // The soundpad in the hotkey overlay (§7.6, SND-006), shown while its round button in the
-  // overlay is on: searchable pads with a category filter. The category, search and scroll
-  // position are remembered, so a long library opens where the user left it. Pads are drawn a
-  // page at a time, so a library of thousands of sounds opens as fast as a small one.
+  // overlay is on: searchable, sortable pads with a category filter, the playing sound's
+  // transport and the output volumes. The category, search, order and scroll position are
+  // remembered, so a long library opens where the user left it. Pads are drawn a page at a
+  // time, so a library of thousands of sounds opens as fast as a small one.
   import { onMount, tick } from 'svelte';
-  import { Search, Square, Star } from '@lucide/svelte';
+  import { Headphones, Mic, Pause, Play, Search, Square, Star } from '@lucide/svelte';
+  import Dropdown from '../components/Dropdown.svelte';
+  import RulerSlider from '../components/RulerSlider.svelte';
   import { radioKeys } from '../components/radioKeys';
+  import SeekBar from '../soundpad/SeekBar.svelte';
   import { indexShortcuts } from '../settings/shortcut';
-  import { FAVORITES, inScope, matches, savedSort, sortSounds, type SoundScope } from '../soundpad/format';
+  import { FAVORITES, formatDuration, inScope, matches, sortOptions, sortSounds, type SoundScope } from '../soundpad/format';
+  import type { SoundInfo } from '../ipc/protocol';
   import { daemon } from '../state';
   import { t } from '../i18n';
 
@@ -48,9 +58,9 @@
   let scrollTop = place.scrollTop;
   let list: HTMLDivElement | undefined = $state();
   let search: HTMLInputElement | undefined = $state();
+  let sort = $state<SoundSort>(place.sort);
   let saveFrame = 0;
-  /** The order picked on the Soundpad screen, read on every opening. */
-  const order = savedSort();
+  const sorts = sortOptions();
   /** Enough pads to reach the remembered scroll position, then a page more on demand. */
   let shown = $state(Math.max(PAGE, Math.ceil(place.scrollTop / ROW_PX + 8) * COLUMNS));
 
@@ -64,7 +74,7 @@
   const pads = $derived(
     sortSounds(
       (soundpad?.sounds ?? []).filter((sound) => !sound.error && inScope(sound, activeScope) && matches(sound, query)),
-      order,
+      sort,
     ).sort((a, b) => Number(b.favorite) - Number(a.favorite)),
   );
   const visible = $derived(pads.slice(0, shown));
@@ -81,7 +91,7 @@
   function save() {
     cancelAnimationFrame(saveFrame);
     saveFrame = requestAnimationFrame(() => {
-      localStorage.setItem(PLACE_KEY, JSON.stringify({ scope, query, scrollTop } satisfies Place));
+      localStorage.setItem(PLACE_KEY, JSON.stringify({ scope, query, scrollTop, sort } satisfies Place));
     });
   }
 
@@ -95,6 +105,18 @@
   function setScope(value: SoundScope) {
     scope = value;
     restart();
+  }
+
+  function setSort(value: SoundSort) {
+    sort = value;
+    restart();
+  }
+
+  /** Name, category, length and plays: everything the pad has no room for. */
+  function describe(sound: SoundInfo): string {
+    return [sound.name, sound.category, formatDuration(sound.duration_ms, true), t('soundpad.plays', { count: sound.play_count })]
+      .filter(Boolean)
+      .join(' · ');
   }
 
   function onscroll() {
@@ -133,11 +155,42 @@
         </button>
       {/each}
     </div>
-    <span class="now" aria-live="polite">{playing?.name ?? ''}</span>
-    <button class="round stop" disabled={!playback} aria-label={t('quick.soundpadStop')} title={t('quick.soundpadStop')} onclick={() => daemon.stopSound()}>
-      <Square size={14} strokeWidth={1.5} />
-    </button>
+    <div class="sort"><Dropdown label={t('soundpad.sort')} options={sorts} value={sort} width="150px" onchange={setSort} /></div>
   </div>
+
+  <div class="player">
+    <button
+      class="round"
+      class:on={playback && !playback.paused}
+      disabled={!playback}
+      aria-label={playback?.paused ? t('soundpad.resume') : t('soundpad.pause')}
+      title={playback?.paused ? t('soundpad.resume') : t('soundpad.pause')}
+      onclick={() => daemon.run(daemon.client.call('soundpad.set_paused', { paused: null }))}
+    >
+      {#if !playback || playback.paused}<Play size={14} strokeWidth={1.5} />{:else}<Pause size={14} strokeWidth={1.5} />{/if}
+    </button>
+    <button class="round" disabled={!playback} aria-label={t('quick.soundpadStop')} title={t('quick.soundpadStop')} onclick={() => daemon.stopSound()}>
+      <Square size={13} strokeWidth={1.5} />
+    </button>
+    <span class="now" aria-live="polite" title={playing?.name}>
+      {#if playback}{playback.loading ? t('soundpad.loading') : (playing?.name ?? playback.sound_id)}{:else}<span class="idle">{t('soundpad.nothingPlaying')}</span>{/if}
+    </span>
+    <SeekBar compact />
+    <span class="time">{formatDuration(playback?.position_ms ?? 0)}<span class="total">&nbsp;/ {formatDuration(playback?.duration_ms ?? null)}</span></span>
+  </div>
+
+  {#if soundpad}
+    <div class="volumes">
+      <div class="volume" class:off={!soundpad.prefs.to_microphone} title={t('soundpad.microphoneVolume')}>
+          <Mic size={13} strokeWidth={1.5} /><span class="hud-label">{t('soundpad.toMicrophone')}</span>
+          <RulerSlider compact label={t('soundpad.microphoneVolume')} value={soundpad.prefs.microphone_volume_pct} min={0} max={200} step={1} defaultValue={100} origin={100} color="violet" disabled={!soundpad.prefs.to_microphone} format={(value) => `${value}%`} onchange={(microphone_volume_pct) => daemon.setSoundpadPrefs({ microphone_volume_pct })} />
+        </div>
+        <div class="volume" class:off={!soundpad.prefs.to_headphones} title={t('soundpad.headphonesVolume')}>
+          <Headphones size={13} strokeWidth={1.5} /><span class="hud-label">{t('soundpad.toHeadphones')}</span>
+          <RulerSlider compact label={t('soundpad.headphonesVolume')} value={soundpad.prefs.headphones_volume_pct} min={0} max={200} step={1} defaultValue={70} origin={100} color="teal" disabled={!soundpad.prefs.to_headphones} format={(value) => `${value}%`} onchange={(headphones_volume_pct) => daemon.setSoundpadPrefs({ headphones_volume_pct })} />
+      </div>
+    </div>
+  {/if}
 
   {#if (soundpad?.sounds.length ?? 0) === 0}
     <p class="empty">{t('quick.soundpadEmpty')}</p>
@@ -152,12 +205,16 @@
           class="pad"
           class:active
           aria-label={t('quick.soundpadPlay', { name: sound.name })}
-          title={sound.name}
+          title={describe(sound)}
           style:--progress={active && playback ? `${Math.min(playback.position_ms / Math.max(playback.duration_ms, 1), 1) * 100}%` : '0%'}
           onclick={() => (active ? daemon.stopSound() : daemon.playSound(sound.id))}
         >
           <span class="name">{#if sound.favorite}<Star size={11} strokeWidth={1.5} />{/if}{sound.name}</span>
-          {#if shortcut}<kbd>{shortcut}</kbd>{/if}
+          <span class="meta">
+            <span class="length">{active && playback ? `${formatDuration(playback.position_ms)} / ` : ''}{formatDuration(sound.duration_ms, true)}</span>
+            {#if sound.category && activeScope !== sound.category}<span class="category">{sound.category}</span>{/if}
+            {#if shortcut}<kbd>{shortcut}</kbd>{/if}
+          </span>
         </button>
       {/each}
     </div>
@@ -241,14 +298,65 @@
     border-color: var(--line-strong);
   }
 
+  .player {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
   .now {
     flex: none;
-    max-width: 160px;
+    width: 220px;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
     font-size: 12px;
     color: var(--accent-ink);
+  }
+
+  .now .idle {
+    color: var(--faint);
+  }
+
+  .time {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink);
+  }
+
+  .total {
+    color: var(--muted);
+  }
+
+  .volumes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+
+  .volume {
+    display: grid;
+    grid-template-columns: auto 84px 1fr;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    color: var(--muted);
+  }
+
+  .volume .hud-label {
+    font-size: 9px;
+  }
+
+  .sort :global(.trigger) {
+    height: 32px;
+    border-radius: 12px;
+    font-size: 12px;
+  }
+
+  .volume.off {
+    opacity: 0.5;
   }
 
   .round {
@@ -271,6 +379,11 @@
 
   .round:disabled {
     opacity: 0.4;
+  }
+
+  .round.on {
+    color: var(--accent-ink);
+    border-color: var(--accent);
   }
 
   .pads {
@@ -335,8 +448,35 @@
     color: var(--app-amber-ink);
   }
 
+  .meta {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  .length {
+    flex: none;
+    font-family: var(--font-mono);
+  }
+
+  .pad.active .length {
+    color: var(--accent-ink);
+  }
+
+  .category {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--faint);
+  }
+
   kbd {
-    justify-self: start;
+    flex: none;
+    margin-left: auto;
     font-family: var(--font-mono);
     font-size: 10px;
     color: var(--muted);

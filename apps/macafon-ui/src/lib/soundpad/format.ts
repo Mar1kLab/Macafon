@@ -1,5 +1,6 @@
 // Soundpad list helpers: times, sorting and filtering, kept out of the components to test them.
 import type { SoundInfo } from '../ipc/protocol';
+import { t } from '../i18n';
 
 /** `m:ss`, or `h:mm:ss` from an hour; tenths below ten seconds for short effects. */
 export function formatDuration(ms: number | null, tenths = false): string {
@@ -17,6 +18,18 @@ export type SoundSort = 'newest' | 'oldest' | 'name' | 'plays' | 'duration' | 'c
 export const SOUND_SORTS: readonly SoundSort[] = ['newest', 'oldest', 'name', 'plays', 'duration', 'category'];
 
 const SORT_KEY = 'macafon.soundpad.sort';
+
+/** The sort picker's options, in the order they are listed. */
+export function sortOptions(): { value: SoundSort; label: string }[] {
+  return [
+    { value: 'newest', label: t('soundpad.sortNewest') },
+    { value: 'oldest', label: t('soundpad.sortOldest') },
+    { value: 'name', label: t('soundpad.sortName') },
+    { value: 'plays', label: t('soundpad.sortPlays') },
+    { value: 'duration', label: t('soundpad.sortDuration') },
+    { value: 'category', label: t('soundpad.sortCategory') },
+  ];
+}
 
 /** The order picked last; newest first until the user picks another. */
 export function savedSort(): SoundSort {

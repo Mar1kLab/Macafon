@@ -19,13 +19,20 @@
   const soundpad = $derived(daemon.soundpad?.prefs.show_in_overlay ? daemon.soundpad : null);
   const playback = $derived(daemon.soundpadPlayback);
   const playing = $derived(playback && soundpad?.sounds.find((sound) => sound.id === playback.sound_id));
-  /** SND-006: the sounds open under the controls by their round button. */
-  let sounds = $state(false);
+  /** SND-006: the sounds open under the controls by their round button; the overlay opens
+   * with them the way it was last closed, across openings and UI restarts. */
+  const SOUNDS_KEY = 'macafon.overlay.soundsOpen';
+  let sounds = $state(localStorage.getItem(SOUNDS_KEY) === '1');
 
-  // Every opening of the overlay starts with the sounds folded away.
+  function setSounds(open: boolean) {
+    sounds = open;
+    localStorage.setItem(SOUNDS_KEY, open ? '1' : '0');
+  }
+
+  // The page stays loaded between openings: each one restores what the last left.
   $effect(() => {
     void opened;
-    sounds = false;
+    sounds = localStorage.getItem(SOUNDS_KEY) === '1';
   });
 </script>
 
@@ -82,7 +89,7 @@
         </button>
         {#if soundpad}
           <div class="sounds">
-            <button class="round sounds-toggle" class:open={sounds} aria-expanded={sounds} aria-controls="overlay-sounds" aria-label={sounds ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} title={sounds ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} onclick={() => (sounds = !sounds)}>
+            <button class="round sounds-toggle" class:open={sounds} aria-expanded={sounds} aria-controls="overlay-sounds" aria-label={sounds ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} title={sounds ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} onclick={() => setSounds(!sounds)}>
               <AudioWaveform size={16} strokeWidth={1.5} />
             </button>
             <span class="sounds-label">{#if playing}<b title={playing.name}>{playing.name}</b>{:else}{t('quick.soundpadShow')}<small>{soundpad.sounds.length}</small>{/if}</span>

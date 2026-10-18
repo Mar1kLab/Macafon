@@ -639,14 +639,65 @@ fn decode_base64(text: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Open the library folder in the file manager.
+/// Acknowledge dispatch immediately; neither shell activation nor folder creation blocks IPC.
 pub fn open_folder(folder: &Path) -> std::io::Result<()> {
+    let folder = folder.to_owned();
+    std::thread::Builder::new()
+        .name("macafon-open-folder".into())
+        .spawn(move || {
+            let start = Instant::now();
+            if let Err(error) = open_folder_blocking(&folder) {
+                tracing::warn!(%error, folder = %folder.display(), "Cannot open soundpad folder");
+            }
+            tracing::debug!(
+                elapsed_ms = start.elapsed().as_millis(),
+                "Soundpad shell activation finished"
+            );
+        })?;
+    Ok(())
+}
+
+fn open_folder_blocking(folder: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(folder)?;
     #[cfg(windows)]
-    let program = "explorer.exe";
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows::{
+            Win32::{
+                System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize},
+                UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
+            },
+            core::PCWSTR,
+        };
+        let folder: Vec<u16> = folder.as_os_str().encode_wide().chain(Some(0)).collect();
+        // SAFETY: a dedicated shell thread owns the COM apartment and terminated path buffer.
+        let initialized = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }.is_ok();
+        // SAFETY: all optional pointers are null, and the path buffer outlives the call.
+        let result = unsafe {
+            ShellExecuteW(
+                None,
+                PCWSTR::null(),
+                PCWSTR(folder.as_ptr()),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        if initialized {
+            unsafe {
+                // SAFETY: balances this thread's successful CoInitializeEx.
+                CoUninitialize();
+            }
+        }
+        if result.0 as isize <= 32 {
+            return Err(std::io::Error::other(format!(
+                "ShellExecuteW failed: {}",
+                result.0 as isize
+            )));
+        }
+    }
     #[cfg(not(windows))]
-    let program = "xdg-open";
-    std::process::Command::new(program).arg(folder).spawn()?;
+    std::process::Command::new("xdg-open").arg(folder).spawn()?;
     Ok(())
 }
 

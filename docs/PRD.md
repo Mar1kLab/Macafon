@@ -454,20 +454,43 @@ Sounds play into Macafon Microphone (the voice chat hears them) and into the use
 the same time. Windows only for now (`Capabilities::soundpad`); Linux reports it unavailable.
 
 ```
-library folder ─► decoder (48 kHz stereo, cache) ─► SoundpadControl ─┬─► cable render thread: voice × duck + sound ─► CABLE Input
-                                                                     └─► monitor stream ─► headphones / chosen output
+library folder -> decoder (48 kHz stereo, loudness/peak cache) -> SoundpadControl
+  |-> limiter(voice * duck + normalized sound) -> CABLE Input
+  \-> normalized monitor -> Soundpad audio session -> headphones / chosen output
 ```
 
 | ID | Requirement | Priority |
 |---|---|---|
 | SND-001 | A library folder (default `Music\Macafon Sounds`; any folder on any drive can be picked with the system folder dialog in Settings → Soundpad or on the Soundpad screen, and reset to the default — owner request, 2026-10-18; switching stops playback, settings and hotkeys of sounds stay by their relative paths): files in it and in its first-level subfolders (= categories) are the library; files copied in by hand appear within 3 s. MP3, WAV, OGG, FLAC, M4A, AAC up to 200 MB and 10 minutes. The UI adds files by a file picker or by dropping them anywhere on the window (uploaded to the daemon in chunks; the Soundpad screen opens), opens the folder, creates, renames and deletes categories, renames, moves and deletes sounds | P0 |
-| SND-002 | Playing a sound replaces the current one (short fade, no clicks). It is mixed after the microphone chain into the cable, so mute/bypass of the voice do not affect it, and into a monitor stream on the default or a chosen output. Each target has an on/off switch and a 0–200 % volume; each sound has its own 0–200 % volume | P0 |
+| SND-002 | Playing a sound replaces the current one (short fade, no clicks). It is mixed after the microphone chain into the cable, so mute/bypass of the voice do not affect it, and into a monitor stream on the default or a chosen output. Each target has an on/off switch and a 0-200 % volume; each sound has its own 0-200 % volume. At 100 %, sounds are loudness-normalized: microphone follows typical processed voice (-18 dBFS RMS fallback), headphones use -24 dBFS RMS. Normalization respects -1 dBFS sample-peak headroom; a linked limiter protects voice + sound after trims. The Windows monitor has its own movable **Soundpad** app entry controlled by channel/app faders and mute, independently of the cable stream (owner request, 2026-10-18) | P0 |
 | SND-003 | Transport: play/stop per sound, pause/resume, stop, repeat, seek on a progress ruler, play a random sound (of the visible list or a category); progress about 10 Hz | P0 |
 | SND-004 | Every sound can have primary and secondary global hotkeys (`soundpad_play.<id>`, HK-009 rules); global actions stop, pause/resume and random. Hotkeyed sounds are decoded ahead, so they start at once. Renaming or moving a sound keeps its settings and hotkeys | P0 |
 | SND-005 | Library view: distinct rows, search, sort — newest first by default (file creation time), remembered when changed; oldest, name, plays, length, category — favorites, play counts, decode errors shown per sound; keyboard: arrows, Enter/Space play, F2 edit, Delete | P1 |
 | SND-006 | The hotkey overlay (HK-007) has a soundpad bar with stop and a button that expands the sounds; every opening starts collapsed (owner request, 2026-10-18). Expanded: search (Enter plays the first match), a category filter and pads; the category, search and scroll position are remembered. Settings → Hotkey popup turns the soundpad bar on or off (on by default) | P1 |
-| SND-007 | "Mute my voice while playing": while a sound plays into the microphone the voice fades out | P1 |
-| SND-008 | RT rules (AGENTS §4.1): taps are allocation- and lock-free; decoded sounds are only freed on the control loop | P0 |
+| SND-007 | "Mute my voice while playing": while a sound plays into the microphone the voice fades out. The loudness reference observes processed voice before this duck, retaining its last value during silence/mute (owner request, 2026-10-18) | P1 |
+| SND-008 | RT rules (AGENTS section 4.1): taps are allocation- and lock-free; decoded sounds are only freed on the control loop. Loudness/peak measurement and normalization coefficients are computed once at decode time; reference tracking, smoothed gains and zero-lookahead limiting allocate nothing (owner request, 2026-10-18) | P0 |
+
+Soundpad loudness policy (owner request, 2026-10-18): decode measures stereo RMS in 400 ms
+blocks gated below -60 dBFS and sample peak, caching normalization coefficients with the PCM.
+Normalization uses a maximum +40 dB gain and a -1 dBFS sample-peak ceiling before relative trims.
+The microphone reference observes 400 ms processed-voice blocks before sound/duck, gated below
+-50 dBFS, bounded to -36 to -12 dBFS RMS, with a 1/8 update per active block and 20 ms gain
+smoothing. It starts at -18 dBFS RMS (CAL-005 speech target); silence retains the last reference.
+This follows the actual chain output, including preset/AGC/compressor/output gain, rather than
+assuming that raw calibration RMS is still the processed level. The headphones reference is
+-24 dBFS RMS, 6 dB below the microphone fallback to leave comfortable monitor headroom; physical
+listening volume still depends on the device/system level. Both taps use a stereo-linked -1 dBFS
+peak limiter after trims, with immediate attack and 100 ms release; the microphone limiter includes
+voice in its peak detector. It adds no lookahead latency. Non-finite/subnormal samples are sanitized.
+These are gated RMS estimates, not claimed BS.1770 LUFS measurements.
+
+No config migration: keep existing microphone/headphones/per-sound trims verbatim, including 1 %.
+New-user defaults remain microphone 100 %, headphones 70 %. Automatically raising a saved low
+headphones setting could surprise the listener; users may raise it after comparing the normalized
+level. Windows opens the monitor in a dedicated, named WASAPI session, with a stable grouping GUID
+and a separate mixer identity. Existing session volume journaling, external changes, meters and
+channel assignment apply to it; no extra cable, driver, audio rerouting or Master multiplication.
+This is a reversible use of ADR-0004's session mixer, not a replacement architecture.
 
 ## 8. Background operation, tray, autostart, hotkeys
 
@@ -963,7 +986,7 @@ Cider   ─┘ session × (Music 70% × …)
 
 | ID | Requirement | Priority |
 |---|---|---|
-| WIN-CH-001 | Application auto-detection — `IAudioSessionManager2` + `IAudioSessionNotification` on all output devices; grouping by exe (APP-002), icons from the exe / AppX manifest (APP-003); system sounds — a pseudo-chip (APP-011) | P0 |
+| WIN-CH-001 | Application auto-detection — `IAudioSessionManager2` + `IAudioSessionNotification` on all output devices; grouping by exe (APP-002), with Macafon's dedicated monitor session exposed separately as **Soundpad** and its internal cable/preview sessions excluded (owner request, 2026-10-18); icons from the exe / AppX manifest (APP-003); system sounds — a pseudo-chip (APP-011) | P0 |
 | WIN-CH-002 | Session volume = a cubic curve (`channel × application`) through `ISimpleAudioVolume`; channel mute affects sessions. Master mirrors the default Windows render endpoint through `IAudioEndpointVolume`, including external volume/mute changes, adopts Windows on startup/device changes, and never attenuates sessions a second time. Explicit Master edits persist as system volume on exit (owner decision, 2026-10-17). A change applies to all of the application's sessions, including new ones (APP-005) | P0 |
 | WIN-CH-003 | A change of an application's volume in the Windows volume mixer (or by the application itself) is recognized by Macafon through `IAudioSessionEvents::OnSimpleVolumeChanged` (its own event-context GUID tells its own changes apart) and accepted as the application's new volume (CH-008), not overwritten | P0 |
 | WIN-CH-004 | Meters: session `IAudioMeterInformation`; a channel meter is the maximum of its applications' peaks (CH-005), Master is the output device meter | P0 |

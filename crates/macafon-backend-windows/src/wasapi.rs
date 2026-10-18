@@ -7,7 +7,7 @@ use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::Media::Audio::{
     AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
     AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, IAudioClient,
-    IAudioClient3, IAudioRenderClient, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
+    IAudioClient3, IAudioRenderClient, IAudioSessionManager2, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
 };
 use windows::Win32::System::Com::{CLSCTX_ALL, CoTaskMemFree};
 use windows::Win32::System::Threading::{
@@ -21,6 +21,7 @@ const WAVE_FORMAT_EXTENSIBLE: u16 = 0xfffe;
 const KSDATAFORMAT_SUBTYPE_IEEE_FLOAT: GUID =
     GUID::from_u128(0x00000003_0000_0010_8000_00aa00389b71);
 pub(crate) const HNS_PER_SECOND: f64 = 10_000_000.0;
+pub(crate) const SOUNDPAD_SESSION: GUID = GUID::from_u128(0xf68b887a_4c27_47c6_9b66_e792fe401d75);
 
 /// Shared-mode engine periods a device supports at its mix format (IAudioClient3), in frames.
 #[derive(Debug, Clone, Copy)]
@@ -144,6 +145,15 @@ impl Stream {
     /// Open `device_id` with `channels` float32 channels at 48 kHz; Windows converts rate and
     /// channel layout from the device mix format. `buffer_hns` 0 picks the engine default.
     pub fn open(device_id: &str, channels: u16, buffer_hns: i64) -> Result<Self, Error> {
+        Self::open_session(device_id, channels, buffer_hns, None)
+    }
+
+    fn open_session(
+        device_id: &str,
+        channels: u16,
+        buffer_hns: i64,
+        session: Option<&GUID>,
+    ) -> Result<Self, Error> {
         let device = device_by_id(device_id)?;
         let rate = macafon_dsp::SAMPLE_RATE_HZ;
         let block_align = channels * 4;
@@ -170,7 +180,7 @@ impl Stream {
                 buffer_hns,
                 0,
                 &format,
-                None,
+                session.map(std::ptr::from_ref),
             )?;
             Self::from_initialized_client(client, channels, period_hns)
         }
@@ -235,6 +245,27 @@ impl RenderStream {
 
     pub fn open(device_id: &str) -> Result<Self, Error> {
         let stream = Stream::open(device_id, 2, 0)?;
+        Self::start(stream)
+    }
+
+    pub(crate) fn open_soundpad(device_id: &str) -> Result<Self, Error> {
+        let device = device_by_id(device_id)?;
+        // SAFETY: COM is initialized on the opening thread. Create and label the session
+        // before Initialize publishes its stream, so discovery cannot see an untagged one.
+        let session = unsafe {
+            let manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None)?;
+            let session = manager.GetAudioSessionControl(Some(&SOUNDPAD_SESSION), 0)?;
+            session.SetGroupingParam(&SOUNDPAD_SESSION, std::ptr::null())?;
+            session.SetDisplayName(w!("Soundpad"), std::ptr::null())?;
+            session
+        };
+        let stream = Stream::open_session(device_id, 2, 0, Some(&SOUNDPAD_SESSION))?;
+        let result = Self::start(stream);
+        drop(session);
+        result
+    }
+
+    fn start(stream: Stream) -> Result<Self, Error> {
         // SAFETY: the client was initialized by Stream::open; prefill with silence before Start.
         let client = unsafe {
             let client: IAudioRenderClient = stream.client.GetService()?;

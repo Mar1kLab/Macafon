@@ -244,7 +244,9 @@ fn stream(id: u32, app: &App) -> PlaybackStream {
         serial: id.to_string(),
         node_name: app.exe.clone(),
         binary: named.then(|| stem.to_owned()),
-        app_name: Some(if named {
+        app_name: Some(if app.exe == crate::mixer::SOUNDPAD {
+            "Soundpad".to_owned()
+        } else if named {
             stem.to_owned()
         } else {
             app.exe.trim_matches(['<', '>']).to_owned()
@@ -261,6 +263,26 @@ fn stream(id: u32, app: &App) -> PlaybackStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn soundpad_has_a_separate_movable_app_identity() {
+        let soundpad = stream(
+            7,
+            &App {
+                exe: crate::mixer::SOUNDPAD.into(),
+                executable: Some("C:\\Macafon\\macafond.exe".into()),
+                active: true,
+                session_count: 1,
+                app_pct: 100.0,
+                muted: false,
+                peak: 0.1,
+            },
+        );
+        assert_eq!(soundpad.app_name.as_deref(), Some("Soundpad"));
+        assert!(soundpad.binary.is_none());
+        assert_eq!(soundpad.node_name, crate::mixer::SOUNDPAD);
+        assert!(soundpad.movable && soundpad.running);
+        assert!(soundpad.media_role.is_none());
+    }
     #[test]
     fn system_master_is_not_applied_again_to_sessions() {
         let settings = settings(

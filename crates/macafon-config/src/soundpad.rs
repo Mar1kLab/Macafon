@@ -23,6 +23,10 @@ pub struct SoundpadConfig {
     pub monitor_device: Option<String>,
     pub show_in_overlay: bool,
     pub looping: bool,
+    /// Output volumes are trims around the normalized level (owner request, 2026-10-18).
+    /// Missing in older configs, whose volumes compensated for unnormalized sounds.
+    #[serde(default)]
+    pub normalized_levels: bool,
     /// `[soundpad.sounds."Memes/airhorn.mp3"]`: only sounds with non-default settings.
     pub sounds: BTreeMap<String, SoundConfig>,
 }
@@ -39,6 +43,7 @@ impl Default for SoundpadConfig {
             monitor_device: None,
             show_in_overlay: true,
             looping: false,
+            normalized_levels: true,
             sounds: BTreeMap::new(),
         }
     }
@@ -89,6 +94,19 @@ impl SoundpadConfig {
         }
     }
 
+    /// Once: volumes set before loudness normalization (a headphones level of 1 % that tamed a
+    /// full-scale stream) go back to the defaults, which now mean "as loud as the reference".
+    pub fn normalize_levels(&mut self) -> bool {
+        if self.normalized_levels {
+            return false;
+        }
+        let defaults = Self::default();
+        self.microphone_volume_pct = defaults.microphone_volume_pct;
+        self.headphones_volume_pct = defaults.headphones_volume_pct;
+        self.normalized_levels = true;
+        true
+    }
+
     /// A sound was renamed or moved: its settings and hotkeys follow it.
     pub fn rename_sound(&mut self, from: &str, to: &str) {
         if let Some(sound) = self.sounds.remove(from) {
@@ -129,5 +147,22 @@ mod tests {
         assert_eq!(config.sound("Memes/b.mp3").volume_pct, 200.0);
         config.edit_sound("Memes/b.mp3", |sound| sound.volume_pct = 100.0);
         assert!(config.sounds.is_empty());
+    }
+
+    #[test]
+    fn levels_from_before_normalization_reset_once() {
+        let mut old: SoundpadConfig = toml::from_str(
+            "headphones_volume_pct = 1.0
+microphone_volume_pct = 40.0
+",
+        )
+        .expect("old soundpad section");
+        assert!(old.normalize_levels());
+        assert_eq!(old.headphones_volume_pct, 70.0);
+        assert_eq!(old.microphone_volume_pct, 100.0);
+        old.headphones_volume_pct = 5.0;
+        assert!(!old.normalize_levels());
+        assert_eq!(old.headphones_volume_pct, 5.0);
+        assert!(!SoundpadConfig::default().normalize_levels());
     }
 }

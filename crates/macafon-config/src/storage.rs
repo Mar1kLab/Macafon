@@ -200,6 +200,7 @@ fn parse(text: &str) -> Result<(Config, i64), String> {
         .validate()
         .map_err(|error| error.to_string())?;
     config.mixer.validate()?;
+    config.soundpad.normalize_levels();
     config.soundpad.microphone_volume_pct =
         crate::soundpad::clamp_volume(config.soundpad.microphone_volume_pct);
     config.soundpad.headphones_volume_pct =
@@ -238,6 +239,7 @@ mod tests {
         let (config, _) = parse(
             r#"
 [soundpad]
+normalized_levels = true
 microphone_volume_pct = 900.0
 headphones_volume_pct = -4.0
 [soundpad.sounds."bad.wav"]

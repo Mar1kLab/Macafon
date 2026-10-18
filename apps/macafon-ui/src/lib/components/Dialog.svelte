@@ -49,13 +49,21 @@
 </dialog>
 
 <style>
+  /* Visible overflow keeps the corner ticks; the body scrolls when the window is short or the
+     UI is zoomed (viewport units are zoomed too, hence the division by --zoom). */
   dialog {
     overflow: visible;
     padding: 0;
     border: 1px solid var(--line-strong);
     background: var(--bg-raised);
     color: var(--ink);
-    max-width: calc(100vw - 48px);
+    max-width: calc(100vw / var(--zoom, 1) - 48px);
+    max-height: calc(100vh / var(--zoom, 1) - 48px);
+  }
+
+  dialog[open] {
+    display: flex;
+    flex-direction: column;
   }
 
   dialog::backdrop {
@@ -64,6 +72,11 @@
 
   dialog[open] {
     animation: appear var(--dur-card) ease-out;
+  }
+
+  header,
+  footer {
+    flex: none;
   }
 
   header {
@@ -79,6 +92,8 @@
   }
 
   .body {
+    min-height: 0;
+    overflow-y: auto;
     padding: 24px;
   }
 

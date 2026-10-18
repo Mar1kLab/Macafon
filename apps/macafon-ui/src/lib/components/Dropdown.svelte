@@ -10,6 +10,7 @@
   // below, or above when there is more room there, never growing the page under it.
   import { tick, type Snippet } from 'svelte';
   import { ChevronDown } from '@lucide/svelte';
+  import { uiZoom } from './zoom';
 
   interface Option {
     value: T;
@@ -42,6 +43,8 @@
   let list: HTMLUListElement | undefined = $state();
   let panel: HTMLDivElement | undefined = $state();
   let upward = $state(false);
+  let alignRight = $state(false);
+  let trigger: HTMLButtonElement | undefined = $state();
   let maxHeight = $state(LIST_MAX_PX);
   const id = `dropdown-${Math.random().toString(36).slice(2)}`;
 
@@ -62,13 +65,16 @@
   /** Below if the list fits there, else on the side with more room, scrolling inside. */
   function place() {
     if (!root || !list || !panel) return;
+    // Rectangles are in screen pixels, sizes and styles in CSS pixels (the UI zoom).
+    const zoom = uiZoom();
     const trigger = root.getBoundingClientRect();
     const area = bounds(root);
     const chrome = panel.offsetHeight - list.offsetHeight;
     const wanted = Math.min(list.scrollHeight, LIST_MAX_PX) + chrome;
-    const below = area.bottom - trigger.bottom - GAP_PX * 2;
-    const above = trigger.top - area.top - GAP_PX * 2;
+    const below = (area.bottom - trigger.bottom) / zoom - GAP_PX * 2;
+    const above = (trigger.top - area.top) / zoom - GAP_PX * 2;
     upward = below < wanted && above > below;
+    alignRight = panel.getBoundingClientRect().right > window.innerWidth - GAP_PX * zoom;
     maxHeight = Math.max(MIN_LIST_PX, Math.min(LIST_MAX_PX, (upward ? above : below) - chrome));
   }
 
@@ -79,6 +85,7 @@
     open = true;
     active = Math.max(0, options.findIndex((o) => o.value === value));
     upward = false;
+    alignRight = false;
     maxHeight = LIST_MAX_PX;
     onopen?.();
     void tick().then(() => {
@@ -87,10 +94,12 @@
     });
   }
 
-  function close() {
+  /** Keyboard closes give the focus back to the button, so it is not lost on the page. */
+  function close(refocus = true) {
     if (!open) return;
     open = false;
     onclose?.();
+    if (refocus) trigger?.focus();
   }
 
   function choose(index: number) {
@@ -108,6 +117,7 @@
       if (!options[next]?.disabled) break;
     }
     active = next;
+    void tick().then(() => list?.querySelector(`#${id}-${active}`)?.scrollIntoView({ block: 'nearest' }));
   }
 
   function onkeydown(event: KeyboardEvent) {
@@ -116,8 +126,8 @@
       ArrowUp: () => move(-1),
       Enter: () => choose(active),
       ' ': () => choose(active),
-      Escape: close,
-      Tab: close,
+      Escape: () => close(),
+      Tab: () => close(),
     };
     const action = keys[event.key];
     if (action) {
@@ -129,26 +139,28 @@
   $effect(() => {
     if (!open) return;
     const onpointer = (event: PointerEvent) => {
-      if (root && !root.contains(event.target as Node)) close();
+      if (root && !root.contains(event.target as Node)) close(false);
     };
     window.addEventListener('pointerdown', onpointer, true);
-    window.addEventListener('resize', close);
+    const onresize = () => close(false);
+    window.addEventListener('resize', onresize);
     return () => {
       window.removeEventListener('pointerdown', onpointer, true);
-      window.removeEventListener('resize', close);
+      window.removeEventListener('resize', onresize);
     };
   });
 </script>
 
 <div class="dropdown" bind:this={root} style:width>
   <button
+    bind:this={trigger}
     class="trigger"
     aria-haspopup="listbox"
     aria-expanded={open}
     aria-controls={id}
     aria-label={label}
     {disabled}
-    onclick={() => (open ? close() : show())}
+    onclick={() => (open ? close(false) : show())}
     onkeydown={(event) => {
       if (event.key === 'ArrowDown' && !open) {
         event.preventDefault();
@@ -162,7 +174,7 @@
     <ChevronDown size={14} strokeWidth={1.5} />
   </button>
   {#if open}
-    <div class="panel" class:upward bind:this={panel}>
+    <div class="panel" class:upward class:right={alignRight} bind:this={panel}>
       <ul
         style:max-height="{maxHeight}px"
         {id}
@@ -189,12 +201,12 @@
             onclick={() => choose(index)}
             onkeydown={() => {}}
           >
-            {#if option}{@render option(item, item.value === value)}{:else}{item.label}{/if}
+            {#if option}{@render option(item, item.value === value)}{:else}<span class="label" title={item.label}>{item.label}</span>{/if}
           </li>
         {/each}
       </ul>
       {#if footer}
-        <div class="footer">{@render footer(close)}</div>
+        <div class="footer">{@render footer(() => close(false))}</div>
       {/if}
     </div>
   {/if}
@@ -246,8 +258,14 @@
     top: calc(100% + 4px);
     left: 0;
     min-width: 100%;
+    max-width: min(480px, calc(100vw / var(--zoom, 1) - 16px));
     background: var(--bg-raised);
     border: 1px solid var(--line-strong);
+  }
+
+  .panel.right {
+    left: auto;
+    right: 0;
   }
 
   .panel.upward {
@@ -271,6 +289,12 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+
+  .label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   li.active {

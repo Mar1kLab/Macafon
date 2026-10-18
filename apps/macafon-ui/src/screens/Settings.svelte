@@ -157,16 +157,42 @@
     active = id;
   }
 
-  // `?section=popup` opens Settings at that section once the daemon has shown it.
+  // `?section=popup` opens Settings at that section once the daemon has shown it, and keeps it
+  // in place while sections above still fill in, until the user scrolls or 3 s pass.
   let wanted = $state(new URLSearchParams(location.search).get('section'));
+  let pinFrame = 0;
   $effect(() => {
     const section = sections.find(({ id }) => id === wanted);
-    if (!section) return;
+    if (!section || !daemon.connected) return;
     wanted = null;
-    void jump(section.id, false);
+    void jump(section.id, false).then(() => pin(section.id));
   });
 
-  onMount(() => () => cancelAnimationFrame(spyFrame));
+  function pin(id: SectionId) {
+    const until = performance.now() + 3000;
+    const stop = () => {
+      cancelAnimationFrame(pinFrame);
+      for (const type of ['wheel', 'pointerdown', 'keydown'] as const) scroller?.removeEventListener(type, stop);
+    };
+    for (const type of ['wheel', 'pointerdown', 'keydown'] as const) scroller?.addEventListener(type, stop, { once: true });
+    let top = document.getElementById(`settings-${id}`)?.offsetTop;
+    const follow = () => {
+      const element = document.getElementById(`settings-${id}`);
+      if (!element || performance.now() > until) return stop();
+      if (element.offsetTop !== top) {
+        top = element.offsetTop;
+        element.scrollIntoView({ block: 'start' });
+        active = id;
+      }
+      pinFrame = requestAnimationFrame(follow);
+    };
+    pinFrame = requestAnimationFrame(follow);
+  }
+
+  onMount(() => () => {
+    cancelAnimationFrame(spyFrame);
+    cancelAnimationFrame(pinFrame);
+  });
 
   let confirmQuit = $state(false);
   let confirmDefault = $state(false);

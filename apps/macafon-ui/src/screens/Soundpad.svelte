@@ -500,6 +500,7 @@
     flex-direction: column;
     height: 100%;
     min-width: 0;
+    container: soundpad / inline-size;
   }
 
   .top {
@@ -517,8 +518,9 @@
     margin-right: 8px;
   }
 
-  /* A narrow window keeps the toolbar on one line: its tools show only their icons. */
-  @media (max-width: 1240px) {
+  /* A narrow window keeps the toolbar on one line: its tools show only their icons. A container
+     query, as media queries do not see the UI zoom. */
+  @container soundpad (max-width: 1176px) {
     .top :global(.tool .label) {
       display: none;
     }
@@ -591,6 +593,7 @@
     overflow-y: auto;
     padding: 12px;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     align-content: start;
     gap: 4px;
   }
@@ -604,6 +607,7 @@
     margin: 0;
     padding: 0;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 2px;
   }
 

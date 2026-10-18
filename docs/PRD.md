@@ -671,7 +671,7 @@ A self-check with clear one-click fixes (like One-Click Fix in Sonar, but transp
 - Text contrast ≥ 4.5:1 (`--ink` and `--muted` on `--bg` pass); meaning is never conveyed by color alone
   (mute = icon + color).
 - ARIA roles for sliders (`role="slider"`, `aria-valuetext="−18 dB"`).
-- UI scale 90–150% (Ctrl +/−).
+- UI scale 90–150% (Ctrl +/−). The layout never gets smaller than the minimum window (960×640 at 100 %): a smaller window caps the applied scale (owner request, 2026-10-18).
 
 ---
 

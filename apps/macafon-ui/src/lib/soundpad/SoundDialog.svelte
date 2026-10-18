@@ -10,7 +10,7 @@
   import { daemon } from '../state';
   import { t } from '../i18n';
   import { formatDuration } from './format';
-  import type { SoundInfo } from '../ipc/protocol';
+  import type { SoundInfo, SoundpadState } from '../ipc/protocol';
 
   interface Props {
     sound: SoundInfo;
@@ -30,33 +30,39 @@
   ]);
   const action = $derived(`soundpad_play.${sound.id}`);
 
+  // The daemon's answer replaces the library, and this sound's old id with it: read what is
+  // needed before awaiting, and switch the editor to the new id in the same update.
   async function rename() {
+    // The input blurs while an editor for a moved sound is taken down: nothing to rename.
+    if (!sound) return;
     const next = name.trim();
-    if (!next || next === sound.name) return;
-    const state = await daemon.run(daemon.client.call('soundpad.rename', { id: sound.id, name: next }));
+    const { id, name: current, category } = sound;
+    if (!next || next === current) return;
+    const state = await daemon.run(daemon.client.call('soundpad.rename', { id, name: next }));
     if (!state) {
-      name = sound.name;
+      name = current;
       return;
     }
-    daemon.soundpad = state;
-    follow(state, `${folder(sound.category)}${next}${extension(sound.id)}`);
+    follow(state, `${folder(category)}${next}${extension(id)}`);
   }
 
   const folder = (category: string | null) => (category ? `${category}/` : '');
   const extension = (id: string) => /\.[^./]+$/.exec(id)?.[0] ?? '';
 
   /** Keep editing the sound under its new id; close if the daemon picked another name. */
-  function follow(state: { sounds: SoundInfo[] }, id: string) {
-    if (state.sounds.some((item) => item.id === id)) onrenamed(id);
-    else onclose();
+  function follow(state: SoundpadState, id: string) {
+    const found = state.sounds.some((item) => item.id === id);
+    if (found) onrenamed(id);
+    daemon.soundpad = state;
+    if (!found) onclose();
   }
 
   async function move(category: string | null) {
-    if (category === sound.category) return;
-    const state = await daemon.run(daemon.client.call('soundpad.move', { id: sound.id, category }));
-    if (!state) return;
-    daemon.soundpad = state;
-    follow(state, `${folder(category)}${sound.id.split('/').pop()}`);
+    if (!sound) return;
+    const { id, category: current } = sound;
+    if (category === current) return;
+    const state = await daemon.run(daemon.client.call('soundpad.move', { id, category }));
+    if (state) follow(state, `${folder(category)}${id.split('/').pop()}`);
   }
 
   function edit(patch: { volume_pct?: number; favorite?: boolean }) {

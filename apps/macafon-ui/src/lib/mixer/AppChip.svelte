@@ -4,6 +4,7 @@
   // (APP-008). Remembered apps that are not running are dimmed (APP-007). A click opens the
   // app's own volume inside the channel (CH-008).
   import { tick } from 'svelte';
+  import { uiZoom } from '../components/zoom';
   import { Lock } from '@lucide/svelte';
   import RulerSlider from '../components/RulerSlider.svelte';
   import type { AppState, ChannelState } from '../ipc/protocol';
@@ -31,22 +32,47 @@
   const initial = $derived(app.name.trim().charAt(0).toUpperCase() || '?');
   const icon = $derived(daemon.appIcon(app.icon));
 
-  /** Keep a fixed popover inside the window: shifted left, or flipped above `top - flip`. */
+  /**
+   * Keep a fixed popover inside the window: shifted left, or flipped above `y - flip`. `at` and
+   * `flip` are screen pixels; the result is in CSS pixels for `left`/`top` under the UI zoom.
+   */
   function inside(element: HTMLElement | undefined, at: { x: number; y: number }, flip: number) {
-    if (!element) return at;
+    const zoom = uiZoom();
+    if (!element) return { x: at.x / zoom, y: at.y / zoom };
     const margin = 8;
     const { width, height } = element.getBoundingClientRect();
     const x = Math.max(margin, Math.min(at.x, window.innerWidth - width - margin));
     const fits = at.y + height <= window.innerHeight - margin;
     const y = fits ? at.y : Math.max(margin, Math.min(at.y - flip - height, window.innerHeight - height - margin));
-    return { x, y };
+    return { x: x / zoom, y: y / zoom };
   }
 
   async function openMenu(x: number, y: number) {
-    menu = { x, y };
+    menu = inside(undefined, { x, y }, 0);
     await tick();
-    menu = inside(list, menu, 0);
-    list?.querySelector('button')?.focus();
+    menu = inside(list, { x, y }, 0);
+    menuItems()[0]?.focus();
+  }
+
+  const menuItems = () => [...(list?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])];
+
+  function closeMenu(refocus: boolean) {
+    menu = null;
+    if (refocus) chipButton?.focus();
+  }
+
+  /** Arrows, Home and End move through the enabled items; Escape and Tab close (§9.8). */
+  function onmenukey(event: KeyboardEvent) {
+    const items = menuItems();
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    const moves: Record<string, number> = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: items.length - 1 };
+    if (event.key in moves) {
+      event.preventDefault();
+      items[(moves[event.key]! + items.length) % items.length]?.focus();
+    } else if (event.key === 'Escape' || event.key === 'Tab') {
+      event.preventDefault();
+      closeMenu(true);
+    }
   }
 
   function onkeydown(event: KeyboardEvent) {
@@ -75,9 +101,10 @@
 
   async function openVolume(chip: HTMLElement) {
     const rect = chip.getBoundingClientRect();
-    volume = { x: rect.left, y: rect.bottom + 4 };
+    const at = { x: rect.left, y: rect.bottom + 4 };
+    volume = inside(undefined, at, 0);
     await tick();
-    volume = inside(popover, volume, rect.height + 8);
+    volume = inside(popover, at, rect.height + 8);
     popover?.querySelector<HTMLElement>('[role="slider"]')?.focus();
   }
 
@@ -169,7 +196,8 @@
 {/if}
 
 {#if menu}
-  <ul class="menu" role="menu" bind:this={list} style:left="{menu.x}px" style:top="{menu.y}px">
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <ul class="menu" role="menu" aria-label={t('mixer.moveTo')} bind:this={list} style:left="{menu.x}px" style:top="{menu.y}px" onkeydown={onmenukey}>
     <li class="hud-label" role="presentation">{t('mixer.moveTo')}</li>
     {#each channels as channel, index (channel.id)}
       <li role="none">

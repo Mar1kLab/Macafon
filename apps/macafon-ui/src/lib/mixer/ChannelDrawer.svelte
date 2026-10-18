@@ -2,6 +2,7 @@
   // Channel drawer (PRD §9.4): EQ with the channel presets (CFX-001/002), the FX of §7.3
   // (CFX-003/004) with one-click bypass (CFX-007), and the channel itself — name, colour,
   // icon, default (CH-002/003).
+  import { radioKeys } from '../components/radioKeys';
   import { X } from '@lucide/svelte';
   import EqGraph from '../components/EqGraph.svelte';
   import Dropdown from '../components/Dropdown.svelte';
@@ -177,11 +178,12 @@
       </label>
       <div class="field">
         <span class="hud-label">{t('mixer.color')}</span>
-        <div class="swatches" role="radiogroup" aria-label={t('mixer.color')}>
+        <div class="swatches" role="radiogroup" aria-label={t('mixer.color')} use:radioKeys>
           {#each CHANNEL_COLORS as color (color)}
             <button
               role="radio"
               aria-checked={channel.color === color}
+              tabindex={channel.color === color ? 0 : -1}
               aria-label={color}
               class:selected={channel.color === color}
               style:--s="var(--app-{color})"
@@ -192,12 +194,13 @@
       </div>
       <div class="field">
         <span class="hud-label">{t('mixer.icon')}</span>
-        <div class="icons" role="radiogroup" aria-label={t('mixer.icon')}>
-          {#each CHANNEL_ICONS as icon (icon)}
+        <div class="icons" role="radiogroup" aria-label={t('mixer.icon')} use:radioKeys>
+          {#each CHANNEL_ICONS as icon, i (icon)}
             {@const Icon = CHANNEL_ICON[icon as keyof typeof CHANNEL_ICON]}
             <button
               role="radio"
               aria-checked={channel.icon === icon}
+              tabindex={channel.icon === icon || (!CHANNEL_ICONS.includes(channel.icon ?? '') && i === 0) ? 0 : -1}
               aria-label={icon}
               class:selected={channel.icon === icon}
               onclick={() => daemon.setMixer(daemon.client.call('channel.update', { id: channel.id, patch: { icon } }))}

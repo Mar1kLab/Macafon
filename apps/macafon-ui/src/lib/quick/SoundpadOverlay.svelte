@@ -29,6 +29,7 @@
   // page at a time, so a library of thousands of sounds opens as fast as a small one.
   import { onMount, tick } from 'svelte';
   import { Search, Square, Star } from '@lucide/svelte';
+  import { radioKeys } from '../components/radioKeys';
   import { indexShortcuts } from '../settings/shortcut';
   import { FAVORITES, inScope, matches, savedSort, sortSounds, type SoundScope } from '../soundpad/format';
   import { daemon } from '../state';
@@ -125,9 +126,9 @@
         }}
       />
     </label>
-    <div class="scopes" role="radiogroup" aria-label={t('soundpad.categories')}>
+    <div class="scopes" role="radiogroup" aria-label={t('soundpad.categories')} use:radioKeys>
       {#each scopes as item (item.value)}
-        <button class="chip" role="radio" aria-checked={activeScope === item.value} class:active={activeScope === item.value} onclick={() => setScope(item.value)}>
+        <button class="chip" role="radio" aria-checked={activeScope === item.value} tabindex={activeScope === item.value ? 0 : -1} class:active={activeScope === item.value} onclick={() => setScope(item.value)}>
           {#if item.value === FAVORITES}<Star size={11} strokeWidth={1.5} />{/if}{item.label}
         </button>
       {/each}

@@ -37,9 +37,15 @@
     if (added > 0) daemon.toast(t('soundpad.added', { count: added }));
   }
 
-  // UI scale 90–150% with Ctrl +/− and Ctrl 0 (PRD §9.8).
+  // UI scale 90–150% with Ctrl +/− and Ctrl 0 (PRD §9.8). The layout never gets smaller than
+  // the minimum window (960×640 CSS pixels): a small window caps the scale it applies.
   const ZOOM_STEPS = [0.9, 1, 1.1, 1.25, 1.5];
+  const MIN_LAYOUT = { width: 960, height: 640 };
   let zoom = $state(1);
+  let viewport = $state({ width: window.innerWidth, height: window.innerHeight });
+  const applied = $derived(
+    Math.max(ZOOM_STEPS[0]!, Math.min(zoom, viewport.width / MIN_LAYOUT.width, viewport.height / MIN_LAYOUT.height)),
+  );
 
   onMount(() => {
     const onkey = (event: KeyboardEvent) => {
@@ -51,12 +57,19 @@
       else return;
       event.preventDefault();
     };
+    const onresize = () => (viewport = { width: window.innerWidth, height: window.innerHeight });
     window.addEventListener('keydown', onkey);
-    return () => window.removeEventListener('keydown', onkey);
+    window.addEventListener('resize', onresize);
+    return () => {
+      window.removeEventListener('keydown', onkey);
+      window.removeEventListener('resize', onresize);
+    };
   });
 
   $effect(() => {
-    document.documentElement.style.setProperty('zoom', String(zoom));
+    document.documentElement.style.setProperty('zoom', String(applied));
+    // Viewport units scale with `zoom`; layouts divide by it to fit the window.
+    document.documentElement.style.setProperty('--zoom', String(applied));
   });
 </script>
 

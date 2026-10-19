@@ -22,15 +22,18 @@
 
   const BARS = 15;
   const ARC_DEG = 50;
-  const PIVOT = { x: 140, y: 120 };
-  const RADIUS = 92;
-  const SCALE: [number, string | null][] = [
-    [-20, '20'], [-10, '10'], [-7, '7'], [-5, '5'], [-3, '3'], [-2, null], [-1, null], [0, '0'], [1, null], [2, null], [3, '3'],
-  ];
+  // The Analog look as the daemon draws it: 168×76, a thin arc, no numbers.
+  const PIVOT = { x: 84, y: 58 };
+  const RADIUS = 44;
+  const MARKS = [-20, -10, -5, 0, 3];
 
   let travel = $state(vuToTravel(-3));
   let bars = $state<number[]>(Array.from({ length: BARS }, (_, i) => still(i)));
   let peak = $state(false);
+  /** The held peak: a faint ghost needle that falls slowly. */
+  let ghost = $state(0);
+  let glowLevel = $state(0);
+  let shimmer = $state(0);
   let clock = $state(0);
   let demoStarted = 0;
 
@@ -107,7 +110,10 @@
       }
       const target = vuToTravel(Math.max(VU_MIN, dbfsToVu(rms)));
       travel = reduced ? needle.settle(target, dt) : needle.step(target, dt);
-      peak = peakDb > -1;
+      peak = peakDb > -7;
+      ghost = Math.max(travel, ghost - dt * 0.35);
+      glowLevel = Math.max(0, Math.min(1, travel));
+      shimmer = t;
       // Bars: 0…1 from −50…−10 dBFS, each with its own wobble; 40 ms attack, 160 ms release.
       const level = Math.min(1, Math.max(0, (rms + 50) / 40));
       bars = smooth.map((value, i) => {
@@ -138,48 +144,54 @@
     {/if}
   </svg>
 {:else}
-  <svg class="analog" class:transcribing viewBox="-8 -8 296 148" role="img" aria-hidden="true">
+  {@const sway = 0.18 + 0.1 * Math.sin(shimmer * 2.2)}
+  {@const shown = transcribing ? sway : travel}
+  {@const tip = point(shown, RADIUS - 3)}
+  {@const ghostTip = point(ghost, RADIUS - 3)}
+  <svg class="analog" class:transcribing viewBox="-6 -6 180 88" role="img" aria-hidden="true">
     <defs>
-      <radialGradient id="vu-lamp" cx={PIVOT.x} cy={PIVOT.y} r="150" gradientUnits="userSpaceOnUse">
-        <stop offset="0" class="lamp-core" />
-        <stop offset="1" class="lamp-edge" />
-      </radialGradient>
+      <clipPath id="vu-frame"><rect x="0" y="0" width="168" height="76" /></clipPath>
     </defs>
-    <rect class="frame" x="0.5" y="0.5" width="279" height="131" />
-    {#each [[0, 0], [280, 0], [0, 132], [280, 132]] as [x, y] (`${x}-${y}`)}
-      <path class="tick" d="M {x! - 5.5} {y} H {x! + 5.5} M {x} {y! - 5.5} V {y! + 5.5}" />
+    <rect class="frame" x="0.5" y="0.5" width="167" height="75" />
+    {#each [[0, 0], [168, 0], [0, 76], [168, 76]] as [x, y] (`${x}-${y}`)}
+      <path class="tick" d="M {x! - 4} {y} H {x! + 4} M {x} {y! - 4} V {y! + 4}" />
     {/each}
-    <rect class="face" x="8" y="8" width="264" height="92" />
-    <rect class="glow" x="8" y="8" width="264" height="92" fill="url(#vu-lamp)" />
+    <g clip-path="url(#vu-frame)">
+      {#each [[52, 0.35], [36, 0.6], [20, 1]] as [r, a] (r)}
+        <ellipse class="glow" cx={PIVOT.x} cy={PIVOT.y} rx={r} ry={r! * 0.8} style:opacity={(transcribing ? 0.04 : 0.05 + 0.16 * glowLevel) * a!} />
+      {/each}
+    </g>
     <path class="scale" d={arc(0, 1, RADIUS)} />
     <path class="red" d={arc(red, 1, RADIUS)} />
-    {#each SCALE as [vu, label] (vu)}
+    {#each MARKS as vu (vu)}
       {@const at = vuToTravel(vu)}
-      {@const inner = point(at, RADIUS - (label ? 7 : 4))}
+      {@const inner = point(at, RADIUS - 4)}
       {@const outer = point(at, RADIUS)}
-      {@const text = point(at, RADIUS + 9)}
       <line class="mark" class:hot={vu >= 0} x1={inner.x} y1={inner.y} x2={outer.x} y2={outer.y} />
-      {#if label}<text class="num" class:hot={vu > 0} x={text.x} y={text.y + 2.5} text-anchor="middle">{vu > 0 ? `+${label}` : label}</text>{/if}
     {/each}
-    <text class="vu" x={PIVOT.x} y="68" text-anchor="middle">VU</text>
-    <rect class="lamp" class:on={peak} x="256" y="14" width="6" height="6" />
-    <line class="needle" x1={PIVOT.x} y1={PIVOT.y} x2={needleTip.x} y2={needleTip.y} />
-    <rect class="shroud" x="8" y="100" width="264" height="24" />
-    <line class="seam" x1="8" y1="100.5" x2="272" y2="100.5" />
     {#if transcribing}
-      <text class="hud" x="18" y="115.5">TRANSCRIBING</text>
-      {#each Array.from({ length: 22 }, (_, i) => i) as i (i)}
-        <rect class="scan" x={112 + i * 4} y="110" width="2" height="5" style:animation-delay="{i * 40}ms" />
+      {#each Array.from({ length: 6 }, (_, i) => i) as i (i)}
+        {@const at = ((shimmer * 0.9) % 1) - i * 0.035}
+        {#if at >= 0}
+          {@const p = point(at, RADIUS)}
+          <circle class="runner" cx={p.x} cy={p.y} r="1.6" style:opacity={1 - i / 6} />
+        {/if}
       {/each}
-    {:else}
-      <circle class="rec" cx="20" cy="112" r="2.5" />
-      <text class="hud" x="27" y="115.5">REC {timer}</text>
-      <text class="hud dim" x={language ? 226 : 262} y="115.5" text-anchor="end">{engine}</text>
-      {#if language}
-        <rect class="badge" x="233" y="105.5" width="30" height="13" />
-        <text class="hud" x="248" y="115.5" text-anchor="middle">{language}</text>
-      {/if}
     {/if}
+    <text class="vu" x={PIVOT.x - 27} y={PIVOT.y - 5} text-anchor="middle">VU</text>
+    {#if !transcribing && ghost > shown + 0.02}
+      <line class="ghost" x1={PIVOT.x} y1={PIVOT.y} x2={ghostTip.x} y2={ghostTip.y} />
+    {/if}
+    <line class="needle" x1={PIVOT.x} y1={PIVOT.y} x2={tip.x} y2={tip.y} />
+    <circle class="pivot" cx={PIVOT.x} cy={PIVOT.y} r="2.5" />
+    {#if peak && !transcribing}<rect class="lamp on" x="156" y="8" width="4" height="4" />{/if}
+    {#if transcribing}
+      <text class="hud" x="10" y="70">TRANSCRIBING</text>
+    {:else}
+      <circle class="rec" cx="12.5" cy="66.5" r="2" />
+      <text class="hud" x="19" y="70">{timer}</text>
+    {/if}
+    {#if language}<text class="hud dim" x="158" y="70" text-anchor="end">{language}</text>{/if}
   </svg>
 {/if}
 
@@ -221,24 +233,9 @@
     stroke: var(--line-strong);
   }
 
-  .face {
-    fill: var(--bg-sunken);
-  }
 
-  .lamp-core {
-    stop-color: var(--app-amber);
-    stop-opacity: 0.08;
-    transition: stop-opacity var(--dur-card) ease-out;
-  }
 
-  .transcribing .lamp-core {
-    stop-opacity: 0.03;
-  }
 
-  .lamp-edge {
-    stop-color: var(--app-amber);
-    stop-opacity: 0;
-  }
 
   .scale {
     fill: none;
@@ -261,15 +258,7 @@
     stroke: var(--danger);
   }
 
-  .num {
-    font-family: var(--font-mono);
-    font-size: 8px;
-    fill: var(--muted);
-  }
 
-  .num.hot {
-    fill: var(--danger);
-  }
 
   .vu {
     font-family: var(--font-serif);
@@ -294,13 +283,7 @@
     stroke-linecap: square;
   }
 
-  .shroud {
-    fill: var(--bg-raised);
-  }
 
-  .seam {
-    stroke: var(--line);
-  }
 
   .hud {
     font-family: var(--font-mono);
@@ -314,20 +297,12 @@
     fill: var(--muted);
   }
 
-  .badge {
-    fill: var(--bg-sunken);
-    stroke: var(--line);
-  }
 
   .rec {
     fill: var(--danger);
     animation: blink 1s steps(1) infinite;
   }
 
-  .scan {
-    fill: var(--line-strong);
-    animation: scan 880ms linear infinite;
-  }
 
   @keyframes shimmer {
     0%,
@@ -345,21 +320,29 @@
     }
   }
 
-  @keyframes scan {
-    0%,
-    100% {
-      fill: var(--line);
-    }
-    20% {
-      fill: var(--ink-strong);
-    }
-  }
 
   @media (prefers-reduced-motion: reduce) {
     .dot,
-    .rec,
-    .scan {
+    .rec {
       animation: none;
     }
+  }
+
+  .glow {
+    fill: var(--app-amber);
+  }
+
+  .ghost {
+    stroke: var(--ink);
+    stroke-opacity: 0.22;
+    stroke-width: 1;
+  }
+
+  .pivot {
+    fill: var(--ink-strong);
+  }
+
+  .runner {
+    fill: var(--app-amber-ink);
   }
 </style>

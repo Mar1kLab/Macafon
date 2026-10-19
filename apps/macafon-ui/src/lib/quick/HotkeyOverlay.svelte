@@ -3,6 +3,7 @@
   import Logo from '../components/Logo.svelte';
   import VerticalSlider from './VerticalSlider.svelte';
   import SoundpadOverlay from './SoundpadOverlay.svelte';
+  import DictationOverlay from './DictationOverlay.svelte';
   import { channelIcon } from '../mixer/icons';
   import { displayShortcut } from '../settings/shortcut';
   import { daemon } from '../state';
@@ -28,15 +29,28 @@
   const SOUNDS_KEY = 'macafon.overlay.soundsOpen';
   let sounds = $state(localStorage.getItem(SOUNDS_KEY) === '1');
 
+  /** §9.9.2: the dictation panel opens the same way; one panel at a time. */
+  const DICTATION_KEY = 'macafon.overlay.dictationOpen';
+  let dictationOpen = $state(localStorage.getItem(DICTATION_KEY) === '1');
+  const lastResult = $derived(daemon.dictation?.history[0] ?? null);
+
   function setSounds(open: boolean) {
     sounds = open;
     localStorage.setItem(SOUNDS_KEY, open ? '1' : '0');
+    if (open) setDictationOpen(false);
+  }
+
+  function setDictationOpen(open: boolean) {
+    dictationOpen = open;
+    localStorage.setItem(DICTATION_KEY, open ? '1' : '0');
+    if (open && sounds) setSounds(false);
   }
 
   // The page stays loaded between openings: each one restores what the last left.
   $effect(() => {
     void opened;
     sounds = localStorage.getItem(SOUNDS_KEY) === '1';
+    dictationOpen = localStorage.getItem(DICTATION_KEY) === '1';
   });
 </script>
 
@@ -97,6 +111,14 @@
             {#if dictation.progress !== null}<i class="progress" style:width="{dictation.progress}%"></i>{/if}
           </button>
         {/if}
+        {#if dictation && !dictation.needsModel}
+          <div class="sounds">
+            <button class="round sounds-toggle" class:open={dictationOpen} aria-expanded={dictationOpen} aria-controls="overlay-dictation" aria-label={dictationOpen ? t('quick.dictationHide') : t('quick.dictationShow')} title={dictationOpen ? t('quick.dictationHide') : t('quick.dictationShow')} onclick={() => setDictationOpen(!dictationOpen)}>
+              <Speech size={16} strokeWidth={1.5} />
+            </button>
+            <span class="sounds-label">{#if lastResult}<b title={lastResult.text}>{lastResult.text}</b>{:else}{t('quick.dictationHistory')}<small>{daemon.dictation?.history.length ?? 0}</small>{/if}</span>
+          </div>
+        {/if}
         {#if soundpad}
           <div class="sounds">
             <button class="round sounds-toggle" class:open={sounds} aria-expanded={sounds} aria-controls="overlay-sounds" aria-label={sounds ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} title={sounds ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} onclick={() => setSounds(!sounds)}>
@@ -120,6 +142,9 @@
     </div>
     {#if soundpad && sounds}
       <SoundpadOverlay />
+    {/if}
+    {#if dictationOpen && dictation && !dictation.needsModel}
+      <DictationOverlay />
     {/if}
   {/if}
 </div>

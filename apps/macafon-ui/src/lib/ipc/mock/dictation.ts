@@ -68,6 +68,7 @@ export class MockDictation {
       unload_after_s: 180,
       threads: 0,
       game_mode: true,
+      gpu: true,
       pre_roll: true,
       keep_history: true,
       vocabulary: ['Macafon', 'PipeWire'],

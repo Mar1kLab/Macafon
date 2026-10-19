@@ -433,6 +433,12 @@ const scenarios = {
     await page.getByText('Dictate (hold)').first().scrollIntoViewIfNeeded();
     await page.waitForTimeout(400);
   },
+  'overlay-dictation': async (page) => {
+    await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay&dictation=ready`);
+    await page.waitForSelector('.overlay');
+    await page.getByRole('button', { name: 'Show dictation history and language' }).click();
+    await page.waitForTimeout(400);
+  },
   'tray-panel-dictation': async (page) => {
     await page.goto(`${base}?platform=windows&view=quick-panel&dictation=ready`);
     await page.waitForSelector('.panel .tiles');

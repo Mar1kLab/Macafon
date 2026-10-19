@@ -2,7 +2,7 @@
   // 04 / DICTATION (PRD §8.4, §9.9): local speech to text. The header turns it on (STT-001) and
   // shows the worker; the cards set the engine and models, language, input, output, the worker's
   // footprint, the popup and the vocabulary; TRY IT at the bottom runs the whole pipeline.
-  import { TriangleAlert, X } from '@lucide/svelte';
+  import { Keyboard, TriangleAlert, X } from '@lucide/svelte';
   import Toggle from '../lib/components/Toggle.svelte';
   import Segmented from '../lib/components/Segmented.svelte';
   import RulerSlider from '../lib/components/RulerSlider.svelte';
@@ -67,6 +67,10 @@
     { value: 'copy', label: t('dictation.output.gameCopy') },
     { value: 'ignore', label: t('dictation.output.gameIgnore') },
   ];
+  const devices: { value: 'gpu' | 'cpu'; label: string }[] = [
+    { value: 'gpu', label: t('dictation.performance.gpu') },
+    { value: 'cpu', label: t('dictation.performance.cpu') },
+  ];
   const unloads: { value: number; label: string }[] = [
     { value: 0, label: t('dictation.performance.now') },
     { value: 60, label: t('dictation.performance.minutes', { value: 1 }) },
@@ -125,6 +129,13 @@
         <span class="dot" aria-hidden="true"></span>{phaseLabel}
       </span>
       <span class="spacer"></span>
+      {#each shortcutRows.slice(0, 2) as row (row.action)}
+        <span class="key" title={t('dictation.escCancels')}>
+          <span class="hud-label">{row.label}</span>
+          <kbd class:empty={!row.shortcut}>{row.shortcut ? displayShortcut(row.shortcut) : t('settings.hotkeys.notSet')}</kbd>
+        </span>
+      {/each}
+      <button class="btn icon ghost" aria-label={t('dictation.changeShortcuts')} title={t('dictation.changeShortcuts')} onclick={() => openSettings('hotkeys')}><Keyboard size={15} strokeWidth={1.5} /></button>
       <span class="master" title={hasModel ? t('dictation.toggleHint') : t('dictation.test.unavailable')}>
         <span class="hud-label">{t('dictation.toggle')}</span>
         <Toggle checked={prefs.enabled} label={t('dictation.toggle')} disabled={!hasModel} onchange={(enabled) => daemon.setDictationPrefs({ enabled })} />
@@ -136,23 +147,13 @@
     {/if}
 
     <div class="scroll">
-      <section class="hero">
-        <div class="intro">
+      {#if !hasModel}
+        <!-- First run only: what dictation is, before the model is downloaded. -->
+        <section class="hero">
           <h2>{t('dictation.title')} <em>{t('dictation.titleAccent')}</em>.</h2>
           <p>{t('dictation.subtitle')}</p>
-        </div>
-        <div class="keys">
-          {#each shortcutRows as row (row.action)}
-            <span class="hud-label">{row.label}</span>
-            <kbd class:empty={!row.shortcut}>{row.shortcut ? displayShortcut(row.shortcut) : t('settings.hotkeys.notSet')}</kbd>
-          {/each}
-          <div class="key-foot">
-            <span class="hint">{t('dictation.escCancels')}</span>
-            <button class="link hud-label" onclick={() => openSettings('hotkeys')}>{t('dictation.changeShortcuts')}</button>
-            <button class="link hud-label" onclick={() => openSettings('dictation')}>{t('dictation.popupSettings')}</button>
-          </div>
-        </div>
-      </section>
+        </section>
+      {/if}
 
       <div class="grid">
         <EngineCard {dictation} />
@@ -179,6 +180,10 @@
         <Card number="04" title={t('dictation.output.title')} hint={t('dictation.output.hint')} color="pink">
           <Segmented label={t('dictation.output.insert')} options={inserts} value={prefs.insert} color="pink" hint={t('dictation.output.insertHint')} onchange={(insert) => daemon.setDictationPrefs({ insert })} />
           <Segmented label={t('dictation.output.games')} options={gamePolicies} value={prefs.fullscreen_games} color="pink" hint={t('dictation.output.gamesHint')} onchange={(fullscreen_games) => daemon.setDictationPrefs({ fullscreen_games })} />
+          <label class="row" title={t('dictation.test.historyHint')}>
+            <span>{t('dictation.output.keepHistory')}</span>
+            <Toggle checked={prefs.keep_history} label={t('dictation.output.keepHistory')} color="pink" onchange={(keep_history) => daemon.setDictationPrefs({ keep_history })} />
+          </label>
           <label class="row">
             <span>{t('dictation.output.trailingSpace')}</span>
             <Toggle checked={prefs.trailing_space} label={t('dictation.output.trailingSpace')} color="pink" onchange={(trailing_space) => daemon.setDictationPrefs({ trailing_space })} />
@@ -187,6 +192,7 @@
 
         <Card number="05" title={t('dictation.performance.title')} hint={t('dictation.performance.hint')} color="amber">
           <Segmented label={t('dictation.performance.unload')} options={unloads} value={prefs.unload_after_s} color="amber" hint={t('dictation.performance.unloadHint')} onchange={(unload_after_s) => daemon.setDictationPrefs({ unload_after_s })} />
+          <Segmented label={t('dictation.performance.device')} options={devices} value={parakeet ? 'cpu' : prefs.gpu ? 'gpu' : 'cpu'} color="amber" disabled={parakeet} hint={parakeet ? t('dictation.performance.deviceParakeet') : t('dictation.performance.deviceHint')} onchange={(device) => daemon.setDictationPrefs({ gpu: device === 'gpu' })} />
           <RulerSlider
             compact
             label={t('dictation.performance.threads')}
@@ -210,7 +216,7 @@
           {#snippet footer()}
             {t('dictation.performance.worker')} ·
             {dictation.worker_ram_bytes
-              ? t('dictation.performance.loaded', { ram: formatBytes(dictation.worker_ram_bytes), threads: dictation.worker_threads ?? '—' })
+              ? t('dictation.performance.loaded', { ram: formatBytes(dictation.worker_ram_bytes), device: prefs.gpu && !parakeet ? 'GPU' : 'CPU', threads: dictation.worker_threads ?? '—' })
               : t('dictation.performance.unloaded')}
           {/snippet}
         </Card>
@@ -345,15 +351,7 @@
   }
 
   .hero {
-    display: flex;
-    align-items: flex-start;
-    gap: 32px;
     margin-bottom: 24px;
-  }
-
-  .intro {
-    flex: 1;
-    min-width: 0;
   }
 
   h2 {
@@ -370,26 +368,20 @@
     font-style: italic;
   }
 
-  .intro p {
+  .hero p {
     margin-top: 6px;
     font-size: 14px;
     color: var(--muted);
   }
 
-  .keys {
-    display: grid;
-    grid-template-columns: auto auto;
+  .key {
+    display: inline-flex;
     align-items: center;
-    gap: 6px 14px;
-  }
-
-  .keys > .hud-label {
-    justify-self: end;
+    gap: 8px;
   }
 
   kbd {
-    min-width: 132px;
-    padding: 5px 10px;
+    padding: 3px 8px;
     border: 1px solid var(--line);
     background: var(--bg-sunken);
     font-family: var(--font-mono);
@@ -400,26 +392,6 @@
 
   kbd.empty {
     color: var(--faint);
-  }
-
-  .key-foot {
-    grid-column: 1 / -1;
-    display: flex;
-    justify-content: flex-end;
-    gap: 12px;
-  }
-
-  .hint {
-    font-size: 12px;
-    color: var(--faint);
-  }
-
-  .link {
-    color: var(--accent-ink);
-  }
-
-  .link:hover {
-    color: var(--ink);
   }
 
   .grid {

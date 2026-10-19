@@ -96,7 +96,7 @@
         aria-checked={!muted}
         onclick={() => daemon.setMic(daemon.client.call('mic.set_muted', { muted: !muted }))}
       >
-        {#if muted}<MicOff size={18} strokeWidth={1.5} />{:else}<Mic size={18} strokeWidth={1.5} />{/if}
+        {#if muted}<MicOff size={15} strokeWidth={1.5} />{:else}<Mic size={15} strokeWidth={1.5} />{/if}
         <span class="title">{t('quick.microphone')}</span>
         <span class="state">{muted ? t('quick.muted') : t('quick.on')}</span>
       </button>
@@ -107,7 +107,7 @@
         aria-checked={!bypass}
         onclick={() => daemon.setMic(daemon.client.call('mic.set_bypass', { bypass: !bypass }))}
       >
-        <AudioLines size={18} strokeWidth={1.5} />
+        <AudioLines size={15} strokeWidth={1.5} />
         <span class="title">{t('quick.processing')}</span>
         <span class="state">{bypass ? t('quick.bypassed') : t('quick.on')}</span>
       </button>
@@ -119,7 +119,7 @@
         disabled={!mixer}
         onclick={() => mixer && daemon.setMixer(daemon.client.call('mixer.set_enabled', { enabled: !mixer.enabled }))}
       >
-        <SlidersHorizontal size={18} strokeWidth={1.5} />
+        <SlidersHorizontal size={15} strokeWidth={1.5} />
         <span class="title">{t('quick.mixer')}</span>
         <span class="state">{mixer?.enabled ? t('quick.on') : t('quick.off')}</span>
       </button>
@@ -137,7 +137,7 @@
             openMain();
           }}
         >
-          <Speech size={18} strokeWidth={1.5} />
+          <Speech size={15} strokeWidth={1.5} />
           <span class="title">{t('quick.dictation')}</span>
           <span class="state">{dictation.state}</span>
           {#if dictation.progress !== null}<span class="progress" style:width="{dictation.progress}%"></span>{/if}
@@ -234,8 +234,8 @@
   .panel {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: 16px;
+    gap: 10px;
+    padding: 12px;
     background: var(--bg-raised);
   }
 
@@ -277,8 +277,8 @@
     align-items: center;
     justify-content: center;
     flex: none;
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
     border: 1px solid var(--line);
     background: var(--bg-sunken);
@@ -301,8 +301,8 @@
   }
 
   .round.icon {
-    width: 40px;
-    height: 40px;
+    width: 32px;
+    height: 32px;
   }
 
   .round.channel {
@@ -319,12 +319,12 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    padding: 8px 12px;
+    padding: 6px 10px;
     border: 1px solid var(--line);
     background: var(--bg-sunken);
     color: var(--ink);
     font: inherit;
-    font-size: 13px;
+    font-size: 12px;
     cursor: pointer;
   }
 
@@ -333,18 +333,19 @@
 
   .tiles {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
   }
 
   .tile {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-items: center;
+    column-gap: 9px;
     min-width: 0;
-    padding: 12px;
-    border-radius: 16px;
+    padding: 7px 10px;
+    border-radius: 12px;
     border: 1px solid var(--line);
     background: var(--bg-sunken);
     color: var(--ink);
@@ -364,10 +365,6 @@
   .tile.alert {
     border-color: var(--danger);
     color: var(--danger);
-  }
-
-  .tiles:has(> :nth-child(4)) {
-    grid-template-columns: repeat(2, 1fr);
   }
 
   .tile {
@@ -392,15 +389,26 @@
     cursor: default;
   }
 
+  .tile > :global(svg) {
+    grid-row: span 2;
+  }
+
   .title {
-    margin-top: 4px;
-    font-size: 13px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
     font-weight: 600;
     color: inherit;
   }
 
   .state {
-    font-size: 12px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10.5px;
     opacity: 0.8;
   }
 

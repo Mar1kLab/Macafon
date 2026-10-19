@@ -95,8 +95,8 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    height: 40px;
-    padding: 0 16px;
+    height: 32px;
+    padding: 0 12px;
     overflow: hidden;
     /* Android and Windows 11 controls are round; an owner exception like the hotkey popup. */
     border-radius: 20px;
@@ -133,7 +133,7 @@
   .name,
   .value {
     position: relative;
-    font-size: 13px;
+    font-size: 12px;
     color: var(--ink-strong);
     white-space: nowrap;
   }

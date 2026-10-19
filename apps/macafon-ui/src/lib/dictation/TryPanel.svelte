@@ -3,9 +3,8 @@
   // button or Space to dictate through the whole pipeline; the text shows here instead of being
   // inserted. History (STT-015) expands upward: the last results, in daemon memory only.
   import { slide } from 'svelte/transition';
-  import { ChevronUp, Copy, CornerDownLeft, Mic } from '@lucide/svelte';
+  import { ChevronUp, Copy, CornerDownLeft, Mic, Trash2 } from '@lucide/svelte';
   import PopupLook from './PopupLook.svelte';
-  import Toggle from '../components/Toggle.svelte';
   import type { DictationResult, DictationState } from '../ipc/protocol';
   import { daemon } from '../state';
   import { t } from '../i18n';
@@ -57,13 +56,10 @@
   {#if historyOpen}
     <div class="history" transition:slide={{ duration: 300 }}>
       <div class="history-head">
-        <span class="hud-label" title={t('dictation.test.historyHint')}>{t('dictation.test.history')}</span>
+        <span class="hud-label">{t('dictation.test.history')}</span>
+        <span class="hint">{t('dictation.test.historyHint')}</span>
         <span class="spacer"></span>
-        <span class="keep">
-          <span class="hud-label">{t('dictation.test.keepHistory')}</span>
-          <Toggle checked={prefs.keep_history} label={t('dictation.test.keepHistory')} onchange={(keep_history) => daemon.setDictationPrefs({ keep_history })} />
-        </span>
-        <button class="btn small ghost" disabled={dictation.history.length === 0} onclick={() => daemon.setDictation(daemon.client.call('dictation.history_clear'))}>{t('dictation.test.clear')}</button>
+        <button class="btn small ghost" disabled={dictation.history.length === 0} onclick={() => daemon.setDictation(daemon.client.call('dictation.history_clear'))}><Trash2 size={12} strokeWidth={1.5} />{t('dictation.test.clear')}</button>
       </div>
       {#if dictation.history.length === 0}
         <p class="muted">{prefs.keep_history ? t('dictation.test.historyEmpty') : t('dictation.test.historyOff')}</p>
@@ -243,10 +239,9 @@
     flex: 1;
   }
 
-  .keep {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  .hint {
+    font-size: 12px;
+    color: var(--faint);
   }
 
   ul {

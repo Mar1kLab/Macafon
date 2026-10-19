@@ -587,6 +587,7 @@ CC-BY-4.0 and the runtime licenses appears in Settings → About.
 | STT-019 | Privacy: audio and text never leave the machine and are never written to disk or logs; logs contain only timings, engine, model, language and error codes | P0 |
 | STT-020 | GPU acceleration: Whisper on Vulkan (any vendor), opt-in, shipped only if the measured installer growth is acceptable (§17 Q9); Parakeet stays on CPU in 1.0 | P2 |
 | STT-021 | CLI: `macafon stt transcribe <file.wav> [--engine] [--model] [--lang]` through the daemon, and `macafon ctl dictation on` / `off` / `toggle` for DE bindings and scripts | P1 |
+| STT-022 | Models folder (owner request, 2026-10-19): default `%LOCALAPPDATA%\Macafon\models\stt`; any folder on any local drive can be picked with the system folder dialog and reset to the default. Changing it moves the downloaded models (copy → verify SHA-256 → delete the source; cancellable, progress shown; the loaded model is unloaded first; a failed move keeps the old folder in use). Network and removable drives are refused; free space is checked on the target drive. A folder on a rotational disk shows a hint that a cold start is slower (≈ 3–8 s instead of 0.5–2 s). Macafon writes only inside its own `<folder>\<engine>\<model>\` subfolders and never deletes anything else there | P0 |
 
 #### 8.4.3 Process and protocol
 
@@ -647,7 +648,8 @@ uses the same virtual key in Latin and Cyrillic layouts; Unicode `SendInput` ign
 
 #### 8.4.6 Model manager and downloads
 
-- Storage: `%LOCALAPPDATA%\Macafon\models\stt\<engine>\<model>\`. Downloads go to `*.part`, support HTTP
+- Storage: `<models folder>\<engine>\<model>\`, the folder from STT-022 (default
+  `%LOCALAPPDATA%\Macafon\models\stt`). Downloads go to `*.part`, support HTTP
   `Range` resume, are verified against the manifest SHA-256 and finalized by rename; a mismatch deletes
   the file and shows an error.
 - Source: only `https://huggingface.co/<repo>/resolve/<pinned commit>/<file>`, HTTPS with certificate
@@ -656,7 +658,8 @@ uses the same virtual key in Latin and Cyrillic layouts; Unicode `SendInput` ign
   thread at background I/O priority, outside the control loop; progress events at most 4 Hz.
 - Delete is refused while the model is loaded (it is unloaded first). Import copies a local file and
   accepts it only if its hash matches a manifest entry.
-- The installer never contains models; uninstall deletes downloaded models by default, with a
+- The installer never contains models; uninstall deletes downloaded models by default (in a custom
+  folder only Macafon's own subfolders), with a
   checkbox to keep them (owner decision, 2026-10-19).
 
 #### 8.4.7 Popup states
@@ -884,7 +887,9 @@ transcripts (AGENTS §5).
   segmented 5-step meters (quality, speed — static manifest values, colored `--accent-ink`), and a
   state cell: `GET` (download), a ruler-style progress bar with percent, speed and `✕` cancel,
   `READY`, `ACTIVE` (loaded now) or `ERROR · RETRY`. A row menu has Delete and Import file. Below the
-  rows: "Models are downloaded from Hugging Face" and the total disk use. A first-time empty state
+  rows: "Models are downloaded from Hugging Face", the total disk use and a storage line
+  `STORAGE  C:\…\models\stt  [CHANGE] [RESET]` (STT-022) with the drive's free space; while models
+  move, the line becomes a progress bar with cancel. A first-time empty state
   replaces the rows with one recommended card: "Whisper Turbo — best for EN / UK / RU — 0.57 GB —
   `Download`".
 - **02 LANGUAGE.** Policy `Segmented`; the EN/UK/RU chips are enabled only in Fixed. With Parakeet the
@@ -1421,6 +1426,7 @@ game_mode = true
 pre_roll = true
 keep_history = true
 vocabulary = ["Macafon", "PipeWire"]
+models_dir = ""               # empty = %LOCALAPPDATA%\Macafon\models\stt
 
 [dictation.popup]
 look = "flow"                 # flow | analog
@@ -1585,7 +1591,7 @@ built; there is no engine bake-off step. Checks follow AGENTS §3: targeted test
 | **D0 · Contracts and mock** | `[dictation]` config schema with defaults; IPC types (state, models, progress, results, config) and TS generation; `Capabilities::dictation`; mock daemon: fake models, downloads, worker states, levels, transcripts; the sidebar item with an empty Dictation screen | The UI in mock mode shows the screen and every `dictation.state`; `pnpm check` passes; config round-trip test |
 | **D1 · Worker + Whisper** | `crates/macafon-stt` (`SpeechEngine`, `TranscribeOptions`, `Transcript`, the model manifest), `WhisperEngine` (whisper.cpp, Silero VAD, `no_speech`, hallucination filter, `initial_prompt`, restricted language probabilities); `apps/macafon-stt` with the pipe protocol, Job object, priority, EcoQoS, thread limit; `macafon stt transcribe` for local WAVs (STT-021) | EN/UK/RU WAVs transcribe through the CLI; RAM and time recorded for NFR-R10/NFR-L7; protocol round-trip and hallucination-filter tests |
 | **D2 · Parakeet** | `ParakeetEngine` on sherpa-onnx with its Silero VAD; the binding is chosen here (official crate or `sherpa-rs`), ONNX Runtime packaged next to the worker | The same WAVs transcribe with `--engine parakeet`; measurements recorded; installer size delta measured (Q9) |
-| **D3 · Model manager** | Pinned Hugging Face manifest, background download with `Range` resume, SHA-256, free-space check, cancel, delete, import, progress events; uninstall prompt (Q10) | Download → verify → ready works on a clean profile; a corrupted `.part` is rejected; hash verification test with a small fixture |
+| **D3 · Model manager** | Pinned Hugging Face manifest, background download with `Range` resume, SHA-256, free-space check, cancel, delete, import, progress events; the models folder with move (STT-022); uninstall prompt (Q10) | Download → verify → ready works on a clean profile; a corrupted `.part` is rejected; hash verification test with a small fixture |
 | **D4 · Daemon pipeline** | RT tap with the atomic gate and 2 s `rtrb`, pre-roll ring, the STT thread with the resampler, streaming to the worker during recording, worker lifecycle (spawn on press, load in parallel, unload timer, crash handling), game mode, mute while dictating | Tap and resampler tests under `assert_no_alloc`; resampler response test; feature off leaves no tap/worker (NFR-R9); a crash of the worker leaves audio untouched |
 | **D5 · Hotkeys, language, insertion** | `dictation_*` actions with HK-009 rules and the STT-003 defaults (Start suppression, double tap → hands-free), paste/copy last and push-to-talk to clipboard, Esc, the layout reader (UWP/console cases), the §8.4.4 policy, Paste/Type insertion with clipboard restore and history exclusion, focus-change and UIPI fallbacks, full-screen games policy, history in memory | Table tests for the language policy (including "en layout + Russian speech"); manual run in Notepad, Chrome, Discord, Telegram, Word, an elevated window and a full-screen game |
 | **D6 · Popups and quick access** | Flow and Analog looks in the HK-006 Direct2D popup thread with all §8.4.7 states, level bands and VU ballistics; the Dictation tile in the tray panel and overlay; the tray menu item | Both looks go through every state in a manual run; the VU ballistics test (300 ms to 99 %, overshoot ≤ 2 %); screenshots |

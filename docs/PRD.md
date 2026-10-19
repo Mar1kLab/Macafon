@@ -580,11 +580,11 @@ CC-BY-4.0 and the runtime licenses appears in Settings → About.
 | STT-012 | Text insertion (§8.4.5): into the window captured at the key press; **Paste** (default, clipboard + `Ctrl+V`, clipboard restored) or **Type** (`SendInput` with `KEYEVENTF_UNICODE`). Options: trailing space (default on), what to do in full-screen games (Insert / Copy only (default) / Ignore) | P0 |
 | STT-013 | Model manager (§8.4.6): list, download with progress, cancel, resume, SHA-256 verification, delete, disk-space check, import a local file that matches a manifest hash. Downloads start only from an explicit user action | P0 |
 | STT-014 | Vocabulary: up to 50 user words/names (Whisper passes them as `initial_prompt`; Parakeet ignores them in 1.0). Edited on the Dictation screen | P1 |
-| STT-015 | History: the last 20 results with time, engine, language and duration, kept **in daemon memory only**, cleared on Quit; copy and re-insert from the Dictation screen. "Keep history" can be turned off | P1 |
-| STT-016 | Dictation popup (§8.4.7, §9.9.3): looks **Flow** (default) and **Analog**, position bottom-center (default) or top-center of the monitor chosen by the HK-006 monitor policy, vertical offset in percent. Drawn natively by the daemon, so it works with the UI closed | P0 |
+| STT-015 | History: the last 20 results with time, engine, language and duration; copy and re-insert from the Dictation screen and the overlay. Three modes (owner request, 2026-10-19): **Off**; **Session** — in daemon memory, cleared on Quit (default); **Saved** — also written to `%LOCALAPPDATA%\Macafon\dictation-history.json` (temp file + rename) and loaded at start. Clear history and switching away from Saved delete the file | P1 |
+| STT-016 | Dictation popup (§8.4.7, §9.9.3): looks **Flow** (default) and **Analog**, position bottom-center (default) or top-center, vertical offset in percent, and its own monitor choice — follow the active window's monitor (default) or the primary only — independent of the hotkey popup's (owner request, 2026-10-19). Drawn natively by the daemon, so it works with the UI closed | P0 |
 | STT-017 | Quick access: a **Dictation** tile in the tray quick panel and the hotkey overlay (HK-007), and `Dictation` ✓ in the tray menu (BG-003); all toggle STT-001. The tile shows the download progress when a model is downloading and is disabled with a hint when no model is present | P0 |
 | STT-018 | Optional cues (default off): a quiet start/stop click played to the monitor output only, never into the virtual microphone | P1 |
-| STT-019 | Privacy: audio and text never leave the machine and are never written to disk or logs; logs contain only timings, engine, model, language and error codes | P0 |
+| STT-019 | Privacy: audio and text never leave the machine; audio is never written to disk, text only in the opt-in Saved history (STT-015); logs contain only timings, engine, model, language and error codes | P0 |
 | STT-020 | GPU acceleration (owner request, 2026-10-19): Whisper on the GPU through ggml's Vulkan backend (any vendor; `vulkan-1.dll` comes with the graphics driver), on by default with a GPU/CPU choice on the Dictation screen; a full-screen game forces the CPU (STT-008); a failed GPU load falls back to the CPU. Parakeet stays on the CPU. Measured: 13.4 s of speech in 0.29 s on an RTX 4070 vs 18.8 s on the CPU | P0 |
 | STT-021 | CLI: `macafon stt transcribe <file.wav> [--engine] [--model] [--lang]` through the daemon, and `macafon ctl dictation on` / `off` / `toggle` for DE bindings and scripts | P1 |
 | STT-022 | Models folder (owner request, 2026-10-19): default `%LOCALAPPDATA%\Macafon\models\stt`; any folder on any local drive can be picked with the system folder dialog and reset to the default. Changing it moves the downloaded models (copy → verify SHA-256 → delete the source; cancellable, progress shown; the loaded model is unloaded first; a failed move keeps the old folder in use). Network and removable drives are refused; free space is checked on the target drive. A folder on a rotational disk shows a hint that a cold start is slower (≈ 3–8 s instead of 0.5–2 s). Macafon writes only inside its own `<folder>\<engine>\<model>\` subfolders and never deletes anything else there | P0 |
@@ -852,6 +852,12 @@ transcripts (AGENTS §5).
 
 #### 9.9.1 Layout
 
+Owner request, 2026-10-19: the cards follow the order a user thinks in — the model, how it
+understands you (language, vocabulary), the path from the microphone to the text and its history
+(input, output, history), and last the resources it may use (performance, full width). The intro
+heading shows only before the first model; the header carries the status, the main shortcuts and
+the switch. The ASCII sketch below is the first version.
+
 ```
 ┌─ 04 / DICTATION ────────────────────── [● READY · WHISPER TURBO · 1.1 GB]  [DICTATION ▣ on] ─┐
 │ Speak, it *types*.                                  HOLD  [Ctrl] + [Win]  ·  HANDS-FREE  [Ctrl]+[Win]+[Space] │
@@ -917,10 +923,12 @@ transcripts (AGENTS §5).
 
 #### 9.9.2 Overlay, quick panel and tray
 
-- The hotkey overlay has a dictation bar under the toggles, like the soundpad's (one panel open at
-  a time): the last result, and a round button that opens the dictation panel — a language switch
-  (Layout / EN / UK / RU), the engine and device, the main shortcuts and the history with copy and
-  insert-again (owner request, 2026-10-19).
+- The hotkey overlay (owner request, 2026-10-19): the toggles are small 2×2 switches, filled when
+  on and outlined when off. Under them, tabs open the Sounds or the Dictation panel to the right of
+  the controls; the window grows to the right and keeps its main part in place. The Dictation panel
+  has the language mode (Layout / Fixed / Auto) with the fixed language, the engine, GPU/CPU and the
+  history with copy and insert-again. The Sounds panel holds the pads; the soundpad's transport and
+  volumes dock along the bottom of the overlay with a slide-in.
 - The tray quick panel and the hotkey overlay (HK-007) get a fourth tile **Dictation** (Lucide
   `Speech`) after Mixer. On = filled `--accent` tile like the existing ones; the subtitle shows the
   push-to-talk shortcut (`HOLD · Ctrl+Win`). While a model downloads, the tile shows a thin progress line

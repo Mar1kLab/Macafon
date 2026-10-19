@@ -2,7 +2,7 @@
   "name": "macafon-ui",
   "private": true,
   "packageManager": "pnpm@12.11.2",
-  "version": "0.3.1",
+  "version": "0.3.5",
   "type": "module",
   "scripts": {
     "dev": "vite",

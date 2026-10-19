@@ -44,6 +44,8 @@ pub struct UiConfig {
     pub quit_on_close: bool,
     /// `[ui.osd]`: the hotkey popup (HK-006).
     pub osd: OsdConfig,
+    /// `[ui.overlay]`: hotkey overlay controls and placement.
+    pub overlay: macafon_ipc::OverlayPrefs,
     /// The `DEFAULT_HOTKEYS` revision already offered, so a shortcut the user cleared stays
     /// cleared.
     pub hotkey_defaults: u32,
@@ -61,6 +63,7 @@ impl Default for UiConfig {
             close_hint_shown: false,
             quit_on_close: false,
             osd: OsdConfig::default(),
+            overlay: Default::default(),
             hotkey_defaults: 0,
             volume_step_pct: default_volume_step(),
         }
@@ -452,6 +455,18 @@ mod tests {
             toml::from_str("[ui.osd]\nstyle = 'horizontal'\n[soundpad]\nshow_in_overlay = false\n")
                 .expect("old config");
         assert_eq!(config.ui.osd.look, OsdLook::Classic);
+        assert_eq!(config.ui.overlay, macafon_ipc::OverlayPrefs::default());
+        let mut changed = config.clone();
+        changed.ui.overlay.expand = macafon_ipc::OverlayExpand::Down;
+        changed.ui.overlay.placement = macafon_ipc::OverlayPlacement::Centered;
+        changed.ui.overlay.output_device = true;
+        changed.ui.overlay.volumes = false;
+        let encoded = toml::to_string(&changed).expect("serialize overlay");
+        assert!(encoded.contains("[ui.overlay]"));
+        assert_eq!(
+            toml::from_str::<Config>(&encoded).expect("decode overlay"),
+            changed
+        );
         assert_eq!(
             config.soundpad.overlay_view,
             soundpad::SoundpadOverlayView::Grid

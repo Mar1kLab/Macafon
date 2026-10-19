@@ -21,13 +21,13 @@ impl DaemonHost {
         let state_dir = match macafon_config::state_dir() {
             Ok(dir) => dir,
             Err(error) => {
-                tracing::warn!(%error, "No state directory; the soundpad is off");
+                tracing::warn!(%error, "No state directory; the SoundDeck is off");
                 return;
             }
         };
         let mut soundpad = Soundpad::new(&self.config.soundpad, &state_dir);
         soundpad.rescan();
-        tracing::info!(folder = %soundpad.folder().display(), sounds = soundpad.entries().len(), "Soundpad ready");
+        tracing::info!(folder = %soundpad.folder().display(), sounds = soundpad.entries().len(), "SoundDeck ready");
         self.soundpad = Some(soundpad);
         self.preload_sounds();
     }
@@ -40,6 +40,7 @@ impl DaemonHost {
             default_folder: config.folder.is_none(),
             categories: soundpad.categories().to_vec(),
             sounds: soundpad.sounds(config),
+            problem_sounds: soundpad.problem_sounds(),
             prefs: SoundpadPrefs {
                 to_microphone: config.to_microphone,
                 to_headphones: config.to_headphones,
@@ -284,8 +285,18 @@ impl DaemonHost {
                 }
                 self.soundpad_changed();
             }
+            Request::SoundpadDeleteProblemSounds => {
+                let deleted = library::delete_problem_sounds(&folder).map_err(library_error)?;
+                soundpad.rescan();
+                for id in deleted {
+                    self.sound_removed(&id);
+                }
+                self.soundpad_changed();
+            }
             Request::SoundpadDelete { id } => {
-                soundpad.entry(&id)?;
+                if !id.starts_with("Unplayable/") {
+                    soundpad.entry(&id)?;
+                }
                 library::delete(&folder, &id).map_err(library_error)?;
                 soundpad.rescan();
                 self.sound_removed(&id);
@@ -507,12 +518,12 @@ fn folder_path(path: &Path) -> PathBuf {
 fn soundpad_unavailable() -> ErrorBody {
     ErrorBody::new(
         ErrorCode::BadRequest,
-        "the soundpad is not available on this platform",
+        "the SoundDeck is not available on this platform",
     )
 }
 
 fn not_soundpad_request() -> ErrorBody {
-    ErrorBody::new(ErrorCode::BadRequest, "not a soundpad request")
+    ErrorBody::new(ErrorCode::BadRequest, "not a SoundDeck request")
 }
 
 /// Good enough for "play a random sound": the clock's nanoseconds, no extra dependency.

@@ -834,9 +834,13 @@ mod tests {
             .send(WorkerRequest::Finish {
                 language: LanguageInput {
                     policy: LanguagePolicy::Fixed,
-                    fixed: Language::En,
+                    fixed: Language::from_code("en").expect("supported language"),
                     layout: None,
                     last_cyrillic: None,
+                    layout_languages: macafon_ipc::installed_dictation_languages()
+                        .iter()
+                        .filter_map(|info| Language::from_code(&info.code))
+                        .collect(),
                 },
                 vocabulary: vec![],
             })

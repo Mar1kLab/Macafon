@@ -290,7 +290,7 @@ impl LoopState {
                 self.monitor_retry_at = None;
             }
             Err(error) => {
-                tracing::warn!(%error, "Cannot open the soundpad monitor");
+                tracing::warn!(%error, "Cannot open the SoundDeck monitor");
                 self.monitor_retry_at = Some(Instant::now() + SCAN_INTERVAL);
             }
         }

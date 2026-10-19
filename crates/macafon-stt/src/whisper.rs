@@ -167,19 +167,17 @@ impl SpeechEngine for WhisperEngine {
             let (_, probs) = state
                 .lang_detect(0, usize::from(self.threads))
                 .map_err(|e| SttError::Inference(e.to_string()))?;
-            let mut restricted = [0.0; 3];
-            for (index, language) in Language::ALL.into_iter().enumerate() {
-                let id = whisper_rs::get_lang_id(language.code())
-                    .ok_or_else(|| SttError::Inference("language unavailable".into()))?;
-                restricted[index] = probs.get(id as usize).copied().unwrap_or(0.0);
-            }
-            let sum: f32 = restricted.iter().sum();
-            if sum > 0.0 {
-                restricted = restricted.map(|p| p / sum);
-            }
-            Some(restricted)
+            let probabilities = macafon_ipc::WHISPER_LANGUAGES
+                .iter()
+                .filter_map(|(code, _)| {
+                    let language = Language::from_code(code)?;
+                    let id = whisper_rs::get_lang_id(code)?;
+                    Some((language, probs.get(id as usize).copied().unwrap_or(0.0)))
+                })
+                .collect::<Vec<_>>();
+            Some(probabilities)
         };
-        let language = language::choose(&opts.language, lang_probs);
+        let language = language::choose(&opts.language, lang_probs.as_deref());
         self.timings.language = started.elapsed() - self.timings.vad;
         let decoding = Instant::now();
         let strategy = if self.settings.beam_size == 0 {
@@ -212,7 +210,13 @@ impl SpeechEngine for WhisperEngine {
             .map(|word| word.replace('\0', ""))
             .collect::<Vec<_>>()
             .join(", ");
-        params.set_initial_prompt(&prompt);
+        // Use the model's tokenizer so all default terms fit; leave room below 224 tokens.
+        let mut prompt_tokens = self
+            .context
+            .tokenize(&prompt, prompt.len().max(1))
+            .map_err(|e| SttError::Inference(e.to_string()))?;
+        prompt_tokens.truncate(192);
+        params.set_tokens(&prompt_tokens);
         state
             .full(params, &speech)
             .map_err(|e| SttError::Inference(e.to_string()))?;

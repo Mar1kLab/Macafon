@@ -24,6 +24,56 @@ pub struct Preferences {
     /// The hotkey popup; applies where `Capabilities::hotkey_popup` is set.
     #[serde(default)]
     pub osd: OsdPrefs,
+    #[serde(default)]
+    pub overlay: OverlayPrefs,
+}
+
+/// The hotkey overlay (§9.9): visible controls, expansion direction and placement.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(default)]
+pub struct OverlayPrefs {
+    pub volumes: bool,
+    pub mic_switch: bool,
+    pub processing_switch: bool,
+    pub mixer_switch: bool,
+    pub preset: bool,
+    pub output_device: bool,
+    pub mic_level: bool,
+    pub expand: OverlayExpand,
+    pub placement: OverlayPlacement,
+}
+impl Default for OverlayPrefs {
+    fn default() -> Self {
+        Self {
+            volumes: true,
+            mic_switch: true,
+            processing_switch: true,
+            mixer_switch: true,
+            preset: true,
+            output_device: false,
+            mic_level: false,
+            expand: OverlayExpand::Right,
+            placement: OverlayPlacement::Anchored,
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum OverlayExpand {
+    #[default]
+    Right,
+    Left,
+    Down,
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum OverlayPlacement {
+    #[default]
+    Anchored,
+    Centered,
 }
 
 /// The hotkey popup (HK-006): its look, the edge it sits at and how far from it.

@@ -1,13 +1,13 @@
 # M1: UI (Tauri v2 + Svelte 5)
 
-State as of 2026-10-18. Onboarding, the Microphone, Mixer, Soundpad (Windows) and Settings screens,
+State as of 2026-10-18. Onboarding, the Microphone, Mixer, SoundDeck (Windows) and Settings screens,
 calibration, the TEST (A/B) panel, tray quick panel and hotkey overlay are implemented. The overlay has
-an expandable Soundpad panel with search and category filters (PRD §7.6). Preset import/export through
+an expandable SoundDeck panel with search and category filters (PRD §7.6). Preset import/export through
 a file dialog is still pending. Mixer — [mixer.md](mixer.md).
 
 The mock transport (`src/lib/ipc/mock.ts`) handles the connection, microphone, presets, calibration and
 A/B. `src/lib/ipc/mock/` holds the device and application data (`fixtures`), pure functions
-(`helpers`), synthetic signals (`signals`), Soundpad (`soundpad`) and a separate mixer (`mixer`). The mixer
+(`helpers`), synthetic signals (`signals`), SoundDeck (`soundpad`) and a separate mixer (`mixer`). The mixer
 owns the channels, applications and meters, uses the generated IPC types and hands out copies of its
 state for replies and events.
 

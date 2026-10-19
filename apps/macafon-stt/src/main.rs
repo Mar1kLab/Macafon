@@ -26,8 +26,8 @@ enum Command {
         model_dir: PathBuf,
         #[arg(long)]
         model: Option<String>,
-        #[arg(long, value_enum)]
-        lang: Option<CliLanguage>,
+        #[arg(long, value_parser = parse_language)]
+        lang: Option<Language>,
         #[arg(long, default_value_t = 2)]
         threads: u16,
         /// Game mode: enable EcoQoS and halve the thread budget.
@@ -60,11 +60,8 @@ enum CliEngine {
     Whisper,
     Parakeet,
 }
-#[derive(Clone, Copy, ValueEnum)]
-enum CliLanguage {
-    En,
-    Uk,
-    Ru,
+fn parse_language(code: &str) -> Result<Language, String> {
+    Language::from_code(code).ok_or_else(|| "unsupported Whisper language code".into())
 }
 
 fn load(
@@ -475,11 +472,7 @@ fn main() -> Result<()> {
     let load_ms = started.elapsed().as_millis();
     report_backend(kind);
     let ram_bytes = platform::ram_bytes();
-    let fixed = lang.map(|l| match l {
-        CliLanguage::En => Language::En,
-        CliLanguage::Uk => Language::Uk,
-        CliLanguage::Ru => Language::Ru,
-    });
+    let fixed = lang;
     let options = TranscribeOptions {
         language: LanguageInput {
             policy: if fixed.is_some() {
@@ -487,9 +480,10 @@ fn main() -> Result<()> {
             } else {
                 LanguagePolicy::Auto
             },
-            fixed: fixed.unwrap_or(Language::En),
+            fixed: fixed.unwrap_or_default(),
             layout: None,
             last_cyrillic: None,
+            layout_languages: Vec::new(),
         },
         vocabulary: Vec::new(),
     };

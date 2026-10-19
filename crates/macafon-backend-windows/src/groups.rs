@@ -267,7 +267,7 @@ fn stream(id: u32, app: &App) -> PlaybackStream {
         node_name: app.exe.clone(),
         binary: named.then(|| stem.to_owned()),
         app_name: Some(if app.exe == crate::mixer::SOUNDPAD {
-            "Soundpad".to_owned()
+            "SoundDeck".to_owned()
         } else if named {
             stem.to_owned()
         } else {
@@ -299,7 +299,7 @@ mod tests {
                 peak: 0.1,
             },
         );
-        assert_eq!(soundpad.app_name.as_deref(), Some("Soundpad"));
+        assert_eq!(soundpad.app_name.as_deref(), Some("SoundDeck"));
         assert!(soundpad.binary.is_none());
         assert_eq!(soundpad.node_name, crate::mixer::SOUNDPAD);
         assert!(soundpad.movable && soundpad.running);

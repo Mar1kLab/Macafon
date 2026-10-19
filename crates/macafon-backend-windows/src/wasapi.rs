@@ -256,7 +256,7 @@ impl RenderStream {
             let manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None)?;
             let session = manager.GetAudioSessionControl(Some(&SOUNDPAD_SESSION), 0)?;
             session.SetGroupingParam(&SOUNDPAD_SESSION, std::ptr::null())?;
-            session.SetDisplayName(w!("Soundpad"), std::ptr::null())?;
+            session.SetDisplayName(w!("SoundDeck"), std::ptr::null())?;
             session
         };
         let stream = Stream::open_session(device_id, 2, 0, Some(&SOUNDPAD_SESSION))?;

@@ -15,6 +15,7 @@ pub type Durations = HashMap<String, (u64, Option<u32>)>;
 pub struct Inventory {
     pub entries: Vec<SoundEntry>,
     pub categories: Vec<String>,
+    pub problems: Vec<(SoundEntry, String)>,
 }
 pub enum Update {
     Inventory(Inventory),
@@ -23,7 +24,9 @@ pub enum Update {
 }
 
 pub struct Worker {
-    requests: mpsc::SyncSender<(u64, PathBuf, bool)>,
+    requests: Option<mpsc::SyncSender<(u64, PathBuf, bool)>>,
+    #[cfg(test)]
+    thread: Option<thread::JoinHandle<()>>,
     pub results: mpsc::Receiver<(u64, Update)>,
     revision: Arc<AtomicU64>,
 }
@@ -38,11 +41,13 @@ impl Worker {
         let spawned = thread::Builder::new()
             .name("macafon-soundpad-library".into())
             .spawn(move || run(receiver, sender, current_revision));
-        if let Err(error) = spawned {
-            tracing::warn!(%error, "Cannot start soundpad library worker");
+        if let Err(error) = &spawned {
+            tracing::warn!(%error, "Cannot start SoundDeck library worker");
         }
         Self {
-            requests,
+            requests: Some(requests),
+            #[cfg(test)]
+            thread: spawned.ok(),
             results,
             revision,
         }
@@ -51,7 +56,9 @@ impl Worker {
         self.revision.store(revision, Ordering::Relaxed);
     }
     pub fn request(&self, revision: u64, folder: PathBuf, force: bool) -> bool {
-        self.requests.try_send((revision, folder, force)).is_ok()
+        self.requests
+            .as_ref()
+            .is_some_and(|requests| requests.try_send((revision, folder, force)).is_ok())
     }
 }
 
@@ -97,8 +104,12 @@ fn run(
         }
         #[cfg(not(windows))]
         let _ = force;
-        match library::scan_library(&root) {
-            Ok((entries, categories)) => {
+        match library::scan_playable_library(&root) {
+            Ok(library::PlayableInventory {
+                entries,
+                categories,
+                problems,
+            }) => {
                 let probes = entries.clone();
                 if sender
                     .send((
@@ -106,6 +117,7 @@ fn run(
                         Update::Inventory(Inventory {
                             entries,
                             categories,
+                            problems,
                         }),
                     ))
                     .is_err()
@@ -143,7 +155,7 @@ fn run(
                 }
             }
             Err(error) => {
-                tracing::debug!(%error, folder = %root.display(), "Cannot scan the soundpad folder")
+                tracing::debug!(%error, folder = %root.display(), "Cannot scan the SoundDeck folder")
             }
         }
         if sender.send((revision, Update::Complete)).is_err() {
@@ -201,6 +213,20 @@ impl Drop for Watcher {
 impl Drop for Worker {
     fn drop(&mut self) {
         self.revision.store(u64::MAX, Ordering::Relaxed);
+        self.requests.take();
+        #[cfg(test)]
+        {
+            // Fixture directories must not be removed while the worker still reads/moves files.
+            // Drain the bounded result channel before joining so a pending send cannot wait forever.
+            if let Some(thread) = self.thread.take() {
+                while !thread.is_finished() {
+                    let _ = self
+                        .results
+                        .recv_timeout(std::time::Duration::from_millis(10));
+                }
+                let _ = thread.join();
+            }
+        }
     }
 }
 

@@ -153,9 +153,13 @@ impl Dictation {
             last_cyrillic: None,
             language: LanguageInput {
                 policy: LanguagePolicy::Layout,
-                fixed: Language::Uk,
+                fixed: config.fixed_language,
                 layout: None,
                 last_cyrillic: None,
+                layout_languages: macafon_ipc::installed_dictation_languages()
+                    .iter()
+                    .filter_map(|info| Language::from_code(&info.code))
+                    .collect(),
             },
             test: false,
             copy_only: false,
@@ -172,6 +176,8 @@ impl Dictation {
     pub fn state(&self, prefs: DictationPrefs) -> DictationState {
         DictationState {
             prefs,
+            layout_languages: macafon_ipc::installed_dictation_languages(),
+            supported_languages: macafon_ipc::supported_dictation_languages(),
             phase: self.phase,
             error: self.error.clone(),
             loaded_model: self.loaded_model.clone(),
@@ -233,9 +239,13 @@ impl Dictation {
                 DictationLanguagePolicy::Fixed => LanguagePolicy::Fixed,
                 DictationLanguagePolicy::Auto => LanguagePolicy::Auto,
             },
-            fixed: language(prefs.fixed_language),
+            fixed: prefs.fixed_language,
             layout: self.target.layout,
             last_cyrillic: self.last_cyrillic,
+            layout_languages: macafon_ipc::installed_dictation_languages()
+                .iter()
+                .filter_map(|info| Language::from_code(&info.code))
+                .collect(),
         };
         // EcoQoS parks the worker on efficiency cores at low clocks (13 s instead of 1 s for
         // Parakeet), so it is only for a full-screen game with game mode on; switching modes
@@ -386,7 +396,7 @@ impl Dictation {
                         } else {
                             crate::osd::dictation::State::Done
                         };
-                        let language = transcript.language.map(ipc_language);
+                        let language = transcript.language;
                         if transcript.language.is_some_and(Language::is_cyrillic) {
                             self.last_cyrillic = transcript.language;
                         }
@@ -466,20 +476,6 @@ impl Dictation {
             target::game_active(),
         )?;
         Ok(())
-    }
-}
-fn language(value: DictationLanguage) -> Language {
-    match value {
-        DictationLanguage::En => Language::En,
-        DictationLanguage::Uk => Language::Uk,
-        DictationLanguage::Ru => Language::Ru,
-    }
-}
-fn ipc_language(value: Language) -> DictationLanguage {
-    match value {
-        Language::En => DictationLanguage::En,
-        Language::Uk => DictationLanguage::Uk,
-        Language::Ru => DictationLanguage::Ru,
     }
 }
 
@@ -711,9 +707,13 @@ mod tests {
             .send(AudioCommand::Finish(WorkerRequest::Finish {
                 language: LanguageInput {
                     policy: LanguagePolicy::Fixed,
-                    fixed: Language::En,
+                    fixed: Language::from_code("en").expect("supported language"),
                     layout: None,
                     last_cyrillic: None,
+                    layout_languages: macafon_ipc::installed_dictation_languages()
+                        .iter()
+                        .filter_map(|info| Language::from_code(&info.code))
+                        .collect(),
                 },
                 vocabulary: vec![],
             }))

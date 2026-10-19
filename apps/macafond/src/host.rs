@@ -674,7 +674,22 @@ mod tests {
     fn explorer_category_rename_keeps_settings_and_both_hotkeys() {
         let root = std::env::temp_dir().join(format!("macafon-explorer-{}", std::process::id()));
         std::fs::create_dir_all(root.join("sounds/Short sounds")).expect("category");
-        std::fs::write(root.join("sounds/Short sounds/tone.wav"), b"tone").expect("sound");
+        let mut wav = b"RIFF".to_vec();
+        wav.extend_from_slice(&38u32.to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        for value in [1u16, 1] {
+            wav.extend_from_slice(&value.to_le_bytes());
+        }
+        wav.extend_from_slice(&48000u32.to_le_bytes());
+        wav.extend_from_slice(&96000u32.to_le_bytes());
+        for value in [2u16, 16] {
+            wav.extend_from_slice(&value.to_le_bytes());
+        }
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&2u32.to_le_bytes());
+        wav.extend_from_slice(&0i16.to_le_bytes());
+        std::fs::write(root.join("sounds/Short sounds/tone.wav"), wav).expect("valid sound");
         let mut config = Config::default();
         config.soundpad.folder = Some(root.join("sounds"));
         config

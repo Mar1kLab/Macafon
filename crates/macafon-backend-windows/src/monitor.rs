@@ -74,7 +74,7 @@ impl Monitor {
             }
             Err(_) => {
                 let _ = thread.join();
-                Err(Error::Thread("soundpad monitor thread exited".into()))
+                Err(Error::Thread("SoundDeck monitor thread exited".into()))
             }
         }
     }

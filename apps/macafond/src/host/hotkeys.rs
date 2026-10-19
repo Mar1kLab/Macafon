@@ -58,9 +58,9 @@ impl DaemonHost {
                     HotkeyAction::PushToMute => "Push to mute",
                     HotkeyAction::BypassToggle => "Toggle processing bypass",
                     HotkeyAction::PresetNext => "Next microphone preset",
-                    HotkeyAction::SoundpadStop => "Soundpad: stop",
-                    HotkeyAction::SoundpadPauseToggle => "Soundpad: pause or resume",
-                    HotkeyAction::SoundpadRandom => "Soundpad: play a random sound",
+                    HotkeyAction::SoundpadStop => "SoundDeck: stop",
+                    HotkeyAction::SoundpadPauseToggle => "SoundDeck: pause or resume",
+                    HotkeyAction::SoundpadRandom => "SoundDeck: play a random sound",
                     _ => "Previous microphone preset",
                 };
                 (action, description.to_owned())
@@ -85,7 +85,7 @@ impl DaemonHost {
             for entry in soundpad.entries() {
                 actions.push((
                     HotkeyAction::SoundpadPlay(entry.id.clone()),
-                    format!("Soundpad: {}", entry.name),
+                    format!("SoundDeck: {}", entry.name),
                 ));
             }
         }
@@ -171,6 +171,7 @@ impl DaemonHost {
                 macafon_ipc::CloseAction::Tray
             },
             osd: osd_prefs(self.config.ui.osd),
+            overlay: self.config.ui.overlay,
         }
     }
 

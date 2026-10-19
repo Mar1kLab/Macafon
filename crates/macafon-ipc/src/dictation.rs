@@ -12,15 +12,157 @@ pub enum DictationEngine {
     Parakeet,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Validated Whisper code, serialized as a string for config compatibility.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[serde(rename_all = "snake_case")]
-pub enum DictationLanguage {
-    En,
-    #[default]
-    Uk,
-    Ru,
+#[serde(transparent)]
+#[cfg_attr(feature = "ts", ts(type = "string"))]
+pub struct DictationLanguage(&'static str);
+impl DictationLanguage {
+    pub fn from_code(code: &str) -> Option<Self> {
+        WHISPER_LANGUAGES
+            .iter()
+            .find(|(candidate, _)| *candidate == code)
+            .map(|(code, _)| Self(code))
+    }
+    pub fn code(self) -> &'static str {
+        self.0
+    }
+    pub fn is_cyrillic(self) -> bool {
+        matches!(self.0, "uk" | "ru")
+    }
 }
+impl Default for DictationLanguage {
+    fn default() -> Self {
+        Self("en")
+    }
+}
+impl<'de> Deserialize<'de> for DictationLanguage {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let code = String::deserialize(deserializer)?;
+        Self::from_code(&code)
+            .ok_or_else(|| serde::de::Error::custom("unsupported Whisper language code"))
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct DictationLanguageInfo {
+    pub code: String,
+    pub name: String,
+}
+pub fn supported_dictation_languages() -> Vec<DictationLanguageInfo> {
+    WHISPER_LANGUAGES
+        .iter()
+        .map(|(code, name)| DictationLanguageInfo {
+            code: (*code).into(),
+            name: (*name).into(),
+        })
+        .collect()
+}
+/// Whisper's multilingual vocabulary, shared by validation, worker and UI metadata.
+/// `jw` and `yue` are Whisper's canonical codes (legacy Javanese and Cantonese).
+pub const WHISPER_LANGUAGES: &[(&str, &str)] = &[
+    ("en", "English"),
+    ("zh", "Chinese"),
+    ("de", "German"),
+    ("es", "Spanish"),
+    ("ru", "Russian"),
+    ("ko", "Korean"),
+    ("fr", "French"),
+    ("ja", "Japanese"),
+    ("pt", "Portuguese"),
+    ("tr", "Turkish"),
+    ("pl", "Polish"),
+    ("ca", "Catalan"),
+    ("nl", "Dutch"),
+    ("ar", "Arabic"),
+    ("sv", "Swedish"),
+    ("it", "Italian"),
+    ("id", "Indonesian"),
+    ("hi", "Hindi"),
+    ("fi", "Finnish"),
+    ("vi", "Vietnamese"),
+    ("he", "Hebrew"),
+    ("uk", "Ukrainian"),
+    ("el", "Greek"),
+    ("ms", "Malay"),
+    ("cs", "Czech"),
+    ("ro", "Romanian"),
+    ("da", "Danish"),
+    ("hu", "Hungarian"),
+    ("ta", "Tamil"),
+    ("no", "Norwegian"),
+    ("th", "Thai"),
+    ("ur", "Urdu"),
+    ("hr", "Croatian"),
+    ("bg", "Bulgarian"),
+    ("lt", "Lithuanian"),
+    ("la", "Latin"),
+    ("mi", "Maori"),
+    ("ml", "Malayalam"),
+    ("cy", "Welsh"),
+    ("sk", "Slovak"),
+    ("te", "Telugu"),
+    ("fa", "Persian"),
+    ("lv", "Latvian"),
+    ("bn", "Bengali"),
+    ("sr", "Serbian"),
+    ("az", "Azerbaijani"),
+    ("sl", "Slovenian"),
+    ("kn", "Kannada"),
+    ("et", "Estonian"),
+    ("mk", "Macedonian"),
+    ("br", "Breton"),
+    ("eu", "Basque"),
+    ("is", "Icelandic"),
+    ("hy", "Armenian"),
+    ("ne", "Nepali"),
+    ("mn", "Mongolian"),
+    ("bs", "Bosnian"),
+    ("kk", "Kazakh"),
+    ("sq", "Albanian"),
+    ("sw", "Swahili"),
+    ("gl", "Galician"),
+    ("mr", "Marathi"),
+    ("pa", "Punjabi"),
+    ("si", "Sinhala"),
+    ("km", "Khmer"),
+    ("sn", "Shona"),
+    ("yo", "Yoruba"),
+    ("so", "Somali"),
+    ("af", "Afrikaans"),
+    ("oc", "Occitan"),
+    ("ka", "Georgian"),
+    ("be", "Belarusian"),
+    ("tg", "Tajik"),
+    ("sd", "Sindhi"),
+    ("gu", "Gujarati"),
+    ("am", "Amharic"),
+    ("yi", "Yiddish"),
+    ("lo", "Lao"),
+    ("uz", "Uzbek"),
+    ("fo", "Faroese"),
+    ("ht", "Haitian Creole"),
+    ("ps", "Pashto"),
+    ("tk", "Turkmen"),
+    ("nn", "Nynorsk"),
+    ("mt", "Maltese"),
+    ("sa", "Sanskrit"),
+    ("lb", "Luxembourgish"),
+    ("my", "Myanmar"),
+    ("bo", "Tibetan"),
+    ("tl", "Tagalog"),
+    ("mg", "Malagasy"),
+    ("as", "Assamese"),
+    ("tt", "Tatar"),
+    ("haw", "Hawaiian"),
+    ("ln", "Lingala"),
+    ("ha", "Hausa"),
+    ("ba", "Bashkir"),
+    ("jw", "Javanese"),
+    ("su", "Sundanese"),
+    ("yue", "Cantonese"),
+];
 
 /// §8.4.4: how the transcription language is chosen. Parakeet supports only `Auto`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -317,6 +459,10 @@ pub struct DictationResult {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct DictationState {
     pub prefs: DictationPrefs,
+    #[serde(default)]
+    pub layout_languages: Vec<DictationLanguageInfo>,
+    #[serde(default)]
+    pub supported_languages: Vec<DictationLanguageInfo>,
     pub phase: DictationPhase,
     /// Short reason while `phase` is `error`.
     pub error: Option<String>,
@@ -343,4 +489,94 @@ pub struct DictationState {
 pub struct DictationLevel {
     pub rms_dbfs: f32,
     pub peak_dbfs: f32,
+}
+
+/// Read installed keyboard layouts without changing the user's input language.
+pub fn installed_dictation_languages() -> Vec<DictationLanguageInfo> {
+    #[cfg(windows)]
+    {
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn GetKeyboardLayoutList(count: i32, layouts: *mut isize) -> i32;
+        }
+        // SAFETY: a null buffer queries the size; the second call is bounded by the allocation.
+        let count = unsafe { GetKeyboardLayoutList(0, std::ptr::null_mut()) };
+        if count <= 0 {
+            return Vec::new();
+        }
+        let mut layouts = vec![0isize; count as usize];
+        // SAFETY: layouts has count initialized writable HKL slots.
+        let written = unsafe { GetKeyboardLayoutList(count, layouts.as_mut_ptr()) };
+        let mut result: Vec<DictationLanguageInfo> = Vec::new();
+        for layout in layouts.into_iter().take(written.max(0) as usize) {
+            if let Some(language) = dictation_layout_language(layout as usize)
+                && !result.iter().any(|info| info.code == language.code())
+                && let Some((code, name)) = WHISPER_LANGUAGES
+                    .iter()
+                    .find(|(code, _)| *code == language.code())
+            {
+                result.push(DictationLanguageInfo {
+                    code: (*code).into(),
+                    name: (*name).into(),
+                });
+            }
+        }
+        result
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
+    }
+}
+
+pub fn dictation_layout_language(lang_id: usize) -> Option<DictationLanguage> {
+    #[cfg(windows)]
+    {
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetLocaleInfoW(locale: u32, kind: u32, data: *mut u16, count: i32) -> i32;
+        }
+        let mut code = [0u16; 16];
+        // SAFETY: read-only locale query with a fixed-size writable UTF-16 buffer.
+        let count = unsafe {
+            GetLocaleInfoW(
+                (lang_id & 0xffff) as u32,
+                0x59,
+                code.as_mut_ptr(),
+                code.len() as i32,
+            )
+        };
+        if count <= 1 {
+            return None;
+        }
+        let code = String::from_utf16_lossy(&code[..(count as usize - 1)]);
+        DictationLanguage::from_code(if code == "jv" { "jw" } else { &code })
+    }
+    #[cfg(not(windows))]
+    {
+        // Portable fallback for callers inspecting well-known LANGIDs; layout enumeration is empty.
+        DictationLanguage::from_code(match lang_id & 0x3ff {
+            0x09 => "en",
+            0x22 => "uk",
+            0x19 => "ru",
+            0x07 => "de",
+            0x0c => "fr",
+            0x0a => "es",
+            _ => return None,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn language_codes_preserve_old_configs_and_validate_whisper_languages() {
+        for code in ["en", "uk", "ru", "de", "fr", "ja", "yue"] {
+            let json = format!("\"{code}\"");
+            let language: DictationLanguage = serde_json::from_str(&json).expect("supported code");
+            assert_eq!(serde_json::to_string(&language).expect("encode"), json);
+        }
+        assert!(serde_json::from_str::<DictationLanguage>("\"xx\"").is_err());
+    }
 }

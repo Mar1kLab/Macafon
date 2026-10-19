@@ -55,6 +55,7 @@ pub struct Soundpad {
     entries: Vec<SoundEntry>,
     entry_index: HashMap<String, usize>,
     categories: Vec<String>,
+    problems: Vec<(SoundEntry, String)>,
     /// Probed duration by id, valid for the file's modification time.
     durations: HashMap<String, (u64, Option<u32>)>,
     errors: HashMap<String, String>,
@@ -87,6 +88,7 @@ impl Soundpad {
             entries: Vec::new(),
             entry_index: HashMap::new(),
             categories: Vec::new(),
+            problems: Vec::new(),
             durations: HashMap::new(),
             errors: HashMap::new(),
             added: HashMap::new(),
@@ -121,6 +123,7 @@ impl Soundpad {
         self.entries.clear();
         self.entry_index.clear();
         self.categories.clear();
+        self.problems.clear();
         self.durations.clear();
         self.errors.clear();
         self.added.clear();
@@ -229,9 +232,22 @@ impl Soundpad {
         let library_worker::Inventory {
             entries,
             categories,
+            problems,
         } = inventory;
+        let mut problems = problems;
+        for (entry, reason) in &mut problems {
+            if reason == "Cannot be played"
+                && let Some((_, previous)) = self.problems.iter().find(|(known, _)| {
+                    known.id == entry.id && known.modified_unix_ms == entry.modified_unix_ms
+                })
+            {
+                *reason = previous.clone();
+            }
+        }
+        let problems_changed = problems != self.problems;
+        self.problems = problems;
         if entries == self.entries && categories == self.categories {
-            return false;
+            return problems_changed;
         }
         let old: HashMap<_, _> = self.entries.iter().map(|e| (e.id.as_str(), e)).collect();
         let new: HashMap<_, _> = entries.iter().map(|e| (e.id.as_str(), e)).collect();
@@ -319,6 +335,23 @@ impl Soundpad {
             self.stop();
         }
         true
+    }
+
+    pub fn problem_sounds(&self) -> Vec<SoundInfo> {
+        self.problems
+            .iter()
+            .map(|(entry, reason)| SoundInfo {
+                id: entry.id.clone(),
+                name: entry.name.clone(),
+                category: entry.category.clone(),
+                duration_ms: None,
+                volume_pct: 100.0,
+                favorite: false,
+                play_count: 0,
+                added_unix_ms: entry.added_unix_ms,
+                error: Some(reason.clone()),
+            })
+            .collect()
     }
 
     pub fn sounds(&self, config: &SoundpadConfig) -> Vec<SoundInfo> {
@@ -593,8 +626,15 @@ impl Soundpad {
                 }
                 Err(error) => {
                     tracing::warn!(sound = %loaded.id, %error, "Cannot decode a sound");
+                    if let Some(problem) = loaded.quarantined {
+                        self.problems.retain(|(entry, _)| entry.id != problem.id);
+                        self.problems.push((problem, error.to_string()));
+                    }
                     if self.pending.as_deref() == Some(loaded.id.as_str()) {
                         self.pending = None;
+                    }
+                    if error.is_unplayable() {
+                        self.rescan();
                     }
                     self.errors.insert(loaded.id, error.to_string());
                     outcome.library_changed = true;
@@ -786,11 +826,11 @@ pub fn open_folder(folder: &Path) -> std::io::Result<()> {
         .spawn(move || {
             let start = Instant::now();
             if let Err(error) = open_folder_blocking(&folder) {
-                tracing::warn!(%error, folder = %folder.display(), "Cannot open soundpad folder");
+                tracing::warn!(%error, folder = %folder.display(), "Cannot open SoundDeck folder");
             }
             tracing::debug!(
                 elapsed_ms = start.elapsed().as_millis(),
-                "Soundpad shell activation finished"
+                "SoundDeck shell activation finished"
             );
         })?;
     Ok(())
@@ -985,6 +1025,7 @@ mod tests {
         soundpad.tick(&config, Instant::now() + STALE_UPLOAD);
         assert!(!path.exists());
         assert!(!path.parent().expect("directory").exists());
+        wait_scan(&mut soundpad);
         drop(soundpad);
         std::fs::remove_dir_all(root).expect("cleanup");
     }
@@ -1164,7 +1205,13 @@ mod tests {
         assert_eq!(entry.id, "Memes/Air horn.wav");
         assert_eq!(std::fs::read(&entry.path).expect("file").len(), 7);
         wait_scan(&mut soundpad);
-        assert!(soundpad.entries().iter().any(|e| e.id == entry.id));
+        assert!(!soundpad.entries().iter().any(|e| e.id == entry.id));
+        assert!(
+            soundpad
+                .problem_sounds()
+                .iter()
+                .any(|sound| sound.id == "Unplayable/Air horn.wav" && sound.error.is_some())
+        );
         assert!(
             soundpad
                 .upload("u2", "notes.txt", None, 0, "AAAA", true)

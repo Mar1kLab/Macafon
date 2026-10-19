@@ -24,9 +24,10 @@ fn parakeet_speech_survives_vad_windowing() -> Result<(), Box<dyn Error>> {
         &TranscribeOptions {
             language: LanguageInput {
                 policy: LanguagePolicy::Auto,
-                fixed: Language::En,
+                fixed: Language::from_code("en").expect("supported language"),
                 layout: None,
                 last_cyrillic: None,
+                layout_languages: Vec::new(),
             },
             vocabulary: Vec::new(),
         },

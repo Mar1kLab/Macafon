@@ -95,6 +95,8 @@ pub struct SoundpadState {
     /// Every first-level subfolder, including empty ones.
     pub categories: Vec<String>,
     pub sounds: Vec<SoundInfo>,
+    #[serde(default)]
+    pub problem_sounds: Vec<SoundInfo>,
     pub prefs: SoundpadPrefs,
     pub playback: Option<SoundpadPlayback>,
     /// Sounds reach Macafon Microphone (on Windows: VB-CABLE is installed).

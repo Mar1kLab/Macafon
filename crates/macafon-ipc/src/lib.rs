@@ -23,9 +23,11 @@ mod wire;
 pub use client::{Client, ClientError};
 pub use dictation::{
     DictationEngine, DictationGamePolicy, DictationInsert, DictationLanguage,
-    DictationLanguagePolicy, DictationLevel, DictationModel, DictationModelStatus, DictationMove,
-    DictationOutcome, DictationPhase, DictationPopupLook, DictationPopupPosition, DictationPrefs,
-    DictationPrefsPatch, DictationResult, DictationState, DictationStorage, DictationTap,
+    DictationLanguageInfo, DictationLanguagePolicy, DictationLevel, DictationModel,
+    DictationModelStatus, DictationMove, DictationOutcome, DictationPhase, DictationPopupLook,
+    DictationPopupPosition, DictationPrefs, DictationPrefsPatch, DictationResult, DictationState,
+    DictationStorage, DictationTap, WHISPER_LANGUAGES, dictation_layout_language,
+    installed_dictation_languages, supported_dictation_languages,
 };
 pub use doctor::{DoctorCheck, DoctorCheckId, DoctorReport, DoctorStatus};
 pub use framing::{FrameError, read_protocol_line};
@@ -57,8 +59,9 @@ pub use soundpad::{
 pub use state::{
     AbRecording, AbSide, AbState, AbWaveform, AutostartMethod, AutostartState, CalibrationFailure,
     CalibrationState, CalibrationStep, Capabilities, CloseAction, ConfigRecovery, Device,
-    DeviceKind, Hello, MicState, OsdEdge, OsdLook, OsdPrefs, OsdStyle, Platform, PlaybackDevice,
-    PlaybackDeviceKind, Preferences, PresetInfo,
+    DeviceKind, Hello, MicState, OsdEdge, OsdLook, OsdPrefs, OsdStyle, OverlayExpand,
+    OverlayPlacement, OverlayPrefs, Platform, PlaybackDevice, PlaybackDeviceKind, Preferences,
+    PresetInfo,
 };
 pub use wire::{ErrorBody, ErrorCode, Event, Outcome, RequestEnvelope, Response, ServerMessage};
 

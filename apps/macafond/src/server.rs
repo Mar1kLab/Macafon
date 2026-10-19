@@ -65,7 +65,7 @@ impl Hub {
                     }
                 })
             {
-                tracing::warn!(%error, "Cannot start soundpad event worker");
+                tracing::warn!(%error, "Cannot start SoundDeck event worker");
             }
             Self {
                 clients: Mutex::default(),
@@ -491,6 +491,7 @@ mod tests {
             default_folder: false,
             categories: vec!["Empty".into()],
             sounds: Vec::new(),
+            problem_sounds: Vec::new(),
             prefs: macafon_ipc::SoundpadPrefs {
                 to_microphone: true,
                 to_headphones: true,

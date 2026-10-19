@@ -35,6 +35,7 @@ impl DaemonHost {
                 volume_step_pct,
                 close_action,
                 osd,
+                overlay,
             } => {
                 if let Some(step) = volume_step_pct {
                     if !(1..=20).contains(&step) {
@@ -59,6 +60,9 @@ impl DaemonHost {
                 }
                 if let Some(action) = close_action {
                     self.config.ui.quit_on_close = action == macafon_ipc::CloseAction::Quit;
+                }
+                if let Some(overlay) = overlay {
+                    self.config.ui.overlay = overlay;
                 }
                 if let Some(osd) = osd {
                     self.config.ui.osd = super::hotkeys::osd_config(osd);
@@ -243,6 +247,7 @@ impl DaemonHost {
             | Request::SoundpadRename { .. }
             | Request::SoundpadMove { .. }
             | Request::SoundpadDelete { .. }
+            | Request::SoundpadDeleteProblemSounds
             | Request::SoundpadCreateCategory { .. }
             | Request::SoundpadRenameCategory { .. }
             | Request::SoundpadDeleteCategory { .. }

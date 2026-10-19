@@ -110,7 +110,12 @@ fn open(path: &Path) -> Result<Box<dyn FormatReader>, Error> {
         .map_err(decode_error)
 }
 fn decode_error(error: DecodeError) -> Error {
-    Error::Decode(error.to_string())
+    match error {
+        DecodeError::IoError(error) if error.kind() != std::io::ErrorKind::UnexpectedEof => {
+            Error::Io(error)
+        }
+        error => Error::Decode(error.to_string()),
+    }
 }
 fn audio_track(format: &dyn FormatReader) -> Result<&Track, Error> {
     format
@@ -122,6 +127,23 @@ fn audio_track(format: &dyn FormatReader) -> Result<&Track, Error> {
                 .find(|track| track.codec_params.codec != CODEC_TYPE_NULL)
         })
         .ok_or(Error::UnsupportedFormat)
+}
+
+/// Check the container, codec and first audio packet off the real-time/control threads.
+pub fn probe_playable(path: &Path) -> Result<(), Error> {
+    let mut format = open(path)?;
+    let track = audio_track(format.as_ref())?;
+    let track_id = track.id;
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &Default::default())
+        .map_err(decode_error)?;
+    loop {
+        let packet = format.next_packet().map_err(decode_error)?;
+        if packet.track_id() == track_id {
+            decoder.decode(&packet).map_err(decode_error)?;
+            return Ok(());
+        }
+    }
 }
 
 pub fn probe_duration_ms(path: &Path) -> Result<Option<u32>, Error> {

@@ -2908,6 +2908,7 @@ name = "macafon-stt"
 version = "0.3.5"
 dependencies = [
  "hound",
+ "macafon-ipc",
  "serde",
  "serde_json",
  "sherpa-onnx",

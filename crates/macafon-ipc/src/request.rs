@@ -273,6 +273,8 @@ pub enum Request {
     /// Delete the file from the library folder.
     #[serde(rename = "soundpad.delete")]
     SoundpadDelete { id: String },
+    #[serde(rename = "soundpad.delete_problem_sounds")]
+    SoundpadDeleteProblemSounds,
     #[serde(rename = "soundpad.create_category")]
     SoundpadCreateCategory { name: String },
     #[serde(rename = "soundpad.rename_category")]
@@ -309,6 +311,8 @@ pub enum Request {
         /// The whole popup setup; the daemon shows a sample popup with it.
         #[serde(default)]
         osd: Option<OsdPrefs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        overlay: Option<crate::OverlayPrefs>,
     },
     /// Dictation (§8.4): state, models, history.
     #[serde(rename = "dictation.get")]

@@ -77,14 +77,23 @@ impl DaemonHost {
                 let prefs = &mut self.config.dictation;
                 if prefs.engine == DictationEngine::Parakeet {
                     prefs.language = DictationLanguagePolicy::Auto;
-                } else if prefs.language != DictationLanguagePolicy::Fixed {
-                    prefs.language = DictationLanguagePolicy::Fixed;
-                    prefs.fixed_language = DictationLanguage::En;
                 } else {
-                    match prefs.fixed_language {
-                        DictationLanguage::En => prefs.fixed_language = DictationLanguage::Uk,
-                        DictationLanguage::Uk => prefs.fixed_language = DictationLanguage::Ru,
-                        DictationLanguage::Ru => prefs.language = DictationLanguagePolicy::Layout,
+                    let layouts = macafon_ipc::installed_dictation_languages();
+                    let next = if prefs.language == DictationLanguagePolicy::Fixed {
+                        layouts
+                            .iter()
+                            .position(|info| info.code == prefs.fixed_language.code())
+                            .and_then(|index| layouts.get(index + 1))
+                    } else {
+                        layouts.first()
+                    };
+                    if let Some(next) =
+                        next.and_then(|info| DictationLanguage::from_code(&info.code))
+                    {
+                        prefs.language = DictationLanguagePolicy::Fixed;
+                        prefs.fixed_language = next;
+                    } else {
+                        prefs.language = DictationLanguagePolicy::Layout;
                     }
                 }
                 self.changed_at = Some(Instant::now());
@@ -150,7 +159,7 @@ impl DaemonHost {
             {
                 "AUTO".into()
             } else if prefs.language == DictationLanguagePolicy::Fixed {
-                format!("{:?}", prefs.fixed_language).to_uppercase()
+                prefs.fixed_language.code().to_uppercase()
             } else {
                 format!(
                     "{:?}",

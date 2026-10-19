@@ -10,12 +10,7 @@ pub struct Target {
 }
 
 pub fn layout_language(lang_id: usize) -> Option<Language> {
-    match lang_id & 0x3ff {
-        0x09 => Some(Language::En),
-        0x22 => Some(Language::Uk),
-        0x19 => Some(Language::Ru),
-        _ => None,
-    }
+    macafon_ipc::dictation_layout_language(lang_id)
 }
 
 static RESTORES: std::sync::OnceLock<std::sync::Mutex<Vec<std::thread::JoinHandle<()>>>> =
@@ -369,10 +364,23 @@ mod tests {
     use super::*;
     #[test]
     fn primary_language_mapping_handles_sublanguages_and_unknown() {
-        assert_eq!(layout_language(0x0409), Some(Language::En));
-        assert_eq!(layout_language(0x0809), Some(Language::En));
-        assert_eq!(layout_language(0x0422), Some(Language::Uk));
-        assert_eq!(layout_language(0x0419), Some(Language::Ru));
-        assert_eq!(layout_language(0x0407), None);
+        assert_eq!(
+            layout_language(0x0409),
+            Some(Language::from_code("en").expect("supported language"))
+        );
+        assert_eq!(
+            layout_language(0x0809),
+            Some(Language::from_code("en").expect("supported language"))
+        );
+        assert_eq!(
+            layout_language(0x0422),
+            Some(Language::from_code("uk").expect("supported language"))
+        );
+        assert_eq!(
+            layout_language(0x0419),
+            Some(Language::from_code("ru").expect("supported language"))
+        );
+        assert_eq!(layout_language(0x0407), Language::from_code("de"));
+        assert_eq!(layout_language(0xffff), None);
     }
 }

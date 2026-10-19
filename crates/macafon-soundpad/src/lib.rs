@@ -24,6 +24,13 @@ pub enum Error {
     WorkerUnavailable,
 }
 
+impl Error {
+    /// Permanent format/decode failures only; never quarantine a temporarily inaccessible file.
+    pub fn is_unplayable(&self) -> bool {
+        matches!(self, Self::UnsupportedFormat | Self::Decode(_))
+    }
+}
+
 #[cfg(test)]
 #[global_allocator]
 static ALLOCATOR: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisabler;

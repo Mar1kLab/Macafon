@@ -33,6 +33,7 @@ struct Request {
 struct Finished {
     request: Request,
     result: Result<Arc<Sound>, Error>,
+    quarantined: Option<crate::library::SoundEntry>,
 }
 struct Cached {
     key: Key,
@@ -42,6 +43,7 @@ struct Cached {
 pub struct LoadResult {
     pub id: String,
     pub result: Result<Arc<Sound>, Error>,
+    pub quarantined: Option<crate::library::SoundEntry>,
 }
 pub struct SoundLoader {
     sender: Option<mpsc::Sender<Request>>,
@@ -71,7 +73,37 @@ impl SoundLoader {
                         break;
                     }
                     let result = decode_file(&request.key.path).map(Arc::new);
-                    if results.send(Finished { request, result }).is_err() {
+                    let quarantined = if result.as_ref().is_err_and(Error::is_unplayable) {
+                        // Do not move a file that was replaced while this decode was pending.
+                        let unchanged = std::fs::metadata(&request.key.path)
+                            .and_then(|meta| meta.modified())
+                            .ok()
+                            .and_then(|modified| {
+                                modified.duration_since(std::time::UNIX_EPOCH).ok()
+                            })
+                            .is_some_and(|modified| {
+                                modified.as_millis() == u128::from(request.key.modified_unix_ms)
+                            });
+                        let mut root = request.key.path.clone();
+                        for _ in request.id.split('/') {
+                            root.pop();
+                        }
+                        if unchanged {
+                            crate::library::quarantine(&root, &request.id).ok()
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    if results
+                        .send(Finished {
+                            request,
+                            result,
+                            quarantined,
+                        })
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -128,6 +160,7 @@ impl SoundLoader {
             self.failures.push(LoadResult {
                 id: id.into(),
                 result: Err(Error::WorkerUnavailable),
+                quarantined: None,
             });
         }
     }
@@ -148,6 +181,7 @@ impl SoundLoader {
             results.push(LoadResult {
                 id,
                 result: finished.result,
+                quarantined: finished.quarantined,
             });
         }
         results

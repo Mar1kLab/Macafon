@@ -7,6 +7,7 @@ use std::{
 };
 
 pub const SUPPORTED_EXTENSIONS: &[&str] = &["mp3", "wav", "ogg", "flac", "m4a", "aac"];
+pub const UNPLAYABLE_CATEGORY: &str = "Unplayable";
 pub const MAX_FILE_BYTES: u64 = 200 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,7 +34,8 @@ pub fn validate_name(name: &str) -> Result<(), Error> {
             )
         })
     });
-    if name.is_empty()
+    if name.eq_ignore_ascii_case(UNPLAYABLE_CATEGORY)
+        || name.is_empty()
         || name.starts_with('.')
         || name.ends_with(['.', ' '])
         || reserved
@@ -135,7 +137,10 @@ pub fn resolve(root: &Path, id: &str) -> Result<PathBuf, Error> {
     let parts: Vec<_> = id.split('/').collect();
     if parts.is_empty()
         || parts.len() > 2
-        || parts.iter().any(|p| validate_name(p).is_err())
+        || parts.iter().enumerate().any(|(index, part)| {
+            !(index == 0 && parts.len() == 2 && *part == UNPLAYABLE_CATEGORY)
+                && validate_name(part).is_err()
+        })
         || !is_supported(Path::new(id))
     {
         return Err(Error::InvalidId(id.into()));
@@ -192,6 +197,95 @@ pub fn scan_library(root: &Path) -> Result<(Vec<SoundEntry>, Vec<String>), Error
     });
     Ok((entries, categories))
 }
+/// A checked inventory used by the daemon's background scan worker.
+pub struct PlayableInventory {
+    pub entries: Vec<SoundEntry>,
+    pub categories: Vec<String>,
+    pub problems: Vec<(SoundEntry, String)>,
+}
+pub fn scan_playable_library(root: &Path) -> Result<PlayableInventory, Error> {
+    let (entries, categories) = scan_library(root)?;
+    let mut playable = Vec::with_capacity(entries.len());
+    for entry in entries {
+        match crate::decode::probe_playable(&entry.path) {
+            Err(error) if error.is_unplayable() => {
+                // A failed move (e.g. a sharing lock) leaves the original visible for a retry.
+                if quarantine(root, &entry.id).is_err() {
+                    playable.push(entry);
+                }
+            }
+            _ => playable.push(entry),
+        }
+    }
+    let problems = problem_entries(root)?
+        .into_iter()
+        .map(|entry| {
+            let reason = crate::decode::probe_playable(&entry.path)
+                .err()
+                .filter(Error::is_unplayable)
+                .map(|error| error.to_string())
+                .unwrap_or_else(|| "Cannot be played".into());
+            (entry, reason)
+        })
+        .collect();
+    Ok(PlayableInventory {
+        entries: playable,
+        categories,
+        problems,
+    })
+}
+
+pub fn problem_entries(root: &Path) -> Result<Vec<SoundEntry>, Error> {
+    let root = prepare_root(root)?;
+    let directory = root.join(UNPLAYABLE_CATEGORY);
+    match ordinary_metadata(&directory) {
+        Ok(meta) if meta.is_dir() => {}
+        Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Vec::new());
+        }
+        Err(error) => return Err(error),
+        _ => return Err(Error::InvalidName(UNPLAYABLE_CATEGORY.into())),
+    }
+    let mut entries = Vec::new();
+    scan_directory(&root, &directory, &mut entries)?;
+    entries.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(entries)
+}
+
+/// Move without overwriting, using the same collision naming as ordinary imports.
+pub fn quarantine(root: &Path, id: &str) -> Result<SoundEntry, Error> {
+    let source = resolve(root, id)?;
+    let root = prepare_root(root)?;
+    let directory = root.join(UNPLAYABLE_CATEGORY);
+    if source.parent() == Some(directory.as_path()) {
+        return sound_entry(&root, &source);
+    }
+    match fs::create_dir(&directory) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    if !ordinary_metadata(&directory)?.is_dir() {
+        return Err(Error::InvalidName(UNPLAYABLE_CATEGORY.into()));
+    }
+    let filename = source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| Error::InvalidId(id.into()))?;
+    let target = unique_path(&directory, filename);
+    rename_no_replace(&source, &target)?;
+    sound_entry(&root, &target)
+}
+
+pub fn delete_problem_sounds(root: &Path) -> Result<Vec<String>, Error> {
+    let mut deleted = Vec::new();
+    for entry in problem_entries(root)? {
+        delete(root, &entry.id)?;
+        deleted.push(entry.id);
+    }
+    Ok(deleted)
+}
+
 fn scan_directory(root: &Path, dir: &Path, entries: &mut Vec<SoundEntry>) -> Result<(), Error> {
     for item in fs::read_dir(dir)? {
         let path = item?.path();
@@ -420,6 +514,54 @@ pub fn delete_category(root: &Path, name: &str) -> Result<Vec<(String, String)>,
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+    #[test]
+    fn garbage_moves_to_reserved_folder_and_valid_wav_stays() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::write(root.join("broken.mp3"), b"not an audio stream").unwrap();
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&38u32.to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&48000u32.to_le_bytes());
+        wav.extend_from_slice(&96000u32.to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&2u32.to_le_bytes());
+        wav.extend_from_slice(&0i16.to_le_bytes());
+        fs::write(root.join("valid.wav"), wav).unwrap();
+        let inventory = scan_playable_library(root).unwrap();
+        assert_eq!(
+            inventory
+                .entries
+                .iter()
+                .map(|e| e.id.as_str())
+                .collect::<Vec<_>>(),
+            ["valid.wav"]
+        );
+        assert!(inventory.categories.is_empty());
+        assert_eq!(inventory.problems.len(), 1);
+        assert_eq!(inventory.problems[0].0.id, "Unplayable/broken.mp3");
+        assert!(!inventory.problems[0].1.is_empty());
+        assert!(!root.join("broken.mp3").exists());
+        assert!(root.join("valid.wav").exists());
+        assert!(create_category(root, "unplayable").is_err());
+        assert!(rename_category(root, "other", "Unplayable").is_err());
+        fs::write(root.join("broken.mp3"), b"another invalid stream").unwrap();
+        assert_eq!(scan_playable_library(root).unwrap().problems.len(), 2);
+        assert!(root.join("Unplayable/broken (2).mp3").exists());
+        delete(root, "Unplayable/broken.mp3").unwrap();
+        assert_eq!(
+            delete_problem_sounds(root).unwrap(),
+            ["Unplayable/broken (2).mp3"]
+        );
+        assert!(problem_entries(root).unwrap().is_empty());
+    }
+
     #[test]
     fn explorer_folders_include_empty_categories_and_ignore_unmanaged_content() {
         let temp = tempfile::tempdir().unwrap();

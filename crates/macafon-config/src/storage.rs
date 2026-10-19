@@ -290,6 +290,7 @@ volume_pct = 300.0
                     edge: OsdEdge::Top,
                     offset_pct: 12.5,
                 },
+                overlay: Default::default(),
                 hotkey_defaults: 1,
                 volume_step_pct: 5,
             },

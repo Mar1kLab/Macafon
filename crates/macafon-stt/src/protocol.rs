@@ -23,30 +23,7 @@ pub enum Engine {
     Parakeet,
 }
 
-/// The three dictation languages; everything else is ignored by the policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Language {
-    En,
-    Uk,
-    Ru,
-}
-
-impl Language {
-    pub const ALL: [Self; 3] = [Self::En, Self::Uk, Self::Ru];
-
-    pub fn code(self) -> &'static str {
-        match self {
-            Self::En => "en",
-            Self::Uk => "uk",
-            Self::Ru => "ru",
-        }
-    }
-
-    pub fn is_cyrillic(self) -> bool {
-        matches!(self, Self::Uk | Self::Ru)
-    }
-}
+pub use macafon_ipc::DictationLanguage as Language;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -62,10 +39,12 @@ pub enum LanguagePolicy {
 pub struct LanguageInput {
     pub policy: LanguagePolicy,
     pub fixed: Language,
-    /// Keyboard layout of the target window; `None` when it is none of the three or unknown.
+    /// Keyboard layout of the target window; `None` when it is unsupported or unknown.
     pub layout: Option<Language>,
     /// The last Cyrillic language used in this daemon session.
     pub last_cyrillic: Option<Language>,
+    #[serde(default)]
+    pub layout_languages: Vec<Language>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -108,9 +87,8 @@ pub struct Transcript {
     pub text: String,
     /// The language passed to the engine; `None` when the engine chose it (Parakeet).
     pub language: Option<Language>,
-    /// Whisper's probabilities restricted to en/uk/ru and renormalized, in [`Language::ALL`]
-    /// order; `None` for Parakeet or a fixed language.
-    pub lang_probs: Option<[f32; 3]>,
+    /// Whisper language probabilities; absent for Parakeet or a fixed language.
+    pub lang_probs: Option<Vec<(Language, f32)>>,
     pub audio_ms: u32,
     /// Speech left after VAD trimming.
     pub speech_ms: u32,

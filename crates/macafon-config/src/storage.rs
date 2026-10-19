@@ -276,6 +276,7 @@ volume_pct = 300.0
         chain.expander.params.ratio = f32::INFINITY;
         let config = Config {
             schema_version: SCHEMA_VERSION,
+            dictation: crate::dictation::DictationConfig::default(),
             device_profiles: BTreeMap::new(),
             mixer: MixerConfig::default(),
             apps: AppsConfig::default(),

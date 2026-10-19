@@ -7,6 +7,13 @@ use serde::{Deserialize, Serialize};
 pub enum HotkeyAction {
     /// Open or close the quick panel: every volume and the microphone switches at hand.
     QuickPanel,
+    DictationHold,
+    DictationToggle,
+    DictationPasteLast,
+    DictationCopyLast,
+    DictationHoldCopy,
+    DictationEnableToggle,
+    DictationLanguageCycle,
     MasterVolumeUp,
     MasterVolumeDown,
     MasterMute,
@@ -31,8 +38,15 @@ pub enum HotkeyAction {
 
 impl HotkeyAction {
     /// Actions that do not depend on the channels.
-    pub const GLOBAL: [Self; 13] = [
+    pub const GLOBAL: [Self; 20] = [
         Self::QuickPanel,
+        Self::DictationHold,
+        Self::DictationToggle,
+        Self::DictationPasteLast,
+        Self::DictationCopyLast,
+        Self::DictationHoldCopy,
+        Self::DictationEnableToggle,
+        Self::DictationLanguageCycle,
         Self::MasterVolumeUp,
         Self::MasterVolumeDown,
         Self::MasterMute,
@@ -50,6 +64,13 @@ impl HotkeyAction {
     pub fn id(&self) -> String {
         match self {
             Self::QuickPanel => "quick_panel".into(),
+            Self::DictationHold => "dictation_hold".into(),
+            Self::DictationToggle => "dictation_toggle".into(),
+            Self::DictationPasteLast => "dictation_paste_last".into(),
+            Self::DictationCopyLast => "dictation_copy_last".into(),
+            Self::DictationHoldCopy => "dictation_hold_copy".into(),
+            Self::DictationEnableToggle => "dictation_enable_toggle".into(),
+            Self::DictationLanguageCycle => "dictation_language_cycle".into(),
             Self::MasterVolumeUp => "master_volume_up".into(),
             Self::MasterVolumeDown => "master_volume_down".into(),
             Self::MasterMute => "master_mute".into(),
@@ -72,6 +93,13 @@ impl HotkeyAction {
     pub fn parse(id: &str) -> Option<Self> {
         Some(match id {
             "quick_panel" => Self::QuickPanel,
+            "dictation_hold" => Self::DictationHold,
+            "dictation_toggle" => Self::DictationToggle,
+            "dictation_paste_last" => Self::DictationPasteLast,
+            "dictation_copy_last" => Self::DictationCopyLast,
+            "dictation_hold_copy" => Self::DictationHoldCopy,
+            "dictation_enable_toggle" => Self::DictationEnableToggle,
+            "dictation_language_cycle" => Self::DictationLanguageCycle,
             "master_volume_up" => Self::MasterVolumeUp,
             "master_volume_down" => Self::MasterVolumeDown,
             "master_mute" => Self::MasterMute,
@@ -105,6 +133,13 @@ impl HotkeyAction {
     pub fn command(&self) -> String {
         match self {
             Self::QuickPanel => "macafon quick-panel".into(),
+            Self::DictationEnableToggle => "macafon ctl dictation toggle".into(),
+            Self::DictationHold => String::new(),
+            Self::DictationToggle => String::new(),
+            Self::DictationPasteLast => String::new(),
+            Self::DictationCopyLast => String::new(),
+            Self::DictationHoldCopy => String::new(),
+            Self::DictationLanguageCycle => String::new(),
             Self::MasterVolumeUp => "macafon ctl channel master volume +5".into(),
             Self::MasterVolumeDown => "macafon ctl channel master volume -5".into(),
             Self::MasterMute => "macafon ctl channel master mute".into(),
@@ -127,7 +162,10 @@ impl HotkeyAction {
 
     /// Hold actions need key release events, which only real hotkey backends deliver.
     pub fn held(&self) -> bool {
-        matches!(self, Self::PushToTalk | Self::PushToMute)
+        matches!(
+            self,
+            Self::PushToTalk | Self::PushToMute | Self::DictationHold | Self::DictationHoldCopy
+        )
     }
 }
 

@@ -1,5 +1,6 @@
 //! Daemon configuration: `$XDG_CONFIG_HOME/macafon/config.toml` (PRD §13).
 
+pub mod dictation;
 pub mod mixer;
 pub mod presets;
 pub mod soundpad;
@@ -30,6 +31,7 @@ pub struct Config {
     /// `[hotkeys]`: action id → shortcut, `mic_mute_toggle = "Ctrl+Alt+M"` (§8.3).
     pub hotkeys: BTreeMap<String, String>,
     pub soundpad: SoundpadConfig,
+    pub dictation: dictation::DictationConfig,
 }
 
 /// UI facts the daemon remembers.
@@ -82,7 +84,15 @@ pub const DEFAULT_HOTKEYS: [&[(&str, &str)]; 5] = [
         ("channel_volume_down.music", "Ctrl+Alt+F"),
     ],
 ];
-pub const HOTKEY_DEFAULTS_REVISION: u32 = 2;
+/// Offered once on Windows, never over a customized hotkey map.
+pub const DICTATION_HOTKEYS: [(&str, &str); 5] = [
+    ("dictation_hold", "Ctrl+Win"),
+    ("dictation_toggle", "Ctrl+Win+Space"),
+    ("dictation_paste_last", "Shift+Alt+Z"),
+    ("dictation_copy_last", "Shift+Alt+X"),
+    ("dictation_hold_copy", "Ctrl+Win+Shift"),
+];
+pub const HOTKEY_DEFAULTS_REVISION: u32 = 3;
 
 /// Exact previous shipped set: partial or customized maps cannot safely be identified as
 /// untouched, including maps with deliberately cleared or secondary bindings.
@@ -197,6 +207,16 @@ impl Config {
             return false;
         }
         let fresh = self.ui.hotkey_defaults == 0 && self.hotkeys.is_empty();
+        let previous = self.ui.hotkey_defaults == 2
+            && self.hotkeys.len()
+                == DEFAULT_HOTKEYS
+                    .iter()
+                    .map(|group| group.len())
+                    .sum::<usize>()
+            && DEFAULT_HOTKEYS
+                .iter()
+                .flat_map(|group| group.iter())
+                .all(|(id, shortcut)| self.hotkeys.get(*id).is_some_and(|s| s == shortcut));
         let legacy = self.hotkeys.len() == LEGACY_HOTKEYS.len()
             && LEGACY_HOTKEYS.iter().all(|(action, shortcut)| {
                 self.hotkeys
@@ -204,7 +224,7 @@ impl Config {
                     .is_some_and(|bound| bound == shortcut)
             });
         self.ui.hotkey_defaults = HOTKEY_DEFAULTS_REVISION;
-        if !(fresh || legacy) {
+        if !(fresh || legacy || previous) {
             return true;
         }
         if legacy {
@@ -216,7 +236,15 @@ impl Config {
                 self.hotkeys.remove(*action);
             }
         }
-        for group in DEFAULT_HOTKEYS {
+        for group in DEFAULT_HOTKEYS.into_iter().chain(
+            if cfg!(windows) {
+                DICTATION_HOTKEYS.as_slice()
+            } else {
+                &[]
+            }
+            .iter()
+            .map(std::slice::from_ref),
+        ) {
             let free = group.iter().all(|(action, shortcut)| {
                 action.split_once('.').is_none_or(|(_, channel)| {
                     self.mixer.channels.iter().any(|item| item.id == channel)
@@ -247,6 +275,7 @@ impl Default for Config {
             audio: AudioConfig::default(),
             hotkeys: BTreeMap::new(),
             soundpad: SoundpadConfig::default(),
+            dictation: dictation::DictationConfig::default(),
         }
     }
 }

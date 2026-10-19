@@ -567,8 +567,8 @@ CC-BY-4.0 and the runtime licenses appears in Settings → About.
 | ID | Requirement | Priority |
 |---|---|---|
 | STT-001 | Dictation is **off by default**. Off means: no tap in the RT path, no ring buffer, no worker process, no dictation hotkeys registered — zero CPU and RAM. Turning it on needs at least one downloaded model; without one, the toggle opens the model picker | P0 |
-| STT-002 | Activation modes: **Hold** (push-to-talk; record while the shortcut is held) and **Hands-free** (press to start, press again to stop; a double tap of the Hold shortcut also starts it, as in Wispr Flow). `Esc` cancels in both modes and inserts nothing. Recordings under 300 ms are ignored. Maximum length 5 min; the popup warns at 4:30 and recording stops at 5:00 and is transcribed | P0 |
-| STT-003 | Hotkey actions (HK-009 rules, two shortcuts each), Windows defaults following Wispr Flow (owner decision, 2026-10-19): `dictation_hold` push-to-talk `Ctrl+Win`; `dictation_toggle` hands-free `Ctrl+Win+Space`; `dictation_paste_last` re-inserts the last result into the focused window `Shift+Alt+Z`; `dictation_copy_last` copies the last result to the clipboard `Shift+Alt+X`; `dictation_hold_copy` push-to-talk that only copies the result to the clipboard, never inserting it `Ctrl+Win+Shift`; `Esc` cancels while recording (registered only then). Unassigned by default: `dictation_enable_toggle` (feature on/off) and `dictation_language_cycle` (Fixed EN → UK → RU → By layout). Modifier-only chords go through the existing `WH_KEYBOARD_LL` hook, either side of Ctrl/Shift/Alt/Win; the Win release that ends a chord is swallowed so the Start menu does not open. The last result is kept in daemon memory even when history is off and cleared on Quit. Defaults are applied once like HK-008: never over a customized map, skipped on conflict | P0 |
+| STT-002 | Activation modes: **Hold** (push-to-talk; record while the shortcut is held) and **Hands-free** (press to start, press again to stop; a double tap of the Hold shortcut also starts it, as in Wispr Flow). `Esc` cancels in both modes and inserts nothing. A hold shortcut starts recording only after it is held for 250 ms, so brushing the keys or fast typing never starts it; the pre-roll (STT-005) keeps what was said meanwhile, and a release before 250 ms counts as a tap (owner report, 2026-10-19). Recordings under 300 ms are ignored. Maximum length 5 min; the popup warns at 4:30 and recording stops at 5:00 and is transcribed | P0 |
+| STT-003 | Hotkey actions (HK-009 rules, two shortcuts each), Windows defaults following Wispr Flow (owner decision, 2026-10-19): `dictation_hold` push-to-talk `Ctrl+Win`; `dictation_toggle` hands-free `Ctrl+Win+Space`; `dictation_paste_last` re-inserts the last result into the focused window `Shift+Alt+Z`; `dictation_copy_last` copies the last result to the clipboard `Shift+Alt+X`; `dictation_hold_copy` push-to-talk that only copies the result to the clipboard, never inserting it `Ctrl+Win+Shift`; `Esc` cancels while recording (registered only then). Unassigned by default: `dictation_enable_toggle` (feature on/off) and `dictation_language_cycle` (Fixed EN → UK → RU → By layout). Modifier-only chords go through the existing `WH_KEYBOARD_LL` hook, either side of Ctrl/Shift/Alt/Win. The hook never swallows a modifier event (a swallowed Win release left Windows thinking Win was held for the whole system); instead it injects a tap of the unassigned virtual key 0xE8 when the chord fires, so releasing Win does not open the Start menu. The last result is kept in daemon memory even when history is off and cleared on Quit. Defaults are applied once like HK-008: never over a customized map, skipped on conflict | P0 |
 | STT-004 | Audio tap (AGENTS §4.1): the RT thread checks one `AtomicBool`; while recording it copies the block into a preallocated `rtrb` (2 s at 48 kHz mono, allocated when the feature turns on, freed when it turns off). A daemon STT thread drains it, resamples 48 → 16 kHz mono (`rubato`, outside RT) and streams 16 kHz chunks to the worker during recording, so audio never waits for the release. Tap point: **Clean** (after noise suppression, before expander/compressor — default), **Raw** (after Gain) or **Processed** (chain output) | P0 |
 | STT-005 | Pre-roll: while the feature is on, the tap keeps the last 300 ms in a small ring so the first syllable said together with the key press is not cut. It costs one copy of each block and nothing else. Can be turned off in Performance | P1 |
 | STT-006 | "Mute my microphone while dictating" (default on): the virtual microphone output is muted for the recording and restored to its previous state afterwards (an existing mute stays). The voice chat does not hear the dictation. Soundpad playback is not affected | P0 |
@@ -585,7 +585,7 @@ CC-BY-4.0 and the runtime licenses appears in Settings → About.
 | STT-017 | Quick access: a **Dictation** tile in the tray quick panel and the hotkey overlay (HK-007), and `Dictation` ✓ in the tray menu (BG-003); all toggle STT-001. The tile shows the download progress when a model is downloading and is disabled with a hint when no model is present | P0 |
 | STT-018 | Optional cues (default off): a quiet start/stop click played to the monitor output only, never into the virtual microphone | P1 |
 | STT-019 | Privacy: audio and text never leave the machine and are never written to disk or logs; logs contain only timings, engine, model, language and error codes | P0 |
-| STT-020 | GPU acceleration: Whisper on Vulkan (any vendor), opt-in, shipped only if the measured installer growth is acceptable (§17 Q9); Parakeet stays on CPU in 1.0 | P2 |
+| STT-020 | GPU acceleration (owner request, 2026-10-19): Whisper on the GPU through ggml's Vulkan backend (any vendor; `vulkan-1.dll` comes with the graphics driver), on by default with a GPU/CPU choice on the Dictation screen; a full-screen game forces the CPU (STT-008); a failed GPU load falls back to the CPU. Parakeet stays on the CPU. Measured: 13.4 s of speech in 0.29 s on an RTX 4070 vs 18.8 s on the CPU | P0 |
 | STT-021 | CLI: `macafon stt transcribe <file.wav> [--engine] [--model] [--lang]` through the daemon, and `macafon ctl dictation on` / `off` / `toggle` for DE bindings and scripts | P1 |
 | STT-022 | Models folder (owner request, 2026-10-19): default `%LOCALAPPDATA%\Macafon\models\stt`; any folder on any local drive can be picked with the system folder dialog and reset to the default. Changing it moves the downloaded models (copy → verify SHA-256 → delete the source; cancellable, progress shown; the loaded model is unloaded first; a failed move keeps the old folder in use). Network and removable drives are refused; free space is checked on the target drive. A folder on a rotational disk shows a hint that a cold start is slower (≈ 3–8 s instead of 0.5–2 s). Macafon writes only inside its own `<folder>\<engine>\<model>\` subfolders and never deletes anything else there | P0 |
 
@@ -917,6 +917,10 @@ transcripts (AGENTS §5).
 
 #### 9.9.2 Overlay, quick panel and tray
 
+- The hotkey overlay has a dictation bar under the toggles, like the soundpad's (one panel open at
+  a time): the last result, and a round button that opens the dictation panel — a language switch
+  (Layout / EN / UK / RU), the engine and device, the main shortcuts and the history with copy and
+  insert-again (owner request, 2026-10-19).
 - The tray quick panel and the hotkey overlay (HK-007) get a fourth tile **Dictation** (Lucide
   `Speech`) after Mixer. On = filled `--accent` tile like the existing ones; the subtitle shows the
   push-to-talk shortcut (`HOLD · Ctrl+Win`). While a model downloads, the tile shows a thin progress line
@@ -958,7 +962,13 @@ Classic popup and HK-007):
 - A language badge (`UK`, 10px Geist Mono, `--muted`) sits at the right end while listening when the
   policy picked a language from the layout; `AUTO` for Parakeet.
 
-**Analog** (in the app's own style: a vintage VU meter, square corners, corner ticks):
+**Analog** (in the app's own style: a small, quiet VU meter, square corners, corner ticks; owner
+request 2026-10-19: smaller and more minimal than the first version, livelier motion). 168×76 DIPs:
+a thin arc with the red 0…+3 VU zone and five marks, no numbers; a white needle with VU ballistics
+and a faint peak ghost that falls slowly; an amber lamp glow under the arc that breathes with the
+voice; a blinking REC dot, the time and the language on one HUD line. Transcribing: the needle sways
+and a light runs along the arc. The detailed description below is the first version and is kept
+for its calibration and states:
 
 ```
   ┼──────────────────────────────────────────────┼

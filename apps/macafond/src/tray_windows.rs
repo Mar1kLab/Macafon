@@ -347,7 +347,9 @@ fn run(
                 match message.lParam.0 as u32 {
                     WM_LBUTTONUP => crate::ui::open(),
                     WM_MBUTTONUP => send(&control, Request::MicToggleMute),
-                    WM_RBUTTONUP | WM_CONTEXTMENU => menu(window, &state, &control),
+                    // The compact tray panel (HK-007) is the menu; its Dictation tile toggles
+                    // dictation (§9.9.2).
+                    WM_RBUTTONUP => crate::ui::quick_panel(),
                     _ => {}
                 }
             } else {
@@ -365,62 +367,6 @@ fn send(control: &ControlSender<ControlMessage>, request: Request) {
     let _ = control.send(ControlMessage::Request { request, reply });
 }
 
-fn menu(window: HWND, state: &TrayState, control: &ControlSender<ControlMessage>) {
-    // SAFETY: the menu and its owner window live on this message-loop thread. Windows copies labels.
-    unsafe {
-        let Ok(menu) = CreatePopupMenu() else {
-            return;
-        };
-        for (id, title, checked) in [
-            (1, "Open Macafon", false),
-            (2, "Quick panel", false),
-            (3, "Mute microphone", state.muted),
-            (4, "Bypass processing", state.bypass),
-            (5, "Dictation", state.dictation),
-            (6, "Quit", false),
-        ] {
-            let flags = MF_STRING | if checked { MF_CHECKED } else { MF_UNCHECKED };
-            let _ = AppendMenuW(menu, flags, id, &windows::core::HSTRING::from(title));
-        }
-        let mut cursor = windows::Win32::Foundation::POINT::default();
-        let _ = GetCursorPos(&mut cursor);
-        let _ = SetForegroundWindow(window);
-        let selected = TrackPopupMenu(
-            menu,
-            TPM_RETURNCMD | TPM_RIGHTBUTTON,
-            cursor.x,
-            cursor.y,
-            Some(0),
-            window,
-            None,
-        )
-        .0;
-        let _ = DestroyMenu(menu);
-        match selected {
-            1 => crate::ui::open(),
-            2 => crate::ui::quick_panel(),
-            3 => send(control, Request::MicToggleMute),
-            4 => send(
-                control,
-                Request::MicSetBypass {
-                    bypass: !state.bypass,
-                },
-            ),
-            5 => send(
-                control,
-                Request::DictationSetPrefs {
-                    patch: macafon_ipc::DictationPrefsPatch {
-                        enabled: Some(!state.dictation),
-                        ..Default::default()
-                    },
-                },
-            ),
-            6 => send(control, Request::DaemonQuit),
-            _ => {}
-        }
-        let _ = PostMessageW(Some(window), WM_NULL, WPARAM(0), LPARAM(0));
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::*;

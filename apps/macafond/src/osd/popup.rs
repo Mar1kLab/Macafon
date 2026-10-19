@@ -59,8 +59,10 @@ const ACCENT: u32 = 0x2d81ff;
 const DANGER: u32 = 0xff6259;
 
 // The Analog dictation popup: a small, quiet VU meter (§9.9.3).
-const ANALOG_W: f32 = 168.0;
-const ANALOG_H: f32 = 76.0;
+const ANALOG_W: f32 = 128.0;
+const ANALOG_H: f32 = 60.0;
+/// Bars of the Flow pill: 15 bars of 3 px every 6 px.
+const FLOW_BARS_W: f32 = 87.0;
 /// Needle travel 0…1 for a linear VU amplitude (1 = 0 VU): linear in voltage from −20 to
 /// +3 VU, so 0 VU sits about two thirds along, as on real meters.
 fn vu_travel(amplitude: f32) -> f32 {
@@ -72,11 +74,13 @@ fn dictation_size(view: &DictationView) -> (f32, f32) {
     if view.look == macafon_ipc::DictationPopupLook::Analog {
         return (ANALOG_W, ANALOG_H);
     }
+    // Only the voice: no timer, no language; hands-free adds its two buttons on the right.
     match view.state {
-        DictationState::Listening => (200.0, 40.0),
-        DictationState::Transcribing => (120.0, 32.0),
-        DictationState::Done => (40.0, 32.0),
-        _ => (220.0, 40.0),
+        DictationState::Listening if view.hands_free => (150.0, 32.0),
+        DictationState::Listening => (116.0, 32.0),
+        DictationState::Transcribing => (88.0, 28.0),
+        DictationState::Done => (36.0, 28.0),
+        _ => (180.0, 32.0),
     }
 }
 
@@ -852,7 +856,7 @@ impl Painter {
             let dictation_serif = fonts.format(
                 w!("Instrument Serif"),
                 DWRITE_FONT_WEIGHT_NORMAL,
-                22.0,
+                17.0,
                 true,
                 true,
             )?;
@@ -1542,11 +1546,10 @@ impl Painter {
         let danger = view.state == DictationState::Error;
         let caption = match view.state {
             DictationState::Cancelled => "",
-            DictationState::Listening if view.elapsed_s >= 270 => "30 SECONDS LEFT",
-            DictationState::Listening => "REC",
+            DictationState::Listening => "",
             DictationState::Transcribing => "TRANSCRIBING",
             DictationState::Done => "TYPED",
-            DictationState::Copied => "COPIED — PRESS CTRL+V",
+            DictationState::Copied => "COPIED · CTRL+V",
             DictationState::NoSpeech => "NO SPEECH",
             DictationState::Error => "DICTATION ERROR",
         };
@@ -1564,17 +1567,28 @@ impl Painter {
                 }
                 let center_y = (bounds.top + bounds.bottom) / 2.0;
                 if listening {
+                    // The last 30 seconds before the limit: the bars turn amber.
+                    let bars = if view.elapsed_s >= 270 {
+                        target.CreateSolidColorBrush(&rgba(0xffc14d, 1.0), None)?
+                    } else {
+                        ink.clone()
+                    };
+                    let left = if view.hands_free {
+                        bounds.left + 14.0
+                    } else {
+                        (bounds.left + bounds.right - FLOW_BARS_W) / 2.0
+                    };
                     for n in 0..15 {
                         let energy = view.bands[n.min(14 - n)];
                         let mirrored = 1.0 - ((n as f32 - 7.0) / 8.0).abs() * 0.25;
-                        let height = 3.0 + energy.clamp(0.0, 1.0) * 24.0 * mirrored;
-                        let x = bounds.left + 22.0 + n as f32 * 6.0;
+                        let height = 3.0 + energy.clamp(0.0, 1.0) * 18.0 * mirrored;
+                        let x = left + n as f32 * 6.0;
                         target.FillRoundedRectangle(
                             &rounded(
                                 rect(x, center_y - height / 2.0, x + 3.0, center_y + height / 2.0),
                                 1.5,
                             ),
-                            &ink,
+                            &bars,
                         );
                     }
                 } else if transcribing {
@@ -1588,7 +1602,7 @@ impl Painter {
                         target.FillEllipse(
                             &D2D1_ELLIPSE {
                                 point: Vector2 {
-                                    X: (bounds.left + bounds.right) / 2.0 + (n as f32 - 1.0) * 18.0,
+                                    X: (bounds.left + bounds.right) / 2.0 + (n as f32 - 1.0) * 14.0,
                                     Y: center_y,
                                 },
                                 radiusX: 3.0,
@@ -1600,9 +1614,9 @@ impl Painter {
                 } else if matches!(view.state, DictationState::Done | DictationState::Copied) {
                     let x = bounds.left
                         + if view.state == DictationState::Done {
-                            12.0
+                            10.0
                         } else {
-                            20.0
+                            18.0
                         };
                     target.DrawLine(
                         Vector2 { X: x, Y: center_y },
@@ -1650,30 +1664,15 @@ impl Painter {
                         false,
                     )?;
                 }
-                if listening {
-                    let label = if view.elapsed_s >= 270 {
-                        format!("{}:{:02}", view.elapsed_s / 60, view.elapsed_s % 60)
-                    } else {
-                        view.language.clone()
-                    };
-                    self.dictation_hud_text(
-                        target,
-                        &label,
-                        rect(
-                            bounds.left + 136.0,
-                            bounds.top,
-                            bounds.right - 20.0,
-                            bounds.bottom,
-                        ),
-                        rgba(if view.elapsed_s >= 270 { 0xffc14d } else { INK }, 1.0),
-                        false,
-                    )?;
-                }
             } else {
                 self.analog(target, scene, bounds, view, caption)?;
             }
             if view.hands_free && listening {
-                let y = bounds.top + 8.0;
+                let y = if view.look == DictationPopupLook::Flow {
+                    (bounds.top + bounds.bottom) / 2.0 - 3.0
+                } else {
+                    bounds.top + 8.0
+                };
                 target.FillRectangle(
                     &rect(bounds.right - 39.0, y, bounds.right - 33.0, y + 6.0),
                     &ink,
@@ -1751,9 +1750,9 @@ impl Painter {
             }
             let center = Vector2 {
                 X: (bounds.left + bounds.right) / 2.0,
-                Y: bounds.top + 58.0,
+                Y: bounds.top + 42.0,
             };
-            let radius = 44.0;
+            let radius = 32.0;
             // −50°…+50° from vertical.
             let point = |travel: f32, r: f32| {
                 let a = (-50.0 + 100.0 * travel).to_radians();
@@ -1767,7 +1766,7 @@ impl Painter {
             if listening || transcribing {
                 target.PushAxisAlignedClip(&bounds, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
                 let strength = if listening { 0.05 + 0.16 * level } else { 0.04 };
-                for (r, a) in [(52.0, 0.35), (36.0, 0.6), (20.0, 1.0)] {
+                for (r, a) in [(38.0, 0.35), (26.0, 0.6), (15.0, 1.0)] {
                     target.FillEllipse(
                         &D2D1_ELLIPSE {
                             point: center,
@@ -1829,10 +1828,10 @@ impl Painter {
                 "VU",
                 &self.dictation_serif,
                 rect(
-                    center.X - 40.0,
-                    center.Y - 20.0,
-                    center.X - 14.0,
-                    center.Y - 2.0,
+                    center.X - 30.0,
+                    center.Y - 16.0,
+                    center.X - 10.0,
+                    center.Y - 1.0,
                 ),
                 rgba(INK, 0.35),
             )?;
@@ -1879,60 +1878,42 @@ impl Painter {
                     &red,
                 );
             }
-            // HUD line: a blinking REC dot and the time, the language on the right.
-            let hud_top = bounds.top + 61.0;
-            let hud = rect(
-                bounds.left + 10.0,
-                hud_top,
-                bounds.right - 10.0,
-                bounds.bottom - 3.0,
-            );
-            let label = match view.state {
-                DictationState::Listening => {
-                    format!("{}:{:02}", view.elapsed_s / 60, view.elapsed_s % 60)
-                }
-                DictationState::Done => format!("TYPED · {}", view.words),
-                _ => caption.to_owned(),
-            };
-            let mut text_left = hud.left;
+            // HUD line: a blinking REC dot while listening, the state otherwise; no timer and
+            // no language, only the voice.
+            let hud_top = bounds.top + 47.0;
             if listening {
                 let on = (scene.shimmer.fract()) < 0.6;
+                let dot = if view.elapsed_s >= 270 {
+                    0xffc14d
+                } else {
+                    DANGER
+                };
                 target.FillEllipse(
                     &D2D1_ELLIPSE {
                         point: Vector2 {
-                            X: hud.left + 2.5,
+                            X: bounds.left + 10.5,
                             Y: hud_top + 5.5,
                         },
                         radiusX: 2.0,
                         radiusY: 2.0,
                     },
-                    &brush(DANGER, if on { 1.0 } else { 0.25 })?,
+                    &brush(dot, if on { 1.0 } else { 0.25 })?,
                 );
-                text_left += 9.0;
-            }
-            let warning = listening && view.elapsed_s >= 270;
-            self.dictation_hud_text(
-                target,
-                &label,
-                rect(text_left, hud.top, hud.right - 24.0, hud.bottom),
-                rgba(
-                    if danger {
-                        DANGER
-                    } else if warning {
-                        0xffc14d
-                    } else {
-                        INK
-                    },
-                    0.85,
-                ),
-                false,
-            )?;
-            if listening || transcribing {
+            } else {
+                let label = match view.state {
+                    DictationState::Done => format!("TYPED · {}", view.words),
+                    _ => caption.to_owned(),
+                };
                 self.dictation_hud_text(
                     target,
-                    &view.language,
-                    rect(hud.right - 26.0, hud.top, hud.right, hud.bottom),
-                    rgba(INK, 0.55),
+                    &label,
+                    rect(
+                        bounds.left + 8.0,
+                        hud_top,
+                        bounds.right - 8.0,
+                        bounds.bottom - 2.0,
+                    ),
+                    rgba(if danger { DANGER } else { INK }, 0.85),
                     false,
                 )?;
             }

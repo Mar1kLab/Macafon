@@ -1,8 +1,8 @@
 <script lang="ts">
   // The two looks of the dictation popup (PRD §9.9.3), drawn as the daemon draws them: Flow, a
-  // Wispr Flow-like pill with mirrored level bars (rounded — an owner exception), and Analog, a
-  // vintage VU meter in the app's own style. `source` picks what drives them: the live tap level,
-  // a speech-like demo, or nothing (a still picture).
+  // small pill with mirrored level bars (rounded — an owner exception), and Analog, a vintage VU
+  // meter in the app's own style. Only the voice: no timer, no language. `source` picks what
+  // drives them: the live tap level, a speech-like demo, or nothing (a still picture).
   import type { DictationPopupLook } from '../ipc/protocol';
   import { onFrame } from '../state/frame';
   import { SILENCE_DB, dictationLevelBus } from '../state/meters';
@@ -12,19 +12,15 @@
     look: DictationPopupLook;
     source?: 'live' | 'demo' | 'still';
     transcribing?: boolean;
-    /** Shroud and pill details. */
-    engine?: string;
-    language?: string | null;
-    elapsedMs?: number;
   }
 
-  let { look, source = 'demo', transcribing = false, engine = 'WHISPER · TURBO', language = 'UK', elapsedMs }: Props = $props();
+  let { look, source = 'demo', transcribing = false }: Props = $props();
 
   const BARS = 15;
   const ARC_DEG = 50;
-  // The Analog look as the daemon draws it: 168×76, a thin arc, no numbers.
-  const PIVOT = { x: 84, y: 58 };
-  const RADIUS = 44;
+  // The Analog look as the daemon draws it: 128×60, a thin arc, no numbers.
+  const PIVOT = { x: 64, y: 42 };
+  const RADIUS = 32;
   const MARKS = [-20, -10, -5, 0, 3];
 
   let travel = $state(vuToTravel(-3));
@@ -34,7 +30,6 @@
   let ghost = $state(0);
   let glowLevel = $state(0);
   let shimmer = $state(0);
-  let clock = $state(0);
   let demoStarted = 0;
 
   function still(i: number): number {
@@ -72,10 +67,6 @@
 
   const red = vuToTravel(0);
   const needleTip = $derived(point(travel, RADIUS + 4));
-  const timer = $derived.by(() => {
-    const seconds = Math.floor((elapsedMs ?? clock) / 1000);
-    return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
-  });
 
   // Re-runs when `source` changes: a picture that becomes the selected one starts moving.
   $effect(() => {
@@ -94,7 +85,6 @@
       const dt = last ? (now - last) / 1000 : 0;
       last = now;
       const t = (now - demoStarted) / 1000;
-      clock = now - demoStarted;
       let rms = SILENCE_DB;
       let peakDb = SILENCE_DB;
       if (!transcribing) {
@@ -129,18 +119,17 @@
 </script>
 
 {#if look === 'flow'}
-  <svg class="flow" class:transcribing viewBox="0 0 200 40" role="img" aria-hidden="true">
-    <rect class="pill" x="0.5" y="0.5" width="199" height="39" rx="19.5" />
+  <svg class="flow" class:transcribing viewBox="0 0 116 32" role="img" aria-hidden="true">
+    <rect class="pill" x="0.5" y="0.5" width="115" height="31" rx="15.5" />
     {#if transcribing}
       {#each [0, 1, 2] as dot (dot)}
-        <circle class="dot" cx={88 + dot * 12} cy="20" r="2.5" style:animation-delay="{dot * 150}ms" />
+        <circle class="dot" cx={44 + dot * 14} cy="16" r="2.5" style:animation-delay="{dot * 150}ms" />
       {/each}
     {:else}
       {#each bars as height, i (i)}
-        {@const h = 2 + height * 24}
-        <rect class="bar" x={100 - (BARS * 6 - 3) / 2 + i * 6} y={20 - h / 2} width="3" height={h} rx="1.5" />
+        {@const h = 3 + height * 18}
+        <rect class="bar" x={58 - (BARS * 6 - 3) / 2 + i * 6} y={16 - h / 2} width="3" height={h} rx="1.5" />
       {/each}
-      {#if language}<text class="lang" x="178" y="23.5" text-anchor="middle">{language}</text>{/if}
     {/if}
   </svg>
 {:else}
@@ -148,16 +137,16 @@
   {@const shown = transcribing ? sway : travel}
   {@const tip = point(shown, RADIUS - 3)}
   {@const ghostTip = point(ghost, RADIUS - 3)}
-  <svg class="analog" class:transcribing viewBox="-6 -6 180 88" role="img" aria-hidden="true">
+  <svg class="analog" class:transcribing viewBox="-6 -6 140 72" role="img" aria-hidden="true">
     <defs>
-      <clipPath id="vu-frame"><rect x="0" y="0" width="168" height="76" /></clipPath>
+      <clipPath id="vu-frame"><rect x="0" y="0" width="128" height="60" /></clipPath>
     </defs>
-    <rect class="frame" x="0.5" y="0.5" width="167" height="75" />
-    {#each [[0, 0], [168, 0], [0, 76], [168, 76]] as [x, y] (`${x}-${y}`)}
+    <rect class="frame" x="0.5" y="0.5" width="127" height="59" />
+    {#each [[0, 0], [128, 0], [0, 60], [128, 60]] as [x, y] (`${x}-${y}`)}
       <path class="tick" d="M {x! - 4} {y} H {x! + 4} M {x} {y! - 4} V {y! + 4}" />
     {/each}
     <g clip-path="url(#vu-frame)">
-      {#each [[52, 0.35], [36, 0.6], [20, 1]] as [r, a] (r)}
+      {#each [[38, 0.35], [26, 0.6], [15, 1]] as [r, a] (r)}
         <ellipse class="glow" cx={PIVOT.x} cy={PIVOT.y} rx={r} ry={r! * 0.8} style:opacity={(transcribing ? 0.04 : 0.05 + 0.16 * glowLevel) * a!} />
       {/each}
     </g>
@@ -178,20 +167,18 @@
         {/if}
       {/each}
     {/if}
-    <text class="vu" x={PIVOT.x - 27} y={PIVOT.y - 5} text-anchor="middle">VU</text>
+    <text class="vu" x={PIVOT.x - 20} y={PIVOT.y - 4} text-anchor="middle">VU</text>
     {#if !transcribing && ghost > shown + 0.02}
       <line class="ghost" x1={PIVOT.x} y1={PIVOT.y} x2={ghostTip.x} y2={ghostTip.y} />
     {/if}
     <line class="needle" x1={PIVOT.x} y1={PIVOT.y} x2={tip.x} y2={tip.y} />
     <circle class="pivot" cx={PIVOT.x} cy={PIVOT.y} r="2.5" />
-    {#if peak && !transcribing}<rect class="lamp on" x="156" y="8" width="4" height="4" />{/if}
+    {#if peak && !transcribing}<rect class="lamp on" x="116" y="8" width="4" height="4" />{/if}
     {#if transcribing}
-      <text class="hud" x="10" y="70">TRANSCRIBING</text>
+      <text class="hud" x="8" y="56">TRANSCRIBING</text>
     {:else}
-      <circle class="rec" cx="12.5" cy="66.5" r="2" />
-      <text class="hud" x="19" y="70">{timer}</text>
+      <circle class="rec" cx="10.5" cy="52.5" r="2" />
     {/if}
-    {#if language}<text class="hud dim" x="158" y="70" text-anchor="end">{language}</text>{/if}
   </svg>
 {/if}
 
@@ -217,12 +204,6 @@
     animation: shimmer 900ms var(--ease) infinite;
   }
 
-  .lang {
-    font-family: var(--font-mono);
-    font-size: 8px;
-    letter-spacing: 0.1em;
-    fill: var(--muted);
-  }
 
   .frame {
     fill: var(--bg-raised);
@@ -263,7 +244,7 @@
   .vu {
     font-family: var(--font-serif);
     font-style: italic;
-    font-size: 22px;
+    font-size: 17px;
     fill: var(--muted);
   }
 
@@ -293,9 +274,6 @@
     fill: var(--ink);
   }
 
-  .hud.dim {
-    fill: var(--muted);
-  }
 
 
   .rec {

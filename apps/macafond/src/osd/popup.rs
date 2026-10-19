@@ -88,6 +88,13 @@ type Message = (Osd, OsdConfig);
 static POPUP: OnceLock<Option<(mpsc::Sender<Message>, usize)>> = OnceLock::new();
 thread_local! { static DICTATION_BUTTONS: std::cell::Cell<Option<(windows::Win32::Foundation::RECT, windows::Win32::Foundation::RECT)>> = const { std::cell::Cell::new(None) }; }
 
+pub(super) fn clipboard_owner() -> Option<HWND> {
+    POPUP
+        .get_or_init(spawn)
+        .as_ref()
+        .map(|(_, window)| HWND(*window as *mut _))
+}
+
 pub fn show(osd: Osd, setup: OsdConfig) {
     let Some((sender, window)) = POPUP.get_or_init(spawn) else {
         return;
@@ -770,6 +777,11 @@ struct Painter {
     label: IDWriteTextFormat,
     title: IDWriteTextFormat,
     value: IDWriteTextFormat,
+    dictation_hud: IDWriteTextFormat,
+    dictation_hud_center: IDWriteTextFormat,
+    dictation_serif: IDWriteTextFormat,
+    dictation_body: IDWriteTextFormat,
+    _fonts: super::fonts::Fonts,
 }
 
 impl Painter {
@@ -805,6 +817,30 @@ impl Painter {
             let label = format(&dwrite, text, DWRITE_FONT_WEIGHT_SEMI_BOLD, 12.0, false)?;
             let title = format(&dwrite, text, DWRITE_FONT_WEIGHT_NORMAL, 12.0, false)?;
             let value = format(&dwrite, display, DWRITE_FONT_WEIGHT_SEMI_BOLD, 16.0, false)?;
+            let fonts = super::fonts::Fonts::new(&dwrite)?;
+            let dictation_hud = fonts.format(
+                w!("Geist Mono"),
+                DWRITE_FONT_WEIGHT_MEDIUM,
+                10.0,
+                false,
+                false,
+            )?;
+            let dictation_hud_center = fonts.format(
+                w!("Geist Mono"),
+                DWRITE_FONT_WEIGHT_MEDIUM,
+                10.0,
+                true,
+                false,
+            )?;
+            let dictation_serif = fonts.format(
+                w!("Instrument Serif"),
+                DWRITE_FONT_WEIGHT_NORMAL,
+                22.0,
+                true,
+                true,
+            )?;
+            let dictation_body =
+                fonts.format(w!("Inter"), DWRITE_FONT_WEIGHT_NORMAL, 12.0, false, false)?;
             Ok(Self {
                 d2d,
                 dwrite,
@@ -830,6 +866,11 @@ impl Painter {
                 label,
                 title,
                 value,
+                dictation_hud,
+                dictation_hud_center,
+                dictation_serif,
+                dictation_body,
+                _fonts: fonts,
             })
         }
     }
@@ -1265,6 +1306,52 @@ impl Painter {
     }
 
     /// A raised pill with a soft shadow and a hairline border.
+    unsafe fn dictation_hud_text(
+        &self,
+        target: &ID2D1RenderTarget,
+        text: &str,
+        area: D2D_RECT_F,
+        color: D2D1_COLOR_F,
+        centered: bool,
+    ) -> Result<()> {
+        let text: Vec<u16> = text.to_uppercase().encode_utf16().collect();
+        // SAFETY: the layout copies the text and is drawn on this thread's active target.
+        unsafe {
+            let layout = self.dwrite.CreateTextLayout(
+                &text,
+                if centered {
+                    &self.dictation_hud_center
+                } else {
+                    &self.dictation_hud
+                },
+                area.right - area.left,
+                area.bottom - area.top,
+            )?;
+            let spaced: IDWriteTextLayout1 = layout.cast()?;
+            spaced.SetCharacterSpacing(
+                0.0,
+                1.65,
+                0.0,
+                DWRITE_TEXT_RANGE {
+                    startPosition: 0,
+                    length: text.len() as u32,
+                },
+            )?;
+            let brush = target.CreateSolidColorBrush(&color, None)?;
+            target.DrawTextLayout(
+                Vector2 {
+                    X: area.left,
+                    Y: area.top,
+                },
+                &layout,
+                &brush,
+                D2D1_DRAW_TEXT_OPTIONS_NONE,
+            );
+        }
+        Ok(())
+    }
+
+    /// A raised pill with a soft shadow and a hairline border.
     unsafe fn card(
         &self,
         target: &ID2D1RenderTarget,
@@ -1529,13 +1616,13 @@ impl Painter {
                         self.text(
                             target,
                             "Copied",
-                            &self.title,
+                            &self.dictation_body,
                             rect(x + 26.0, bounds.top, bounds.right - 16.0, bounds.bottom),
                             rgba(INK, 1.0),
                         )?;
                     }
                 } else {
-                    self.hud_text(
+                    self.dictation_hud_text(
                         target,
                         caption,
                         rect(
@@ -1554,7 +1641,7 @@ impl Painter {
                     } else {
                         view.language.clone()
                     };
-                    self.hud_text(
+                    self.dictation_hud_text(
                         target,
                         &label,
                         rect(
@@ -1622,7 +1709,7 @@ impl Painter {
                         None,
                     );
                     let pos = point(vu, radius + 14.0);
-                    self.hud_text(
+                    self.dictation_hud_text(
                         target,
                         &format!("{vu:.0}"),
                         rect(pos.X - 12.0, pos.Y - 8.0, pos.X + 14.0, pos.Y + 8.0),
@@ -1630,17 +1717,17 @@ impl Painter {
                         true,
                     )?;
                 }
-                self.hud_text(
+                self.text(
                     target,
                     "VU",
+                    &self.dictation_serif,
                     rect(
-                        center.X - 15.0,
+                        center.X - 20.0,
                         bounds.top + 54.0,
-                        center.X + 15.0,
-                        bounds.top + 75.0,
+                        center.X + 20.0,
+                        bounds.top + 80.0,
                     ),
                     rgba(INK, 0.6),
-                    true,
                 )?;
                 let vu = 20.0 * scene.vu.max(0.1).log10();
                 target.DrawLine(
@@ -1706,7 +1793,7 @@ impl Painter {
                         view.language
                     )
                 };
-                self.hud_text(
+                self.dictation_hud_text(
                     target,
                     &label,
                     rect(

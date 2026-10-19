@@ -6,6 +6,8 @@
 pub mod dictation;
 
 #[cfg(windows)]
+mod fonts;
+#[cfg(windows)]
 mod icons;
 #[cfg(windows)]
 mod popup;
@@ -86,4 +88,9 @@ pub fn dictation_click(cancel: bool) {
             reply,
         });
     }
+}
+
+#[cfg(windows)]
+pub fn clipboard_owner() -> Option<windows::Win32::Foundation::HWND> {
+    popup::clipboard_owner()
 }

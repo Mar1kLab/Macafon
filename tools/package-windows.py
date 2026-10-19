@@ -66,7 +66,9 @@ def msvc_env():
         text=True).strip()
     vcvars = Path(install) / "VC/Auxiliary/Build/vcvars64.bat"
     output = subprocess.check_output(f'"{vcvars}" >nul && set', shell=True, text=True)
-    env = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
+    # cmd preserves names such as Path; ordinary Python dicts are case-sensitive.
+    env = {key.upper(): value for line in output.splitlines() if "=" in line
+           for key, value in [line.split("=", 1)]}
     cmake = Path(install) / "Common7/IDE/CommonExtensions/Microsoft/CMake"
     env["PATH"] = os.pathsep.join([str(cmake / "Ninja"), str(cmake / "CMake/bin"), env["PATH"]])
     return env

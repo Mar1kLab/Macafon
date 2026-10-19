@@ -112,6 +112,9 @@ pub struct Capabilities {
     /// Sounds play into the virtual microphone and the headphones (§7.6).
     #[serde(default)]
     pub soundpad: bool,
+    /// Local speech to text (§8.4).
+    #[serde(default)]
+    pub dictation: bool,
 }
 
 impl Capabilities {
@@ -122,6 +125,7 @@ impl Capabilities {
         graph_quantum: true,
         hotkey_popup: false,
         soundpad: false,
+        dictation: false,
     };
     pub const WINDOWS: Self = Self {
         virtual_mic_device: false,
@@ -130,6 +134,7 @@ impl Capabilities {
         graph_quantum: false,
         hotkey_popup: true,
         soundpad: true,
+        dictation: true,
     };
 }
 

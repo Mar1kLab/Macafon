@@ -2645,6 +2645,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "macafon-stt"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "macafon-studio"
 version = "0.2.0"
 dependencies = [

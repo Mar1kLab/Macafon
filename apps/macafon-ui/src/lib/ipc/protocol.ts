@@ -113,13 +113,13 @@ export type Request = { "method": "output_controls.list" } | { "method": "output
 /**
  * The whole popup setup; the daemon shows a sample popup with it.
  */
-osd: OsdPrefs | null, } };
+osd: OsdPrefs | null, } } | { "method": "dictation.get" } | { "method": "dictation.set_prefs", "params": { patch: DictationPrefsPatch, } } | { "method": "dictation.download", "params": { model: string, } } | { "method": "dictation.cancel_download", "params": { model: string, } } | { "method": "dictation.delete_model", "params": { model: string, } } | { "method": "dictation.import_model", "params": { path: string, } } | { "method": "dictation.set_models_dir", "params": { folder: string | null, } } | { "method": "dictation.cancel_move" } | { "method": "dictation.test_start" } | { "method": "dictation.test_stop" } | { "method": "dictation.cancel" } | { "method": "dictation.history_clear" } | { "method": "dictation.reinsert", "params": { id: number, } };
 
 export type ErrorCode = "bad_request" | "protocol_mismatch" | "invalid_params" | "not_found" | "already_exists" | "busy" | "internal";
 
 export type ErrorBody = { code: ErrorCode, message: string, };
 
-export type Event = { "event": "output_controls.changed", "data": Array<OutputControl> } | { "event": "mic.noise_fallback", "data": { engine: NoiseEngine, } } | { "event": "devices.meter", "data": { name: string, peak_dbfs: number, } } | { "event": "meters", "data": Meters } | { "event": "mic.changed", "data": MicState } | { "event": "calibration.changed", "data": CalibrationState } | { "event": "ab.changed", "data": AbState } | { "event": "presets.changed", "data": Array<PresetInfo> } | { "event": "mixer.changed", "data": MixerState } | { "event": "mixer.meters", "data": MixerMeters } | { "event": "hotkeys.changed", "data": HotkeysState } | { "event": "devices.changed", "data": Array<Device> } | { "event": "prefs.changed", "data": Preferences } | { "event": "soundpad.changed", "data": SoundpadState } | { "event": "soundpad.playback", "data": SoundpadPlayback | null } | { "event": "ui.show", "data": { target: UiTarget, } };
+export type Event = { "event": "output_controls.changed", "data": Array<OutputControl> } | { "event": "mic.noise_fallback", "data": { engine: NoiseEngine, } } | { "event": "devices.meter", "data": { name: string, peak_dbfs: number, } } | { "event": "meters", "data": Meters } | { "event": "mic.changed", "data": MicState } | { "event": "calibration.changed", "data": CalibrationState } | { "event": "ab.changed", "data": AbState } | { "event": "presets.changed", "data": Array<PresetInfo> } | { "event": "mixer.changed", "data": MixerState } | { "event": "mixer.meters", "data": MixerMeters } | { "event": "hotkeys.changed", "data": HotkeysState } | { "event": "devices.changed", "data": Array<Device> } | { "event": "prefs.changed", "data": Preferences } | { "event": "soundpad.changed", "data": SoundpadState } | { "event": "soundpad.playback", "data": SoundpadPlayback | null } | { "event": "ui.show", "data": { target: UiTarget, } } | { "event": "dictation.changed", "data": DictationState } | { "event": "dictation.level", "data": DictationLevel } | { "event": "dictation.result", "data": DictationResult };
 
 export type Hello = { protocol: number, daemon_version: string, platform: Platform,
 /**
@@ -155,7 +155,11 @@ hotkey_popup: boolean,
 /**
  * Sounds play into the virtual microphone and the headphones (§7.6).
  */
-soundpad: boolean, };
+soundpad: boolean,
+/**
+ * Local speech to text (§8.4).
+ */
+dictation: boolean, };
 
 export type MicState = {
 /**
@@ -510,3 +514,157 @@ microphone_ready: boolean, };
 export type SoundpadPrefsPatch = { to_microphone?: boolean | null, to_headphones?: boolean | null, microphone_volume_pct?: number | null, headphones_volume_pct?: number | null, mute_voice_while_playing?: boolean | null, show_in_overlay?: boolean | null, overlay_view?: SoundpadOverlayView | null, overlay_controls?: SoundpadOverlayControls | null, };
 
 export type SoundPatch = { volume_pct?: number | null, favorite?: boolean | null, };
+
+export type DictationEngine = "whisper" | "parakeet";
+
+export type DictationLanguage = "en" | "uk" | "ru";
+
+export type DictationLanguagePolicy = "layout" | "fixed" | "auto";
+
+export type DictationTap = "raw" | "clean" | "processed";
+
+export type DictationInsert = "paste" | "type";
+
+export type DictationGamePolicy = "insert" | "copy" | "ignore";
+
+export type DictationPopupLook = "flow" | "analog";
+
+export type DictationPopupPosition = "bottom" | "top";
+
+export type DictationPrefs = {
+/**
+ * STT-001: off by default; off costs nothing.
+ */
+enabled: boolean, engine: DictationEngine,
+/**
+ * Manifest id of the chosen model of `engine`; `null` until one is downloaded.
+ */
+model: string | null, language: DictationLanguagePolicy, fixed_language: DictationLanguage, tap: DictationTap,
+/**
+ * STT-006.
+ */
+mute_mic_while_dictating: boolean, insert: DictationInsert, trailing_space: boolean, fullscreen_games: DictationGamePolicy,
+/**
+ * STT-007: seconds after the last use; 0 = immediately, -1 = never.
+ */
+unload_after_s: number,
+/**
+ * STT-008: inference threads; 0 = max(2, physical cores / 2).
+ */
+threads: number, game_mode: boolean,
+/**
+ * STT-005.
+ */
+pre_roll: boolean,
+/**
+ * STT-015.
+ */
+keep_history: boolean,
+/**
+ * STT-014: Whisper only.
+ */
+vocabulary: Array<string>, popup_look: DictationPopupLook, popup_position: DictationPopupPosition,
+/**
+ * Toward the center, percent of the monitor height (`OSD_MAX_OFFSET_PCT` bound).
+ */
+popup_offset_pct: number,
+/**
+ * §9.9.2: the Dictation tile in the tray panel and the hotkey overlay.
+ */
+show_in_overlay: boolean, };
+
+export type DictationPrefsPatch = { enabled?: boolean | null, engine?: DictationEngine | null, model?: string | null, language?: DictationLanguagePolicy | null, fixed_language?: DictationLanguage | null, tap?: DictationTap | null, mute_mic_while_dictating?: boolean | null, insert?: DictationInsert | null, trailing_space?: boolean | null, fullscreen_games?: DictationGamePolicy | null, unload_after_s?: number | null, threads?: number | null, game_mode?: boolean | null, pre_roll?: boolean | null, keep_history?: boolean | null, vocabulary?: Array<string> | null, popup_look?: DictationPopupLook | null, popup_position?: DictationPopupPosition | null, popup_offset_pct?: number | null, show_in_overlay?: boolean | null, };
+
+export type DictationPhase = "off" | "unloaded" | "loading" | "ready" | "listening" | "transcribing" | "error";
+
+export type DictationModelStatus = "missing" | "downloading" | "ready" | "error";
+
+export type DictationModel = {
+/**
+ * `whisper-large-v3-turbo-q5_0`, `whisper-small-q5_1`, `parakeet-tdt-0.6b-v3-int8`.
+ */
+id: string, engine: DictationEngine,
+/**
+ * Short UI name: `Turbo`, `Small`, `Parakeet v3`.
+ */
+name: string,
+/**
+ * Total download, VAD included.
+ */
+size_bytes: number,
+/**
+ * Static manifest ratings 1…5 for the two meters of card 01.
+ */
+quality: number, speed: number,
+/**
+ * The model the UI recommends on an empty state.
+ */
+recommended: boolean, status: DictationModelStatus,
+/**
+ * While downloading.
+ */
+downloaded_bytes: number, bytes_per_sec: number | null, error: string | null, };
+
+export type DictationMove = { to: string, done_bytes: number, total_bytes: number, };
+
+export type DictationStorage = {
+/**
+ * Absolute path.
+ */
+folder: string,
+/**
+ * `%LOCALAPPDATA%\Macafon\models\stt`, not picked by the user.
+ */
+default_folder: boolean, free_bytes: number | null,
+/**
+ * Bytes of downloaded models in the folder.
+ */
+used_bytes: number,
+/**
+ * The folder is on a spinning disk: cold starts are slower.
+ */
+rotational: boolean, moving: DictationMove | null, };
+
+export type DictationOutcome = "inserted" | "copied" | "test";
+
+export type DictationResult = { id: number, text: string,
+/**
+ * `null` when the engine chose it itself (Parakeet).
+ */
+language: DictationLanguage | null, engine: DictationEngine, model: string,
+/**
+ * Recorded audio.
+ */
+audio_ms: number,
+/**
+ * Key release → text ready.
+ */
+elapsed_ms: number, at_unix_ms: number, outcome: DictationOutcome, };
+
+export type DictationState = { prefs: DictationPrefs, phase: DictationPhase,
+/**
+ * Short reason while `phase` is `error`.
+ */
+error: string | null,
+/**
+ * The model the worker holds now.
+ */
+loaded_model: string | null,
+/**
+ * Worker memory while it runs.
+ */
+worker_ram_bytes: number | null,
+/**
+ * Threads the worker uses now.
+ */
+worker_threads: number | null,
+/**
+ * The thread count `threads = 0` resolves to, and the slider's upper bound.
+ */
+default_threads: number, logical_cores: number, models: Array<DictationModel>, storage: DictationStorage,
+/**
+ * Newest first; empty when `keep_history` is off.
+ */
+history: Array<DictationResult>, };
+
+export type DictationLevel = { rms_dbfs: number, peak_dbfs: number, };

@@ -6,6 +6,7 @@
 //! Events: `{"event":"meters","data":…}`. The first request must be `hello`.
 
 mod client;
+mod dictation;
 mod doctor;
 mod framing;
 mod hotkeys;
@@ -20,6 +21,12 @@ mod typescript;
 mod wire;
 
 pub use client::{Client, ClientError};
+pub use dictation::{
+    DictationEngine, DictationGamePolicy, DictationInsert, DictationLanguage,
+    DictationLanguagePolicy, DictationLevel, DictationModel, DictationModelStatus, DictationMove,
+    DictationOutcome, DictationPhase, DictationPopupLook, DictationPopupPosition, DictationPrefs,
+    DictationPrefsPatch, DictationResult, DictationState, DictationStorage, DictationTap,
+};
 pub use doctor::{DoctorCheck, DoctorCheckId, DoctorReport, DoctorStatus};
 pub use framing::{FrameError, read_protocol_line};
 pub use hotkeys::{

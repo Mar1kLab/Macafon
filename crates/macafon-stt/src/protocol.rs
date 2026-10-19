@@ -1,0 +1,140 @@
+//! Daemon ↔ worker protocol over the worker's stdin/stdout (PRD §8.4.3).
+//!
+//! Every frame is `u32 LE length` (of what follows) + `u8 kind` + payload:
+//! - [`KIND_JSON`]: a UTF-8 JSON [`WorkerRequest`] (daemon → worker) or [`WorkerEvent`]
+//!   (worker → daemon);
+//! - [`KIND_AUDIO`]: daemon → worker only, mono f32 LE samples at [`crate::SAMPLE_RATE_HZ`]
+//!   appended to the current utterance.
+//!
+//! The worker exits when its stdin closes.
+
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+pub const KIND_JSON: u8 = 1;
+pub const KIND_AUDIO: u8 = 2;
+/// Frames larger than this are a protocol error (5 min of audio is sent in small chunks).
+pub const MAX_FRAME_BYTES: u32 = 4 << 20;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Engine {
+    Whisper,
+    Parakeet,
+}
+
+/// The three dictation languages; everything else is ignored by the policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Language {
+    En,
+    Uk,
+    Ru,
+}
+
+impl Language {
+    pub const ALL: [Self; 3] = [Self::En, Self::Uk, Self::Ru];
+
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::En => "en",
+            Self::Uk => "uk",
+            Self::Ru => "ru",
+        }
+    }
+
+    pub fn is_cyrillic(self) -> bool {
+        matches!(self, Self::Uk | Self::Ru)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LanguagePolicy {
+    Layout,
+    Fixed,
+    Auto,
+}
+
+/// What the daemon knows at the key press; the worker applies §8.4.4 with the detected
+/// probabilities (Whisper) and reports the language it used.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LanguageInput {
+    pub policy: LanguagePolicy,
+    pub fixed: Language,
+    /// Keyboard layout of the target window; `None` when it is none of the three or unknown.
+    pub layout: Option<Language>,
+    /// The last Cyrillic language used in this daemon session.
+    pub last_cyrillic: Option<Language>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WorkerRequest {
+    /// Load a model; a different model replaces the loaded one.
+    Load {
+        engine: Engine,
+        /// The model folder `<models dir>/<engine>/<model id>/` with the manifest files.
+        model_dir: PathBuf,
+        model_id: String,
+        threads: u16,
+        gpu: bool,
+    },
+    /// Start a new utterance; audio frames that follow belong to it. May arrive before the
+    /// model is loaded: the worker buffers the audio.
+    Begin,
+    /// The utterance is complete: run VAD and inference, answer with `Result` or `NoSpeech`.
+    Finish {
+        language: LanguageInput,
+        /// Whisper `initial_prompt` words (STT-014); ignored by Parakeet.
+        vocabulary: Vec<String>,
+    },
+    /// Drop the current utterance.
+    Cancel,
+    /// Free the model and exit.
+    Exit,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Transcript {
+    pub text: String,
+    /// The language passed to the engine; `None` when the engine chose it (Parakeet).
+    pub language: Option<Language>,
+    /// Whisper's probabilities restricted to en/uk/ru and renormalized, in [`Language::ALL`]
+    /// order; `None` for Parakeet or a fixed language.
+    pub lang_probs: Option<[f32; 3]>,
+    pub audio_ms: u32,
+    /// Speech left after VAD trimming.
+    pub speech_ms: u32,
+    /// `Finish` received → result sent.
+    pub elapsed_ms: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCode {
+    ModelMissing,
+    ModelLoad,
+    Inference,
+    Protocol,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WorkerEvent {
+    Loading,
+    Ready {
+        /// Process working set after loading.
+        ram_bytes: u64,
+        threads: u16,
+    },
+    Result(Transcript),
+    /// VAD found under 200 ms of speech, or the output was a known hallucination (STT-011).
+    NoSpeech {
+        audio_ms: u32,
+    },
+    Error {
+        code: ErrorCode,
+        message: String,
+    },
+}

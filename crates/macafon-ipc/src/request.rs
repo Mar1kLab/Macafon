@@ -310,4 +310,43 @@ pub enum Request {
         #[serde(default)]
         osd: Option<OsdPrefs>,
     },
+    /// Dictation (§8.4): state, models, history.
+    #[serde(rename = "dictation.get")]
+    DictationGet,
+    #[serde(rename = "dictation.set_prefs")]
+    DictationSetPrefs { patch: crate::DictationPrefsPatch },
+    /// Start downloading a manifest model from Hugging Face (STT-013); progress arrives in
+    /// `dictation.changed`.
+    #[serde(rename = "dictation.download")]
+    DictationDownload { model: String },
+    #[serde(rename = "dictation.cancel_download")]
+    DictationCancelDownload { model: String },
+    /// Refused while the model is loaded; the worker is unloaded first.
+    #[serde(rename = "dictation.delete_model")]
+    DictationDeleteModel { model: String },
+    /// Copy a local file in; accepted only if its SHA-256 matches a manifest file.
+    #[serde(rename = "dictation.import_model")]
+    DictationImportModel { path: String },
+    /// STT-022: `null` resets to the default folder; downloaded models move along.
+    #[serde(rename = "dictation.set_models_dir")]
+    DictationSetModelsDir { folder: Option<String> },
+    #[serde(rename = "dictation.cancel_move")]
+    DictationCancelMove,
+    /// TRY IT: record like push-to-talk, but return the text as a `test` result instead of
+    /// inserting it.
+    #[serde(rename = "dictation.test_start")]
+    DictationTestStart,
+    #[serde(rename = "dictation.test_stop")]
+    DictationTestStop,
+    /// Cancel a recording in progress (test or hotkey); nothing is inserted.
+    #[serde(rename = "dictation.cancel")]
+    DictationCancel,
+    #[serde(rename = "dictation.history_clear")]
+    DictationHistoryClear,
+    /// Insert a history entry into the window that had focus before the UI.
+    #[serde(rename = "dictation.reinsert")]
+    DictationReinsert {
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: u64,
+    },
 }

@@ -113,6 +113,15 @@ pub enum Event {
     /// it instead of starting a second UI process, which is what made panels slow to open.
     #[serde(rename = "ui.show")]
     UiShow { target: crate::UiTarget },
+    /// Any change of dictation state, models, downloads or history (§8.4).
+    #[serde(rename = "dictation.changed")]
+    DictationChanged(crate::DictationState),
+    /// The tap level while listening (popup) or while the UI is subscribed to meters.
+    #[serde(rename = "dictation.level")]
+    DictationLevel(crate::DictationLevel),
+    /// A finished transcription, also for TRY IT results that are not in the history.
+    #[serde(rename = "dictation.result")]
+    DictationResult(crate::DictationResult),
 }
 
 /// One line from the daemon.

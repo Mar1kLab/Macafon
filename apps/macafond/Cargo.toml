@@ -8,6 +8,11 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+macafon-stt.workspace = true
+sha2 = "0.10"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "system-proxy"] }
+num_cpus = "1"
+rubato = "0.14"
 global-hotkey = "0.8"
 clap = { version = "4", features = ["derive"] }
 macafon-apps.workspace = true
@@ -41,6 +46,12 @@ windows = { version = "0.62", features = [
     "Win32_Graphics_Gdi",
     "Win32_Graphics_Imaging",
     "Win32_System_Com",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_JobObjects",
+    "Win32_System_Ioctl",
+    "Win32_System_IO",
+    "Win32_Security",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Console",
     "Win32_System_LibraryLoader",

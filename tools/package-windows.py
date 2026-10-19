@@ -34,9 +34,20 @@ def run(program, *args, cwd=ROOT):
 
 def configuration(stage, triple):
     sidecars = []
-    for name in ("macafond", "macafon"):
+    for name in ("macafond", "macafon", "macafon-stt"):
         shutil.copy2(ROOT / f"target/release/{name}.exe", stage / f"{name}-{triple}.exe")
         sidecars.append(str(stage / name))
+    resources = {str(stage / "licenses"): "licenses"}
+    # sherpa-onnx's build script stages the matching shared runtime beside the exe.
+    # Explicit names prevent accidentally shipping unrelated DLLs from target/release.
+    runtime_names = ("sherpa-onnx-c-api.dll", "onnxruntime.dll",
+                     "onnxruntime_providers_shared.dll")
+    for name in runtime_names:
+        source = ROOT / "target/release" / name
+        if not source.is_file():
+            sys.exit(f"Missing dictation runtime: {source}; rebuild macafon-stt-worker")
+        shutil.copy2(source, stage / name)
+        resources[str(stage / name)] = name
     return {
         # Windows names are case-insensitive: "Macafon.exe" would replace the CLI macafon.exe.
         "mainBinaryName": "macafon-ui",
@@ -52,7 +63,7 @@ def configuration(stage, triple):
             "licenseFile": str(ROOT / "LICENSE"),
             "shortDescription": "Microphone processing with a virtual microphone",
             "externalBin": sidecars,
-            "resources": {str(stage / "licenses"): "licenses"},
+            "resources": resources,
             "windows": {
                 "nsis": {
                     # No administrator rights: no services, drivers or machine-wide files.
@@ -62,6 +73,47 @@ def configuration(stage, triple):
             },
         },
     }
+
+
+def stt_notices(destination):
+    """Native runtimes are not separate Cargo packages; include their notices too."""
+    metadata = json.loads(subprocess.check_output(
+        ["cargo", "metadata", "--locked", "--format-version", "1"], cwd=ROOT, text=True))
+    whisper_sys = next(p for p in metadata["packages"] if p["name"] == "whisper-rs-sys")
+    source = Path(whisper_sys["manifest_path"]).parent / "whisper.cpp/LICENSE"
+    shutil.copyfile(source, destination / "whisper.cpp-LICENSE.txt")
+    # https://github.com/microsoft/onnxruntime/blob/main/LICENSE (MIT).
+    (destination / "onnxruntime-LICENSE.txt").write_text("""MIT License
+
+Copyright (c) Microsoft Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+""", encoding="utf-8")
+    (destination / "dictation-models.txt").write_text("""Models are downloaded separately, never bundled.
+Whisper: OpenAI, MIT; ggml conversion/quantization by whisper.cpp contributors.
+https://huggingface.co/ggerganov/whisper.cpp
+Silero VAD: Silero Team, MIT; GGML conversion by whisper.cpp contributors.
+https://github.com/snakers4/silero-vad
+Parakeet TDT 0.6B v3: NVIDIA, CC-BY-4.0.
+https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+https://creativecommons.org/licenses/by/4.0/
+ONNX export and int8 quantization by the sherpa-onnx contributors:
+https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8
+""", encoding="utf-8")
 
 
 def main():
@@ -77,8 +129,14 @@ def main():
     stage = ROOT / "target/package-windows"
     stage.mkdir(parents=True, exist_ok=True)
     if not args.bundle_only:
-        run("cargo", "build", "--release", "--locked", "-p", "macafond", "-p", "macafon-cli")
+        # whisper-rs 0.15's CMake integration otherwise replaces MSVC's Release
+        # flags with unoptimized cc-rs flags, making inference orders slower.
+        os.environ.setdefault("CMAKE_C_FLAGS_RELEASE", "/O2 /DNDEBUG")
+        os.environ.setdefault("CMAKE_CXX_FLAGS_RELEASE", "/O2 /DNDEBUG")
+        run("cargo", "build", "--release", "--locked", "-p", "macafond", "-p", "macafon-cli",
+            "-p", "macafon-stt-worker")
     linux_packaging().notices(stage / "licenses")
+    stt_notices(stage / "licenses")
     config = stage / "tauri-bundle.conf.json"
     config.write_text(json.dumps(configuration(stage, triple), indent=2) + "\n")
     ui = ROOT / "apps/macafon-ui"

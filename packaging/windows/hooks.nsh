@@ -3,6 +3,36 @@
 ; Set when an upgrade stopped a running daemon, so it comes back with the new binaries.
 Var MacafonDaemonWasRunning
 
+!include "nsDialogs.nsh"
+!include "LogicLib.nsh"
+Var MacafonKeepModels
+Var MacafonKeepModelsCheckbox
+
+; Registered before Tauri's uninstall pages. Silent uninstall defaults to deletion.
+UninstPage custom un.MacafonModelsPage un.MacafonModelsPageLeave
+
+Function un.MacafonModelsPage
+  IfSilent macafon_models_page_done
+  nsDialogs::Create 1018
+  Pop $0
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+  ${NSD_CreateLabel} 0 0 100% 32u "Downloaded dictation models will be deleted when Macafon is uninstalled."
+  Pop $0
+  ${NSD_CreateCheckbox} 0 40u 100% 16u "Keep downloaded dictation models"
+  Pop $MacafonKeepModelsCheckbox
+  ${If} $MacafonKeepModels == 1
+    ${NSD_Check} $MacafonKeepModelsCheckbox
+  ${EndIf}
+  nsDialogs::Show
+  macafon_models_page_done:
+FunctionEnd
+
+Function un.MacafonModelsPageLeave
+  ${NSD_GetState} $MacafonKeepModelsCheckbox $MacafonKeepModels
+FunctionEnd
+
 !macro NSIS_HOOK_PREINSTALL
   ; An upgrade replaces the binaries: stop the running daemon first; it restores on its way
   ; out. `ctl quit` only asks, so wait until the running image no longer locks macafond.exe.
@@ -68,4 +98,12 @@ Var MacafonDaemonWasRunning
     SetErrorLevel 1
     Abort
   macafon_cleanup_done:
+!macroend
+
+!macro NSIS_HOOK_POSTUNINSTALL
+  ${If} $MacafonKeepModels != 1
+    ; Custom storage folders are deliberately left alone: interpreting arbitrary
+    ; TOML paths in NSIS would risk deleting files outside Macafon's model tree.
+    RMDir /r "$LOCALAPPDATA\Macafon\models\stt"
+  ${EndIf}
 !macroend

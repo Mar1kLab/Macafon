@@ -129,10 +129,8 @@ def main():
     stage = ROOT / "target/package-windows"
     stage.mkdir(parents=True, exist_ok=True)
     if not args.bundle_only:
-        # whisper-rs 0.15's CMake integration otherwise replaces MSVC's Release
-        # flags with unoptimized cc-rs flags, making inference orders slower.
-        os.environ.setdefault("CMAKE_C_FLAGS_RELEASE", "/O2 /DNDEBUG")
-        os.environ.setdefault("CMAKE_CXX_FLAGS_RELEASE", "/O2 /DNDEBUG")
+        # The project-specific hook in .cargo/config.toml configures Whisper's
+        # optimization and portable ISA equally for normal and installer builds.
         run("cargo", "build", "--release", "--locked", "-p", "macafond", "-p", "macafon-cli",
             "-p", "macafon-stt-worker")
     linux_packaging().notices(stage / "licenses")

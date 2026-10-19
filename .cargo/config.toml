@@ -1,0 +1,4 @@
+[env]
+# whisper-rs forwards CMAKE_* variables to CMake. Only the whisper project loads
+# this hook; other workspace native dependencies retain their existing settings.
+"CMAKE_PROJECT_whisper.cpp_INCLUDE" = { value = "packaging/windows/whisper-cmake.cmake", relative = true }

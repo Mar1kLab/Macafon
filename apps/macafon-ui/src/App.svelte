@@ -114,7 +114,7 @@
       {:else if screen === 'soundpad' && daemon.soundpadAvailable}
         <Soundpad />
       {:else if screen === 'dictation' && daemon.dictationAvailable}
-        <Dictation />
+        <Dictation onnavigate={(next) => (screen = next)} />
       {:else}
         <Microphone />
       {/if}

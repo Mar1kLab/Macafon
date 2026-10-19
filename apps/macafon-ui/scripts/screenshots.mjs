@@ -422,6 +422,17 @@ const scenarios = {
     await page.goto(`${base}?platform=windows&screen=dictation&dictation=error`);
     await page.waitForSelector('.grid');
   },
+  'settings-dictation-popup': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=settings&section=dictation&dictation=ready`);
+    await page.waitForSelector('#settings-dictation');
+    await page.waitForTimeout(3500);
+  },
+  'settings-dictation-hotkeys': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=settings&section=hotkeys&dictation=ready`);
+    await page.waitForSelector('.hotkeys');
+    await page.getByText('Dictate (hold)').first().scrollIntoViewIfNeeded();
+    await page.waitForTimeout(400);
+  },
   'tray-panel-dictation': async (page) => {
     await page.goto(`${base}?platform=windows&view=quick-panel&dictation=ready`);
     await page.waitForSelector('.panel .tiles');

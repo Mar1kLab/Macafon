@@ -23,6 +23,7 @@
   import PopupPicture from '../lib/settings/PopupPicture.svelte';
   import LookPicture from '../lib/settings/LookPicture.svelte';
   import LibraryFolder from '../lib/soundpad/LibraryFolder.svelte';
+  import PopupLook from '../lib/dictation/PopupLook.svelte';
   import { t } from '../lib/i18n';
   import type {
     CloseAction,
@@ -128,8 +129,18 @@
     void setPrefs({ osd });
   }
 
+  // Dictation popup (STT-016, §9.9.3): look, position and the overlay tile.
+  const dictationLooks = [
+    { value: 'flow' as const, label: t('dictation.popup.flow'), hint: t('dictation.popup.flowHint') },
+    { value: 'analog' as const, label: t('dictation.popup.analog'), hint: t('dictation.popup.analogHint') },
+  ];
+  const dictationPositions = [
+    { value: 'bottom' as const, label: t('dictation.popup.bottom') },
+    { value: 'top' as const, label: t('dictation.popup.top') },
+  ];
+
   // The section list: what this platform and daemon show, in page order.
-  type SectionId = 'general' | 'audio' | 'outputs' | 'mixer' | 'soundpad' | 'hotkeys' | 'popup' | 'doctor' | 'about';
+  type SectionId = 'general' | 'audio' | 'outputs' | 'mixer' | 'soundpad' | 'hotkeys' | 'popup' | 'dictation' | 'doctor' | 'about';
   const sections = $derived(
     (
       [
@@ -140,6 +151,7 @@
         ['soundpad', t('settings.soundpad'), !!daemon.soundpad],
         ['hotkeys', t('settings.hotkeys.title'), !!daemon.hotkeys],
         ['popup', t('settings.osd.title'), !!prefs && !!daemon.hello?.capabilities.hotkey_popup],
+        ['dictation', t('settings.dictationPopup.title'), !!daemon.dictation],
         ['doctor', t('settings.doctor'), true],
         ['about', t('settings.about'), true],
       ] as [SectionId, string, boolean][]
@@ -514,6 +526,51 @@
         </section>
       {/if}
 
+      {#if daemon.dictation}
+        {@const dictation = daemon.dictation.prefs}
+        <section id="settings-dictation">
+          <h2 class="hud-label" tabindex="-1">{t('settings.dictationPopup.title')}</h2>
+          <div class="row column">
+            <div>
+              <p class="name">{t('dictation.popup.look')}</p>
+              <p class="hint">{t('settings.dictationPopup.lookHint')}</p>
+            </div>
+            <PictureChoice label={t('dictation.popup.look')} options={dictationLooks} value={dictation.popup_look} onchange={(popup_look) => daemon.setDictationPrefs({ popup_look })}>
+              {#snippet picture(look)}
+                <span class="dictation-look" class:analog={look === 'analog'}><span><PopupLook {look} source={look === dictation.popup_look ? 'demo' : 'still'} /></span></span>
+              {/snippet}
+            </PictureChoice>
+          </div>
+          <div class="row">
+            <p class="name">{t('dictation.popup.position')}</p>
+            <Segmented label={t('dictation.popup.position')} layout="inline" options={dictationPositions} value={dictation.popup_position} onchange={(popup_position) => daemon.setDictationPrefs({ popup_position })} />
+          </div>
+          <div class="row">
+            <p class="name">{t('dictation.popup.offset')}</p>
+            <div class="slider">
+              <RulerSlider
+                compact
+                label={t('dictation.popup.offset')}
+                value={dictation.popup_offset_pct}
+                min={0}
+                max={OSD_MAX_OFFSET_PCT}
+                defaultValue={0}
+                step={0.5}
+                format={(value) => `${value}%`}
+                onchange={(popup_offset_pct) => daemon.setDictationPrefs({ popup_offset_pct })}
+              />
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <p class="name">{t('dictation.popup.overlayTile')}</p>
+              <p class="hint">{t('settings.dictationPopup.tileHint')}</p>
+            </div>
+            <Toggle checked={dictation.show_in_overlay} label={t('dictation.popup.overlayTile')} onchange={(show_in_overlay) => daemon.setDictationPrefs({ show_in_overlay })} />
+          </div>
+        </section>
+      {/if}
+
       <section id="settings-doctor">
         <h2 class="hud-label" tabindex="-1">{t('settings.doctor')}</h2>
         <Doctor {onnavigate} onmakedefault={() => (confirmDefault = true)} />
@@ -774,5 +831,24 @@
   .licenses {
     text-align: right;
     max-width: 460px;
+  }
+
+  .dictation-look {
+    display: grid;
+    place-items: center;
+    aspect-ratio: 16 / 8;
+    background: var(--bg);
+    background-image:
+      linear-gradient(var(--scanline) 1px, transparent 1px),
+      linear-gradient(90deg, var(--scanline) 1px, transparent 1px);
+    background-size: 12px 12px;
+  }
+
+  .dictation-look > span {
+    width: 62%;
+  }
+
+  .dictation-look.analog > span {
+    width: 78%;
   }
 </style>

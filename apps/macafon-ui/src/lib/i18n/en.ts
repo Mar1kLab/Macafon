@@ -316,6 +316,11 @@ export const en = {
       },
     },
     soundpadOverlay: 'Quick controls overlay',
+    dictationPopup: {
+      title: 'Dictation popup',
+      lookHint: 'What appears on screen while you dictate.',
+      tileHint: 'Turn dictation on or off from the tray panel and the hotkey overlay.',
+    },
     overlay: {
       withSounds: 'With sounds',
       withSoundsHint: 'A small round button under the toggles opens the pads',
@@ -804,6 +809,8 @@ export const en = {
     moreShortcuts: 'More',
     lessShortcuts: 'Less',
     escCancels: 'Esc cancels · up to 5 min',
+    changeShortcuts: 'Change shortcuts',
+    popupSettings: 'Popup',
     phase: {
       off: 'Off',
       unloaded: 'Unloaded · 0 MB',

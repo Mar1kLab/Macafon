@@ -61,6 +61,15 @@ function keyName(code: string): string | null {
   return NAMED.has(code) ? code : null;
 }
 
+/**
+ * A chord of modifiers only, recorded when the first of them is released: the daemon accepts
+ * Ctrl+Win and Ctrl+Win+Shift (Windows, STT-003), nothing with Alt.
+ */
+export function modifierChord(event: KeyLike): string | null {
+  if (!event.ctrlKey || !event.metaKey || event.altKey) return null;
+  return event.shiftKey ? 'Ctrl+Win+Shift' : 'Ctrl+Win';
+}
+
 /** Physical keys (`code`), so the shortcut does not depend on the keyboard layout. */
 export function recordShortcut(event: KeyLike, sides?: ReadonlySet<string>): Recorded {
   // Windows AltGr reports Ctrl+Alt and may also emit ControlLeft. Match the

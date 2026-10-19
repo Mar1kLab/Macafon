@@ -7,7 +7,7 @@
   import { t, type MessageKey } from '../i18n';
   import { DaemonError } from '../ipc/client';
   import type { HotkeyBinding } from '../ipc/protocol';
-  import { displayShortcut, recordShortcut } from './shortcut';
+  import { displayShortcut, modifierChord, recordShortcut } from './shortcut';
 
   const hotkeys = $derived(daemon.hotkeys);
   const unavailable = $derived(hotkeys?.backend === 'unavailable');
@@ -16,6 +16,8 @@
   let recording = $state<string | null>(null);
   let preview = $state('');
   const sides = new Set<string>();
+  /** Modifiers held with no key yet that form a valid chord on release. */
+  let chord: string | null = null;
   /** Inline problem per action: bad key, conflict, daemon refusal. */
   let problems = $state<Record<string, string>>({});
 
@@ -78,6 +80,7 @@
 
   function stop() {
     sides.clear();
+    chord = null;
     recording = null;
     preview = '';
   }
@@ -108,8 +111,10 @@
     const result = recordShortcut(event, daemon.windows ? sides : undefined);
     if (result.kind === 'partial') {
       preview = result.preview;
+      chord = daemon.windows ? modifierChord(event) : null;
       return;
     }
+    chord = null;
     if (result.kind === 'needs_modifier') {
       setProblem(action, t('settings.hotkeys.needsModifier', { shortcut: result.preview }));
       return;
@@ -118,17 +123,27 @@
       setProblem(action, t('settings.hotkeys.unsupported', { shortcut: result.preview }));
       return;
     }
+    finish(action, result.shortcut);
+  }
+
+  function finish(action: string, shortcut: string) {
     stop();
-    const taken = hotkeys?.bindings.find((b) => (b.action !== action && b.shortcut === result.shortcut) || (`${b.action}#secondary` !== action && b.secondary_shortcut === result.shortcut));
+    const taken = hotkeys?.bindings.find((b) => (b.action !== action && b.shortcut === shortcut) || (`${b.action}#secondary` !== action && b.secondary_shortcut === shortcut));
     if (taken) {
-      setProblem(action, t('settings.hotkeys.conflict', { shortcut: displayShortcut(result.shortcut), action: fullLabel(taken.action) }));
+      setProblem(action, t('settings.hotkeys.conflict', { shortcut: displayShortcut(shortcut), action: fullLabel(taken.action) }));
       return;
     }
-    void save(action, result.shortcut);
+    void save(action, shortcut);
   }
 
   function onkeyup(action: string, event: KeyboardEvent) {
     if (recording !== action) return;
+    event.preventDefault();
+    if (chord) {
+      const next = chord;
+      chord = null;
+      return finish(action, next);
+    }
     sides.delete(event.code);
     const result = recordShortcut(event, daemon.windows ? sides : undefined);
     if (result.kind === 'partial') preview = result.preview;

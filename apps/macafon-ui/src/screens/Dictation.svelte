@@ -7,21 +7,16 @@
   import Segmented from '../lib/components/Segmented.svelte';
   import RulerSlider from '../lib/components/RulerSlider.svelte';
   import LevelMeter from '../lib/components/LevelMeter.svelte';
-  import PictureChoice from '../lib/settings/PictureChoice.svelte';
-  import ShortcutKey from '../lib/soundpad/ShortcutKey.svelte';
+  import { displayShortcut } from '../lib/settings/shortcut';
   import Card from '../lib/dictation/Card.svelte';
   import EngineCard from '../lib/dictation/EngineCard.svelte';
-  import PopupLook from '../lib/dictation/PopupLook.svelte';
   import TryPanel from '../lib/dictation/TryPanel.svelte';
   import { formatBytes } from '../lib/dictation/format';
-  import { OSD_MAX_OFFSET_PCT } from '../lib/ipc/dsp';
   import type {
     DictationGamePolicy,
     DictationInsert,
     DictationLanguage,
     DictationLanguagePolicy,
-    DictationPopupLook,
-    DictationPopupPosition,
     DictationTap,
   } from '../lib/ipc/protocol';
   import { daemon } from '../lib/state';
@@ -29,11 +24,12 @@
 
   const MAX_WORDS = 50;
 
+  let { onnavigate }: { onnavigate: (screen: 'settings') => void } = $props();
+
   const dictation = $derived(daemon.dictation);
   const prefs = $derived(dictation?.prefs);
   const hasModel = $derived(dictation?.models.some((model) => model.status === 'ready') ?? false);
   const parakeet = $derived(prefs?.engine === 'parakeet');
-  let moreShortcuts = $state(false);
   let word = $state('');
 
   const phaseLabel = $derived.by(() => {
@@ -78,14 +74,34 @@
     { value: 600, label: t('dictation.performance.minutes', { value: 10 }) },
     { value: -1, label: t('dictation.performance.never') },
   ];
-  const looks: { value: DictationPopupLook; label: string; hint: string }[] = [
-    { value: 'flow', label: t('dictation.popup.flow'), hint: t('dictation.popup.flowHint') },
-    { value: 'analog', label: t('dictation.popup.analog'), hint: t('dictation.popup.analogHint') },
-  ];
-  const positions: { value: DictationPopupPosition; label: string }[] = [
-    { value: 'bottom', label: t('dictation.popup.bottom') },
-    { value: 'top', label: t('dictation.popup.top') },
-  ];
+  const shortcutRows = $derived(
+    (
+      [
+        ['dictation_hold', t('dictation.hold')],
+        ['dictation_toggle', t('dictation.handsFree')],
+        ['dictation_paste_last', t('dictation.pasteLast')],
+        ['dictation_copy_last', t('dictation.copyLast')],
+        ['dictation_hold_copy', t('dictation.holdCopy')],
+      ] as const
+    ).map(([action, label]) => ({
+      action,
+      label,
+      shortcut: daemon.hotkeys?.bindings.find((binding) => binding.action === action)?.shortcut ?? null,
+    })),
+  );
+
+  /** Shortcuts and the popup live in Settings (§9.5); open it at that section. */
+  function openSettings(section: 'hotkeys' | 'dictation') {
+    const url = new URL(location.href);
+    url.searchParams.set('section', section);
+    history.replaceState(history.state, '', url);
+    onnavigate('settings');
+    // Settings reads the section once when it opens; later visits start at the top.
+    setTimeout(() => {
+      url.searchParams.delete('section');
+      history.replaceState(history.state, '', url);
+    }, 200);
+  }
 
   const languageBody = $derived(
     prefs?.language === 'fixed' ? t('dictation.language.fixedBody') : prefs?.language === 'auto' ? t('dictation.language.autoBody') : t('dictation.language.layoutBody'),
@@ -126,16 +142,14 @@
           <p>{t('dictation.subtitle')}</p>
         </div>
         <div class="keys">
-          <div class="key"><span class="hud-label">{t('dictation.hold')}</span><ShortcutKey action="dictation_hold" label={t('settings.hotkeys.actions.dictation_hold')} /></div>
-          <div class="key"><span class="hud-label">{t('dictation.handsFree')}</span><ShortcutKey action="dictation_toggle" label={t('settings.hotkeys.actions.dictation_toggle')} /></div>
-          <div class="key"><span class="hud-label">{t('dictation.pasteLast')}</span><ShortcutKey action="dictation_paste_last" label={t('settings.hotkeys.actions.dictation_paste_last')} /></div>
-          {#if moreShortcuts}
-            <div class="key"><span class="hud-label">{t('dictation.copyLast')}</span><ShortcutKey action="dictation_copy_last" label={t('settings.hotkeys.actions.dictation_copy_last')} /></div>
-            <div class="key"><span class="hud-label">{t('dictation.holdCopy')}</span><ShortcutKey action="dictation_hold_copy" label={t('settings.hotkeys.actions.dictation_hold_copy')} /></div>
-          {/if}
+          {#each shortcutRows as row (row.action)}
+            <span class="hud-label">{row.label}</span>
+            <kbd class:empty={!row.shortcut}>{row.shortcut ? displayShortcut(row.shortcut) : t('settings.hotkeys.notSet')}</kbd>
+          {/each}
           <div class="key-foot">
             <span class="hint">{t('dictation.escCancels')}</span>
-            <button class="link hud-label" aria-expanded={moreShortcuts} onclick={() => (moreShortcuts = !moreShortcuts)}>{moreShortcuts ? t('dictation.lessShortcuts') : t('dictation.moreShortcuts')}</button>
+            <button class="link hud-label" onclick={() => openSettings('hotkeys')}>{t('dictation.changeShortcuts')}</button>
+            <button class="link hud-label" onclick={() => openSettings('dictation')}>{t('dictation.popupSettings')}</button>
           </div>
         </div>
       </section>
@@ -201,34 +215,7 @@
           {/snippet}
         </Card>
 
-        <Card number="06" title={t('dictation.popup.title')} hint={t('dictation.popup.hint')} color="orange" class="popup">
-          <PictureChoice label={t('dictation.popup.look')} options={looks} value={prefs.popup_look} onchange={(popup_look) => daemon.setDictationPrefs({ popup_look })}>
-            {#snippet picture(look)}
-              <span class="look-picture" class:analog={look === 'analog'}><span class="inner"><PopupLook {look} source={look === prefs.popup_look ? 'demo' : 'still'} /></span></span>
-            {/snippet}
-          </PictureChoice>
-          <div class="popup-controls">
-            <Segmented label={t('dictation.popup.position')} options={positions} value={prefs.popup_position} color="orange" onchange={(popup_position) => daemon.setDictationPrefs({ popup_position })} />
-            <RulerSlider
-              compact
-              label={t('dictation.popup.offset')}
-              value={prefs.popup_offset_pct}
-              min={0}
-              max={OSD_MAX_OFFSET_PCT}
-              defaultValue={0}
-              step={0.5}
-              color="orange"
-              format={(value) => `${value}%`}
-              onchange={(popup_offset_pct) => daemon.setDictationPrefs({ popup_offset_pct })}
-            />
-          </div>
-          <label class="row">
-            <span>{t('dictation.popup.overlayTile')}</span>
-            <Toggle checked={prefs.show_in_overlay} label={t('dictation.popup.overlayTile')} color="orange" onchange={(show_in_overlay) => daemon.setDictationPrefs({ show_in_overlay })} />
-          </label>
-        </Card>
-
-        <Card number="07" title={t('dictation.vocabulary.title')} hint={t('dictation.vocabulary.hint')} color="teal" dimmed={parakeet} badge={parakeet ? t('dictation.language.autoOnly') : undefined}>
+        <Card number="06" title={t('dictation.vocabulary.title')} hint={t('dictation.vocabulary.hint')} color="teal" dimmed={parakeet} badge={parakeet ? t('dictation.language.autoOnly') : undefined} class="vocabulary">
           <ul class="words" aria-label={t('dictation.vocabulary.title')}>
             {#each prefs.vocabulary as entry (entry)}
               <li>
@@ -396,12 +383,23 @@
     gap: 6px 14px;
   }
 
-  .key {
-    display: contents;
+  .keys > .hud-label {
+    justify-self: end;
   }
 
-  .key .hud-label {
-    justify-self: end;
+  kbd {
+    min-width: 132px;
+    padding: 5px 10px;
+    border: 1px solid var(--line);
+    background: var(--bg-sunken);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    text-align: center;
+    color: var(--ink-strong);
+  }
+
+  kbd.empty {
+    color: var(--faint);
   }
 
   .key-foot {
@@ -434,8 +432,8 @@
     grid-column: span 2;
   }
 
-  .grid :global(.popup) {
-    grid-column: span 2;
+  .grid :global(.vocabulary) {
+    grid-column: span 3;
   }
 
   .body {
@@ -452,31 +450,9 @@
     color: var(--ink);
   }
 
-  .look-picture {
-    display: grid;
-    place-items: center;
-    aspect-ratio: 16 / 8;
-    background: var(--bg);
-    background-image:
-      linear-gradient(var(--scanline) 1px, transparent 1px),
-      linear-gradient(90deg, var(--scanline) 1px, transparent 1px);
-    background-size: 12px 12px;
-  }
 
-  .look-picture .inner {
-    width: 62%;
-  }
 
-  .look-picture.analog .inner {
-    width: 78%;
-  }
 
-  .popup-controls {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: end;
-    gap: 16px;
-  }
 
   .words {
     list-style: none;

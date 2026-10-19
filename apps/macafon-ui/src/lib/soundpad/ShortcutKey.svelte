@@ -5,7 +5,7 @@
   import { daemon } from '../state';
   import { t } from '../i18n';
   import { DaemonError } from '../ipc/client';
-  import { displayShortcut, recordShortcut } from '../settings/shortcut';
+  import { displayShortcut, modifierChord, recordShortcut } from '../settings/shortcut';
 
   interface Props {
     action: string;
@@ -25,6 +25,8 @@
   let preview = $state('');
   let problem = $state<string | null>(null);
   const sides = new Set<string>();
+  /** Modifiers held with no key yet that form a valid chord on release. */
+  let chord: string | null = null;
 
   function start() {
     sides.clear();
@@ -35,6 +37,7 @@
 
   function stop() {
     sides.clear();
+    chord = null;
     recording = false;
     preview = '';
   }
@@ -58,8 +61,10 @@
     const result = recordShortcut(event, daemon.windows ? sides : undefined);
     if (result.kind === 'partial') {
       preview = result.preview;
+      chord = daemon.windows ? modifierChord(event) : null;
       return;
     }
+    chord = null;
     if (result.kind === 'needs_modifier') {
       problem = t('settings.hotkeys.needsModifier', { shortcut: result.preview });
       return;
@@ -68,20 +73,30 @@
       problem = t('settings.hotkeys.unsupported', { shortcut: result.preview });
       return;
     }
+    finish(result.shortcut);
+  }
+
+  function finish(next: string) {
     stop();
     const slot = secondary ? `${action}#secondary` : action;
     const taken = daemon.hotkeys?.bindings.find(
-      (b) => (b.action !== slot && b.shortcut === result.shortcut) || (`${b.action}#secondary` !== slot && b.secondary_shortcut === result.shortcut),
+      (b) => (b.action !== slot && b.shortcut === next) || (`${b.action}#secondary` !== slot && b.secondary_shortcut === next),
     );
     if (taken) {
-      problem = t('settings.hotkeys.conflict', { shortcut: displayShortcut(result.shortcut), action: taken.action });
+      problem = t('settings.hotkeys.conflict', { shortcut: displayShortcut(next), action: taken.action });
       return;
     }
-    void save(result.shortcut);
+    void save(next);
   }
 
   function onkeyup(event: KeyboardEvent) {
     if (!recording) return;
+    event.preventDefault();
+    if (chord) {
+      const next = chord;
+      chord = null;
+      return finish(next);
+    }
     sides.delete(event.code);
     const result = recordShortcut(event, daemon.windows ? sides : undefined);
     if (result.kind === 'partial') preview = result.preview;

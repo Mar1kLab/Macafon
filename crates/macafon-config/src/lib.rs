@@ -84,7 +84,9 @@ pub const DEFAULT_HOTKEYS: [&[(&str, &str)]; 5] = [
         ("channel_volume_down.music", "Ctrl+Alt+F"),
     ],
 ];
-/// Offered once on Windows, never over a customized hotkey map.
+/// Offered once on Windows, one action at a time: an action that has no shortcut gets its
+/// default when that shortcut is free, also in customized maps — the actions are new, so
+/// nothing the user chose is replaced (STT-003).
 pub const DICTATION_HOTKEYS: [(&str, &str); 5] = [
     ("dictation_hold", "Ctrl+Win"),
     ("dictation_toggle", "Ctrl+Win+Space"),
@@ -92,7 +94,9 @@ pub const DICTATION_HOTKEYS: [(&str, &str); 5] = [
     ("dictation_copy_last", "Shift+Alt+X"),
     ("dictation_hold_copy", "Ctrl+Win+Shift"),
 ];
-pub const HOTKEY_DEFAULTS_REVISION: u32 = 3;
+pub const HOTKEY_DEFAULTS_REVISION: u32 = 4;
+/// The revision that first offered `DICTATION_HOTKEYS` to every map.
+const DICTATION_DEFAULTS_REVISION: u32 = 4;
 
 /// Exact previous shipped set: partial or customized maps cannot safely be identified as
 /// untouched, including maps with deliberately cleared or secondary bindings.
@@ -206,6 +210,8 @@ impl Config {
         if self.ui.hotkey_defaults >= HOTKEY_DEFAULTS_REVISION {
             return false;
         }
+        let offer_dictation =
+            cfg!(windows) && self.ui.hotkey_defaults < DICTATION_DEFAULTS_REVISION;
         let fresh = self.ui.hotkey_defaults == 0 && self.hotkeys.is_empty();
         let previous = self.ui.hotkey_defaults == 2
             && self.hotkeys.len()
@@ -224,6 +230,16 @@ impl Config {
                     .is_some_and(|bound| bound == shortcut)
             });
         self.ui.hotkey_defaults = HOTKEY_DEFAULTS_REVISION;
+        if offer_dictation {
+            for (action, shortcut) in DICTATION_HOTKEYS {
+                if !self.hotkeys.contains_key(action)
+                    && !self.hotkeys.values().any(|bound| bound == shortcut)
+                    && usable(shortcut)
+                {
+                    self.hotkeys.insert(action.to_owned(), shortcut.to_owned());
+                }
+            }
+        }
         if !(fresh || legacy || previous) {
             return true;
         }
@@ -236,15 +252,7 @@ impl Config {
                 self.hotkeys.remove(*action);
             }
         }
-        for group in DEFAULT_HOTKEYS.into_iter().chain(
-            if cfg!(windows) {
-                DICTATION_HOTKEYS.as_slice()
-            } else {
-                &[]
-            }
-            .iter()
-            .map(std::slice::from_ref),
-        ) {
+        for group in DEFAULT_HOTKEYS {
             let free = group.iter().all(|(action, shortcut)| {
                 action.split_once('.').is_none_or(|(_, channel)| {
                     self.mixer.channels.iter().any(|item| item.id == channel)
@@ -399,6 +407,8 @@ mod tests {
             }
             let before = old.hotkeys.clone();
             assert!(old.offer_default_hotkeys(|_| true));
+            // New dictation actions may be added; nothing the user had changes.
+            old.hotkeys.retain(|action, _| !action.starts_with("dictation_"));
             assert_eq!(old.hotkeys, before, "{edit}");
         }
         let mut missing = Config::default();
@@ -409,6 +419,30 @@ mod tests {
         missing.offer_default_hotkeys(|shortcut| shortcut != "RCtrl+PageUp");
         assert!(!missing.hotkeys.contains_key("channel_volume_down.main"));
         assert!(!missing.hotkeys.contains_key("channel_volume_down.voice"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn customized_maps_get_free_dictation_defaults_once() {
+        let mut config = Config::default();
+        config.ui.hotkey_defaults = 3;
+        config.hotkeys = BTreeMap::from([
+            ("quick_panel".into(), "Ctrl+F1".into()),
+            ("mic_mute_toggle".into(), "Shift+Alt+Z".into()),
+            ("dictation_copy_last".into(), "F7".into()),
+        ]);
+        assert!(config.offer_default_hotkeys(|_| true));
+        assert_eq!(config.hotkeys["quick_panel"], "Ctrl+F1");
+        assert_eq!(config.hotkeys["dictation_hold"], "Ctrl+Win");
+        assert_eq!(config.hotkeys["dictation_toggle"], "Ctrl+Win+Space");
+        assert_eq!(config.hotkeys["dictation_hold_copy"], "Ctrl+Win+Shift");
+        // Taken by another action, or already set by the user: left alone.
+        assert!(!config.hotkeys.contains_key("dictation_paste_last"));
+        assert_eq!(config.hotkeys["dictation_copy_last"], "F7");
+        // Offered once: a cleared default stays cleared.
+        config.hotkeys.remove("dictation_hold");
+        assert!(!config.offer_default_hotkeys(|_| true));
+        assert!(!config.hotkeys.contains_key("dictation_hold"));
     }
 
     #[test]

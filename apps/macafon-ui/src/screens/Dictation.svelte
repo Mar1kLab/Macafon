@@ -455,7 +455,7 @@
   .look-picture {
     display: grid;
     place-items: center;
-    aspect-ratio: 16 / 7;
+    aspect-ratio: 16 / 8;
     background: var(--bg);
     background-image:
       linear-gradient(var(--scanline) 1px, transparent 1px),
@@ -468,7 +468,7 @@
   }
 
   .look-picture.analog .inner {
-    width: 54%;
+    width: 78%;
   }
 
   .popup-controls {

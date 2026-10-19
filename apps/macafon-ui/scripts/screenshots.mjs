@@ -383,6 +383,50 @@ const scenarios = {
     await page.getByRole('button', { name: 'Play Elevator loop' }).click();
     await page.waitForTimeout(2500);
   },
+  'dictation-empty': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=dictation`);
+    await page.waitForSelector('.grid');
+  },
+  'dictation-downloading': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=dictation&dictation=downloading`);
+    await page.waitForSelector('.grid');
+    await page.waitForTimeout(800);
+  },
+  'dictation-ready': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=dictation&dictation=ready`);
+    await page.waitForSelector('.grid');
+    await page.waitForTimeout(600);
+  },
+  'dictation-listening': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=dictation&dictation=ready`);
+    await page.waitForSelector('.grid');
+    const hold = page.getByRole('button', { name: 'Hold to talk' });
+    await hold.hover();
+    await page.mouse.down();
+    await page.waitForTimeout(1600);
+  },
+  'dictation-analog': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=dictation&dictation=ready`);
+    await page.waitForSelector('.grid');
+    await page.getByRole('radio', { name: /Analog/ }).click();
+    await page.getByRole('radio', { name: /Analog/ }).scrollIntoViewIfNeeded();
+    await page.waitForTimeout(1200);
+  },
+  'dictation-history': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=dictation&dictation=ready`);
+    await page.waitForSelector('.grid');
+    await page.getByRole('button', { name: /^History/ }).click();
+    await page.waitForTimeout(500);
+  },
+  'dictation-error': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=dictation&dictation=error`);
+    await page.waitForSelector('.grid');
+  },
+  'tray-panel-dictation': async (page) => {
+    await page.goto(`${base}?platform=windows&view=quick-panel&dictation=ready`);
+    await page.waitForSelector('.panel .tiles');
+    await page.waitForTimeout(600);
+  },
   'tray-panel': async (page) => {
     await page.goto(`${base}?platform=windows&view=quick-panel`);
     await page.waitForSelector('.panel .tiles');

@@ -1,6 +1,7 @@
 //! Windows popup: a layered, click-through, topmost window owned by its own thread. Direct2D draws
 //! each frame into a WIC bitmap, `UpdateLayeredWindow` shows it; springs drive every motion and the
 //! loop paces itself on `DwmFlush` while anything moves.
+use super::dictation::{State as DictationState, View as DictationView, Vu};
 use super::icons::ICONS;
 use super::{Osd, StatusIcon};
 use macafon_config::{OsdConfig, OsdEdge, OsdLook, OsdStyle};
@@ -57,6 +58,18 @@ const WHITE: u32 = 0xffffff;
 const ACCENT: u32 = 0x2d81ff;
 const DANGER: u32 = 0xff6259;
 
+fn dictation_size(view: &DictationView) -> (f32, f32) {
+    if view.look == macafon_ipc::DictationPopupLook::Analog {
+        return (280.0, 132.0);
+    }
+    match view.state {
+        DictationState::Listening => (200.0, 40.0),
+        DictationState::Transcribing => (120.0, 32.0),
+        DictationState::Done => (40.0, 32.0),
+        _ => (220.0, 40.0),
+    }
+}
+
 /// `--app-<color>` fill and `--app-<color>-ink` text for each of `CHANNEL_COLORS`.
 fn channel_colors(color: &str) -> (u32, u32) {
     match color {
@@ -73,6 +86,7 @@ fn channel_colors(color: &str) -> (u32, u32) {
 type Message = (Osd, OsdConfig);
 
 static POPUP: OnceLock<Option<(mpsc::Sender<Message>, usize)>> = OnceLock::new();
+thread_local! { static DICTATION_BUTTONS: std::cell::Cell<Option<(windows::Win32::Foundation::RECT, windows::Win32::Foundation::RECT)>> = const { std::cell::Cell::new(None) }; }
 
 pub fn show(osd: Osd, setup: OsdConfig) {
     let Some((sender, window)) = POPUP.get_or_init(spawn) else {
@@ -109,6 +123,23 @@ unsafe extern "system" fn procedure(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    if message == WM_MOUSEACTIVATE {
+        return LRESULT(MA_NOACTIVATE as isize);
+    }
+    if message == WM_NCHITTEST {
+        let x = lparam.0 as i16 as i32;
+        let y = (lparam.0 >> 16) as i16 as i32;
+        if let Some((stop, cancel)) = DICTATION_BUTTONS.with(|b| b.get()) {
+            let inside = |r: windows::Win32::Foundation::RECT| {
+                x >= r.left && x < r.right && y >= r.top && y < r.bottom
+            };
+            return LRESULT(if inside(stop) || inside(cancel) {
+                HTCLIENT as isize
+            } else {
+                HTTRANSPARENT as isize
+            });
+        }
+    }
     // SAFETY: window-manager arguments; no application pointers are used.
     unsafe { DefWindowProcW(window, message, wparam, lparam) }
 }
@@ -154,6 +185,23 @@ fn run(receiver: mpsc::Receiver<Message>, ready: &mpsc::SyncSender<Option<usize>
             while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
                 if message.message == WM_QUIT {
                     return Ok(());
+                }
+                if message.message == WM_LBUTTONUP {
+                    let x = (message.lParam.0 as i16) as f32 / popup.painter.scale;
+                    let y = ((message.lParam.0 >> 16) as i16) as f32 / popup.painter.scale;
+                    if let Some(Osd::Dictation(view)) = &popup.view {
+                        if view.hands_free && view.state == DictationState::Listening {
+                            let panel = dictation_size(view);
+                            let (bounds, _, _) = popup.layout.place(popup.painter.size, panel);
+                            if y >= bounds.top
+                                && y <= bounds.top + 28.0
+                                && x >= bounds.right - 50.0
+                                && x <= bounds.right
+                            {
+                                super::dictation_click(x > bounds.right - 28.0);
+                            }
+                        }
+                    }
                 }
                 DispatchMessageW(&message);
             }
@@ -248,7 +296,7 @@ impl Layout {
             ),
             OsdStyle::Horizontal => (
                 STATUS_MAX_W + 2.0 * (SHADOW + STRETCH),
-                STATUS_H + self.pad + SHADOW,
+                176.0 + self.pad + SHADOW,
             ),
         }
     }
@@ -299,6 +347,8 @@ struct Popup {
     alert: Spring,
     stretch: Spring,
     status_width: f32,
+    vu: Vu,
+    shimmer: f32,
 }
 
 impl Popup {
@@ -322,18 +372,26 @@ impl Popup {
             alert: Spring::default(),
             stretch: Spring::default(),
             status_width: STATUS_MIN_W,
+            vu: Vu::default(),
+            shimmer: 0.0,
         }
     }
 
     fn receive(&mut self, osd: Osd, setup: OsdConfig, now: Instant) {
+        if matches!(&osd, Osd::Dictation(v) if v.state == DictationState::Cancelled) {
+            self.hide();
+            self.view = None;
+            return;
+        }
         let same = match (&self.view, &osd) {
+            (Some(Osd::Dictation(_)), Osd::Dictation(_)) => true,
             (Some(Osd::Volume { name: a, .. }), Osd::Volume { name: b, .. }) => a == b,
             (Some(Osd::Status { title: a, .. }), Osd::Status { title: b, .. }) => a == b,
             _ => false,
         };
         // Settings changing the setup moves a visible popup right away.
         if !self.visible || setup != self.layout.setup {
-            if let Err(error) = self.place(setup) {
+            if let Err(error) = self.place(setup, matches!(osd, Osd::Dictation(_))) {
                 tracing::debug!(%error, "Cannot place hotkey popup");
                 return;
             }
@@ -349,6 +407,7 @@ impl Popup {
         self.exiting = false;
         self.changed_at = now;
         match &osd {
+            Osd::Dictation(_) => {}
             Osd::Volume {
                 volume_pct, muted, ..
             } => {
@@ -380,6 +439,20 @@ impl Popup {
                 self.status_width = self.painter.status_width(title, value, setup.look);
             }
         }
+        // SAFETY: this thread owns the window; only its click-through style changes.
+        let clickable = matches!(&osd, Osd::Dictation(view) if view.hands_free && view.state == DictationState::Listening);
+        unsafe {
+            let style = GetWindowLongPtrW(self.window, GWL_EXSTYLE) as u32;
+            SetWindowLongPtrW(
+                self.window,
+                GWL_EXSTYLE,
+                if clickable {
+                    style & !WS_EX_TRANSPARENT.0
+                } else {
+                    style | WS_EX_TRANSPARENT.0
+                } as isize,
+            );
+        }
         self.view = Some(osd);
         if !animations_enabled() {
             for spring in [
@@ -396,7 +469,7 @@ impl Popup {
 
     /// Moves every spring by `dt`; false once all rest.
     fn advance(&mut self, now: Instant, dt: f32) -> bool {
-        if !self.exiting && now - self.changed_at >= HOLD {
+        if !self.exiting && now - self.changed_at >= self.hold() {
             self.exiting = true;
             self.enter.target = 0.0;
             if !animations_enabled() {
@@ -405,6 +478,19 @@ impl Popup {
         }
         let (frequency, damping) = if self.exiting { EXIT } else { ENTER };
         self.enter.step(dt, frequency, damping);
+        if let Some(Osd::Dictation(view)) = &self.view {
+            let rms = if view.state == DictationState::Listening {
+                view.rms_dbfs
+            } else {
+                -120.0
+            };
+            if animations_enabled() {
+                self.vu.step(rms, dt);
+                self.shimmer += dt;
+            } else {
+                self.vu.value = 10.0f32.powf((rms + 18.0) / 20.0).clamp(0.0, 1.6);
+            }
+        }
         self.level.step(dt, LEVEL.0, LEVEL.1);
         self.mute.step(dt, FADE.0, FADE.1);
         self.alert.step(dt, FADE.0, FADE.1);
@@ -412,6 +498,10 @@ impl Popup {
         if self.exiting && self.enter.value <= 0.01 {
             self.hide();
             return false;
+        }
+        if matches!(&self.view, Some(Osd::Dictation(v)) if matches!(v.state, DictationState::Listening | DictationState::Transcribing))
+        {
+            return true;
         }
         ![self.enter, self.level, self.mute, self.alert, self.stretch]
             .iter()
@@ -423,11 +513,27 @@ impl Popup {
         if !self.visible || self.exiting {
             return u32::MAX; // INFINITE
         }
-        let left = HOLD.saturating_sub(now - self.changed_at);
+        let left = self.hold().saturating_sub(now - self.changed_at);
         u32::try_from(left.as_millis()).unwrap_or(u32::MAX).max(1)
     }
 
+    fn hold(&self) -> Duration {
+        if let Some(Osd::Dictation(view)) = &self.view {
+            if matches!(view.state, DictationState::Done | DictationState::Copied) {
+                return Duration::from_millis(
+                    if view.look == macafon_ipc::DictationPopupLook::Analog {
+                        700
+                    } else {
+                        400
+                    },
+                );
+            }
+        }
+        HOLD
+    }
+
     fn hide(&mut self) {
+        DICTATION_BUTTONS.with(|b| b.set(None));
         self.visible = false;
         self.shown = false;
         self.exiting = false;
@@ -439,7 +545,7 @@ impl Popup {
 
     /// The chosen edge of the work area of the monitor with the foreground window (else the
     /// cursor), moved toward the center by the offset, drawn at that monitor's scale.
-    fn place(&mut self, setup: OsdConfig) -> Result<()> {
+    fn place(&mut self, setup: OsdConfig, dictation: bool) -> Result<()> {
         // SAFETY: plain queries into stack structs.
         unsafe {
             let foreground = GetForegroundWindow();
@@ -469,15 +575,16 @@ impl Popup {
                 OsdEdge::Top | OsdEdge::Bottom => work_h,
             };
             let offset = (across as f32 * setup.offset_pct / 100.0).round() as i32;
+            let margin = if dictation { 48.0 } else { MARGIN };
             let layout = Layout {
                 setup,
-                pad: MARGIN + (offset as f32 / scale).min(SLIDE + SHADOW),
+                pad: margin + (offset as f32 / scale).min(SLIDE + SHADOW),
             };
             self.painter.resize(scale, layout.window())?;
             let px = |dip: f32| (dip * scale).round() as i32;
             let (w, h) = (self.painter.width as i32, self.painter.height as i32);
             // The panel's edge lands `MARGIN + offset` from the work area's edge.
-            let inset = offset + px(MARGIN) - px(layout.pad);
+            let inset = offset + px(margin) - px(layout.pad);
             self.origin = match setup.edge {
                 OsdEdge::Right => POINT {
                     x: work.right - w - inset,
@@ -513,8 +620,33 @@ impl Popup {
             alert: self.alert.value.clamp(0.0, 1.0),
             stretch: self.stretch.value,
             status_width: self.status_width,
+            vu: self.vu.value,
+            shimmer: self.shimmer,
         };
         self.painter.paint(&scene, self.layout, None)?;
+        let buttons = if let Osd::Dictation(view) = view {
+            if view.hands_free && view.state == DictationState::Listening {
+                let (bounds, _, _) = self.layout.place(self.painter.size, dictation_size(view));
+                let p = self.painter.panel;
+                let screen = |left: f32, right: f32| windows::Win32::Foundation::RECT {
+                    left: self.origin.x + ((left * p.M11 + p.M31) * self.painter.scale) as i32,
+                    right: self.origin.x + ((right * p.M11 + p.M31) * self.painter.scale) as i32,
+                    top: self.origin.y
+                        + (((bounds.top + 1.0) * p.M22 + p.M32) * self.painter.scale) as i32,
+                    bottom: self.origin.y
+                        + (((bounds.top + 26.0) * p.M22 + p.M32) * self.painter.scale) as i32,
+                };
+                Some((
+                    screen(bounds.right - 48.0, bounds.right - 28.0),
+                    screen(bounds.right - 28.0, bounds.right - 7.0),
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        DICTATION_BUTTONS.with(|b| b.set(buttons));
         let opacity = (self.enter.value * 1.4).clamp(0.0, 1.0);
         self.painter.present(self.window, self.origin, opacity)?;
         if !self.shown {
@@ -553,6 +685,8 @@ fn animations_enabled() -> bool {
 
 /// One frame: `enter` 0 → 1 (springs may overshoot), the rest in 0..=1 except `stretch`.
 struct Scene<'a> {
+    vu: f32,
+    shimmer: f32,
     view: &'a Osd,
     enter: f32,
     level: f32,
@@ -797,6 +931,7 @@ impl Painter {
             Osd::Volume { .. } if horizontal => (BAR_W, BAR_H),
             Osd::Volume { .. } => (VOLUME_W, VOLUME_H),
             Osd::Status { .. } => (scene.status_width, STATUS_H),
+            Osd::Dictation(view) => dictation_size(view),
         };
         let (bounds, (pivot_x, pivot_y), (toward_x, toward_y)) = layout.place(self.size, panel);
         // Grow from the panel's edge side and slide in from the screen edge; an overshoot of
@@ -816,10 +951,13 @@ impl Painter {
             target.SetTransform(&IDENTITY);
             target.Clear(Some(&backdrop.map_or(rgba(0, 0.0), |hex| rgba(hex, 1.0))));
             target.SetTransform(&self.panel);
-            let drawn = if layout.setup.look == OsdLook::Sketch {
+            let drawn = if let Osd::Dictation(view) = scene.view {
+                self.dictation(&target, scene, bounds, view)
+            } else if layout.setup.look == OsdLook::Sketch {
                 self.sketch(&target, scene, bounds, horizontal)
             } else {
                 match scene.view {
+                    Osd::Dictation(view) => self.dictation(&target, scene, bounds, view),
                     Osd::Volume {
                         name, color, icon, ..
                     } if horizontal => self.bar(&target, scene, bounds, name, color, icon),
@@ -896,6 +1034,7 @@ impl Painter {
                 }
             }
             match scene.view {
+                Osd::Dictation(view) => self.dictation(target, scene, bounds, view)?,
                 Osd::Volume {
                     name, color, icon, ..
                 } => {
@@ -1286,6 +1425,358 @@ impl Painter {
         Ok(())
     }
 
+    unsafe fn dictation(
+        &mut self,
+        target: &ID2D1RenderTarget,
+        scene: &Scene,
+        bounds: D2D_RECT_F,
+        view: &DictationView,
+    ) -> Result<()> {
+        use macafon_ipc::DictationPopupLook;
+        let listening = view.state == DictationState::Listening;
+        let transcribing = view.state == DictationState::Transcribing;
+        let danger = view.state == DictationState::Error;
+        let caption = match view.state {
+            DictationState::Cancelled => "",
+            DictationState::Listening if view.elapsed_s >= 270 => "30 SECONDS LEFT",
+            DictationState::Listening => "REC",
+            DictationState::Transcribing => "TRANSCRIBING",
+            DictationState::Done => "TYPED",
+            DictationState::Copied => "COPIED — PRESS CTRL+V",
+            DictationState::NoSpeech => "NO SPEECH",
+            DictationState::Error => "DICTATION ERROR",
+        };
+        // SAFETY: this method is called between BeginDraw and EndDraw on the popup thread.
+        unsafe {
+            let ink = target.CreateSolidColorBrush(&rgba(INK, 1.0), None)?;
+            let faint = target.CreateSolidColorBrush(&rgba(INK, 0.4), None)?;
+            let red = target.CreateSolidColorBrush(&rgba(DANGER, 1.0), None)?;
+            let amber = target.CreateSolidColorBrush(&rgba(0xffc14d, 1.0), None)?;
+            if view.look == DictationPopupLook::Flow {
+                let radius = (bounds.bottom - bounds.top) / 2.0;
+                self.card(target, bounds, radius)?;
+                let fill = target.CreateSolidColorBrush(&rgba(0x0b0b0c, 0.92), None)?;
+                target.FillRoundedRectangle(&rounded(bounds, radius), &fill);
+                if danger {
+                    target.DrawRoundedRectangle(&rounded(bounds, radius), &red, 1.0, None);
+                }
+                let center_y = (bounds.top + bounds.bottom) / 2.0;
+                if listening {
+                    for n in 0..15 {
+                        let energy = view.bands[n.min(14 - n)];
+                        let mirrored = 1.0 - ((n as f32 - 7.0) / 8.0).abs() * 0.25;
+                        let height = 3.0 + energy.clamp(0.0, 1.0) * 24.0 * mirrored;
+                        let x = bounds.left + 22.0 + n as f32 * 6.0;
+                        target.FillRoundedRectangle(
+                            &rounded(
+                                rect(x, center_y - height / 2.0, x + 3.0, center_y + height / 2.0),
+                                1.5,
+                            ),
+                            &ink,
+                        );
+                    }
+                } else if transcribing {
+                    for n in 0..3 {
+                        let phase = (scene.shimmer * std::f32::consts::TAU / 0.9 - n as f32 * 0.8)
+                            .sin()
+                            * 0.5
+                            + 0.5;
+                        let brush =
+                            target.CreateSolidColorBrush(&rgba(INK, 0.3 + 0.7 * phase), None)?;
+                        target.FillEllipse(
+                            &D2D1_ELLIPSE {
+                                point: Vector2 {
+                                    X: (bounds.left + bounds.right) / 2.0 + (n as f32 - 1.0) * 18.0,
+                                    Y: center_y,
+                                },
+                                radiusX: 3.0,
+                                radiusY: 3.0,
+                            },
+                            &brush,
+                        );
+                    }
+                } else if matches!(view.state, DictationState::Done | DictationState::Copied) {
+                    let x = bounds.left
+                        + if view.state == DictationState::Done {
+                            12.0
+                        } else {
+                            20.0
+                        };
+                    target.DrawLine(
+                        Vector2 { X: x, Y: center_y },
+                        Vector2 {
+                            X: x + 5.0,
+                            Y: center_y + 5.0,
+                        },
+                        &ink,
+                        2.0,
+                        None,
+                    );
+                    target.DrawLine(
+                        Vector2 {
+                            X: x + 5.0,
+                            Y: center_y + 5.0,
+                        },
+                        Vector2 {
+                            X: x + 15.0,
+                            Y: center_y - 7.0,
+                        },
+                        &ink,
+                        2.0,
+                        None,
+                    );
+                    if view.state == DictationState::Copied {
+                        self.text(
+                            target,
+                            "Copied",
+                            &self.title,
+                            rect(x + 26.0, bounds.top, bounds.right - 16.0, bounds.bottom),
+                            rgba(INK, 1.0),
+                        )?;
+                    }
+                } else {
+                    self.hud_text(
+                        target,
+                        caption,
+                        rect(
+                            bounds.left + 20.0,
+                            bounds.top,
+                            bounds.right - 20.0,
+                            bounds.bottom,
+                        ),
+                        rgba(if danger { DANGER } else { INK }, 1.0),
+                        false,
+                    )?;
+                }
+                if listening {
+                    let label = if view.elapsed_s >= 270 {
+                        format!("{}:{:02}", view.elapsed_s / 60, view.elapsed_s % 60)
+                    } else {
+                        view.language.clone()
+                    };
+                    self.hud_text(
+                        target,
+                        &label,
+                        rect(
+                            bounds.left + 136.0,
+                            bounds.top,
+                            bounds.right - 20.0,
+                            bounds.bottom,
+                        ),
+                        rgba(if view.elapsed_s >= 270 { 0xffc14d } else { INK }, 1.0),
+                        false,
+                    )?;
+                }
+            } else {
+                let surface = target.CreateSolidColorBrush(&rgba(BG_RAISED, 1.0), None)?;
+                target.FillRectangle(&bounds, &surface);
+                target.DrawRectangle(&bounds, &faint, 1.0, None);
+                for x in [bounds.left, bounds.right] {
+                    for y in [bounds.top, bounds.bottom] {
+                        target.DrawLine(
+                            Vector2 { X: x - 5.5, Y: y },
+                            Vector2 { X: x + 5.5, Y: y },
+                            &faint,
+                            1.0,
+                            None,
+                        );
+                        target.DrawLine(
+                            Vector2 { X: x, Y: y - 5.5 },
+                            Vector2 { X: x, Y: y + 5.5 },
+                            &faint,
+                            1.0,
+                            None,
+                        );
+                    }
+                }
+                let center = Vector2 {
+                    X: (bounds.left + bounds.right) / 2.0,
+                    Y: bounds.top + 99.0,
+                };
+                let radius = 76.0;
+                let angle = |vu: f32| std::f32::consts::PI * (1.15 + (vu + 20.0) / 23.0 * 0.7);
+                let point = |vu: f32, r: f32| {
+                    let a = angle(vu);
+                    Vector2 {
+                        X: center.X + a.cos() * r,
+                        Y: center.Y + a.sin() * r,
+                    }
+                };
+                for n in 0..92 {
+                    let a = -20.0 + n as f32 * 0.25;
+                    let b = a + 0.25;
+                    target.DrawLine(
+                        point(a, radius),
+                        point(b, radius),
+                        if a >= 0.0 { &red } else { &faint },
+                        1.0,
+                        None,
+                    );
+                }
+                for vu in [-20.0, -10.0, -7.0, -5.0, -3.0, 0.0, 1.0, 2.0, 3.0] {
+                    target.DrawLine(
+                        point(vu, radius - 6.0),
+                        point(vu, radius + 3.0),
+                        if vu > 0.0 { &red } else { &ink },
+                        1.0,
+                        None,
+                    );
+                    let pos = point(vu, radius + 14.0);
+                    self.hud_text(
+                        target,
+                        &format!("{vu:.0}"),
+                        rect(pos.X - 12.0, pos.Y - 8.0, pos.X + 14.0, pos.Y + 8.0),
+                        rgba(if vu > 0.0 { DANGER } else { INK }, 0.8),
+                        true,
+                    )?;
+                }
+                self.hud_text(
+                    target,
+                    "VU",
+                    rect(
+                        center.X - 15.0,
+                        bounds.top + 54.0,
+                        center.X + 15.0,
+                        bounds.top + 75.0,
+                    ),
+                    rgba(INK, 0.6),
+                    true,
+                )?;
+                let vu = 20.0 * scene.vu.max(0.1).log10();
+                target.DrawLine(
+                    center,
+                    point(vu.clamp(-20.0, 3.0), radius - 12.0),
+                    &amber,
+                    2.0,
+                    None,
+                );
+                target.FillEllipse(
+                    &D2D1_ELLIPSE {
+                        point: center,
+                        radiusX: 4.0,
+                        radiusY: 4.0,
+                    },
+                    &amber,
+                );
+                let lamp = Vector2 {
+                    X: bounds.left + 18.0,
+                    Y: bounds.top + 115.0,
+                };
+                if listening || danger {
+                    for radius in [8.0, 5.5] {
+                        let glow = target.CreateSolidColorBrush(
+                            &rgba(if danger { DANGER } else { 0xffc14d }, 0.08),
+                            None,
+                        )?;
+                        target.FillEllipse(
+                            &D2D1_ELLIPSE {
+                                point: lamp,
+                                radiusX: radius,
+                                radiusY: radius,
+                            },
+                            &glow,
+                        );
+                    }
+                }
+                target.FillEllipse(
+                    &D2D1_ELLIPSE {
+                        point: lamp,
+                        radiusX: 2.5,
+                        radiusY: 2.5,
+                    },
+                    if danger {
+                        &red
+                    } else if listening {
+                        &amber
+                    } else {
+                        &faint
+                    },
+                );
+                let label = if view.state == DictationState::Done {
+                    format!("TYPED ? {} WORDS", view.words)
+                } else if view.state == DictationState::Copied {
+                    "COPIED".into()
+                } else {
+                    format!(
+                        "{}  {}:{:02}  {}  {}",
+                        if listening { "REC" } else { caption },
+                        view.elapsed_s / 60,
+                        view.elapsed_s % 60,
+                        view.engine,
+                        view.language
+                    )
+                };
+                self.hud_text(
+                    target,
+                    &label,
+                    rect(
+                        bounds.left + 30.0,
+                        bounds.top + 102.0,
+                        bounds.right - 10.0,
+                        bounds.bottom - 8.0,
+                    ),
+                    rgba(
+                        if danger {
+                            DANGER
+                        } else if view.elapsed_s >= 270 {
+                            0xffc14d
+                        } else {
+                            INK
+                        },
+                        0.8,
+                    ),
+                    false,
+                )?;
+                if transcribing {
+                    let offset = (scene.shimmer * 80.0) % 220.0;
+                    target.FillRectangle(
+                        &rect(
+                            bounds.left + 20.0 + offset,
+                            bounds.top + 96.0,
+                            bounds.left + 28.0 + offset,
+                            bounds.top + 98.0,
+                        ),
+                        &amber,
+                    );
+                }
+            }
+            if view.hands_free && listening {
+                let y = bounds.top + 8.0;
+                target.FillRectangle(
+                    &rect(bounds.right - 39.0, y, bounds.right - 33.0, y + 6.0),
+                    &ink,
+                );
+                target.DrawLine(
+                    Vector2 {
+                        X: bounds.right - 21.0,
+                        Y: y,
+                    },
+                    Vector2 {
+                        X: bounds.right - 15.0,
+                        Y: y + 6.0,
+                    },
+                    &ink,
+                    1.0,
+                    None,
+                );
+                target.DrawLine(
+                    Vector2 {
+                        X: bounds.right - 15.0,
+                        Y: y,
+                    },
+                    Vector2 {
+                        X: bounds.right - 21.0,
+                        Y: y + 6.0,
+                    },
+                    &ink,
+                    1.0,
+                    None,
+                );
+            }
+        }
+        Ok(())
+    }
+
     unsafe fn status(
         &mut self,
         target: &ID2D1RenderTarget,
@@ -1610,6 +2101,83 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "writes native dictation popup previews"]
+    fn dictation_previews() {
+        let directory =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.artifacts/screenshots");
+        std::fs::create_dir_all(&directory).expect("preview directory");
+        // SAFETY: COM is initialized only for this test's rendering thread.
+        unsafe {
+            CoInitializeEx(None, COINIT_MULTITHREADED)
+                .ok()
+                .expect("COM");
+        }
+        let mut painter = Painter::new().expect("painter");
+        let layout = Layout {
+            setup: OsdConfig {
+                style: OsdStyle::Horizontal,
+                edge: OsdEdge::Bottom,
+                ..Default::default()
+            },
+            pad: 48.0,
+        };
+        painter.resize(2.0, layout.window()).expect("surface");
+        for (name, look) in [
+            ("flow", macafon_ipc::DictationPopupLook::Flow),
+            ("analog", macafon_ipc::DictationPopupLook::Analog),
+        ] {
+            for (label, state) in [
+                ("listening", DictationState::Listening),
+                ("transcribing", DictationState::Transcribing),
+                ("done", DictationState::Done),
+                ("copied", DictationState::Copied),
+                ("no-speech", DictationState::NoSpeech),
+                ("error", DictationState::Error),
+                ("too-long", DictationState::Listening),
+            ] {
+                let view = Osd::Dictation(DictationView {
+                    look,
+                    state,
+                    rms_dbfs: -20.0,
+                    bands: std::array::from_fn(|n| 0.3 + (n as f32 * 0.8).sin().abs() * 0.6),
+                    elapsed_s: if label == "too-long" { 270 } else { 7 },
+                    engine: "WHISPER".into(),
+                    words: 14,
+                    language: "UK".into(),
+                    hands_free: true,
+                });
+                let scene = Scene {
+                    view: &view,
+                    enter: 1.0,
+                    level: 0.0,
+                    mute: 0.0,
+                    alert: 0.0,
+                    stretch: 0.0,
+                    status_width: STATUS_MIN_W,
+                    vu: 0.8,
+                    shimmer: 0.5,
+                };
+                painter
+                    .paint(&scene, layout, Some(BG_RAISED))
+                    .expect("paint");
+                painter
+                    .save_png(&directory.join(format!("2026-10-19-dictation-{name}-{label}.png")))
+                    .expect("png");
+                painter.resize(1.0, (1180.0, 760.0)).expect("full screen");
+                painter
+                    .paint(&scene, layout, Some(BG_RAISED))
+                    .expect("full frame");
+                painter
+                    .save_png(
+                        &directory.join(format!("2026-10-19-dictation-{name}-{label}-screen.png")),
+                    )
+                    .expect("full PNG");
+                painter.resize(2.0, layout.window()).expect("close up");
+            }
+        }
+    }
+
+    #[test]
     fn springs_bounce_once_and_settle_quickly() {
         let mut enter = Spring {
             target: 1.0,
@@ -1715,13 +2283,14 @@ mod tests {
                         Osd::Volume {
                             volume_pct, muted, ..
                         } => (volume_pct / 100.0, f32::from(u8::from(*muted)), 0.0),
+                        Osd::Dictation(_) => (0.0, 0.0, 0.0),
                         Osd::Status { alert, .. } => (0.0, 0.0, f32::from(u8::from(*alert))),
                     };
                     let status_width = match view {
                         Osd::Status { title, value, .. } => {
                             painter.status_width(title, value, look)
                         }
-                        Osd::Volume { .. } => STATUS_MIN_W,
+                        Osd::Volume { .. } | Osd::Dictation(_) => STATUS_MIN_W,
                     };
                     let scene = Scene {
                         view,
@@ -1731,6 +2300,8 @@ mod tests {
                         alert,
                         stretch: *stretch,
                         status_width,
+                        vu: 0.5,
+                        shimmer: 0.5,
                     };
                     painter
                         .paint(&scene, layout, Some(0x3a4a5c))
@@ -1756,6 +2327,8 @@ mod tests {
                         alert: 0.0,
                         stretch: 0.0,
                         status_width: STATUS_MIN_W,
+                        vu: 0.5,
+                        shimmer: 0.5,
                     };
                     painter
                         .paint(&scene, layout, Some(0x3a4a5c))

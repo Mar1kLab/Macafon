@@ -3,6 +3,8 @@
 //! system notifications, which piled up while a volume key was held. Linux keeps a replaceable
 //! desktop notification for presets and volumes: Wayland gives no way to place an overlay.
 
+pub mod dictation;
+
 #[cfg(windows)]
 mod icons;
 #[cfg(windows)]
@@ -11,6 +13,7 @@ mod popup;
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(not(windows), allow(dead_code))]
 pub enum Osd {
+    Dictation(dictation::View),
     /// A channel volume or mute: a vertical slider in the channel's color, icon and name.
     Volume {
         name: String,
@@ -48,6 +51,7 @@ pub fn show(osd: Osd, setup: macafon_config::OsdConfig) {
 #[cfg(not(windows))]
 pub fn show(osd: Osd, _setup: macafon_config::OsdConfig) {
     match osd {
+        Osd::Dictation(_) => {}
         Osd::Volume {
             name, muted: true, ..
         } => crate::notify::osd(format!("{name}: muted")),
@@ -60,5 +64,26 @@ pub fn show(osd: Osd, _setup: macafon_config::OsdConfig) {
             ..
         } => crate::notify::osd(format!("Preset: {value}")),
         Osd::Status { .. } => {}
+    }
+}
+
+static DICTATION_CONTROL: std::sync::OnceLock<
+    macafon_backend::ControlSender<crate::host::ControlMessage>,
+> = std::sync::OnceLock::new();
+pub fn set_dictation_control(control: macafon_backend::ControlSender<crate::host::ControlMessage>) {
+    let _ = DICTATION_CONTROL.set(control);
+}
+#[cfg(windows)]
+pub fn dictation_click(cancel: bool) {
+    if let Some(control) = DICTATION_CONTROL.get() {
+        let (reply, _) = std::sync::mpsc::channel();
+        let _ = control.send(crate::host::ControlMessage::Request {
+            request: if cancel {
+                macafon_ipc::Request::DictationCancel
+            } else {
+                macafon_ipc::Request::DictationTestStop
+            },
+            reply,
+        });
     }
 }

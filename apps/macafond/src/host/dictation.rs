@@ -1,7 +1,13 @@
 //! Dictation IPC and control-loop integration. Heavy I/O belongs to the model/audio workers.
 use super::DaemonHost;
 use macafon_ipc::*;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+/// A hold shortcut starts dictation only after it is held this long, so a brush of the keys
+/// or fast typing never starts it; the pre-roll keeps the speech said meanwhile.
+const HOLD_DELAY: Duration = Duration::from_millis(250);
+/// Two short taps this close start hands-free dictation.
+const DOUBLE_TAP: Duration = Duration::from_millis(400);
 
 impl DaemonHost {
     pub(super) fn dictation_hotkey(&mut self, action: HotkeyAction, pressed: bool) {
@@ -10,21 +16,36 @@ impl DaemonHost {
         }
         let result = match action {
             HotkeyAction::DictationHold | HotkeyAction::DictationHoldCopy => {
+                let copy = action == HotkeyAction::DictationHoldCopy;
+                let now = Instant::now();
                 if pressed
                     && self.dictation.hands_free
                     && self.dictation.phase == DictationPhase::Listening
                 {
                     self.finish_dictation()
                 } else if pressed {
-                    let now = Instant::now();
-                    let double = self.dictation.last_press.is_some_and(|(last, copy)| {
-                        copy == (action == HotkeyAction::DictationHoldCopy)
-                            && now.duration_since(last).as_millis() < 400
-                    });
-                    self.dictation.last_press =
-                        Some((now, action == HotkeyAction::DictationHoldCopy));
-                    self.begin_dictation(false, action == HotkeyAction::DictationHoldCopy, double)
-                } else if !self.dictation.hands_free {
+                    let double =
+                        self.dictation
+                            .last_press
+                            .take()
+                            .is_some_and(|(last, was_copy)| {
+                                was_copy == copy && now.duration_since(last) < DOUBLE_TAP
+                            });
+                    if double {
+                        self.dictation.pending_hold = None;
+                        self.begin_dictation(false, copy, true)
+                    } else {
+                        // Started by `tick_dictation` once held for HOLD_DELAY.
+                        self.dictation.pending_hold = Some((now, copy));
+                        Ok(())
+                    }
+                } else if self.dictation.pending_hold.take().is_some() {
+                    // Released before the delay: a tap, not a dictation.
+                    self.dictation.last_press = Some((now, copy));
+                    Ok(())
+                } else if !self.dictation.hands_free
+                    && self.dictation.phase == DictationPhase::Listening
+                {
                     self.finish_dictation()
                 } else {
                     Ok(())
@@ -399,6 +420,18 @@ impl DaemonHost {
     }
     pub(super) fn tick_dictation(&mut self) {
         self.ensure_dictation_audio();
+        if let Some((since, copy)) = self.dictation.pending_hold {
+            if since.elapsed() >= HOLD_DELAY {
+                self.dictation.pending_hold = None;
+                if self.begin_dictation(false, copy, false).is_err() {
+                    self.dictation.phase = DictationPhase::Error;
+                    self.dictation.popup_state = crate::osd::dictation::State::Error;
+                    self.dictation.error = Some("dictation action failed".into());
+                    self.show_dictation_popup();
+                    self.dictation_changed();
+                }
+            }
+        }
         if self
             .dictation
             .audio

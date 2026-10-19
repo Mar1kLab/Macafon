@@ -5,7 +5,10 @@ use crate::host::ControlMessage;
 use macafon_backend::ControlSender;
 use std::cell::RefCell;
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
-use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
+    KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY,
+};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 pub(super) static DICTATION_RECORDING: std::sync::atomic::AtomicBool =
@@ -20,7 +23,6 @@ struct State {
     keys: Vec<Key>,
     down: [bool; 256],
     control: ControlSender<ControlMessage>,
-    suppress_win_release: bool,
 }
 thread_local! { static STATE: RefCell<Option<State>> = const { RefCell::new(None) }; }
 
@@ -55,7 +57,6 @@ impl Hook {
                 keys,
                 down,
                 control: control.clone(),
-                suppress_win_release: false,
             })
         });
         Ok(Self(hook))
@@ -126,10 +127,6 @@ unsafe extern "system" fn callback(code: i32, wparam: WPARAM, lparam: LPARAM) ->
                 let ctrl = u8::from(d[0xa2]) | (u8::from(d[0xa3]) << 1);
                 let alt = u8::from(d[0xa4]) | (u8::from(d[0xa5]) << 1);
                 let mut consumed = false;
-                if released && (vk == 0x5b || vk == 0x5c) && state.suppress_win_release {
-                    consumed = true;
-                    state.suppress_win_release = false;
-                }
                 for key in &mut state.keys {
                     if key.binding.action == "dictation_cancel"
                         && !DICTATION_RECORDING.load(std::sync::atomic::Ordering::Acquire)
@@ -144,19 +141,21 @@ unsafe extern "system" fn callback(code: i32, wparam: WPARAM, lparam: LPARAM) ->
                                 *down && !matches!(vk, 0x10..=0x12 | 0x5b..=0x5c | 0xa0..=0xa5)
                             }));
                     let key_down = key.vk == 0 || d[key.vk as usize];
+                    // Modifier-only chords (Ctrl+Win) never swallow a modifier: Windows must see
+                    // every press and release, or it keeps Win held down for the whole system.
                     if key.held && (!key_down || !matches) {
                         key.held = false;
                         press(&state.control, &key.binding.action, false);
-                        consumed |= vk == key.vk || (key.vk == 0 && (vk == 0x5b || vk == 0x5c));
+                        consumed |= key.vk != 0 && vk == key.vk;
                     } else if (vk == key.vk || key.vk == 0) && pressed && matches {
                         if !key.held {
                             press(&state.control, &key.binding.action, true);
+                            if key.vk == 0 {
+                                mask_start_menu();
+                            }
                         }
                         key.held = true;
-                        consumed = true;
-                        if key.vk == 0 {
-                            state.suppress_win_release = true;
-                        }
+                        consumed |= key.vk != 0;
                     }
                 }
                 consumed
@@ -168,6 +167,27 @@ unsafe extern "system" fn callback(code: i32, wparam: WPARAM, lparam: LPARAM) ->
     }
     // SAFETY: all unmatched keyboard input continues to the next hook and normal recipient.
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
+}
+
+/// A tap of the unassigned virtual key 0xE8 tells Windows another key went with Win, so
+/// releasing Win does not open the Start menu (the "menu mask key" AutoHotkey uses). It is
+/// injected, so this hook and the hotkey matching ignore it.
+fn mask_start_menu() {
+    let key = |flags: KEYBD_EVENT_FLAGS| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(0xe8),
+                wScan: 0,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    let inputs = [key(KEYBD_EVENT_FLAGS(0)), key(KEYEVENTF_KEYUP)];
+    // SAFETY: the inputs are fully initialized and live for the duration of the call.
+    unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
 }
 
 pub(super) fn virtual_key(key: &str) -> Option<u32> {

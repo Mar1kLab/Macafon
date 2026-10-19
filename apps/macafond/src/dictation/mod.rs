@@ -31,7 +31,11 @@ pub struct Dictation {
     pub target: target::Target,
     pub game: bool,
     pub hands_free: bool,
+    /// The last short tap of a hold shortcut (released before the hold delay): a second tap
+    /// soon after starts hands-free dictation.
     pub last_press: Option<(Instant, bool)>,
+    /// A hold shortcut pressed, not yet held long enough to start (STT-002); `bool` = copy only.
+    pub pending_hold: Option<(Instant, bool)>,
     pub audio: Option<Audio>,
     pub popup_state: crate::osd::dictation::State,
     next_id: u64,
@@ -105,6 +109,7 @@ impl Dictation {
             game: false,
             hands_free: false,
             last_press: None,
+            pending_hold: None,
             audio: None,
             next_id: 1,
             popup_state: crate::osd::dictation::State::Listening,

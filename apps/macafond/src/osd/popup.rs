@@ -58,9 +58,19 @@ const WHITE: u32 = 0xffffff;
 const ACCENT: u32 = 0x2d81ff;
 const DANGER: u32 = 0xff6259;
 
+// The Analog dictation popup: a small, quiet VU meter (§9.9.3).
+const ANALOG_W: f32 = 168.0;
+const ANALOG_H: f32 = 76.0;
+/// Needle travel 0…1 for a linear VU amplitude (1 = 0 VU): linear in voltage from −20 to
+/// +3 VU, so 0 VU sits about two thirds along, as on real meters.
+fn vu_travel(amplitude: f32) -> f32 {
+    let (low, high) = (0.1f32, 10f32.powf(3.0 / 20.0));
+    ((amplitude - low) / (high - low)).clamp(-0.02, 1.08)
+}
+
 fn dictation_size(view: &DictationView) -> (f32, f32) {
     if view.look == macafon_ipc::DictationPopupLook::Analog {
-        return (280.0, 132.0);
+        return (ANALOG_W, ANALOG_H);
     }
     match view.state {
         DictationState::Listening => (200.0, 40.0),
@@ -355,6 +365,8 @@ struct Popup {
     stretch: Spring,
     status_width: f32,
     vu: Vu,
+    /// The Analog needle's peak, held and let down slowly: a faint ghost needle.
+    vu_peak: f32,
     shimmer: f32,
 }
 
@@ -380,6 +392,7 @@ impl Popup {
             stretch: Spring::default(),
             status_width: STATUS_MIN_W,
             vu: Vu::default(),
+            vu_peak: 0.0,
             shimmer: 0.0,
         }
     }
@@ -494,6 +507,8 @@ impl Popup {
             if animations_enabled() {
                 self.vu.step(rms, dt);
                 self.shimmer += dt;
+                let travel = vu_travel(self.vu.value);
+                self.vu_peak = travel.max(self.vu_peak - dt * 0.35);
             } else {
                 self.vu.value = 10.0f32.powf((rms + 18.0) / 20.0).clamp(0.0, 1.6);
             }
@@ -628,6 +643,7 @@ impl Popup {
             stretch: self.stretch.value,
             status_width: self.status_width,
             vu: self.vu.value,
+            vu_peak: self.vu_peak,
             shimmer: self.shimmer,
         };
         self.painter.paint(&scene, self.layout, None)?;
@@ -693,6 +709,7 @@ fn animations_enabled() -> bool {
 /// One frame: `enter` 0 → 1 (springs may overshoot), the rest in 0..=1 except `stretch`.
 struct Scene<'a> {
     vu: f32,
+    vu_peak: f32,
     shimmer: f32,
     view: &'a Osd,
     enter: f32,
@@ -1536,9 +1553,7 @@ impl Painter {
         // SAFETY: this method is called between BeginDraw and EndDraw on the popup thread.
         unsafe {
             let ink = target.CreateSolidColorBrush(&rgba(INK, 1.0), None)?;
-            let faint = target.CreateSolidColorBrush(&rgba(INK, 0.4), None)?;
             let red = target.CreateSolidColorBrush(&rgba(DANGER, 1.0), None)?;
-            let amber = target.CreateSolidColorBrush(&rgba(0xffc14d, 1.0), None)?;
             if view.look == DictationPopupLook::Flow {
                 let radius = (bounds.bottom - bounds.top) / 2.0;
                 self.card(target, bounds, radius)?;
@@ -1655,177 +1670,7 @@ impl Painter {
                     )?;
                 }
             } else {
-                let surface = target.CreateSolidColorBrush(&rgba(BG_RAISED, 1.0), None)?;
-                target.FillRectangle(&bounds, &surface);
-                target.DrawRectangle(&bounds, &faint, 1.0, None);
-                for x in [bounds.left, bounds.right] {
-                    for y in [bounds.top, bounds.bottom] {
-                        target.DrawLine(
-                            Vector2 { X: x - 5.5, Y: y },
-                            Vector2 { X: x + 5.5, Y: y },
-                            &faint,
-                            1.0,
-                            None,
-                        );
-                        target.DrawLine(
-                            Vector2 { X: x, Y: y - 5.5 },
-                            Vector2 { X: x, Y: y + 5.5 },
-                            &faint,
-                            1.0,
-                            None,
-                        );
-                    }
-                }
-                let center = Vector2 {
-                    X: (bounds.left + bounds.right) / 2.0,
-                    Y: bounds.top + 99.0,
-                };
-                let radius = 76.0;
-                let angle = |vu: f32| std::f32::consts::PI * (1.15 + (vu + 20.0) / 23.0 * 0.7);
-                let point = |vu: f32, r: f32| {
-                    let a = angle(vu);
-                    Vector2 {
-                        X: center.X + a.cos() * r,
-                        Y: center.Y + a.sin() * r,
-                    }
-                };
-                for n in 0..92 {
-                    let a = -20.0 + n as f32 * 0.25;
-                    let b = a + 0.25;
-                    target.DrawLine(
-                        point(a, radius),
-                        point(b, radius),
-                        if a >= 0.0 { &red } else { &faint },
-                        1.0,
-                        None,
-                    );
-                }
-                for vu in [-20.0, -10.0, -7.0, -5.0, -3.0, 0.0, 1.0, 2.0, 3.0] {
-                    target.DrawLine(
-                        point(vu, radius - 6.0),
-                        point(vu, radius + 3.0),
-                        if vu > 0.0 { &red } else { &ink },
-                        1.0,
-                        None,
-                    );
-                    let pos = point(vu, radius + 14.0);
-                    self.dictation_hud_text(
-                        target,
-                        &format!("{vu:.0}"),
-                        rect(pos.X - 12.0, pos.Y - 8.0, pos.X + 14.0, pos.Y + 8.0),
-                        rgba(if vu > 0.0 { DANGER } else { INK }, 0.8),
-                        true,
-                    )?;
-                }
-                self.text(
-                    target,
-                    "VU",
-                    &self.dictation_serif,
-                    rect(
-                        center.X - 20.0,
-                        bounds.top + 54.0,
-                        center.X + 20.0,
-                        bounds.top + 80.0,
-                    ),
-                    rgba(INK, 0.6),
-                )?;
-                let vu = 20.0 * scene.vu.max(0.1).log10();
-                target.DrawLine(
-                    center,
-                    point(vu.clamp(-20.0, 3.0), radius - 12.0),
-                    &amber,
-                    2.0,
-                    None,
-                );
-                target.FillEllipse(
-                    &D2D1_ELLIPSE {
-                        point: center,
-                        radiusX: 4.0,
-                        radiusY: 4.0,
-                    },
-                    &amber,
-                );
-                let lamp = Vector2 {
-                    X: bounds.left + 18.0,
-                    Y: bounds.top + 115.0,
-                };
-                if listening || danger {
-                    for radius in [8.0, 5.5] {
-                        let glow = target.CreateSolidColorBrush(
-                            &rgba(if danger { DANGER } else { 0xffc14d }, 0.08),
-                            None,
-                        )?;
-                        target.FillEllipse(
-                            &D2D1_ELLIPSE {
-                                point: lamp,
-                                radiusX: radius,
-                                radiusY: radius,
-                            },
-                            &glow,
-                        );
-                    }
-                }
-                target.FillEllipse(
-                    &D2D1_ELLIPSE {
-                        point: lamp,
-                        radiusX: 2.5,
-                        radiusY: 2.5,
-                    },
-                    if danger {
-                        &red
-                    } else if listening {
-                        &amber
-                    } else {
-                        &faint
-                    },
-                );
-                let label = if view.state == DictationState::Done {
-                    format!("TYPED ? {} WORDS", view.words)
-                } else if view.state == DictationState::Copied {
-                    "COPIED".into()
-                } else {
-                    format!(
-                        "{}  {}:{:02}  {}  {}",
-                        if listening { "REC" } else { caption },
-                        view.elapsed_s / 60,
-                        view.elapsed_s % 60,
-                        view.engine,
-                        view.language
-                    )
-                };
-                self.dictation_hud_text(
-                    target,
-                    &label,
-                    rect(
-                        bounds.left + 30.0,
-                        bounds.top + 102.0,
-                        bounds.right - 10.0,
-                        bounds.bottom - 8.0,
-                    ),
-                    rgba(
-                        if danger {
-                            DANGER
-                        } else if view.elapsed_s >= 270 {
-                            0xffc14d
-                        } else {
-                            INK
-                        },
-                        0.8,
-                    ),
-                    false,
-                )?;
-                if transcribing {
-                    let offset = (scene.shimmer * 80.0) % 220.0;
-                    target.FillRectangle(
-                        &rect(
-                            bounds.left + 20.0 + offset,
-                            bounds.top + 96.0,
-                            bounds.left + 28.0 + offset,
-                            bounds.top + 98.0,
-                        ),
-                        &amber,
-                    );
-                }
+                self.analog(target, scene, bounds, view, caption)?;
             }
             if view.hands_free && listening {
                 let y = bounds.top + 8.0;
@@ -1859,6 +1704,237 @@ impl Painter {
                     1.0,
                     None,
                 );
+            }
+        }
+        Ok(())
+    }
+
+    /// The Analog look: a thin arc with the red zone, a white needle with VU ballistics and
+    /// its slowly falling peak ghost, a lamp glow that breathes with the voice; while
+    /// transcribing the needle sways and a light runs along the arc.
+    unsafe fn analog(
+        &self,
+        target: &ID2D1RenderTarget,
+        scene: &Scene,
+        bounds: D2D_RECT_F,
+        view: &DictationView,
+        caption: &str,
+    ) -> Result<()> {
+        let listening = view.state == DictationState::Listening;
+        let transcribing = view.state == DictationState::Transcribing;
+        let danger = view.state == DictationState::Error;
+        let done = matches!(view.state, DictationState::Done | DictationState::Copied);
+        // SAFETY: called between BeginDraw and EndDraw on the popup thread.
+        unsafe {
+            let brush = |hex: u32, a: f32| target.CreateSolidColorBrush(&rgba(hex, a), None);
+            target.FillRectangle(&bounds, &brush(BG_RAISED, 1.0)?);
+            let line = brush(INK, 0.22)?;
+            target.DrawRectangle(&bounds, &line, 1.0, None);
+            let tick = brush(INK, 0.45)?;
+            for x in [bounds.left, bounds.right] {
+                for y in [bounds.top, bounds.bottom] {
+                    target.DrawLine(
+                        Vector2 { X: x - 4.0, Y: y },
+                        Vector2 { X: x + 4.0, Y: y },
+                        &tick,
+                        1.0,
+                        None,
+                    );
+                    target.DrawLine(
+                        Vector2 { X: x, Y: y - 4.0 },
+                        Vector2 { X: x, Y: y + 4.0 },
+                        &tick,
+                        1.0,
+                        None,
+                    );
+                }
+            }
+            let center = Vector2 {
+                X: (bounds.left + bounds.right) / 2.0,
+                Y: bounds.top + 58.0,
+            };
+            let radius = 44.0;
+            // −50°…+50° from vertical.
+            let point = |travel: f32, r: f32| {
+                let a = (-50.0 + 100.0 * travel).to_radians();
+                Vector2 {
+                    X: center.X + a.sin() * r,
+                    Y: center.Y - a.cos() * r,
+                }
+            };
+            let level = vu_travel(scene.vu).clamp(0.0, 1.0);
+            // The lamp: an amber glow under the arc that breathes with the voice.
+            if listening || transcribing {
+                target.PushAxisAlignedClip(&bounds, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+                let strength = if listening { 0.05 + 0.16 * level } else { 0.04 };
+                for (r, a) in [(52.0, 0.35), (36.0, 0.6), (20.0, 1.0)] {
+                    target.FillEllipse(
+                        &D2D1_ELLIPSE {
+                            point: center,
+                            radiusX: r,
+                            radiusY: r * 0.8,
+                        },
+                        &brush(0xf2a516, strength * a)?,
+                    );
+                }
+                target.PopAxisAlignedClip();
+            }
+            let red_from = vu_travel(1.0);
+            let segments = 48;
+            let faint = brush(INK, 0.38)?;
+            let red = brush(DANGER, 1.0)?;
+            for n in 0..segments {
+                let (a, b) = (n as f32 / segments as f32, (n + 1) as f32 / segments as f32);
+                let hot = a >= red_from - 0.001;
+                target.DrawLine(
+                    point(a, radius),
+                    point(b, radius),
+                    if hot { &red } else { &faint },
+                    if hot { 2.0 } else { 1.0 },
+                    None,
+                );
+            }
+            for vu in [-20.0f32, -10.0, -5.0, 0.0, 3.0] {
+                let travel = vu_travel(10f32.powf(vu / 20.0));
+                target.DrawLine(
+                    point(travel, radius - 4.0),
+                    point(travel, radius),
+                    if vu >= 0.0 { &red } else { &faint },
+                    1.0,
+                    None,
+                );
+            }
+            // Transcribing: a light runs along the arc.
+            if transcribing {
+                let head = (scene.shimmer * 0.9).fract();
+                for n in 0..6 {
+                    let at = head - n as f32 * 0.035;
+                    if at < 0.0 {
+                        continue;
+                    }
+                    let glow = brush(0xffc14d, 1.0 - n as f32 / 6.0)?;
+                    let p = point(at, radius);
+                    target.FillEllipse(
+                        &D2D1_ELLIPSE {
+                            point: p,
+                            radiusX: 1.6,
+                            radiusY: 1.6,
+                        },
+                        &glow,
+                    );
+                }
+            }
+            self.text(
+                target,
+                "VU",
+                &self.dictation_serif,
+                rect(
+                    center.X - 40.0,
+                    center.Y - 20.0,
+                    center.X - 14.0,
+                    center.Y - 2.0,
+                ),
+                rgba(INK, 0.35),
+            )?;
+            // Peak ghost, then the needle.
+            let needle_travel = if transcribing {
+                0.18 + 0.1 * (scene.shimmer * 2.2).sin()
+            } else {
+                vu_travel(scene.vu)
+            };
+            if listening && scene.vu_peak > needle_travel + 0.02 {
+                target.DrawLine(
+                    center,
+                    point(scene.vu_peak, radius - 3.0),
+                    &brush(INK, 0.22)?,
+                    1.0,
+                    None,
+                );
+            }
+            let white = brush(WHITE, if done { 0.7 } else { 1.0 })?;
+            target.DrawLine(
+                center,
+                point(needle_travel, radius - 3.0),
+                &white,
+                1.5,
+                None,
+            );
+            target.FillEllipse(
+                &D2D1_ELLIPSE {
+                    point: center,
+                    radiusX: 2.5,
+                    radiusY: 2.5,
+                },
+                &white,
+            );
+            // The peak lamp lights on clipping.
+            if listening && view.rms_dbfs > -7.0 {
+                target.FillRectangle(
+                    &rect(
+                        bounds.right - 12.0,
+                        bounds.top + 8.0,
+                        bounds.right - 8.0,
+                        bounds.top + 12.0,
+                    ),
+                    &red,
+                );
+            }
+            // HUD line: a blinking REC dot and the time, the language on the right.
+            let hud_top = bounds.top + 61.0;
+            let hud = rect(
+                bounds.left + 10.0,
+                hud_top,
+                bounds.right - 10.0,
+                bounds.bottom - 3.0,
+            );
+            let label = match view.state {
+                DictationState::Listening => {
+                    format!("{}:{:02}", view.elapsed_s / 60, view.elapsed_s % 60)
+                }
+                DictationState::Done => format!("TYPED · {}", view.words),
+                _ => caption.to_owned(),
+            };
+            let mut text_left = hud.left;
+            if listening {
+                let on = (scene.shimmer.fract()) < 0.6;
+                target.FillEllipse(
+                    &D2D1_ELLIPSE {
+                        point: Vector2 {
+                            X: hud.left + 2.5,
+                            Y: hud_top + 5.5,
+                        },
+                        radiusX: 2.0,
+                        radiusY: 2.0,
+                    },
+                    &brush(DANGER, if on { 1.0 } else { 0.25 })?,
+                );
+                text_left += 9.0;
+            }
+            let warning = listening && view.elapsed_s >= 270;
+            self.dictation_hud_text(
+                target,
+                &label,
+                rect(text_left, hud.top, hud.right - 24.0, hud.bottom),
+                rgba(
+                    if danger {
+                        DANGER
+                    } else if warning {
+                        0xffc14d
+                    } else {
+                        INK
+                    },
+                    0.85,
+                ),
+                false,
+            )?;
+            if listening || transcribing {
+                self.dictation_hud_text(
+                    target,
+                    &view.language,
+                    rect(hud.right - 26.0, hud.top, hud.right, hud.bottom),
+                    rgba(INK, 0.55),
+                    false,
+                )?;
             }
         }
         Ok(())
@@ -2242,6 +2318,7 @@ mod tests {
                     stretch: 0.0,
                     status_width: STATUS_MIN_W,
                     vu: 0.8,
+                    vu_peak: 0.9,
                     shimmer: 0.5,
                 };
                 painter
@@ -2388,6 +2465,7 @@ mod tests {
                         stretch: *stretch,
                         status_width,
                         vu: 0.5,
+                        vu_peak: 0.0,
                         shimmer: 0.5,
                     };
                     painter
@@ -2415,6 +2493,7 @@ mod tests {
                         stretch: 0.0,
                         status_width: STATUS_MIN_W,
                         vu: 0.5,
+                        vu_peak: 0.0,
                         shimmer: 0.5,
                     };
                     painter

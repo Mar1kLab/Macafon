@@ -70,8 +70,62 @@ impl Drop for Audio {
     }
 }
 
+/// STT-015: the saved history, when the user keeps it across restarts.
+fn history_file() -> Option<std::path::PathBuf> {
+    let base = std::env::var_os("LOCALAPPDATA")?;
+    Some(
+        std::path::Path::new(&base)
+            .join("Macafon")
+            .join("dictation-history.json"),
+    )
+}
+
+fn load_history() -> Vec<DictationResult> {
+    history_file()
+        .and_then(|path| std::fs::read(path).ok())
+        .and_then(|bytes| serde_json::from_slice::<Vec<DictationResult>>(&bytes).ok())
+        .map(|mut history| {
+            history.truncate(20);
+            history
+        })
+        .unwrap_or_default()
+}
+
+/// Written off the control loop: temp file + rename, so a crash never leaves half a file.
+pub fn save_history(history: &[DictationResult]) {
+    let Some(path) = history_file() else {
+        return;
+    };
+    let Ok(bytes) = serde_json::to_vec(history) else {
+        return;
+    };
+    std::thread::spawn(move || {
+        let temp = path.with_extension("json.tmp");
+        let result = path
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| std::fs::write(&temp, bytes))
+            .and_then(|()| std::fs::rename(&temp, &path));
+        if let Err(error) = result {
+            tracing::warn!(%error, "Cannot save the dictation history");
+        }
+    });
+}
+
+pub fn delete_saved_history() {
+    if let Some(path) = history_file() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 impl Dictation {
     pub fn new(config: &macafon_config::dictation::DictationConfig) -> Self {
+        let history = if config.keep_history && config.save_history {
+            load_history()
+        } else {
+            Vec::new()
+        };
+        let next_id = history.iter().map(|entry| entry.id).max().unwrap_or(0) + 1;
         let logical_cores = num_cpus::get().clamp(1, u16::MAX as usize) as u16;
         let default_threads = (num_cpus::get_physical() / 2)
             .max(2)
@@ -84,7 +138,7 @@ impl Dictation {
                 DictationPhase::Off
             },
             error: None,
-            history: Vec::new(),
+            history,
             last: None,
             worker: None,
             loaded_model: None,
@@ -111,7 +165,7 @@ impl Dictation {
             last_press: None,
             pending_hold: None,
             audio: None,
-            next_id: 1,
+            next_id,
             popup_state: crate::osd::dictation::State::Listening,
         }
     }
@@ -355,6 +409,9 @@ impl Dictation {
                         if prefs.keep_history {
                             self.history.insert(0, entry.clone());
                             self.history.truncate(20);
+                            if prefs.save_history {
+                                save_history(&self.history);
+                            }
                         }
                         result = Some(entry);
                     }

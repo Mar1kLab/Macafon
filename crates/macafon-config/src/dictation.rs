@@ -20,6 +20,7 @@ pub struct DictationConfig {
     pub gpu: bool,
     pub pre_roll: bool,
     pub keep_history: bool,
+    pub save_history: bool,
     pub vocabulary: Vec<String>,
     pub show_in_overlay: bool,
     pub models_dir: String,
@@ -31,6 +32,7 @@ pub struct DictationPopupConfig {
     pub look: DictationPopupLook,
     pub position: DictationPopupPosition,
     pub offset_pct: f32,
+    pub primary_monitor: bool,
 }
 impl Default for DictationPopupConfig {
     fn default() -> Self {
@@ -38,6 +40,7 @@ impl Default for DictationPopupConfig {
             look: DictationPopupLook::Flow,
             position: DictationPopupPosition::Bottom,
             offset_pct: 0.0,
+            primary_monitor: false,
         }
     }
 }
@@ -60,6 +63,7 @@ impl Default for DictationConfig {
             gpu: true,
             pre_roll: true,
             keep_history: true,
+            save_history: false,
             vocabulary: vec!["Macafon".into(), "PipeWire".into()],
             show_in_overlay: true,
             models_dir: String::new(),
@@ -86,11 +90,13 @@ impl DictationConfig {
             gpu: self.gpu,
             pre_roll: self.pre_roll,
             keep_history: self.keep_history,
+            save_history: self.save_history,
             vocabulary: self.vocabulary.clone(),
             show_in_overlay: self.show_in_overlay,
             popup_look: self.popup.look,
             popup_position: self.popup.position,
             popup_offset_pct: self.popup.offset_pct,
+            popup_primary_monitor: self.popup.primary_monitor,
         }
     }
     pub fn set_prefs(&mut self, prefs: DictationPrefs) {
@@ -110,12 +116,14 @@ impl DictationConfig {
         self.gpu = prefs.gpu;
         self.pre_roll = prefs.pre_roll;
         self.keep_history = prefs.keep_history;
+        self.save_history = prefs.save_history;
         self.vocabulary = prefs.vocabulary;
         self.show_in_overlay = prefs.show_in_overlay;
         self.popup = DictationPopupConfig {
             look: prefs.popup_look,
             position: prefs.popup_position,
             offset_pct: prefs.popup_offset_pct,
+            primary_monitor: prefs.popup_primary_monitor,
         };
     }
 }

@@ -166,7 +166,8 @@ impl DaemonHost {
         crate::osd::show(
             crate::osd::Osd::Dictation(view),
             macafon_config::OsdConfig {
-                primary_monitor: self.config.ui.osd.primary_monitor,
+                // Independent of the hotkey popup's monitor setting.
+                primary_monitor: prefs.popup_primary_monitor,
                 style: macafon_config::OsdStyle::Horizontal,
                 edge: if prefs.popup_position == DictationPopupPosition::Top {
                     macafon_config::OsdEdge::Top
@@ -265,6 +266,11 @@ impl DaemonHost {
                 if !prefs.keep_history {
                     self.dictation.history.clear();
                 }
+                if !prefs.keep_history || !prefs.save_history {
+                    crate::dictation::delete_saved_history();
+                } else if !previous.save_history {
+                    crate::dictation::save_history(&self.dictation.history);
+                }
                 let rebuild_tap = prefs.pre_roll != previous.pre_roll
                     || prefs.tap != previous.tap
                     || prefs.enabled != previous.enabled;
@@ -323,6 +329,7 @@ impl DaemonHost {
             Request::DictationCancel => self.cancel_dictation(),
             Request::DictationHistoryClear => {
                 self.dictation.history.clear();
+                crate::dictation::delete_saved_history();
                 self.dictation_changed();
             }
             Request::DictationReinsert { id } => self

@@ -121,12 +121,20 @@ pub struct DictationPrefs {
     pub pre_roll: bool,
     /// STT-015.
     pub keep_history: bool,
+    /// STT-015: keep the history across restarts in a file of the user's profile; off keeps it
+    /// in memory until Macafon quits (owner request, 2026-10-19).
+    #[serde(default)]
+    pub save_history: bool,
     /// STT-014: Whisper only.
     pub vocabulary: Vec<String>,
     pub popup_look: DictationPopupLook,
     pub popup_position: DictationPopupPosition,
     /// Toward the center, percent of the monitor height (`OSD_MAX_OFFSET_PCT` bound).
     pub popup_offset_pct: f32,
+    /// The popup stays on the primary monitor instead of following the active window's one;
+    /// independent of the hotkey popup's setting.
+    #[serde(default)]
+    pub popup_primary_monitor: bool,
     /// §9.9.2: the Dictation tile in the tray panel and the hotkey overlay.
     pub show_in_overlay: bool,
 }
@@ -172,6 +180,8 @@ pub struct DictationPrefsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keep_history: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_history: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vocabulary: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub popup_look: Option<DictationPopupLook>,
@@ -179,6 +189,8 @@ pub struct DictationPrefsPatch {
     pub popup_position: Option<DictationPopupPosition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub popup_offset_pct: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popup_primary_monitor: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_in_overlay: Option<bool>,
 }

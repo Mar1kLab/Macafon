@@ -566,6 +566,11 @@ pre_roll: boolean,
  */
 keep_history: boolean,
 /**
+ * STT-015: keep the history across restarts in a file of the user's profile; off keeps it
+ * in memory until Macafon quits (owner request, 2026-10-19).
+ */
+save_history: boolean,
+/**
  * STT-014: Whisper only.
  */
 vocabulary: Array<string>, popup_look: DictationPopupLook, popup_position: DictationPopupPosition,
@@ -574,11 +579,16 @@ vocabulary: Array<string>, popup_look: DictationPopupLook, popup_position: Dicta
  */
 popup_offset_pct: number,
 /**
+ * The popup stays on the primary monitor instead of following the active window's one;
+ * independent of the hotkey popup's setting.
+ */
+popup_primary_monitor: boolean,
+/**
  * §9.9.2: the Dictation tile in the tray panel and the hotkey overlay.
  */
 show_in_overlay: boolean, };
 
-export type DictationPrefsPatch = { enabled?: boolean | null, engine?: DictationEngine | null, model?: string | null, language?: DictationLanguagePolicy | null, fixed_language?: DictationLanguage | null, tap?: DictationTap | null, mute_mic_while_dictating?: boolean | null, insert?: DictationInsert | null, trailing_space?: boolean | null, fullscreen_games?: DictationGamePolicy | null, unload_after_s?: number | null, threads?: number | null, game_mode?: boolean | null, gpu?: boolean | null, pre_roll?: boolean | null, keep_history?: boolean | null, vocabulary?: Array<string> | null, popup_look?: DictationPopupLook | null, popup_position?: DictationPopupPosition | null, popup_offset_pct?: number | null, show_in_overlay?: boolean | null, };
+export type DictationPrefsPatch = { enabled?: boolean | null, engine?: DictationEngine | null, model?: string | null, language?: DictationLanguagePolicy | null, fixed_language?: DictationLanguage | null, tap?: DictationTap | null, mute_mic_while_dictating?: boolean | null, insert?: DictationInsert | null, trailing_space?: boolean | null, fullscreen_games?: DictationGamePolicy | null, unload_after_s?: number | null, threads?: number | null, game_mode?: boolean | null, gpu?: boolean | null, pre_roll?: boolean | null, keep_history?: boolean | null, save_history?: boolean | null, vocabulary?: Array<string> | null, popup_look?: DictationPopupLook | null, popup_position?: DictationPopupPosition | null, popup_offset_pct?: number | null, popup_primary_monitor?: boolean | null, show_in_overlay?: boolean | null, };
 
 export type DictationPhase = "off" | "unloaded" | "loading" | "ready" | "listening" | "transcribing" | "error";
 

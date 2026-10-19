@@ -39,6 +39,11 @@ pub(super) enum Top {
 
 #[derive(Subcommand)]
 pub(super) enum Ctl {
+    /// Enable or disable local dictation.
+    Dictation {
+        #[arg(value_enum, default_value_t = Switch::Toggle)]
+        state: Switch,
+    },
     /// Show the microphone state.
     Status,
     /// Stop the daemon; the virtual microphone disappears.

@@ -16,6 +16,38 @@ pub(super) fn run(json: bool, command: Ctl) -> Result<()> {
         .with_context(|| format!("is macafond running? ({endpoint})"))?;
     let request = match command {
         Ctl::Status => Request::MicGet,
+        Ctl::Dictation { state } => {
+            let current: macafon_ipc::DictationState = client.call_as(Request::DictationGet)?;
+            let enabled = match state {
+                Switch::On => true,
+                Switch::Off => false,
+                Switch::Toggle => !current.prefs.enabled,
+            };
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            let result: macafon_ipc::DictationState = loop {
+                match client.call_as(Request::DictationSetPrefs {
+                    patch: macafon_ipc::DictationPrefsPatch {
+                        enabled: Some(enabled),
+                        ..Default::default()
+                    },
+                }) {
+                    Ok(result) => break result,
+                    Err(macafon_ipc::ClientError::Rejected(error))
+                        if error.code == macafon_ipc::ErrorCode::Busy
+                            && std::time::Instant::now() < deadline =>
+                    {
+                        std::thread::sleep(std::time::Duration::from_millis(100))
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            };
+            if json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                println!("dictation: {}", result.prefs.enabled);
+            }
+            return Ok(());
+        }
         Ctl::SetDefault { confirm } => {
             if !confirm {
                 anyhow::bail!(

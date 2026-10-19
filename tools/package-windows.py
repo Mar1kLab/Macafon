@@ -32,6 +32,58 @@ def run(program, *args, cwd=ROOT):
     subprocess.run([executable, *map(str, args)], cwd=cwd, check=True)
 
 
+def stt_target():
+    """The worker builds in a short directory: whisper.cpp's Vulkan backend nests a CMake
+    project for its shader generator deep enough to pass MSBuild's 260-character path limit
+    under target/release/build/."""
+    return Path(os.environ.get("MACAFON_STT_TARGET", Path(ROOT.anchor) / "mst"))
+
+
+def vulkan_env():
+    """The Vulkan SDK (headers, vulkan-1.lib, glslc) for the GPU build of Whisper (STT-020):
+    VULKAN_SDK, else a local SDK folder; CMake and libclang from Visual Studio or LIBCLANG_PATH."""
+    env = dict(os.environ)
+    sdk = env.get("VULKAN_SDK") or str(Path(env["LOCALAPPDATA"]) / "macafon-vulkan-sdk")
+    if not (Path(sdk) / "Bin/glslc.exe").is_file():
+        sys.exit(f"The Vulkan SDK is required to build GPU dictation (glslc not found in {sdk}); "
+                 "set VULKAN_SDK")
+    env["VULKAN_SDK"] = sdk
+    # MSBuild's tracking logs pass the 260-character path limit inside ggml's nested shader
+    # generator project; Ninja does not write them. It needs the MSVC environment.
+    env.update(msvc_env())
+    env["CMAKE_GENERATOR"] = "Ninja"
+    env["PATH"] = os.pathsep.join([str(Path(sdk) / "Bin"), env.get("PATH", "")])
+    return env
+
+
+def msvc_env():
+    """The x64 MSVC developer environment (cl, link, ninja, cmake) from vcvars64.bat."""
+    vswhere = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / \
+        "Microsoft Visual Studio/Installer/vswhere.exe"
+    install = subprocess.check_output(
+        [str(vswhere), "-latest", "-products", "*", "-requires",
+         "Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "-property", "installationPath"],
+        text=True).strip()
+    vcvars = Path(install) / "VC/Auxiliary/Build/vcvars64.bat"
+    output = subprocess.check_output(f'"{vcvars}" >nul && set', shell=True, text=True)
+    env = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
+    cmake = Path(install) / "Common7/IDE/CommonExtensions/Microsoft/CMake"
+    env["PATH"] = os.pathsep.join([str(cmake / "Ninja"), str(cmake / "CMake/bin"), env["PATH"]])
+    return env
+
+
+def build_worker():
+    target = stt_target()
+    executable = shutil.which("cargo")
+    subprocess.run([executable, "build", "--release", "--locked", "-p", "macafon-stt-worker",
+                    "--target-dir", str(target)], cwd=ROOT, check=True, env=vulkan_env())
+    release = ROOT / "target/release"
+    release.mkdir(parents=True, exist_ok=True)
+    for name in ("macafon-stt.exe", "sherpa-onnx-c-api.dll", "onnxruntime.dll",
+                 "onnxruntime_providers_shared.dll"):
+        shutil.copy2(target / "release" / name, release / name)
+
+
 def configuration(stage, triple):
     sidecars = []
     for name in ("macafond", "macafon", "macafon-stt"):
@@ -131,8 +183,8 @@ def main():
     if not args.bundle_only:
         # The project-specific hook in .cargo/config.toml configures Whisper's
         # optimization and portable ISA equally for normal and installer builds.
-        run("cargo", "build", "--release", "--locked", "-p", "macafond", "-p", "macafon-cli",
-            "-p", "macafon-stt-worker")
+        run("cargo", "build", "--release", "--locked", "-p", "macafond", "-p", "macafon-cli")
+        build_worker()
     linux_packaging().notices(stage / "licenses")
     stt_notices(stage / "licenses")
     config = stage / "tauri-bundle.conf.json"

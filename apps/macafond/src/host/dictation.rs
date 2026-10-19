@@ -257,6 +257,7 @@ impl DaemonHost {
                     || prefs.engine != previous.engine
                     || prefs.model != previous.model
                     || prefs.threads != previous.threads
+                    || prefs.gpu != previous.gpu
                     || !prefs.enabled
                 {
                     self.dictation.cancel(prefs.enabled);

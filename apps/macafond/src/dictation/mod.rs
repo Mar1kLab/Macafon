@@ -203,7 +203,10 @@ impl Dictation {
                 } else {
                     prefs.threads
                 },
-                gpu: false,
+                // A game keeps the GPU to itself (STT-008); the worker also forces the CPU then.
+                gpu: prefs.gpu
+                    && !efficiency
+                    && spec.engine == macafon_stt::protocol::Engine::Whisper,
                 efficiency,
             })?;
             self.worker = Some(worker);

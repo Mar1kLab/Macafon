@@ -10,6 +10,8 @@ license.workspace = true
 default = []
 whisper = ["dep:whisper-rs"]
 parakeet = ["dep:sherpa-onnx"]
+# Whisper on the GPU through ggml's Vulkan backend (STT-020); needs the Vulkan SDK to build.
+vulkan = ["whisper", "whisper-rs/vulkan"]
 
 [dependencies]
 serde.workspace = true

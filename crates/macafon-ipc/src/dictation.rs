@@ -113,6 +113,10 @@ pub struct DictationPrefs {
     /// STT-008: inference threads; 0 = max(2, physical cores / 2).
     pub threads: u16,
     pub game_mode: bool,
+    /// STT-020: Whisper runs on the GPU (Vulkan) when one is available; Parakeet stays on the
+    /// CPU. A failed GPU load falls back to the CPU.
+    #[serde(default = "default_true")]
+    pub gpu: bool,
     /// STT-005.
     pub pre_roll: bool,
     /// STT-015.
@@ -125,6 +129,10 @@ pub struct DictationPrefs {
     pub popup_offset_pct: f32,
     /// §9.9.2: the Dictation tile in the tray panel and the hotkey overlay.
     pub show_in_overlay: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// `dictation.set_prefs`: absent fields stay. The models folder has its own request.
@@ -157,6 +165,8 @@ pub struct DictationPrefsPatch {
     pub threads: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub game_mode: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gpu: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pre_roll: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

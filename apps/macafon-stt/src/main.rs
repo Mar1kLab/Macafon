@@ -49,6 +49,9 @@ enum Command {
         beam_size: u16,
         #[arg(long, default_value_t = 1)]
         vad_threads: u16,
+        /// Whisper on the GPU (Vulkan).
+        #[arg(long)]
+        gpu: bool,
     },
 }
 
@@ -72,9 +75,18 @@ fn load(
     gpu: bool,
 ) -> Result<Box<dyn SpeechEngine>, SttError> {
     match engine {
-        Engine::Whisper => Ok(Box::new(macafon_stt::WhisperEngine::load(
-            &dir, &id, threads, gpu,
-        )?)),
+        Engine::Whisper => {
+            if gpu {
+                match macafon_stt::WhisperEngine::load(&dir, &id, threads, true) {
+                    Ok(engine) => return Ok(Box::new(engine)),
+                    // No Vulkan driver or not enough video memory: the CPU still works.
+                    Err(error) => tracing::warn!(%error, "GPU load failed; using the CPU"),
+                }
+            }
+            Ok(Box::new(macafon_stt::WhisperEngine::load(
+                &dir, &id, threads, false,
+            )?))
+        }
         Engine::Parakeet => {
             if gpu {
                 return Err(SttError::ModelLoad("Parakeet supports CPU only".into()));
@@ -395,6 +407,7 @@ fn main() -> Result<()> {
         audio_ctx,
         beam_size,
         vad_threads,
+        gpu,
     }) = Args::parse().command
     else {
         return worker();
@@ -444,7 +457,7 @@ fn main() -> Result<()> {
             &model_dir,
             &id,
             threads,
-            false,
+            gpu,
             macafon_stt::WhisperSettings {
                 flash_attention,
                 single_segment,

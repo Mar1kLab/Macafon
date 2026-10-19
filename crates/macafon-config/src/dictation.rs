@@ -17,6 +17,7 @@ pub struct DictationConfig {
     pub unload_after_s: i32,
     pub threads: u16,
     pub game_mode: bool,
+    pub gpu: bool,
     pub pre_roll: bool,
     pub keep_history: bool,
     pub vocabulary: Vec<String>,
@@ -56,6 +57,7 @@ impl Default for DictationConfig {
             unload_after_s: 180,
             threads: 0,
             game_mode: true,
+            gpu: true,
             pre_roll: true,
             keep_history: true,
             vocabulary: vec!["Macafon".into(), "PipeWire".into()],
@@ -81,6 +83,7 @@ impl DictationConfig {
             unload_after_s: self.unload_after_s,
             threads: self.threads,
             game_mode: self.game_mode,
+            gpu: self.gpu,
             pre_roll: self.pre_roll,
             keep_history: self.keep_history,
             vocabulary: self.vocabulary.clone(),
@@ -104,6 +107,7 @@ impl DictationConfig {
         self.unload_after_s = prefs.unload_after_s;
         self.threads = prefs.threads;
         self.game_mode = prefs.game_mode;
+        self.gpu = prefs.gpu;
         self.pre_roll = prefs.pre_roll;
         self.keep_history = prefs.keep_history;
         self.vocabulary = prefs.vocabulary;

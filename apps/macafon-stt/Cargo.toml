@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
-macafon-stt = { workspace = true, features = ["whisper", "parakeet"] }
+macafon-stt = { workspace = true, features = ["whisper", "parakeet", "vulkan"] }
 serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

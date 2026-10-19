@@ -553,6 +553,11 @@ unload_after_s: number,
  */
 threads: number, game_mode: boolean,
 /**
+ * STT-020: Whisper runs on the GPU (Vulkan) when one is available; Parakeet stays on the
+ * CPU. A failed GPU load falls back to the CPU.
+ */
+gpu: boolean,
+/**
  * STT-005.
  */
 pre_roll: boolean,
@@ -573,7 +578,7 @@ popup_offset_pct: number,
  */
 show_in_overlay: boolean, };
 
-export type DictationPrefsPatch = { enabled?: boolean | null, engine?: DictationEngine | null, model?: string | null, language?: DictationLanguagePolicy | null, fixed_language?: DictationLanguage | null, tap?: DictationTap | null, mute_mic_while_dictating?: boolean | null, insert?: DictationInsert | null, trailing_space?: boolean | null, fullscreen_games?: DictationGamePolicy | null, unload_after_s?: number | null, threads?: number | null, game_mode?: boolean | null, pre_roll?: boolean | null, keep_history?: boolean | null, vocabulary?: Array<string> | null, popup_look?: DictationPopupLook | null, popup_position?: DictationPopupPosition | null, popup_offset_pct?: number | null, show_in_overlay?: boolean | null, };
+export type DictationPrefsPatch = { enabled?: boolean | null, engine?: DictationEngine | null, model?: string | null, language?: DictationLanguagePolicy | null, fixed_language?: DictationLanguage | null, tap?: DictationTap | null, mute_mic_while_dictating?: boolean | null, insert?: DictationInsert | null, trailing_space?: boolean | null, fullscreen_games?: DictationGamePolicy | null, unload_after_s?: number | null, threads?: number | null, game_mode?: boolean | null, gpu?: boolean | null, pre_roll?: boolean | null, keep_history?: boolean | null, vocabulary?: Array<string> | null, popup_look?: DictationPopupLook | null, popup_position?: DictationPopupPosition | null, popup_offset_pct?: number | null, show_in_overlay?: boolean | null, };
 
 export type DictationPhase = "off" | "unloaded" | "loading" | "ready" | "listening" | "transcribing" | "error";
 

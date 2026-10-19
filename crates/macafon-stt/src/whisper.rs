@@ -70,18 +70,17 @@ impl WhisperEngine {
         gpu: bool,
         settings: WhisperSettings,
     ) -> Result<Self, SttError> {
-        if gpu {
-            return Err(SttError::ModelLoad(
-                "GPU acceleration is not shipped in this CPU build".into(),
-            ));
+        if gpu && !cfg!(feature = "vulkan") {
+            return Err(SttError::ModelLoad("this build has no GPU support".into()));
         }
         let spec = crate::manifest::models()
             .iter()
             .find(|spec| spec.id == model_id && spec.engine == crate::protocol::Engine::Whisper)
             .ok_or_else(|| SttError::ModelLoad("unknown Whisper model".into()))?;
         let mut params = WhisperContextParameters::default();
-        params.use_gpu(false);
-        params.flash_attn(settings.flash_attention);
+        params.use_gpu(gpu);
+        // Flash attention is the fast path on GPUs; the CPU keeps its measured setting.
+        params.flash_attn(settings.flash_attention || gpu);
         let context = WhisperContext::new_with_params(
             &model_path(model_dir, spec.files[0].file_name)?,
             params,

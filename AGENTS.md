@@ -121,7 +121,9 @@ Short:
 ## 8. Forbidden without the owner's explicit permission
 
 - Cloud CI beyond the authorized manual Windows installer workflow.
-- Telemetry, analytics, network requests (except the opt-in update check from the PRD).
+- Telemetry, analytics, network requests (except the opt-in update check from the PRD and
+  user-initiated dictation model downloads from pinned Hugging Face URLs, PRD §8.4.6 — owner
+  authorization, 2026-10-19).
 - Root/administrator actions at runtime beyond what the PRD describes (none on Windows, except the
   WIN-MIC-010 option).
 - Changing the user's system audio settings without restoring the original state.

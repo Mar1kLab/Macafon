@@ -21,7 +21,7 @@
 5. [Release scope](#5-release-scope)
 6. [Functional requirements — microphone](#6-functional-requirements--microphone)
 7. [Functional requirements — output channels](#7-functional-requirements--output-channels)
-8. [Background operation, tray, autostart, hotkeys](#8-background-operation-tray-autostart-hotkeys)
+8. [Background operation, tray, autostart, hotkeys, dictation](#8-background-operation-tray-autostart-hotkeys-dictation)
 9. [UX and screens](#9-ux-and-screens)
 10. [Non-functional requirements](#10-non-functional-requirements)
 11. [Architecture](#11-architecture)
@@ -492,7 +492,7 @@ and a separate mixer identity. Existing session volume journaling, external chan
 channel assignment apply to it; no extra cable, driver, audio rerouting or Master multiplication.
 This is a reversible use of ADR-0004's session mixer, not a replacement architecture.
 
-## 8. Background operation, tray, autostart, hotkeys
+## 8. Background operation, tray, autostart, hotkeys, dictation
 
 ### 8.1 Background and tray
 
@@ -530,6 +530,168 @@ This is a reversible use of ADR-0004's session mixer, not a replacement architec
 | HK-009 | Every action has primary and secondary shortcuts, independently recorded and cleared. Windows distinguishes left/right Ctrl and Alt; generic existing modifiers keep matching either side. Overlapping shortcuts are rejected. Releasing one of two held shortcuts leaves the hold action active until both are released | P0 |
 | HK-010 | Settings provides a volume hotkey step of 1..20 percentage points (default 5), shared by channel and Master volume actions. Assigned shortcuts appear next to microphone, preset, channel and Master controls. Volume shortcuts repeat while held: one immediate step, a 400 ms initial delay, then one step every 100 ms; release or rebinding stops repetition. Toggle actions never repeat (owner request, 2026-10-17) | P0 |
 
+### 8.4 Dictation (speech to text)
+
+Owner request, 2026-10-19: Wispr Flow-like dictation that is **free and fully local**. Hold a
+shortcut, speak, release: the text appears in the window that had focus. Required languages:
+English, Ukrainian, Russian. Both engines below are implemented and the user picks one; no separate
+engine benchmark gates the work. Model downloads from Hugging Face are authorized by the owner
+(2026-10-19). Windows first (`Capabilities::dictation`); Linux reports it unavailable until §8.4.9.
+Architecture decision: [ADR-0005](adr/0005-local-dictation-worker.md).
+
+```
+mic -> chain (tap point) -> [RT] atomic gate -> rtrb (2 s) -> [daemon STT thread] 48k -> 16k mono
+                                                                    |  framed pipe
+                                     macafon-stt (worker process, on demand, low priority)
+                                       VAD trim -> engine (Whisper | Parakeet) -> text + language
+                                                                    |
+                         daemon -> language policy -> insert into the captured window -> popup
+```
+
+#### 8.4.1 Engines and models
+
+| Engine | Runtime (license) | Model (Hugging Face, license) | Download | Languages | Notes |
+|---|---|---|---|---|---|
+| **Whisper** (default) | whisper.cpp through `whisper-rs` (MIT / Unlicense) | `ggerganov/whisper.cpp` · `ggml-large-v3-turbo-q5_0.bin` (MIT) — **Turbo**, default | ≈ 0.57 GB | ~100, EN/UK/RU strong | Best UK/RU accuracy; language can be forced (§8.4.4) |
+| | | `ggerganov/whisper.cpp` · `ggml-small-q5_1.bin` (MIT) — **Small** | ≈ 0.19 GB | same | For weak PCs; noticeably weaker Ukrainian |
+| | | `ggml-org/whisper-vad` · `ggml-silero-v5.1.2.bin` (MIT) — VAD | < 1 MB | — | Downloaded with any Whisper model |
+| **Parakeet** | sherpa-onnx (Apache-2.0) + ONNX Runtime (MIT) | NVIDIA Parakeet TDT 0.6B v3, int8 sherpa-onnx export from its Hugging Face mirror (CC-BY-4.0) | ≈ 0.65 GB | 25 European incl. EN/UK/RU | Several times faster on CPU; detects the language itself, cannot be forced |
+| | | Silero VAD v5 ONNX (MIT) | ≈ 2 MB | — | Downloaded with the Parakeet model |
+
+Exact repository paths, file sizes and SHA-256 are pinned in a model manifest compiled into the
+daemon (a Hugging Face commit, not `main`); refreshing the manifest is a code change. Attribution for
+CC-BY-4.0 and the runtime licenses appears in Settings → About.
+
+#### 8.4.2 Requirements
+
+| ID | Requirement | Priority |
+|---|---|---|
+| STT-001 | Dictation is **off by default**. Off means: no tap in the RT path, no ring buffer, no worker process, no dictation hotkeys registered — zero CPU and RAM. Turning it on needs at least one downloaded model; without one, the toggle opens the model picker | P0 |
+| STT-002 | Activation modes: **Hold** (push-to-talk; record while the shortcut is held) and **Hands-free** (press to start, press again to stop; a double tap of the Hold shortcut also starts it, as in Wispr Flow). `Esc` cancels in both modes and inserts nothing. Recordings under 300 ms are ignored. Maximum length 5 min; the popup warns at 4:30 and recording stops at 5:00 and is transcribed | P0 |
+| STT-003 | Hotkey actions (HK-009 rules, two shortcuts each), Windows defaults following Wispr Flow (owner decision, 2026-10-19): `dictation_hold` push-to-talk `Ctrl+Win`; `dictation_toggle` hands-free `Ctrl+Win+Space`; `dictation_paste_last` re-inserts the last result into the focused window `Shift+Alt+Z`; `dictation_copy_last` copies the last result to the clipboard `Shift+Alt+X`; `dictation_hold_copy` push-to-talk that only copies the result to the clipboard, never inserting it `Ctrl+Win+Shift`; `Esc` cancels while recording (registered only then). Unassigned by default: `dictation_enable_toggle` (feature on/off) and `dictation_language_cycle` (Fixed EN → UK → RU → By layout). Modifier-only chords go through the existing `WH_KEYBOARD_LL` hook, either side of Ctrl/Shift/Alt/Win; the Win release that ends a chord is swallowed so the Start menu does not open. The last result is kept in daemon memory even when history is off and cleared on Quit. Defaults are applied once like HK-008: never over a customized map, skipped on conflict | P0 |
+| STT-004 | Audio tap (AGENTS §4.1): the RT thread checks one `AtomicBool`; while recording it copies the block into a preallocated `rtrb` (2 s at 48 kHz mono, allocated when the feature turns on, freed when it turns off). A daemon STT thread drains it, resamples 48 → 16 kHz mono (`rubato`, outside RT) and streams 16 kHz chunks to the worker during recording, so audio never waits for the release. Tap point: **Clean** (after noise suppression, before expander/compressor — default), **Raw** (after Gain) or **Processed** (chain output) | P0 |
+| STT-005 | Pre-roll: while the feature is on, the tap keeps the last 300 ms in a small ring so the first syllable said together with the key press is not cut. It costs one copy of each block and nothing else. Can be turned off in Performance | P1 |
+| STT-006 | "Mute my microphone while dictating" (default on): the virtual microphone output is muted for the recording and restored to its previous state afterwards (an existing mute stays). The voice chat does not hear the dictation. Soundpad playback is not affected | P0 |
+| STT-007 | Worker lifecycle: the key press starts recording **and** spawns `macafon-stt`, which loads the model in parallel (typical 0.5–2 s from SSD), hidden behind speech time. One worker at most. It is unloaded (process exits) after the **unload timeout**: Immediately / 1 / 3 (default) / 10 min / Never. The worker exits when its stdin closes and lives in a Job object with `KILL_ON_JOB_CLOSE`, so a daemon crash never leaves it running. A worker crash shows the error state in the popup and never affects audio | P0 |
+| STT-008 | Low system impact: the worker runs at `BELOW_NORMAL_PRIORITY_CLASS` with EcoQoS (`ProcessPowerThrottling`), CPU by default, threads = max(2, physical cores / 2), adjustable 1..logical cores. **Game mode** (default on): when `SHQueryUserNotificationState` reports a full-screen D3D app or busy state at the key press, the job uses CPU even if GPU is chosen, keeps the thread limit, and the worker unloads right after the result regardless of the timeout | P0 |
+| STT-009 | Two engines (§8.4.1), switchable in the UI; switching unloads the current worker. Engine-specific options are hidden for the other engine (language forcing and vocabulary are Whisper-only) | P0 |
+| STT-010 | Language policy (§8.4.4): **By keyboard layout** (default), **Fixed** EN / UK / RU, **Auto**. The layout is read from the target window at the key press. Parakeet supports only Auto; the UI says so | P0 |
+| STT-011 | Silence and hallucination guard: VAD trims leading/trailing silence and long pauses before inference. If VAD finds under 200 ms of speech, nothing is inserted and the popup shows "No speech". Whisper runs with `no_speech` suppression; a whole-output match against a short list of known Whisper hallucinations ("Thank you for watching", "Продолжение следует…", "Дякую за перегляд" and similar) is dropped | P0 |
+| STT-012 | Text insertion (§8.4.5): into the window captured at the key press; **Paste** (default, clipboard + `Ctrl+V`, clipboard restored) or **Type** (`SendInput` with `KEYEVENTF_UNICODE`). Options: trailing space (default on), what to do in full-screen games (Insert / Copy only (default) / Ignore) | P0 |
+| STT-013 | Model manager (§8.4.6): list, download with progress, cancel, resume, SHA-256 verification, delete, disk-space check, import a local file that matches a manifest hash. Downloads start only from an explicit user action | P0 |
+| STT-014 | Vocabulary: up to 50 user words/names (Whisper passes them as `initial_prompt`; Parakeet ignores them in 1.0). Edited on the Dictation screen | P1 |
+| STT-015 | History: the last 20 results with time, engine, language and duration, kept **in daemon memory only**, cleared on Quit; copy and re-insert from the Dictation screen. "Keep history" can be turned off | P1 |
+| STT-016 | Dictation popup (§8.4.7, §9.9.3): looks **Flow** (default) and **Analog**, position bottom-center (default) or top-center of the monitor chosen by the HK-006 monitor policy, vertical offset in percent. Drawn natively by the daemon, so it works with the UI closed | P0 |
+| STT-017 | Quick access: a **Dictation** tile in the tray quick panel and the hotkey overlay (HK-007), and `Dictation` ✓ in the tray menu (BG-003); all toggle STT-001. The tile shows the download progress when a model is downloading and is disabled with a hint when no model is present | P0 |
+| STT-018 | Optional cues (default off): a quiet start/stop click played to the monitor output only, never into the virtual microphone | P1 |
+| STT-019 | Privacy: audio and text never leave the machine and are never written to disk or logs; logs contain only timings, engine, model, language and error codes | P0 |
+| STT-020 | GPU acceleration: Whisper on Vulkan (any vendor), opt-in, shipped only if the measured installer growth is acceptable (§17 Q9); Parakeet stays on CPU in 1.0 | P2 |
+| STT-021 | CLI: `macafon stt transcribe <file.wav> [--engine] [--model] [--lang]` through the daemon, and `macafon ctl dictation on` / `off` / `toggle` for DE bindings and scripts | P1 |
+
+#### 8.4.3 Process and protocol
+
+- New crate `macafon-stt`: `trait SpeechEngine { fn transcribe(&mut self, pcm_16k: &[f32], opts: &TranscribeOptions) -> Result<Transcript> }`,
+  implementations `WhisperEngine` and `ParakeetEngine` behind cargo features, VAD, the model manifest
+  types. No dependency on the daemon or audio backends.
+- New binary `apps/macafon-stt` (the worker), spawned by `macafond` with anonymous pipes. A small
+  length-prefixed binary protocol: `Load {engine, model, vad, threads, device}`, `Audio {pcm_16k chunk}`,
+  `Finish {language_policy_input}`, `Cancel`, `Unload` → `Loading`, `Ready`, `Result {text, language,
+  lang_probs, timings}`, `Error {code}`. No sockets, no network in the worker.
+- `Transcript.lang_probs` carries Whisper's probabilities restricted to {en, uk, ru}; Parakeet returns
+  `None`.
+- IPC (UI ↔ daemon): `dictation.set_config`, `dictation.models.{list,download,cancel,delete,import}`,
+  `dictation.test.{start,stop}`, `dictation.history.{list,clear,reinsert}`; events `dictation.state`
+  (`off | idle_unloaded | loading | ready | listening | transcribing | error`), `dictation.model_progress`,
+  `dictation.result` (only to subscribed UI: test panel and history). The popup level comes from the tap
+  at 60 Hz only while listening. Types are generated to TS from `macafon-ipc`.
+
+#### 8.4.4 Language policy
+
+Whisper confuses Ukrainian and Russian when it guesses freely, while the keyboard layout of the target
+window usually says which of the two the user writes in. The layout is a strong hint, not a lock: the
+common failure is an English layout left over from code or a password while the user dictates in
+Russian; forcing `en` there would produce a transliteration.
+
+1. At the key press: `GetForegroundWindow` → `GetWindowThreadProcessId` → `GetKeyboardLayout(thread)` →
+   `PRIMARYLANGID` (`0x09` en, `0x22` uk, `0x19` ru, anything else = unknown). UWP: the thread of the
+   child `CoreWindow` of `ApplicationFrameHost`. Console hosts report unreliable layouts → unknown.
+2. **Fixed** → that language, no detection pass.
+3. Otherwise Whisper detects the language (one extra encoder pass over the first 30 s window);
+   probabilities are restricted to {en, uk, ru} and renormalized.
+4. `p_en > p_uk + p_ru` → **en** (Latin vs Cyrillic is reliable).
+5. Cyrillic: layout uk/ru → the layout's language, unless the other one has `p ≥ 0.90`.
+   Layout en/unknown → the last Cyrillic language used in this session unless the other has `p ≥ 0.90`,
+   else the larger of `p_uk`, `p_ru`. The threshold is a constant tuned in D5.
+6. **Auto** → the larger of the three restricted probabilities.
+7. The chosen language is passed to transcription, shown in the popup badge and remembered as the last
+   Cyrillic one when applicable. Parakeet: always Auto, badge `AUTO`.
+
+The layout is only read; Macafon never switches it. Insertion does not depend on it (`Ctrl+V`
+uses the same virtual key in Latin and Cyrillic layouts; Unicode `SendInput` ignores layouts).
+
+#### 8.4.5 Text insertion
+
+- The target `HWND` is captured at the key press. On the result, if that window is still foreground →
+  insert; otherwise → copy to the clipboard, popup "Copied — press Ctrl+V".
+- **Paste:** read and keep the current clipboard (all formats that can be read), put the text with
+  `ExcludeClipboardContentFromMonitorProcessing` and `CanIncludeInClipboardHistory = 0` so dictations
+  do not land in Win+V history or clipboard sync, send `Ctrl+V`, restore the previous content after
+  300 ms unless the clipboard changed meanwhile.
+- **Type:** Unicode `SendInput` in batches; slower but leaves the clipboard alone.
+- An elevated target (UIPI blocks input from a non-elevated process) → copy + popup hint. Macafon
+  never elevates for this.
+- Full-screen games (game mode detection): default **Copy only**, because injected input can matter to
+  anti-cheats; the user may choose Insert.
+- Text post-processing: trim, collapse whitespace, the trailing space option. No reformatting or
+  rewriting of what was said.
+
+#### 8.4.6 Model manager and downloads
+
+- Storage: `%LOCALAPPDATA%\Macafon\models\stt\<engine>\<model>\`. Downloads go to `*.part`, support HTTP
+  `Range` resume, are verified against the manifest SHA-256 and finalized by rename; a mismatch deletes
+  the file and shows an error.
+- Source: only `https://huggingface.co/<repo>/resolve/<pinned commit>/<file>`, HTTPS with certificate
+  validation, the system proxy honored. No other host, no analytics, no auth token.
+- Free-space check before starting (model size + 10 %). One download at a time, on a background
+  thread at background I/O priority, outside the control loop; progress events at most 4 Hz.
+- Delete is refused while the model is loaded (it is unloaded first). Import copies a local file and
+  accepts it only if its hash matches a manifest entry.
+- The installer never contains models; uninstall deletes downloaded models by default, with a
+  checkbox to keep them (owner decision, 2026-10-19).
+
+#### 8.4.7 Popup states
+
+| State | Trigger | Flow look | Analog look |
+|---|---|---|---|
+| Loading | press, worker not ready yet, and listening | — (shown as Listening; loading is hidden behind speech) | the same |
+| Listening | push-to-talk held / hands-free started | pill expands, 15 white bars react to the level | needle on the VU scale, `● REC` and timer |
+| Transcribing | release / hands-free stopped | bars collapse into a shimmering 3-dot row | needle falls back with VU ballistics, the scale dims, a scanning tick strip |
+| Done | text inserted or copied | short check, then the pill shrinks away | `TYPED · 14 WORDS` or `COPIED` for 700 ms |
+| No speech | STT-011 | a small shake, `No speech` | needle twitch, `NO SPEECH` |
+| Error | worker crash, no model, download needed | pill tinted `--danger`, short text | `--danger` lamp, short text |
+| Too long | 4:30 | timer appears in the pill | timer turns amber |
+
+During push-to-talk the popup is click-through. In hands-free it accepts clicks: `■` stop and `✕` cancel.
+The popup never takes focus. Springs and timing reuse the HK-006 popup engine and turn off with
+Windows animations.
+
+#### 8.4.8 Resource budget
+
+| State | Extra RAM | CPU | GPU |
+|---|---|---|---|
+| Feature off | 0 | 0 | 0 |
+| On, worker unloaded | ≈ 0.4 MB (rings) | one block copy for pre-roll (≪ 0.1 % of a core) | 0 |
+| Worker loaded, idle | Whisper Turbo ≈ 0.8–1.2 GB; Small ≈ 0.3–0.5 GB; Parakeet ≈ 0.8–1.2 GB | ≈ 0 | 0 |
+| Transcribing 10 s of speech | — | the thread limit for ≈ 0.3–1.5 s (Parakeet) / ≈ 1.5–4 s (Whisper Turbo) | 0 on CPU |
+
+Numbers are estimates for the NFR-R1 reference CPU and are replaced by measurements in D1/D2
+(NFR-R9…R10, NFR-L7).
+
+#### 8.4.9 Linux (later)
+
+Linux reports `dictation = false` in 1.0. Later: the same worker, text insertion through the
+RemoteDesktop portal or `wtype`/`xdotool`, no per-window layout on Wayland (only Fixed and Auto).
+
 ---
 
 ## 9. UX and screens
@@ -548,6 +710,8 @@ The visual language is the [design system](design/design-system.md). The window 
 └──────┴──────────────────────────────────────────────────────────┘
  64px sidebar: Microphone · Mixer · Settings ; at the bottom — daemon status (a dot) and CPU %
 ```
+
+On Windows the sidebar also has Soundpad (§7.6) and Dictation (§9.9) when the daemon reports them.
 
 ### 9.2 Onboarding (first launch, M1)
 
@@ -636,10 +800,11 @@ Every step can be skipped; onboarding is available again from Settings.
 | General | Start with system, Close button behaviour (tray / quit), Check for updates (GitHub releases, opt-in), Re-run onboarding |
 | Audio | Preferred quantum (64 / 128 / 256 / 512 frames; 128 = 2.7 ms by default), Output device priority list, Mic fallback device, Mono/Stereo virtual mic |
 | Soundpad | Library folder (SND-001) |
+| Dictation | A link to the Dictation screen (§9.9), where all its settings live |
 | Hotkeys | A list of actions, shortcut assignment, backend status (Portal / X11 / Unavailable → CLI commands) |
 | Hotkey popup | Style, position, offset and monitor (HK-006) and the overlay's soundpad bar (SND-006), each shown as a picture of the screen with the popup or overlay where it appears |
 | Doctor | Diagnostics (§9.6) |
-| About | Version, third-party licenses (RNNoise, DeepFilterNet, fonts), GitHub links |
+| About | Version, third-party licenses (RNNoise, DeepFilterNet, whisper.cpp, sherpa-onnx, ONNX Runtime, the CC-BY-4.0 Parakeet attribution, fonts), GitHub links |
 
 A section list on the left of Settings follows the scroll and jumps to a section (owner request, 2026-10-18).
 
@@ -673,6 +838,158 @@ A self-check with clear one-click fixes (like One-Click Fix in Sonar, but transp
 - ARIA roles for sliders (`role="slider"`, `aria-valuetext="−18 dB"`).
 - UI scale 90–150% (Ctrl +/−). The layout never gets smaller than the minimum window (960×640 at 100 %): a smaller window caps the applied scale (owner request, 2026-10-18).
 
+### 9.9 Dictation screen and popups
+
+Requirements: §8.4. A sidebar item **Dictation** (Lucide `Speech`) after Soundpad, shown when
+`Capabilities::dictation` is true. All settings of the feature live on this screen; Settings has a
+"Dictation" row linking to it. The mock daemon simulates models, downloads, worker states, levels and
+transcripts (AGENTS §5).
+
+#### 9.9.1 Layout
+
+```
+┌─ 04 / DICTATION ────────────────────── [● READY · WHISPER TURBO · 1.1 GB]  [DICTATION ▣ on] ─┐
+│ Speak, it *types*.                                  HOLD  [Ctrl] + [Win]  ·  HANDS-FREE  [Ctrl]+[Win]+[Space] │
+│ Local speech to text. Nothing leaves this computer.  PASTE LAST [Shift]+[Alt]+[Z] · Esc cancels │
+├───────────────────────────────────────────────────────────────────────────────────────────────┤
+│ ┌ 01 ENGINE ─────────────────────────────────────────┐ ┌ 02 LANGUAGE ───────────────────────┐ │
+│ │ ⟨ WHISPER | PARAKEET ⟩                             │ │ ⟨ BY LAYOUT | FIXED | AUTO ⟩       │ │
+│ │ ◉ TURBO   0.57 GB  QUALITY ▮▮▮▮▯ SPEED ▮▮▯▯▯ READY │ │ [EN] [UK] [RU]   (Fixed only)     │ │
+│ │ ○ SMALL   0.19 GB  QUALITY ▮▮▯▯▯ SPEED ▮▮▮▮▯ [GET] │ │ Uses the keyboard layout of the   │ │
+│ │   ||||||||||████████░░░░░░  48 %  12.4 MB/s  [✕]   │ │ window you dictate into.          │ │
+│ └────────────────────────────────────────────────────┘ └────────────────────────────────────┘ │
+│ ┌ 03 INPUT ─────────────────┐ ┌ 04 OUTPUT ─────────────────┐ ┌ 05 PERFORMANCE ──────────────┐ │
+│ │ ⟨ RAW | CLEAN | PROCESSED⟩│ │ ⟨ PASTE | TYPE ⟩           │ │ UNLOAD ⟨NOW|1M|3M|10M|NEVER⟩ │ │
+│ │ IN ▮▮▮▮▮▯▯▯ −22 dB        │ │ Trailing space      [on]   │ │ THREADS |||||█||||  6 / 12   │ │
+│ │ Mute mic while       [on] │ │ In full-screen games       │ │ Game mode            [on]    │ │
+│ │ dictating                 │ │ ⟨INSERT|COPY ONLY|IGNORE⟩  │ │ Pre-roll 300 ms      [on]    │ │
+│ └───────────────────────────┘ └────────────────────────────┘ └──────────────────────────────┘ │
+│ ┌ 06 POPUP ───────────────────────────────────┐ ┌ 07 VOCABULARY (Whisper) ─────────────────┐ │
+│ │ [  FLOW  pic ] [ ANALOG pic ]  POSITION ⟨B|T⟩│ │ [Macafon] [Hrytsenko] [PipeWire] [+ add] │ │
+│ └──────────────────────────────────────────────┘ └──────────────────────────────────────────┘ │
+├───────────────────────────────────────────────────────────────────────────────────────────────┤
+│ TRY IT  [ HOLD TO TALK ]   │ "Привіт, це перевірка диктовки."   1.2 s · TURBO · UK  [COPY]     │
+│ HISTORY ▾ (20, in memory)  │ 12:41  Thanks, I'll send it tonight.        EN  0.9 s   [COPY][↵] │
+└───────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Header.** The master toggle (STT-001) is the large `Toggle` in the header, like Bypass/Mute on the
+  Microphone screen. Next to it, a status badge from `dictation.state`: `OFF`, `UNLOADED · 0 MB`,
+  `LOADING`, `READY · <model> · <RAM>`, `LISTENING`, `TRANSCRIBING`, `ERROR` (`--danger`). The
+  heading uses Archivo with one Instrument Serif italic word ("Speak, it *types*.").
+- **Shortcut block.** Assigned shortcuts as keycaps (`.badge` style, 13px Geist Mono) for
+  push-to-talk and hands-free, with paste last in the second line; a `MORE` link expands copy last
+  and push-to-talk to clipboard. Clicking a keycap opens the HK-002 recorder for that action.
+- **01 ENGINE.** A `Segmented` for the engine; below, one row per model: radio, name, size, two
+  segmented 5-step meters (quality, speed — static manifest values, colored `--accent-ink`), and a
+  state cell: `GET` (download), a ruler-style progress bar with percent, speed and `✕` cancel,
+  `READY`, `ACTIVE` (loaded now) or `ERROR · RETRY`. A row menu has Delete and Import file. Below the
+  rows: "Models are downloaded from Hugging Face" and the total disk use. A first-time empty state
+  replaces the rows with one recommended card: "Whisper Turbo — best for EN / UK / RU — 0.57 GB —
+  `Download`".
+- **02 LANGUAGE.** Policy `Segmented`; the EN/UK/RU chips are enabled only in Fixed. With Parakeet the
+  card shows `AUTO ONLY` and a one-line hint, the controls are disabled (40 % content, border kept).
+- **03 INPUT.** Tap point, a live horizontal `LevelMeter` of the chosen tap (subscription only while
+  the screen is visible), the mute-while-dictating toggle.
+- **04 OUTPUT.** Paste/Type, trailing space, the full-screen games policy.
+- **05 PERFORMANCE.** Unload timeout, the threads `RulerSlider` (1..logical cores, default marked by a
+  tick), game mode, pre-roll, CPU/GPU only when STT-020 ships. A small line under the card shows what
+  the worker uses now: `UNLOADED · 0 MB` / `LOADED · 1.1 GB · CPU 6 THREADS`.
+- **06 POPUP.** Two picture buttons (like the Hotkey popup section): a miniature screen with the
+  Flow pill or the Analog meter where it will appear; the chosen one has corner ticks. Position
+  bottom/top and an offset `RulerSlider`; a `Preview` button plays a 3 s demo of the real popup.
+- **07 VOCABULARY.** Rectangular chips with `✕`, an input that adds a chip on Enter; hidden for
+  Parakeet.
+- **TRY IT** (pinned at the bottom like TEST on the Microphone screen). `HOLD TO TALK` records while
+  the mouse button or Space is held, runs the whole pipeline but shows the text here instead of
+  inserting it, with timing, model and language. **History** expands upward: rows with time, text
+  (one line, ellipsis, full text on hover), language, duration, `COPY` and `↵` re-insert into the
+  previously focused window.
+- Keyboard and ARIA (§9.8): Tab order follows the cards; the hold button responds to Space down/up;
+  model progress is `role="progressbar"` with `aria-valuetext="48 %, 12.4 MB per second"`.
+
+#### 9.9.2 Overlay, quick panel and tray
+
+- The tray quick panel and the hotkey overlay (HK-007) get a fourth tile **Dictation** (Lucide
+  `Speech`) after Mixer. On = filled `--accent` tile like the existing ones; the subtitle shows the
+  push-to-talk shortcut (`HOLD · Ctrl+Win`). While a model downloads, the tile shows a thin progress line
+  at its bottom; with no model, it is dimmed and its subtitle reads `GET MODEL`, and a click opens the
+  Dictation screen. A right click / long press on the tile opens the Dictation screen.
+- The tray menu gains `Dictation` ✓ under `Bypass processing`.
+- The overlay's soundpad bar and the Dictation tile are independent; Settings → Hotkey popup gets a
+  "Show Dictation tile" switch (default on).
+
+#### 9.9.3 Dictation popup looks
+
+Both looks are drawn by the daemon with Direct2D in the HK-006 popup thread (layered, topmost,
+never focused), use only design tokens converted to constants, follow the HK-006 monitor policy and
+turn their motion off with Windows animations. Default position: bottom-center, 48 DIPs above the
+work area.
+
+**Flow** (default; a Wispr Flow-like pill — an owner exception to `border-radius: 0`, like the HK-006
+Classic popup and HK-007):
+
+```
+   idle → listening                        transcribing                 done
+  ╭────────────────────────╮          ╭──────────────╮            ╭──────╮
+  │  ▁▃▅▇▅▃▂▃▆▇▆▄▂▁▂        │          │   ·  •  ·     │            │  ✓   │
+  ╰────────────────────────╯          ╰──────────────╯            ╰──────╯
+     200×40 DIPs, radius 20              120×32                      40×32 → fades
+```
+
+- Pill: `--invert-fg` fill at 92 % opacity, 1px `--line` hairline, a soft shadow (the HK-006
+  Classic shadow). Appears from 40×8 with a spring (scale + fade, 220 ms).
+- 15 vertical bars, 3 DIPs wide, 3 DIPs gap, `--ink-strong`, mirrored around the center line; heights
+  follow 15 log-spaced band energies of the tap (computed in the daemon STT thread from 16 kHz audio,
+  60 Hz) with 40 ms attack / 160 ms release, so quiet breathing barely moves them. The center bars are
+  slightly taller (a gentle window) so the shape reads as a voice, not as a spectrum.
+- Transcribing: bars collapse to three dots that shimmer left to right (opacity wave, 900 ms period).
+- Done: a check morphs in, holds 400 ms, the pill shrinks to a point and fades. Copied: the check plus
+  `Copied` text in Inter 12px.
+- Hands-free: on hover the pill grows `✕` (cancel) on the left and `■` (stop) on the right.
+- A language badge (`UK`, 10px Geist Mono, `--muted`) sits at the right end while listening when the
+  policy picked a language from the layout; `AUTO` for Parakeet.
+
+**Analog** (in the app's own style: a vintage VU meter, square corners, corner ticks):
+
+```
+  ┼──────────────────────────────────────────────┼
+  │  -20  -10  -7  -5  -3  -1   0  +1  +2  +3      │
+  │   '    '    '   '   '   '   ┃▌▌▌▌▌▌▌▌▌▌        │   ← red zone 0…+3 VU (--danger)
+  │      ╲                                         │
+  │        ╲             VU                        │   ← Instrument Serif italic
+  │          ╲                                     │
+  │ ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔◉▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ │   ← pivot under the shroud
+  │ ● REC  00:07          WHISPER · TURBO      [UK] │   ← HUD labels, Geist Mono
+  ┼──────────────────────────────────────────────┼
+       280×132 DIPs, border-radius 0
+```
+
+- Frame: `--bg-raised`, 1px `--line-strong`, 11×11 corner ticks (design system §4), no shadow apart
+  from the minimal one needed on bright desktops.
+- Face: `--bg-sunken` with a faint amber "lamp" glow — a radial `--app-amber` gradient at 8 % opacity
+  from the pivot, like a backlit meter. Scale: a thin arc in `--ink`, majors with Geist Mono 9px
+  numbers, the 0…+3 VU segment as a thicker `--danger` arc. The word `VU` in Instrument Serif italic,
+  `--muted`.
+- **Calibration: 0 VU = −18 dBFS RMS**, the CAL-005 speech target. A calibrated voice swings around
+  0 VU; the scale reads −20…+3 VU.
+- Needle: 1.5 DIPs `--ink-strong` with a darker counterweight, true VU ballistics — a critically
+  damped spring reaching 99 % in 300 ms with ≈ 1.5 % overshoot, driven by the tap RMS. A `PEAK` lamp
+  (6×6 square, `--danger`) lights for 1 s when the tap exceeds −1 dBFS.
+- Shroud: a `--bg-raised` bar covering the pivot, carrying the HUD line — `● REC` (the dot blinks
+  `--danger` at 1 Hz) and the `mm:ss` timer, engine and model, a language `.badge`.
+- Listening: the face glow fades in (150 ms), the needle wakes from the rest pin at −20.
+- Transcribing: the needle falls back to the pin with its ballistics, the glow dims to 3 %, the HUD
+  reads `TRANSCRIBING` and a strip of 2px ticks under the scale scans left to right (a ruler-slider
+  echo).
+- Done: `TYPED · 14 WORDS` / `COPIED` in the HUD for 700 ms, then the frame slides 12 DIPs down and
+  fades (300 ms).
+- No speech: a needle twitch to −15 and back, HUD `NO SPEECH`. Error: the `PEAK` lamp stays on and the
+  HUD shows the short error. Too long: the timer turns `--app-amber-ink` at 4:30.
+- Hands-free: `■ STOP` and `✕` as HUD buttons in the shroud (`.btn` ghost style), clickable.
+- Reduced motion: no glow fade or slide; the needle still moves (it is the content), but without
+  overshoot.
+
 ---
 
 ## 10. Non-functional requirements
@@ -700,6 +1017,7 @@ graph cycle and the algorithmic latency of the selected modules.
 | NFR-L4 | The latency of each chain is reported to the PipeWire graph (the `latency` param) so applications can compensate for it | — |
 | NFR-L5 | The UI shows the actual total chain latency (`LATENCY 10.0 ms` in the screen header) | — |
 | NFR-L6 | Windows: virtual microphone latency without NS (WASAPI capture + chain + VB-CABLE buffer + output) | ≤ 20 ms with the recommended cable buffer; refined in M3.0 |
+| NFR-L7 | Dictation: key release → text inserted, 10 s of speech, warm worker, default threads on the NFR-R1 reference CPU | Parakeet ≤ 1.5 s, Whisper Turbo ≤ 4 s, Whisper Small ≤ 1.5 s; a cold worker adds only the part of the model load that outlasts the speech. Refined by measurement in D1/D2 |
 
 Measurement method — §14.3.
 
@@ -712,8 +1030,10 @@ Measurement method — §14.3.
 | NFR-R3 | CPU: + NS Studio on the microphone | < 10% |
 | NFR-R4 | Daemon RAM | < 40 MB (+ ~15 MB with the DeepFilterNet model loaded), excluding the soundpad decoded cache (up to 512 MiB) and active/in-flight decode buffers; automatic hotkey preloads target at most 32 MiB (owner request, 2026-10-18) |
 | NFR-R5 | UI RAM (window open) | < 200 MB; window closed — the UI process has ended. **Windows deviation (owner decision, 2026-10-17):** the daemon keeps the UI process warm in the background with the hidden quick panel (~190 MB private, mostly WebView2), so the tray panel and the hotkey overlay open in ~15–40 ms instead of ~370 ms; it ends with the daemon |
-| NFR-R6 | Install size | < 30 MB (without the system WebView runtime) |
+| NFR-R6 | Install size | < 30 MB (without the system WebView runtime). **Deviation (owner decision, 2026-10-19):** the dictation runtimes (§8.4) add their measured size, estimated 15–25 MB; models are never in the installer |
 | NFR-R7 | Zero activity when idle: meters/spectrum are neither computed nor sent while the UI is closed; owner request, 2026-10-18: unchanged Windows sound libraries poll a native change-notification handle every 3 s, without directory walks, header probes, decodes or library events | Background polling falls back to scans if notifications are unavailable; inventory and header I/O stay off the control/audio loop |
+| NFR-R9 | Dictation idle cost (§8.4) | Feature off: 0 extra RAM/CPU, no worker. On with the worker unloaded: ≤ 1 MB extra daemon RAM and ≤ 0.1 % of a core. A full-screen game with dictation on but unused shows no measurable FPS change |
+| NFR-R10 | Dictation worker | Loaded RAM ≤ 1.3 GB (Whisper Turbo, Parakeet), ≤ 0.6 GB (Whisper Small); exits within 1 s of the unload timeout; never above `BELOW_NORMAL` priority |
 | NFR-R8 | Large sound libraries (owner request, 2026-10-18) | Startup inventories and duration probes run on one bounded worker (background CPU/I/O priority on Windows); apply inventories in linear time on the control loop. Automatic full-library events retain the protocol shape, coalesce to at most 1 Hz, and serialize on a bounded event worker; play counts do not rebind hotkeys or repeat preloads. Completed uploads acknowledge without a full-library response and publish through the coalesced event. Playback progress remains about 10 Hz |
 
 ### 10.3 Reliability and real-time safety
@@ -732,10 +1052,14 @@ Measurement method — §14.3.
 
 ### 10.4 Privacy and security
 
-- No telemetry and no network requests, except the opt-in update check (GitHub Releases API).
+- No telemetry and no network requests, except the opt-in update check (GitHub Releases API) and
+  user-initiated dictation model downloads from pinned Hugging Face URLs (§8.4.6, owner authorization
+  2026-10-19).
 - A/B recordings are kept in memory only and deleted when the UI closes.
 - The daemon's IPC socket is accessible only to the current user (`$XDG_RUNTIME_DIR/macafon/macafond.sock`, permissions 0600).
-- Neural network models ship in the package and are verified by hash.
+- Noise suppression models ship in the package; dictation models are downloaded on request. Both are
+  verified by SHA-256.
+- Dictation audio and text stay in memory and never reach disk or logs (STT-019).
 
 ### 10.5 Compatibility (Linux)
 
@@ -794,10 +1118,12 @@ Macafon/
 │  ├─ macafon-backend-windows/    # (M3) WASAPI, VB-CABLE, audio sessions, IPolicyConfig (the `windows` crate)
 │  ├─ macafon-ipc/            # Protocol (serde types, protocol version), client/server
 │  ├─ macafon-config/         # Configuration schema, migrations, presets
-│  └─ macafon-apps/           # Application classification, known-application database, icon lookup
+│  ├─ macafon-apps/           # Application classification, known-application database, icon lookup
+│  └─ macafon-stt/            # Dictation: SpeechEngine trait, Whisper/Parakeet engines, VAD, model manifest
 ├─ apps/
 │  ├─ macafond/               # Daemon: engine + backend + IPC server + tray + hotkeys
 │  ├─ macafon-ui/             # Tauri v2 (src-tauri) + Svelte 5 + TypeScript (src)
+│  ├─ macafon-stt/            # Dictation worker process, spawned by the daemon on demand (§8.4.3)
 │  └─ macafon-cli/            # `macafon ctl …`
 ├─ packaging/               # deb, rpm, AUR PKGBUILD, AppImage, systemd unit, .desktop, icons, Windows NSIS hooks
 ├─ docs/                    # PRD, design, ADRs
@@ -822,6 +1148,7 @@ Macafon/
 | Logging | `tracing` (outside the RT thread) |
 | RT checks | `assert_no_alloc` |
 | FFT (spectrum, calibration) | `realfft` |
+| Dictation (§8.4) | `whisper-rs` (whisper.cpp), sherpa-onnx through a Rust binding (chosen in D2), ONNX Runtime; `rubato` for 48 → 16 kHz; an HTTPS client with rustls and `sha2` for model downloads (prefer crates already in `Cargo.lock`) |
 
 ### 11.4 Audio engine
 
@@ -1071,6 +1398,34 @@ channel = "voice"
 
 [hotkeys]
 mic_mute_toggle = "Ctrl+Alt+M"
+dictation_hold = "Ctrl+Win"
+dictation_toggle = "Ctrl+Win+Space"
+dictation_paste_last = "Shift+Alt+Z"
+dictation_copy_last = "Shift+Alt+X"
+dictation_hold_copy = "Ctrl+Win+Shift"
+
+[dictation]
+enabled = false
+engine = "whisper"            # whisper | parakeet
+model = "whisper-large-v3-turbo-q5_0"
+language = "layout"           # layout | fixed | auto
+fixed_language = "uk"         # en | uk | ru
+tap = "clean"                 # raw | clean | processed
+mute_mic_while_dictating = true
+insert = "paste"              # paste | type
+trailing_space = true
+fullscreen_games = "copy"     # insert | copy | ignore
+unload_after_s = 180          # 0 = immediately, -1 = never
+threads = 0                   # 0 = max(2, physical cores / 2)
+game_mode = true
+pre_roll = true
+keep_history = true
+vocabulary = ["Macafon", "PipeWire"]
+
+[dictation.popup]
+look = "flow"                 # flow | analog
+position = "bottom"           # bottom | top
+offset_pct = 0
 ```
 
 ---
@@ -1147,6 +1502,13 @@ packaging remain local per [AGENTS.md](../AGENTS.md).
 | Windows: VB-CABLE changes or is discontinued | Low | High | Detection by hardware ID, a "virtual microphone" abstraction in the backend; our own driver as a long-term alternative |
 | Windows: the undocumented `IPolicyConfig` changes between builds | Medium | Medium | GUID versions per build (as in EarTrumpet/SoundSwitch); without it — instructions to choose the device manually |
 | WebKitGTK is slow on animations / Canvas | Medium | Medium | Canvas 2D with an FPS limit, disabling animations, profiling in M1 |
+| Dictation hurts game performance | Medium | High | Off by default, worker only on demand, BELOW_NORMAL + EcoQoS, thread limit, game mode forces CPU and immediate unload (STT-008); measured in D8 |
+| Whisper mixes up Ukrainian and Russian | High | Medium | The layout-based policy (§8.4.4), Fixed mode and the language hotkey |
+| Parakeet's automatic language choice is wrong for UK/RU | Medium | Medium | Documented as Auto only; Whisper stays the default engine for UK/RU |
+| Injected input (`SendInput`) flagged by anti-cheats | Low | High | Full-screen games default to Copy only (STT-012); no input is injected when the user does not dictate |
+| Hugging Face files move or change | Low | Medium | URLs pinned to a commit and SHA-256; import of a local file with the same hash |
+| Installer growth from the STT runtimes | High | Low | Accepted deviation from NFR-R6 (§17 Q9); measured in D1/D2; GPU runtimes stay out until approved |
+| `Ctrl+Win` chords conflict with other tools or open Start | Medium | Low | Win release swallowed by the LL hook; conflict detection; easy rebinding (§17 Q8) |
 
 ## 17. Open questions
 
@@ -1159,6 +1521,9 @@ packaging remain local per [AGENTS.md](../AGENTS.md).
 | Q4 | Is a separate channel/fader for the microphone needed in the mixer (sidetone — hearing yourself) | Postpone together with live monitoring | Product |
 | Q5 | Should community presets be stored (a catalog in the repository) | P2: a `community-presets/` folder + import by link | Product |
 | Q6 | aarch64 Linux support in 1.0 | P1, if the build setup allows | Development |
+| Q8 | ~~Default dictation shortcuts~~ — **decided:** Wispr Flow's Windows defaults plus copy/paste actions (STT-003) | — | — |
+| Q9 | ~~Installer growth from the STT runtimes~~ — **decided:** accepted, recorded in NFR-R6 | — | — |
+| Q10 | ~~Delete dictation models on uninstall~~ — **decided:** yes by default, with a checkbox to keep them (§8.4.6) | — | — |
 
 ## 18. Success metrics
 
@@ -1188,6 +1553,8 @@ There is no telemetry, so the metrics come from tests and the community:
 M4 on Windows is limited by the one free cable: several virtual microphones and Stream mix are not
 available there (ADR-0004).
 
+Dictation (§8.4) is an owner-requested Windows feature outside the milestone order, planned in §19.2.
+
 ### 19.1 Windows port plan (M3)
 
 The basis is §12.2 and [ADR-0004](adr/0004-windows-free-vb-cable.md): only the free VB-CABLE (one cable) for
@@ -1206,6 +1573,25 @@ installed). A manual GitHub Actions workflow also builds the Windows x64 install
 | **M3.5 · Background and control** | Tray (`tray-icon`), autostart through `HKCU\…\Run`, single instance, `global-hotkey` hotkeys with push-to-talk, `macafon ctl` over the named pipe, Windows notifications | Hotkeys work with the window closed; HK-004 CLI commands work |
 | **M3.6 · Package and release** | A per-user installer (implemented with NSIS instead of the Tauri bundler + WiX MSI) without VB-CABLE, SignPath signing, uninstall restoring default devices and volumes; a Windows release checklist; a test matrix: USB microphones, Realtek, USB/Bluetooth headsets; Discord, OBS, Zoom, Teams, Telegram, games with anti-cheats (Vanguard, EAC, BattlEye, FACEIT) | The checklist passes on Windows 10 22H2 and Windows 11 24H2/25H2 |
 
+### 19.2 Dictation plan (STT)
+
+Requirements: §8.4 and §9.9; decision: [ADR-0005](adr/0005-local-dictation-worker.md). Both engines are
+built; there is no engine bake-off step. Checks follow AGENTS §3: targeted tests per step, `cargo test
+--workspace` only for the steps touching shared crates (`macafon-ipc`, `macafon-config`,
+`macafon-engine`). Every step ends with a working, committable state.
+
+| Step | Content | Done when |
+|---|---|---|
+| **D0 · Contracts and mock** | `[dictation]` config schema with defaults; IPC types (state, models, progress, results, config) and TS generation; `Capabilities::dictation`; mock daemon: fake models, downloads, worker states, levels, transcripts; the sidebar item with an empty Dictation screen | The UI in mock mode shows the screen and every `dictation.state`; `pnpm check` passes; config round-trip test |
+| **D1 · Worker + Whisper** | `crates/macafon-stt` (`SpeechEngine`, `TranscribeOptions`, `Transcript`, the model manifest), `WhisperEngine` (whisper.cpp, Silero VAD, `no_speech`, hallucination filter, `initial_prompt`, restricted language probabilities); `apps/macafon-stt` with the pipe protocol, Job object, priority, EcoQoS, thread limit; `macafon stt transcribe` for local WAVs (STT-021) | EN/UK/RU WAVs transcribe through the CLI; RAM and time recorded for NFR-R10/NFR-L7; protocol round-trip and hallucination-filter tests |
+| **D2 · Parakeet** | `ParakeetEngine` on sherpa-onnx with its Silero VAD; the binding is chosen here (official crate or `sherpa-rs`), ONNX Runtime packaged next to the worker | The same WAVs transcribe with `--engine parakeet`; measurements recorded; installer size delta measured (Q9) |
+| **D3 · Model manager** | Pinned Hugging Face manifest, background download with `Range` resume, SHA-256, free-space check, cancel, delete, import, progress events; uninstall prompt (Q10) | Download → verify → ready works on a clean profile; a corrupted `.part` is rejected; hash verification test with a small fixture |
+| **D4 · Daemon pipeline** | RT tap with the atomic gate and 2 s `rtrb`, pre-roll ring, the STT thread with the resampler, streaming to the worker during recording, worker lifecycle (spawn on press, load in parallel, unload timer, crash handling), game mode, mute while dictating | Tap and resampler tests under `assert_no_alloc`; resampler response test; feature off leaves no tap/worker (NFR-R9); a crash of the worker leaves audio untouched |
+| **D5 · Hotkeys, language, insertion** | `dictation_*` actions with HK-009 rules and the STT-003 defaults (Start suppression, double tap → hands-free), paste/copy last and push-to-talk to clipboard, Esc, the layout reader (UWP/console cases), the §8.4.4 policy, Paste/Type insertion with clipboard restore and history exclusion, focus-change and UIPI fallbacks, full-screen games policy, history in memory | Table tests for the language policy (including "en layout + Russian speech"); manual run in Notepad, Chrome, Discord, Telegram, Word, an elevated window and a full-screen game |
+| **D6 · Popups and quick access** | Flow and Analog looks in the HK-006 Direct2D popup thread with all §8.4.7 states, level bands and VU ballistics; the Dictation tile in the tray panel and overlay; the tray menu item | Both looks go through every state in a manual run; the VU ballistics test (300 ms to 99 %, overshoot ≤ 2 %); screenshots |
+| **D7 · Dictation screen** | §9.9.1 in full: header toggle and status, shortcut block, cards 01–07, picture buttons with Preview, TRY IT and history, i18n strings, keyboard and ARIA | Mock-mode screenshots at 1180×760 of the empty, downloading, ready, listening and error states; relevant Vitest files |
+| **D8 · Hardening and package** | Installer ships the worker and runtime DLLs; About licenses; 1 h soak with dictation every minute alongside the microphone chain; a full-screen game FPS comparison: feature off / on idle / dictating; release checklist items | No xruns attributable to dictation; no FPS change with the feature on and idle; checklist passes on Windows 11 |
+
 ## 20. Glossary
 
 | Term | Meaning |
@@ -1223,3 +1609,6 @@ installed). A manual GitHub Actions workflow also builds the Windows x64 install
 | **LUFS** | A unit of perceived loudness |
 | **SNI** | StatusNotifierItem — the Linux tray icon standard |
 | **RT thread** | A real-time thread that processes audio; it must never block |
+| **STT** | Speech to text — the dictation feature (§8.4) |
+| **VAD** | Voice activity detection — finds the speech parts of a recording |
+| **VU meter** | A volume-unit meter with slow, averaging needle ballistics (300 ms), used by the Analog popup |

@@ -117,6 +117,8 @@ Fonts are bundled with the application (all under SIL OFL 1.1), never loaded fro
 | **Device picker** | A device dropdown; every microphone has a live mini level meter (you can see which microphone "hears") |
 | **Transport (A/B)** | `● REC`, `▶ LOOP` buttons, an `A ⇄ B` toggle (large, inverted `--invert-bg` style) |
 | **Toast** | Bottom right corner, `--line` border, HUD heading |
+| **VU meter** | The Analog dictation popup (PRD §9.9.3): a needle on a −20…+3 VU arc, 0 VU = −18 dBFS RMS, VU ballistics (99 % in 300 ms, ≈ 1.5 % overshoot); `--bg-sunken` face with an 8 % `--app-amber` lamp glow, `--danger` 0…+3 segment, `VU` in Instrument Serif italic, a shroud with HUD labels, corner ticks, `border-radius: 0` |
+| **Dictation pill** | The Flow dictation popup (PRD §9.9.3): a `--invert-fg` pill with 15 mirrored `--ink-strong` level bars, collapsing to three shimmering dots while transcribing. Rounded — an owner exception like the HK-006 Classic popup and the HK-007 panels |
 
 ## 7. Icons
 

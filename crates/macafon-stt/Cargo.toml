@@ -18,5 +18,8 @@ thiserror.workspace = true
 whisper-rs = { version = "0.15.1", optional = true }
 sherpa-onnx = { version = "1.13.8", optional = true, default-features = false, features = ["shared"] }
 
+[dev-dependencies]
+hound = "3.5"
+
 [lints]
 workspace = true

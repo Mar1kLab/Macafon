@@ -53,7 +53,10 @@ impl SpeechEngine for ParakeetEngine {
     ) -> Result<Transcript, SttError> {
         let started = Instant::now();
         self.vad.reset();
-        self.vad.accept_waveform(pcm_16k);
+        // sherpa's Silero wrapper advances one analysis window per call.
+        for window in pcm_16k.chunks(512) {
+            self.vad.accept_waveform(window);
+        }
         self.vad.flush();
         let mut segments = Vec::new();
         let mut speech_samples = 0;

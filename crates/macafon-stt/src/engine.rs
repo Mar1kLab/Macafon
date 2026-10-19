@@ -67,7 +67,6 @@ pub fn is_hallucination(text: &str) -> bool {
             | "дякую за перегляд"
             | "далі буде"
             | "subtitles by the amara.org community"
-            | "you"
     )
 }
 
@@ -86,5 +85,6 @@ mod tests {
         assert!(!is_hallucination(
             "Thank you for watching the children today."
         ));
+        assert!(!is_hallucination("You."));
     }
 }

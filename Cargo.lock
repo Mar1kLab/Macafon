@@ -2907,6 +2907,7 @@ dependencies = [
 name = "macafon-stt"
 version = "0.2.0"
 dependencies = [
+ "hound",
  "serde",
  "serde_json",
  "sherpa-onnx",

@@ -58,6 +58,23 @@ jobs:
       - name: Check frontend
         run: corepack pnpm -C apps/macafon-ui check
 
+      - name: Set up GPU dictation build tools
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'vulkan-sdk.exe'
+          $sdk = Join-Path $env:RUNNER_TEMP 'vulkan-sdk'
+          Invoke-WebRequest -Uri 'https://sdk.lunarg.com/sdk/download/1.4.321.0/windows/vulkan_sdk.exe' -OutFile $installer
+          $expected = '14ebc56ef981e03a292adadd2559fbbfcd0289ec157bfd0f0d5f9fdcb40042a9'
+          if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+            throw 'Vulkan SDK checksum mismatch'
+          }
+          $process = Start-Process -FilePath $installer -ArgumentList @('--root', $sdk, '--accept-licenses', '--default-answer', '--confirm-command', 'install', 'copy_only=1') -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Vulkan SDK installer failed: $($process.ExitCode)" }
+          if (-not (Test-Path -LiteralPath (Join-Path $sdk 'Bin/glslc.exe'))) { throw 'Vulkan shader compiler missing' }
+          $clang = 'C:\Program Files\LLVM\bin'
+          if (-not (Test-Path -LiteralPath (Join-Path $clang 'libclang.dll'))) { throw 'libclang missing' }
+          "VULKAN_SDK=$sdk" | Add-Content -LiteralPath $env:GITHUB_ENV
+          "LIBCLANG_PATH=$clang" | Add-Content -LiteralPath $env:GITHUB_ENV
+
       - name: Build Windows installer
         run: python tools/package-windows.py
 

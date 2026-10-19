@@ -12,6 +12,7 @@ members = [
     "crates/macafon-backend-pipewire",
     "crates/macafon-backend-windows",
     "apps/macafond",
+    "apps/macafon-stt",
     "apps/macafon-cli",
     "apps/macafon-ui/src-tauri",
 ]

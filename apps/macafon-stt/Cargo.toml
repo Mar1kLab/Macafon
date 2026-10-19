@@ -1,0 +1,26 @@
+[package]
+name = "macafon-stt-worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "macafon-stt"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+macafon-stt = { workspace = true, features = ["whisper", "parakeet"] }
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+hound = "3.5"
+clap = { version = "4", features = ["derive"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_ProcessStatus"] }
+
+[lints]
+workspace = true

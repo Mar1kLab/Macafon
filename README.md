@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <b>Microphone processing, per-app mixer and soundpad for Windows 11.</b>
+  <b>Microphone processing, per-app mixer, soundpad and local dictation for Windows 11.</b>
 </p>
 
 <p align="center">
@@ -45,6 +45,21 @@ Your soundpad's headphone playback is an app of its own, so it goes into any cha
 - Your voice processing is not applied to sounds. Optionally mute your voice while a sound plays.
 
 ![Soundpad screen](docs/images/soundpad.png)
+
+**Dictation.** Hold `Ctrl+Win`, speak, release — the text appears in the window you were typing in,
+like Wispr Flow, but free and fully offline. English, Ukrainian and Russian.
+
+- Two local engines: **Whisper** (whisper.cpp, the most accurate for Ukrainian and Russian) and
+  **Parakeet** (NVIDIA Parakeet TDT v3, faster). Models are downloaded from Hugging Face only when you
+  click *Get*, checked by SHA-256 and kept in any folder you choose.
+- The keyboard layout of the target window decides between Ukrainian and Russian; or fix the language.
+- `Ctrl+Win+Space` dictates hands-free, `Shift+Alt+Z` pastes the last result again, `Shift+Alt+X`
+  copies it, `Ctrl+Win+Shift` dictates to the clipboard only.
+- Costs nothing while unused: the speech worker starts on the key press, runs at low priority and
+  unloads after a few minutes. Your voice chat does not hear you dictate.
+- Two popups: a Flow-style pill with level bars, or a vintage VU meter.
+
+![Dictation screen](docs/images/dictation.png)
 
 **Always at hand.** Global hotkeys (push-to-talk, mute, volume, sounds; left and right Ctrl/Alt are
 told apart) work with the window closed and show a small on-screen popup. The tray icon opens a quick
@@ -116,13 +131,15 @@ macafon ctl channel voice volume +5
 macafon ctl soundpad list
 macafon ctl soundpad play "Memes/airhorn.mp3"
 macafon ctl soundpad stop
+macafon ctl dictation toggle            # on, off, toggle
 macafon ctl doctor
 ```
 
 ## Build from source (Windows)
 
-Needs stable Rust, Node.js 24, Python 3.12+ and the
-[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/#windows).
+Needs stable Rust, Node.js 24, Python 3.12+, CMake, LLVM/libclang (set `LIBCLANG_PATH` if it is not
+found) and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/#windows). CMake and
+libclang build the dictation engines (whisper.cpp, sherpa-onnx).
 
 ```powershell
 corepack enable
@@ -148,13 +165,17 @@ visual language in the [design system](docs/design/design-system.md), architectu
 | `apps/macafon-ui` | Svelte 5 + Tauri v2 UI |
 | `crates/macafon-dsp`, `macafon-studio`, `macafon-engine` | DSP chain, noise suppression, audio engine |
 | `crates/macafon-soundpad` | Sound library, decoding, playback |
+| `crates/macafon-stt`, `apps/macafon-stt` | Dictation engines and the on-demand speech worker |
 | `crates/macafon-backend*` | Windows (WASAPI) and Linux (PipeWire) backends |
 | `crates/macafon-ipc`, `macafon-config`, `macafon-apps` | Protocol, settings, app rules |
 
 ## Privacy and license
 
-Everything runs locally: no accounts, telemetry or network requests.
+Everything runs locally: no accounts or telemetry. The only network requests are the dictation model
+downloads you start yourself (from Hugging Face); audio and dictated text never leave your computer.
 
 [GPL-3.0-only](LICENSE); `macafon-dsp` and `macafon-studio` are MIT OR Apache-2.0. Noise suppression uses
 [RNNoise](https://github.com/jneem/nnnoiseless) and [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet).
+Dictation uses [whisper.cpp](https://github.com/ggml-org/whisper.cpp) with OpenAI Whisper models and
+[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) with NVIDIA Parakeet TDT 0.6B v3 (CC-BY-4.0).
 VB-CABLE is a separate product by [VB-Audio](https://vb-audio.com/) and is not bundled.

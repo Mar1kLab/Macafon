@@ -653,7 +653,9 @@ uses the same virtual key in Latin and Cyrillic layouts; Unicode `SendInput` ign
   `Range` resume, are verified against the manifest SHA-256 and finalized by rename; a mismatch deletes
   the file and shows an error.
 - Source: only `https://huggingface.co/<repo>/resolve/<pinned commit>/<file>`, HTTPS with certificate
-  validation, the system proxy honored. No other host, no analytics, no auth token.
+  validation, the system proxy honored. Redirects are followed only over HTTPS to Hugging Face's own
+  hosts (`huggingface.co`, `hf.co` and their subdomains, e.g. its CDN), at most 5. No other host, no
+  analytics, no auth token or cookies.
 - Free-space check before starting (model size + 10 %). One download at a time, on a background
   thread at background I/O priority, outside the control loop; progress events at most 4 Hz.
 - Delete is refused while the model is loaded (it is unloaded first). Import copies a local file and

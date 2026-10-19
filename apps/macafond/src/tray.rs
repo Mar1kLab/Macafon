@@ -17,6 +17,7 @@ use std::sync::mpsc;
 pub struct TrayState {
     pub muted: bool,
     pub bypass: bool,
+    pub dictation: bool,
     /// The selected microphone is linked; otherwise the icon shows the error dot.
     pub connected: bool,
     pub preset: Option<String>,

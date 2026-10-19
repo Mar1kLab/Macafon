@@ -8,6 +8,9 @@ use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+pub(super) static DICTATION_RECORDING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 struct Key {
     binding: Binding,
     vk: u32,
@@ -17,6 +20,7 @@ struct State {
     keys: Vec<Key>,
     down: [bool; 256],
     control: ControlSender<ControlMessage>,
+    suppress_win_release: bool,
 }
 thread_local! { static STATE: RefCell<Option<State>> = const { RefCell::new(None) }; }
 
@@ -51,6 +55,7 @@ impl Hook {
                 keys,
                 down,
                 control: control.clone(),
+                suppress_win_release: false,
             })
         });
         Ok(Self(hook))
@@ -74,6 +79,10 @@ unsafe extern "system" fn callback(code: i32, wparam: WPARAM, lparam: LPARAM) ->
     if code >= 0 {
         // SAFETY: WH_KEYBOARD_LL provides a KBDLLHOOKSTRUCT for nonnegative codes.
         let event = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
+        if event.flags.0 & LLKHF_INJECTED.0 != 0 {
+            // SAFETY: synthetic text insertion is passed through without updating physical state.
+            return unsafe { CallNextHookEx(None, code, wparam, lparam) };
+        }
         let message = wparam.0 as u32;
         let pressed = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
         let released = message == WM_KEYUP || message == WM_SYSKEYUP;
@@ -117,19 +126,37 @@ unsafe extern "system" fn callback(code: i32, wparam: WPARAM, lparam: LPARAM) ->
                 let ctrl = u8::from(d[0xa2]) | (u8::from(d[0xa3]) << 1);
                 let alt = u8::from(d[0xa4]) | (u8::from(d[0xa5]) << 1);
                 let mut consumed = false;
+                if released && (vk == 0x5b || vk == 0x5c) && state.suppress_win_release {
+                    consumed = true;
+                    state.suppress_win_release = false;
+                }
                 for key in &mut state.keys {
+                    if key.binding.action == "dictation_cancel"
+                        && !DICTATION_RECORDING.load(std::sync::atomic::Ordering::Acquire)
+                    {
+                        key.held = false;
+                        continue;
+                    }
                     let m = key.binding.accel.modifiers;
-                    let matches = m.matches(ctrl, alt, d[0xa0] || d[0xa1], d[0x5b] || d[0x5c]);
-                    if key.held && (!d[key.vk as usize] || !matches) {
+                    let matches = m.matches(ctrl, alt, d[0xa0] || d[0xa1], d[0x5b] || d[0x5c])
+                        && (key.vk != 0
+                            || !d.iter().enumerate().any(|(vk, down)| {
+                                *down && !matches!(vk, 0x10..=0x12 | 0x5b..=0x5c | 0xa0..=0xa5)
+                            }));
+                    let key_down = key.vk == 0 || d[key.vk as usize];
+                    if key.held && (!key_down || !matches) {
                         key.held = false;
                         press(&state.control, &key.binding.action, false);
-                        consumed |= vk == key.vk;
-                    } else if vk == key.vk && pressed && matches {
+                        consumed |= vk == key.vk || (key.vk == 0 && (vk == 0x5b || vk == 0x5c));
+                    } else if (vk == key.vk || key.vk == 0) && pressed && matches {
                         if !key.held {
                             press(&state.control, &key.binding.action, true);
                         }
                         key.held = true;
                         consumed = true;
+                        if key.vk == 0 {
+                            state.suppress_win_release = true;
+                        }
                     }
                 }
                 consumed
@@ -151,6 +178,8 @@ pub(super) fn virtual_key(key: &str) -> Option<u32> {
         return Some(0x6f + number);
     }
     Some(match key {
+        "" => 0,
+        "Escape" => 0x1b,
         "Space" => 0x20,
         "PageUp" => 0x21,
         "PageDown" => 0x22,

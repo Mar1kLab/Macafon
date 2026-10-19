@@ -103,6 +103,19 @@ impl Hub {
         }
     }
 
+    /// Transcription text is delivered only to the UI clients that own its display/history.
+    pub fn broadcast_dictation(&self, event: &Event) {
+        let clients = self.clients();
+        let Ok(line) = encode(event) else {
+            return;
+        };
+        for id in &clients.ui {
+            if let Some((sender, _)) = clients.registered.get(id) {
+                let _ = sender.try_send(line.clone());
+            }
+        }
+    }
+
     pub fn has_clients(&self) -> bool {
         !self.clients().registered.is_empty()
     }

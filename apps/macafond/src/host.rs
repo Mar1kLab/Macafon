@@ -2,6 +2,7 @@
 //! engine of the current graph session and config persistence.
 
 mod capture;
+mod dictation;
 mod hotkeys;
 mod microphone;
 mod mixer;
@@ -54,6 +55,7 @@ pub enum ControlMessage {
 pub struct DaemonHost {
     #[cfg(windows)]
     output_controls: crate::output_controls::Manager,
+    dictation: crate::dictation::Dictation,
     config: Config,
     config_recovery: Option<macafon_ipc::ConfigRecovery>,
     store: Option<Store>,
@@ -108,12 +110,14 @@ impl DaemonHost {
         tray: bool,
     ) -> Self {
         let hub = Hub::new();
+        crate::osd::set_dictation_control(control.clone());
         if config.mic.noise_floor_dbfs.is_some() && config.mic.noise_floor_device.is_none() {
             // Older configurations only supported calibration of the primary input.
             config.mic.noise_floor_device = config.mic.device.clone();
         }
         let selected_device = config.mic.device.clone();
         Self {
+            dictation: crate::dictation::Dictation::new(&config.dictation),
             selected_device,
             selected_stable_id: None,
             active_device: None,
@@ -185,6 +189,7 @@ impl DaemonHost {
         let tray_state = TrayState {
             muted: state.settings.muted,
             bypass: state.settings.bypass,
+            dictation: self.config.dictation.enabled,
             connected: state.input_connected,
             preset: state.preset.clone(),
             preset_modified: state.preset_modified,
@@ -385,6 +390,7 @@ impl MicrophoneHost for DaemonHost {
         let (control, rt) =
             macafon_engine::microphone(&self.config.mic.chain, self.telemetry.clone())?;
         self.control = Some(control);
+        self.ensure_dictation_audio();
         self.mixer.start_session(&self.config.mixer)?;
         self.mixer_telemetry_changed();
         Ok(rt)
@@ -402,6 +408,8 @@ impl MicrophoneHost for DaemonHost {
             self.ab.player_lost();
             self.ab_changed();
         }
+        self.cancel_dictation();
+        self.stop_dictation_audio();
         self.control = None;
         self.clock = None;
         self.mixer.end_session();
@@ -438,7 +446,10 @@ impl MicrophoneHost for DaemonHost {
     }
 
     fn keep_processing(&self) -> bool {
-        self.recording.is_some() || self.ab.is_recording() || self.hub.metering()
+        self.config.dictation.enabled
+            || self.recording.is_some()
+            || self.ab.is_recording()
+            || self.hub.metering()
     }
 
     fn player_request(&mut self) -> Option<PlayerRequest> {
@@ -536,6 +547,9 @@ impl MicrophoneHost for DaemonHost {
             // The UI process went away (it stays warm in the background, so this is a crash
             // or the daemon going down): only stop what it was doing. Closing the window is
             // `ui.window_closed`.
+            if self.dictation.test {
+                self.cancel_dictation();
+            }
             self.ab.clear(self.control.as_mut());
             self.ab_changed();
             return;
@@ -583,6 +597,7 @@ impl MicrophoneHost for DaemonHost {
     }
 
     fn tick(&mut self) {
+        self.tick_dictation();
         self.tick_soundpad(Instant::now());
         self.refresh_input();
         self.mixer.collect_garbage();

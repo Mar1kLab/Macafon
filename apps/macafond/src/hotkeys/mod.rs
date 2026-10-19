@@ -352,3 +352,11 @@ mod repeat_tests {
         );
     }
 }
+
+/// Escape is consumed by the hook only while a dictation recording is active.
+pub fn dictation_recording(active: bool) {
+    #[cfg(windows)]
+    sided::DICTATION_RECORDING.store(active, std::sync::atomic::Ordering::Release);
+    #[cfg(not(windows))]
+    let _ = active;
+}

@@ -43,6 +43,13 @@ impl DaemonHost {
             .map(|action| {
                 let description = match action {
                     HotkeyAction::QuickPanel => "Open the quick panel",
+                    HotkeyAction::DictationHold => "Dictation: hold",
+                    HotkeyAction::DictationToggle => "Dictation: toggle",
+                    HotkeyAction::DictationPasteLast => "Dictation: paste last",
+                    HotkeyAction::DictationCopyLast => "Dictation: copy last",
+                    HotkeyAction::DictationHoldCopy => "Dictation: hold copy",
+                    HotkeyAction::DictationEnableToggle => "Dictation: enable toggle",
+                    HotkeyAction::DictationLanguageCycle => "Dictation: language cycle",
                     HotkeyAction::MasterVolumeUp => "Master: volume up",
                     HotkeyAction::MasterVolumeDown => "Master: volume down",
                     HotkeyAction::MasterMute => "Master: mute",
@@ -91,6 +98,9 @@ impl DaemonHost {
         let Some(service) = &self.hotkeys else { return };
         let mut bindings = Vec::new();
         for (action, description) in self.hotkey_actions() {
+            if action.id().starts_with("dictation_") && !self.config.dictation.enabled {
+                continue;
+            }
             let id = action.id();
             for id in [id.clone(), format!("{id}#secondary")] {
                 if let Some(shortcut) = self.config.hotkeys.get(&id)
@@ -102,6 +112,15 @@ impl DaemonHost {
                         accel,
                     });
                 }
+            }
+        }
+        if self.config.dictation.enabled {
+            if let Ok(accel) = crate::hotkeys::accel::Accel::parse("Escape") {
+                bindings.push(crate::hotkeys::Binding {
+                    action: "dictation_cancel".into(),
+                    description: "Cancel dictation".into(),
+                    accel,
+                });
             }
         }
         if self.bound_hotkeys.as_ref() == Some(&bindings) {
@@ -248,6 +267,12 @@ impl DaemonHost {
     }
 
     pub(super) fn hotkey_at(&mut self, action: &str, pressed: bool, now: Instant) {
+        if action == "dictation_cancel" {
+            if pressed {
+                self.cancel_dictation();
+            }
+            return;
+        }
         let binding = action.to_owned();
         let action = base_action(action);
         let Some(action) = HotkeyAction::parse(action) else {
@@ -295,8 +320,19 @@ impl DaemonHost {
     }
 
     fn apply_hotkey(&mut self, action: HotkeyAction, pressed: bool, step_scale: f32) {
+        if action.id().starts_with("dictation_") {
+            self.dictation_hotkey(action, pressed);
+            return;
+        }
         let step_pct = f32::from(self.config.ui.volume_step_pct) * step_scale;
         let request = match &action {
+            HotkeyAction::DictationHold => return,
+            HotkeyAction::DictationToggle => return,
+            HotkeyAction::DictationPasteLast => return,
+            HotkeyAction::DictationCopyLast => return,
+            HotkeyAction::DictationHoldCopy => return,
+            HotkeyAction::DictationEnableToggle => return,
+            HotkeyAction::DictationLanguageCycle => return,
             HotkeyAction::QuickPanel => {
                 crate::ui::overlay();
                 return;
@@ -348,6 +384,13 @@ impl DaemonHost {
         }
         let chain = &self.config.mic.chain;
         let osd = match &action {
+            HotkeyAction::DictationHold => return,
+            HotkeyAction::DictationToggle => return,
+            HotkeyAction::DictationPasteLast => return,
+            HotkeyAction::DictationCopyLast => return,
+            HotkeyAction::DictationHoldCopy => return,
+            HotkeyAction::DictationEnableToggle => return,
+            HotkeyAction::DictationLanguageCycle => return,
             // A sound is heard; a popup on every press would only be in the way.
             HotkeyAction::QuickPanel
             | HotkeyAction::SoundpadStop

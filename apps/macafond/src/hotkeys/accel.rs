@@ -36,8 +36,9 @@ pub struct Accel {
 }
 
 /// Named keys accepted besides letters, digits and F-keys.
-const NAMED: [&str; 15] = [
+const NAMED: [&str; 16] = [
     "Space",
+    "Escape",
     "Insert",
     "Delete",
     "Home",
@@ -128,7 +129,11 @@ impl Accel {
                 }
             }
         }
-        let key = key.ok_or_else(|| format!("{text:?} has no key"))?;
+        let key = match key {
+            Some(key) => key,
+            None if modifiers.ctrl && modifiers.super_ && !modifiers.alt => String::new(),
+            None => return Err(format!("{text:?} has no key")),
+        };
         let any_modifier = modifiers.ctrl || modifiers.alt || modifiers.super_;
         // A bare letter or digit would steal typing; F-keys and navigation keys alone are fine.
         if !any_modifier && types(&key) {
@@ -139,7 +144,10 @@ impl Accel {
 
     #[cfg(windows)]
     pub fn sided(&self) -> bool {
-        self.modifiers.ctrl_side != 0 || self.modifiers.alt_side != 0
+        self.key.is_empty()
+            || self.key == "Escape"
+            || self.modifiers.ctrl_side != 0
+            || self.modifiers.alt_side != 0
     }
 
     pub fn overlaps(&self, other: &Self) -> bool {
@@ -199,6 +207,7 @@ impl Accel {
 impl std::fmt::Display for Accel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let m = self.modifiers;
+        let mut first = true;
         for (on, name) in [
             (m.ctrl && m.ctrl_side == 0, "Ctrl"),
             (m.ctrl_side & 1 != 0, "LCtrl"),
@@ -210,8 +219,15 @@ impl std::fmt::Display for Accel {
             (m.super_, "Super"),
         ] {
             if on {
-                write!(f, "{name}+")?;
+                if !first {
+                    f.write_str("+")?;
+                }
+                f.write_str(name)?;
+                first = false;
             }
+        }
+        if !self.key.is_empty() && !first {
+            f.write_str("+")?;
         }
         f.write_str(&self.key)
     }

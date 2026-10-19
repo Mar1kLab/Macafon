@@ -132,10 +132,12 @@ mod tests {
         let mut settings = macafon_dsp::ChainSettings::raw();
         settings.muted = true;
         let (mut control, mut rt) = crate::microphone(&settings, Arc::default()).expect("engine");
-        let mut reader = control.enable_dictation(false, macafon_dsp::TapPoint::Clean).expect("tap");
+        let mut reader = control
+            .enable_dictation(false, macafon_dsp::TapPoint::Clean)
+            .expect("tap");
         reader.set_recording(true);
         control.mute_for_dictation(true);
-        let mut block = [0.25;128];
+        let mut block = [0.25; 128];
         assert_no_alloc(|| rt.process(&mut block));
         assert!(block.iter().all(|x| *x == 0.0));
         assert_eq!(reader.pop(), Some(0.25));

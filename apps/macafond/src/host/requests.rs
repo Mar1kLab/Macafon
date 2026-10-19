@@ -8,7 +8,7 @@ impl DaemonHost {
     pub(super) fn respond(&mut self, request: Request) -> Result<serde_json::Value, ErrorBody> {
         let state = match request {
             Request::OutputControlsList => return Ok(serde_json::json!([])),
-            Request::DictationGet
+            request @ (Request::DictationGet
             | Request::DictationSetPrefs { .. }
             | Request::DictationDownload { .. }
             | Request::DictationCancelDownload { .. }
@@ -20,12 +20,7 @@ impl DaemonHost {
             | Request::DictationTestStop
             | Request::DictationCancel
             | Request::DictationHistoryClear
-            | Request::DictationReinsert { .. } => {
-                return Err(ErrorBody::new(
-                    ErrorCode::BadRequest,
-                    "dictation is not available yet",
-                ));
-            }
+            | Request::DictationReinsert { .. }) => return self.respond_dictation(request),
             Request::OutputControlsSet { .. } => {
                 return Err(ErrorBody::new(
                     ErrorCode::BadRequest,
@@ -290,6 +285,9 @@ impl DaemonHost {
                     .map_err(|error| ErrorBody::new(ErrorCode::Internal, error));
             }
             Request::UiWindowClosed => {
+                if self.dictation.test {
+                    self.cancel_dictation();
+                }
                 self.window_closed();
                 return Ok(serde_json::Value::Null);
             }

@@ -7,6 +7,7 @@ mod autostart;
 #[path = "autostart_windows.rs"]
 mod autostart;
 mod calibration;
+mod dictation;
 mod doctor;
 mod host;
 mod hotkeys;

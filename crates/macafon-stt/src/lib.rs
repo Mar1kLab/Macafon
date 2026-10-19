@@ -6,12 +6,12 @@ mod engine;
 pub mod framing;
 pub mod language;
 pub mod manifest;
-pub use engine::{SpeechEngine, SttError, TranscribeOptions, is_hallucination};
+pub use engine::{InferenceTimings, SpeechEngine, SttError, TranscribeOptions, is_hallucination};
 pub use protocol::Transcript;
 #[cfg(feature = "whisper")]
 mod whisper;
 #[cfg(feature = "whisper")]
-pub use whisper::WhisperEngine;
+pub use whisper::{WhisperEngine, WhisperSettings};
 #[cfg(feature = "parakeet")]
 mod parakeet;
 #[cfg(feature = "parakeet")]

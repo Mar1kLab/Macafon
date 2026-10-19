@@ -21,11 +21,23 @@ pub enum SttError {
 }
 
 pub trait SpeechEngine {
+    /// Timings collected during the last inference, for local performance probes.
+    fn timings(&self) -> InferenceTimings {
+        InferenceTimings::default()
+    }
+
     fn transcribe(
         &mut self,
         pcm_16k: &[f32],
         opts: &TranscribeOptions,
     ) -> Result<Transcript, SttError>;
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct InferenceTimings {
+    pub vad: std::time::Duration,
+    pub language: std::time::Duration,
+    pub recognition: std::time::Duration,
 }
 
 #[cfg(any(feature = "whisper", feature = "parakeet"))]

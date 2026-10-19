@@ -8,10 +8,24 @@ use std::{path::Path, time::Instant};
 pub struct ParakeetEngine {
     recognizer: OfflineRecognizer,
     vad: VoiceActivityDetector,
+    timings: InferenceTimings,
 }
 
 impl ParakeetEngine {
+    pub fn backend_versions() -> (&'static str, &'static str) {
+        (sherpa_onnx::version(), sherpa_onnx::onnxruntime_version())
+    }
+
     pub fn load(model_dir: &Path, threads: u16) -> Result<Self, SttError> {
+        Self::load_with_vad_threads(model_dir, threads, 1)
+    }
+
+    /// Separate the recurrent VAD budget from the parallel encoder budget.
+    pub fn load_with_vad_threads(
+        model_dir: &Path,
+        threads: u16,
+        vad_threads: u16,
+    ) -> Result<Self, SttError> {
         let mut config = OfflineRecognizerConfig::default();
         config.model_config.transducer = OfflineTransducerModelConfig {
             encoder: Some(model_path(model_dir, "encoder.int8.onnx")?),
@@ -22,6 +36,7 @@ impl ParakeetEngine {
         config.model_config.model_type = Some("nemo_transducer".into());
         config.model_config.num_threads = i32::from(threads.max(1));
         config.model_config.provider = Some("cpu".into());
+        config.decoding_method = Some("greedy_search".into());
         let recognizer = OfflineRecognizer::create(&config).ok_or_else(|| {
             SttError::ModelLoad("Parakeet recognizer initialization failed".into())
         })?;
@@ -35,23 +50,34 @@ impl ParakeetEngine {
                 max_speech_duration: 30.0,
             },
             sample_rate: 16000,
-            num_threads: i32::from(threads.max(1)),
+            // Tiny recurrent windows are faster without a thread-pool barrier
+            // on every operation. Recognition uses the requested budget above.
+            num_threads: i32::from(vad_threads.max(1)),
             provider: Some("cpu".into()),
             ..Default::default()
         };
         let vad = VoiceActivityDetector::create(&vad_config, 310.0)
             .ok_or_else(|| SttError::ModelLoad("Silero VAD initialization failed".into()))?;
-        Ok(Self { recognizer, vad })
+        Ok(Self {
+            recognizer,
+            vad,
+            timings: InferenceTimings::default(),
+        })
     }
 }
 
 impl SpeechEngine for ParakeetEngine {
+    fn timings(&self) -> InferenceTimings {
+        self.timings
+    }
+
     fn transcribe(
         &mut self,
         pcm_16k: &[f32],
         _opts: &TranscribeOptions,
     ) -> Result<Transcript, SttError> {
         let started = Instant::now();
+        self.timings = InferenceTimings::default();
         self.vad.reset();
         // sherpa's Silero wrapper advances one analysis window per call.
         for window in pcm_16k.chunks(512) {
@@ -70,6 +96,10 @@ impl SpeechEngine for ParakeetEngine {
             self.vad.pop();
         }
         let speech_ms = duration_ms(speech_samples);
+        self.timings = InferenceTimings {
+            vad: started.elapsed(),
+            ..Default::default()
+        };
         if speech_ms < 200 {
             return Err(SttError::NoSpeech);
         }
@@ -87,6 +117,7 @@ impl SpeechEngine for ParakeetEngine {
             text.push_str(&result.text);
         }
         let text = clean_text(&text);
+        self.timings.recognition = started.elapsed() - self.timings.vad;
         if text.is_empty() {
             return Err(SttError::NoSpeech);
         }

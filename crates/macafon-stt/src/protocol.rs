@@ -79,6 +79,14 @@ pub enum WorkerRequest {
         model_id: String,
         threads: u16,
         gpu: bool,
+        /// Game mode, sampled by the daemon with SHQueryUserNotificationState at
+        /// key press. Enables EcoQoS and halves the requested thread budget
+        /// (minimum one); Ready reports the effective count. Omitted means false:
+        /// ordinary dictation uses BELOW_NORMAL priority without EcoQoS.
+        /// Reload when this changes; game mode also requires CPU and immediate
+        /// unload after the result, enforced by the daemon.
+        #[serde(default)]
+        efficiency: bool,
     },
     /// Start a new utterance; audio frames that follow belong to it. May arrive before the
     /// model is loaded: the worker buffers the audio.
@@ -137,4 +145,23 @@ pub enum WorkerEvent {
         code: ErrorCode,
         message: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_load_requests_do_not_enable_efficiency() {
+        let request: WorkerRequest = serde_json::from_str(
+            r#"{"type":"load","engine":"whisper","model_dir":"models","model_id":"small","threads":6,"gpu":false}"#,
+        ).expect("valid legacy request");
+        assert!(matches!(
+            request,
+            WorkerRequest::Load {
+                efficiency: false,
+                ..
+            }
+        ));
+    }
 }

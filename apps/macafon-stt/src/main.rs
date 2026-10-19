@@ -30,6 +30,25 @@ enum Command {
         lang: Option<CliLanguage>,
         #[arg(long, default_value_t = 2)]
         threads: u16,
+        /// Game mode: enable EcoQoS and halve the thread budget.
+        #[arg(long)]
+        efficiency: bool,
+        /// Benchmark comparison only; ordinary dictation stays below normal.
+        #[arg(long)]
+        normal_priority: bool,
+        /// Repeat in the same process to separate first inference from warm runs.
+        #[arg(long, default_value_t = 1)]
+        repeat: u16,
+        #[arg(long)]
+        flash_attention: bool,
+        #[arg(long)]
+        single_segment: bool,
+        #[arg(long, default_value_t = 0)]
+        audio_ctx: u16,
+        #[arg(long, default_value_t = 0)]
+        beam_size: u16,
+        #[arg(long, default_value_t = 1)]
+        vad_threads: u16,
     },
 }
 
@@ -79,6 +98,29 @@ fn event_error(error: SttError) -> WorkerEvent {
     }
     .to_owned();
     WorkerEvent::Error { code, message }
+}
+
+fn report_backend(engine: Engine) {
+    match engine {
+        Engine::Whisper => tracing::info!(
+            system_info = macafon_stt::WhisperEngine::system_info(),
+            "Whisper CPU backend"
+        ),
+        Engine::Parakeet => {
+            let (sherpa, onnxruntime) = macafon_stt::ParakeetEngine::backend_versions();
+            tracing::info!(sherpa, onnxruntime, provider = "cpu", "Parakeet backend");
+        }
+    }
+}
+
+fn report_timings(engine: &dyn SpeechEngine) {
+    let timings = engine.timings();
+    tracing::info!(
+        vad_ms = timings.vad.as_millis(),
+        detection_ms = timings.language.as_millis(),
+        recognition_ms = timings.recognition.as_millis(),
+        "inference stages"
+    );
 }
 
 enum Input {
@@ -149,6 +191,7 @@ fn worker() -> Result<()> {
                     engine = None;
                     let result = match load(kind, dir, id, threads, gpu) {
                         Ok(loaded) => {
+                            report_backend(kind);
                             engine = Some(loaded);
                             WorkerEvent::Ready {
                                 ram_bytes: platform::ram_bytes(),
@@ -167,11 +210,15 @@ fn worker() -> Result<()> {
                 } => {
                     let audio_ms = (audio.len() as u64 * 1000 / 16000) as u32;
                     let result = match engine.as_mut() {
-                        Some(engine) => match engine.transcribe(&audio, &options) {
-                            Ok(transcript) => WorkerEvent::Result(transcript),
-                            Err(SttError::NoSpeech) => WorkerEvent::NoSpeech { audio_ms },
-                            Err(error) => event_error(error),
-                        },
+                        Some(engine) => {
+                            let result = engine.transcribe(&audio, &options);
+                            report_timings(engine.as_ref());
+                            match result {
+                                Ok(transcript) => WorkerEvent::Result(transcript),
+                                Err(SttError::NoSpeech) => WorkerEvent::NoSpeech { audio_ms },
+                                Err(error) => event_error(error),
+                            }
+                        }
                         None => event_error(SttError::ModelLoad("not loaded".into())),
                     };
                     Input::Transcribed {
@@ -213,6 +260,7 @@ fn worker() -> Result<()> {
                 model_id,
                 threads,
                 gpu,
+                efficiency,
             })) => {
                 if busy {
                     framing::write_json(
@@ -227,11 +275,13 @@ fn worker() -> Result<()> {
                 generation = generation.wrapping_add(1);
                 ready = false;
                 busy = true;
-                let threads = threads.clamp(
-                    1,
+                platform::scheduling(efficiency, false)?;
+                let threads = platform::thread_budget(
+                    threads,
                     std::thread::available_parallelism()
                         .map(|n| n.get().min(u16::MAX as usize) as u16)
                         .unwrap_or(1),
+                    efficiency,
                 );
                 framing::write_json(&mut stdout, &WorkerEvent::Loading)?;
                 jobs.send(Job::Load {
@@ -240,7 +290,7 @@ fn worker() -> Result<()> {
                     dir: model_dir,
                     id: model_id,
                     threads,
-                    gpu,
+                    gpu: gpu && !efficiency,
                 })?;
             }
             Input::Frame(Frame::Json(WorkerRequest::Begin)) => {
@@ -329,7 +379,7 @@ fn main() -> Result<()> {
         .with_writer(io::stderr)
         .with_target(false)
         .init();
-    platform::low_impact()?;
+    platform::scheduling(false, false)?;
     let Some(Command::Transcribe {
         file,
         engine,
@@ -337,10 +387,19 @@ fn main() -> Result<()> {
         model,
         lang,
         threads,
+        efficiency,
+        normal_priority,
+        repeat,
+        flash_attention,
+        single_segment,
+        audio_ctx,
+        beam_size,
+        vad_threads,
     }) = Args::parse().command
     else {
         return worker();
     };
+    platform::scheduling(efficiency, normal_priority)?;
     let mut wav = hound::WavReader::open(file).context("open WAV")?;
     let spec = wav.spec();
     anyhow::ensure!(
@@ -373,8 +432,35 @@ fn main() -> Result<()> {
         })
         .context("--model required for this folder")?;
     let started = Instant::now();
-    let mut engine = load(kind, model_dir, id, threads.max(1), false)?;
+    let threads = platform::thread_budget(
+        threads,
+        std::thread::available_parallelism()
+            .map(|n| n.get().min(u16::MAX as usize) as u16)
+            .unwrap_or(1),
+        efficiency,
+    );
+    let mut engine: Box<dyn SpeechEngine> = match kind {
+        Engine::Whisper => Box::new(macafon_stt::WhisperEngine::load_with_settings(
+            &model_dir,
+            &id,
+            threads,
+            false,
+            macafon_stt::WhisperSettings {
+                flash_attention,
+                single_segment,
+                audio_ctx,
+                beam_size,
+                vad_threads,
+            },
+        )?),
+        Engine::Parakeet => Box::new(macafon_stt::ParakeetEngine::load_with_vad_threads(
+            &model_dir,
+            threads,
+            vad_threads,
+        )?),
+    };
     let load_ms = started.elapsed().as_millis();
+    report_backend(kind);
     let ram_bytes = platform::ram_bytes();
     let fixed = lang.map(|l| match l {
         CliLanguage::En => Language::En,
@@ -394,21 +480,25 @@ fn main() -> Result<()> {
         },
         vocabulary: Vec::new(),
     };
-    let result = engine.transcribe(&audio, &options);
-    tracing::info!(
-        load_ms,
-        ram_bytes,
-        after_inference_ram_bytes = platform::ram_bytes(),
-        "model measurement"
-    );
-    let event = match result {
-        Ok(transcript) => WorkerEvent::Result(transcript),
-        Err(SttError::NoSpeech) => WorkerEvent::NoSpeech {
-            audio_ms: (audio.len() * 1000 / 16000) as u32,
-        },
-        Err(error) => event_error(error),
-    };
-    // Explicit debug command output goes to the caller, never through the logger.
-    println!("{}", serde_json::to_string(&event)?);
+    for iteration in 0..repeat.max(1) {
+        let result = engine.transcribe(&audio, &options);
+        report_timings(engine.as_ref());
+        tracing::info!(
+            load_ms,
+            iteration,
+            ram_bytes,
+            after_inference_ram_bytes = platform::ram_bytes(),
+            "model measurement"
+        );
+        let event = match result {
+            Ok(transcript) => WorkerEvent::Result(transcript),
+            Err(SttError::NoSpeech) => WorkerEvent::NoSpeech {
+                audio_ms: (audio.len() * 1000 / 16000) as u32,
+            },
+            Err(error) => event_error(error),
+        };
+        // Explicit debug command output goes to the caller, never through the logger.
+        println!("{}", serde_json::to_string(&event)?);
+    }
     Ok(())
 }

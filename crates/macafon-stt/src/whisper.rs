@@ -14,14 +14,61 @@ pub struct WhisperEngine {
     context: WhisperContext,
     vad: WhisperVadContext,
     threads: u16,
+    settings: WhisperSettings,
+    timings: InferenceTimings,
+}
+
+/// Explicit tuning for local engine measurements. Defaults preserve full-context
+/// recognition quality; shorter audio contexts require accuracy validation.
+#[derive(Debug, Clone, Copy)]
+pub struct WhisperSettings {
+    pub flash_attention: bool,
+    pub single_segment: bool,
+    pub audio_ctx: u16,
+    /// Zero selects greedy best-of-one; a positive value selects beam search.
+    pub beam_size: u16,
+    /// Zero uses the recognition budget; positive values isolate the VAD pool.
+    pub vad_threads: u16,
+}
+
+impl Default for WhisperSettings {
+    fn default() -> Self {
+        Self {
+            flash_attention: false,
+            single_segment: false,
+            audio_ctx: 0,
+            beam_size: 0,
+            vad_threads: 1,
+        }
+    }
 }
 
 impl WhisperEngine {
+    pub fn system_info() -> &'static str {
+        whisper_rs::print_system_info()
+    }
+
     pub fn load(
         model_dir: &Path,
         model_id: &str,
         threads: u16,
         gpu: bool,
+    ) -> Result<Self, SttError> {
+        Self::load_with_settings(
+            model_dir,
+            model_id,
+            threads,
+            gpu,
+            WhisperSettings::default(),
+        )
+    }
+
+    pub fn load_with_settings(
+        model_dir: &Path,
+        model_id: &str,
+        threads: u16,
+        gpu: bool,
+        settings: WhisperSettings,
     ) -> Result<Self, SttError> {
         if gpu {
             return Err(SttError::ModelLoad(
@@ -34,6 +81,7 @@ impl WhisperEngine {
             .ok_or_else(|| SttError::ModelLoad("unknown Whisper model".into()))?;
         let mut params = WhisperContextParameters::default();
         params.use_gpu(false);
+        params.flash_attn(settings.flash_attention);
         let context = WhisperContext::new_with_params(
             &model_path(model_dir, spec.files[0].file_name)?,
             params,
@@ -41,7 +89,11 @@ impl WhisperEngine {
         .map_err(|e| SttError::ModelLoad(e.to_string()))?;
         let threads = threads.max(1);
         let mut vad_params = WhisperVadContextParams::new();
-        vad_params.set_n_threads(i32::from(threads));
+        vad_params.set_n_threads(i32::from(if settings.vad_threads == 0 {
+            threads
+        } else {
+            settings.vad_threads
+        }));
         vad_params.set_use_gpu(false);
         let vad = WhisperVadContext::new(
             &model_path(model_dir, "ggml-silero-v5.1.2.bin")?,
@@ -52,17 +104,24 @@ impl WhisperEngine {
             context,
             vad,
             threads,
+            settings,
+            timings: InferenceTimings::default(),
         })
     }
 }
 
 impl SpeechEngine for WhisperEngine {
+    fn timings(&self) -> InferenceTimings {
+        self.timings
+    }
+
     fn transcribe(
         &mut self,
         pcm_16k: &[f32],
         opts: &TranscribeOptions,
     ) -> Result<Transcript, SttError> {
         let started = Instant::now();
+        self.timings = InferenceTimings::default();
         if pcm_16k.len() < 3200 {
             return Err(SttError::NoSpeech);
         }
@@ -88,6 +147,10 @@ impl SpeechEngine for WhisperEngine {
             previous_end = end;
         }
         let speech_ms = duration_ms(speech.len());
+        self.timings = InferenceTimings {
+            vad: started.elapsed(),
+            ..Default::default()
+        };
         if speech_ms < 200 {
             return Err(SttError::NoSpeech);
         }
@@ -118,7 +181,19 @@ impl SpeechEngine for WhisperEngine {
             Some(restricted)
         };
         let language = language::choose(&opts.language, lang_probs);
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        self.timings.language = started.elapsed() - self.timings.vad;
+        let decoding = Instant::now();
+        let strategy = if self.settings.beam_size == 0 {
+            SamplingStrategy::Greedy { best_of: 1 }
+        } else {
+            SamplingStrategy::BeamSearch {
+                beam_size: i32::from(self.settings.beam_size),
+                patience: -1.0,
+            }
+        };
+        let mut params = FullParams::new(strategy);
+        params.set_single_segment(self.settings.single_segment);
+        params.set_audio_ctx(i32::from(self.settings.audio_ctx));
         params.set_n_threads(i32::from(self.threads));
         params.set_language(language.map(Language::code));
         params.set_translate(false);
@@ -142,6 +217,7 @@ impl SpeechEngine for WhisperEngine {
         state
             .full(params, &speech)
             .map_err(|e| SttError::Inference(e.to_string()))?;
+        self.timings.recognition = decoding.elapsed();
         let mut text = String::new();
         for segment in state.as_iter() {
             if segment.no_speech_probability() < 0.6 {

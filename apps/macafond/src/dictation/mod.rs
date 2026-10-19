@@ -15,6 +15,8 @@ pub struct Dictation {
     pub last: Option<DictationResult>,
     pub worker: Option<worker::Worker>,
     pub loaded_model: Option<String>,
+    /// The running worker was loaded in efficiency mode (EcoQoS, half the threads, CPU).
+    pub worker_efficiency: bool,
     pub ram: Option<u64>,
     pub threads: Option<u16>,
     pub default_threads: u16,
@@ -82,6 +84,7 @@ impl Dictation {
             last: None,
             worker: None,
             loaded_model: None,
+            worker_efficiency: false,
             ram: None,
             threads: None,
             logical_cores,
@@ -175,24 +178,31 @@ impl Dictation {
             layout: self.target.layout,
             last_cyrillic: self.last_cyrillic,
         };
+        // EcoQoS parks the worker on efficiency cores at low clocks (13 s instead of 1 s for
+        // Parakeet), so it is only for a full-screen game with game mode on; switching modes
+        // reloads the worker.
+        let efficiency = self.game && prefs.game_mode;
+        if self.worker.is_some() && self.worker_efficiency != efficiency {
+            self.worker = None;
+            self.loaded_model = None;
+        }
         if self.worker.is_none() {
             let worker = worker::Worker::spawn()?;
             worker.send(WorkerRequest::Load {
                 engine: spec.engine,
                 model_dir: macafon_stt::manifest::model_dir(&self.models.folder, spec),
                 model_id: id.into(),
-                // The worker halves the budget in efficiency mode. Preserve the user's
-                // effective thread limit while keeping EcoQoS enabled as required.
-                threads: (if prefs.threads == 0 {
+                // The worker halves this budget itself in efficiency mode.
+                threads: if prefs.threads == 0 {
                     self.default_threads
                 } else {
                     prefs.threads
-                })
-                .saturating_mul(2),
+                },
                 gpu: false,
-                efficiency: true,
+                efficiency,
             })?;
             self.worker = Some(worker);
+            self.worker_efficiency = efficiency;
             self.loaded_model = Some(id.into());
         }
         let worker = self

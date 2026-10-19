@@ -6,6 +6,7 @@ import type {
   AutostartState,
   CalibrationState,
   Device,
+  DictationState,
   DoctorReport,
   HotkeysState,
   Preferences,
@@ -121,6 +122,19 @@ interface Results {
   'soundpad.delete_category': SoundpadState;
   /** The state once `done`, `null` for intermediate chunks. */
   'soundpad.upload': SoundpadState | null;
+  'dictation.get': DictationState;
+  'dictation.set_prefs': DictationState;
+  'dictation.download': DictationState;
+  'dictation.cancel_download': DictationState;
+  'dictation.delete_model': DictationState;
+  'dictation.import_model': DictationState;
+  'dictation.set_models_dir': DictationState;
+  'dictation.cancel_move': DictationState;
+  'dictation.test_start': DictationState;
+  'dictation.test_stop': DictationState;
+  'dictation.cancel': DictationState;
+  'dictation.history_clear': DictationState;
+  'dictation.reinsert': null;
 }
 
 type ResultOf<M extends Method> = M extends keyof Results ? Results[M] : never;

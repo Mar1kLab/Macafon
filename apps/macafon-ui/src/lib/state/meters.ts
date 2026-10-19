@@ -55,6 +55,13 @@ export const mixerMeterBus = {
   },
 };
 
+/** The dictation tap level (§8.4) while listening; `receivedAt` tells a stale frame. */
+export const dictationLevelBus = {
+  rms: SILENCE_DB,
+  peak: SILENCE_DB,
+  receivedAt: 0,
+};
+
 export type MeterKey = {
   [K in keyof Meters]-?: Meters[K] extends number ? K : never;
 }[keyof Meters];

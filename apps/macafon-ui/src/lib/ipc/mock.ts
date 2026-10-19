@@ -6,7 +6,7 @@
 // global shortcut service. `?platform=windows` acts like the Windows daemon (VB-CABLE, no
 // channel effects); add `&cable=missing` for a system without VB-CABLE. `?look=sketch` picks the
 // sketch look of the popup and overlay; `?sounds=list` and `?controls=bottom|hidden` lay out the
-// overlay's soundpad.
+// overlay's soundpad. `?dictation=ready|downloading|error` sets up dictation (mock/dictation.ts).
 
 import { DaemonError, type DaemonStatus, type Transport } from './client';
 import { BUILTIN_PRESETS } from './dsp';
@@ -33,12 +33,22 @@ import { DEVICES, MOCK_ICONS } from './mock/fixtures';
 import { clone, latencySamples, sameChain, slugify } from './mock/helpers';
 import { MockMixer } from './mock/mixer';
 import { MockSoundpad } from './mock/soundpad';
+import { MockDictation } from './mock/dictation';
 import { SILENT, random, voiceLevel } from './mock/signals';
 
 const VERSION = '0.1.0-mock';
 
 const GLOBAL_HOTKEYS = ['quick_panel', 'mic_mute_toggle', 'push_to_talk', 'push_to_mute', 'bypass_toggle', 'preset_next', 'preset_previous'];
 const SOUNDPAD_HOTKEYS = ['soundpad_stop', 'soundpad_pause', 'soundpad_random'];
+const DICTATION_HOTKEYS = [
+  'dictation_hold',
+  'dictation_toggle',
+  'dictation_paste_last',
+  'dictation_copy_last',
+  'dictation_hold_copy',
+  'dictation_enable_toggle',
+  'dictation_language_cycle',
+];
 
 /** HK-004 command for an action, as `HotkeyAction::command` builds it. */
 function hotkeyCommand(action: string): string {
@@ -72,6 +82,8 @@ function hotkeyCommand(action: string): string {
       return 'macafon ctl soundpad pause';
     case 'soundpad_random':
       return 'macafon ctl soundpad random';
+    case 'dictation_enable_toggle':
+      return 'macafon ctl dictation toggle';
     default:
       if (action.startsWith('soundpad_play.')) return `macafon ctl soundpad play ${JSON.stringify(action.slice('soundpad_play.'.length))}`;
       return '';
@@ -118,6 +130,12 @@ export class MockTransport implements Transport {
     ['soundpad_play.Air horn.mp3', 'Ctrl+Alt+1'],
     ['soundpad_play.Memes/Bruh.mp3', 'Ctrl+Alt+2'],
     ['soundpad_play.Memes/Vine boom.wav', 'Ctrl+Alt+3'],
+    // STT-003: Wispr Flow's Windows defaults plus copy and clipboard-only dictation.
+    ['dictation_hold', 'Ctrl+Win'],
+    ['dictation_toggle', 'Ctrl+Win+Space'],
+    ['dictation_paste_last', 'Shift+Alt+Z'],
+    ['dictation_copy_last', 'Shift+Alt+X'],
+    ['dictation_hold_copy', 'Ctrl+Win+Shift'],
   ]);
 
   private meterTimer: number | undefined;
@@ -125,6 +143,7 @@ export class MockTransport implements Transport {
   private started = performance.now();
   private mixer = new MockMixer(this.query.get('mixer') !== 'off', this.started, (event) => this.emit(event));
   private soundpad = new MockSoundpad((event) => this.emit(event), this.windows);
+  private dictation = new MockDictation((event) => this.emit(event), this.query.get('dictation'));
   private outputControls: OutputControl[] = [];
   private hardwareVolume = 83;
   private hardwareBalance = 0;
@@ -295,6 +314,7 @@ export class MockTransport implements Transport {
       ...GLOBAL_HOTKEYS, 'master_volume_up', 'master_volume_down', 'master_mute',
       ...this.mixer.state.channels.flatMap((c) => [`channel_volume_up.${c.id}`, `channel_volume_down.${c.id}`, `channel_mute.${c.id}`]),
       ...(this.windows ? [...SOUNDPAD_HOTKEYS, ...this.soundpad.state.sounds.map((x) => `soundpad_play.${x.id}`)] : []),
+      ...(this.windows ? DICTATION_HOTKEYS : []),
     ];
     const portal = this.query.get('hotkeys') !== 'unavailable';
     return {
@@ -367,6 +387,10 @@ export class MockTransport implements Transport {
       }
       return result;
     }
+    if (method.startsWith('dictation.')) {
+      if (!this.windows) throw new DaemonError('bad_request', 'dictation is not available on this platform');
+      return this.dictation.call(method, p);
+    }
     switch (method) {
       case 'output_controls.list': return clone(this.outputControls);
       case 'output_controls.set': {
@@ -409,6 +433,7 @@ export class MockTransport implements Transport {
             graph_quantum: !this.windows,
             hotkey_popup: this.windows,
             soundpad: this.windows,
+            dictation: this.windows,
           },
         };
       case 'daemon.quit':

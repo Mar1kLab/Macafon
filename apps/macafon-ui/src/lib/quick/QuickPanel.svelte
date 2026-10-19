@@ -11,6 +11,7 @@
     Mic,
     MicOff,
     SlidersHorizontal,
+    Speech,
     SquareArrowOutUpRight,
     Volume2,
     VolumeX,
@@ -23,6 +24,7 @@
   import { displayShortcut } from '../settings/shortcut';
   import { isTauri } from '../ipc/tauri';
   import { daemon } from '../state';
+  import { dictationTile } from '../dictation/tile';
   import { t } from '../i18n';
 
   let { onclose }: { onclose: () => void } = $props();
@@ -51,6 +53,13 @@
   const shortcut = $derived(daemon.hotkeys?.bindings.find((b) => b.action === 'quick_panel')?.shortcut ?? null);
   /** The look picked for the hotkey popup: the tray panel follows it, like the overlay (HK-006). */
   const sketch = $derived(daemon.prefs?.osd.look === 'sketch');
+  const dictation = $derived(dictationTile(daemon.dictation, daemon.hotkeys));
+
+  /** §9.9.2: toggles dictation; without a model, or on right click, the app opens instead. */
+  function toggleDictation() {
+    if (!dictation || dictation.needsModel) return openMain();
+    daemon.setDictationPrefs({ enabled: !dictation.on });
+  }
 
   function openMain() {
     if (tauri) void invoke('open_main').catch((error) => (quitError = String(error)));
@@ -114,6 +123,26 @@
         <span class="title">{t('quick.mixer')}</span>
         <span class="state">{mixer?.enabled ? t('quick.on') : t('quick.off')}</span>
       </button>
+      {#if dictation}
+        <button
+          class="tile"
+          class:on={dictation.on}
+          class:dim={dictation.needsModel}
+          role="switch"
+          aria-checked={dictation.on}
+          title={t('quick.dictationHint')}
+          onclick={toggleDictation}
+          oncontextmenu={(event) => {
+            event.preventDefault();
+            openMain();
+          }}
+        >
+          <Speech size={18} strokeWidth={1.5} />
+          <span class="title">{t('quick.dictation')}</span>
+          <span class="state">{dictation.state}</span>
+          {#if dictation.progress !== null}<span class="progress" style:width="{dictation.progress}%"></span>{/if}
+        </button>
+      {/if}
     </div>
 
     <div class="preset">
@@ -335,6 +364,27 @@
   .tile.alert {
     border-color: var(--danger);
     color: var(--danger);
+  }
+
+  .tiles:has(> :nth-child(4)) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .tile {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .tile.dim {
+    opacity: 0.6;
+  }
+
+  .tile .progress {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 2px;
+    background: var(--accent-ink);
   }
 
   .tile:disabled {

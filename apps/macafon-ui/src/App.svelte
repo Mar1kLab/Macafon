@@ -8,12 +8,13 @@
   import Settings from './screens/Settings.svelte';
   import Mixer from './screens/Mixer.svelte';
   import Soundpad from './screens/Soundpad.svelte';
+  import Dictation from './screens/Dictation.svelte';
   import Onboarding from './lib/onboarding/Onboarding.svelte';
   import { daemon } from './lib/state';
   import { t } from './lib/i18n';
 
   const initial = new URLSearchParams(location.search).get('screen');
-  let screen = $state<Screen>(initial === 'settings' || initial === 'mixer' || initial === 'soundpad' ? initial : 'microphone');
+  let screen = $state<Screen>(initial === 'settings' || initial === 'mixer' || initial === 'soundpad' || initial === 'dictation' ? initial : 'microphone');
 
   // SND-001: audio files dropped anywhere in the window go to the Soundpad; its own screen
   // takes drops itself, into the category on screen.
@@ -112,6 +113,8 @@
         <Mixer />
       {:else if screen === 'soundpad' && daemon.soundpadAvailable}
         <Soundpad />
+      {:else if screen === 'dictation' && daemon.dictationAvailable}
+        <Dictation />
       {:else}
         <Microphone />
       {/if}

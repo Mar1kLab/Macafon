@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { AudioLines, AudioWaveform, ChevronLeft, ChevronRight, Mic, MicOff, SlidersHorizontal, Square, Volume2, VolumeX, X } from '@lucide/svelte';
+  import { AudioLines, AudioWaveform, ChevronLeft, ChevronRight, Mic, MicOff, SlidersHorizontal, Speech, Square, Volume2, VolumeX, X } from '@lucide/svelte';
   import Logo from '../components/Logo.svelte';
   import VerticalSlider from './VerticalSlider.svelte';
   import SoundpadOverlay from './SoundpadOverlay.svelte';
   import { channelIcon } from '../mixer/icons';
   import { displayShortcut } from '../settings/shortcut';
   import { daemon } from '../state';
+  import { dictationTile } from '../dictation/tile';
   import { t } from '../i18n';
 
   let { onclose, opened = 0 }: { onclose: () => void; opened?: number } = $props();
@@ -17,6 +18,7 @@
   const preset = $derived(daemon.presets.find((item) => item.id === mic?.preset)?.name ?? t('quick.custom'));
   const shortcut = $derived(daemon.hotkeys?.bindings.find((binding) => binding.action === 'quick_panel')?.shortcut);
   const soundpad = $derived(daemon.soundpad?.prefs.show_in_overlay ? daemon.soundpad : null);
+  const dictation = $derived(dictationTile(daemon.dictation, daemon.hotkeys));
   const playback = $derived(daemon.soundpadPlayback);
   /** The look picked for the hotkey popup: the overlay follows it (HK-006, HK-007). */
   const sketch = $derived(daemon.prefs?.osd.look === 'sketch');
@@ -89,6 +91,12 @@
         <button class="toggle" class:active={mixer?.enabled} role="switch" aria-checked={mixer?.enabled ?? false} disabled={!mixer} onclick={() => mixer && daemon.setMixer(daemon.client.call('mixer.set_enabled', { enabled: !mixer.enabled }))}>
           <SlidersHorizontal size={18} strokeWidth={1.5} /><span>{t('quick.mixer')}</span><small>{mixer?.enabled ? t('quick.on') : t('quick.off')}</small>
         </button>
+        {#if dictation}
+          <button class="toggle" class:active={dictation.on} role="switch" aria-checked={dictation.on} disabled={dictation.needsModel} title={t('quick.dictationHint')} onclick={() => daemon.setDictationPrefs({ enabled: !dictation.on })}>
+            <Speech size={18} strokeWidth={1.5} /><span>{t('quick.dictation')}</span><small>{dictation.state}</small>
+            {#if dictation.progress !== null}<i class="progress" style:width="{dictation.progress}%"></i>{/if}
+          </button>
+        {/if}
         {#if soundpad}
           <div class="sounds">
             <button class="round sounds-toggle" class:open={sounds} aria-expanded={sounds} aria-controls="overlay-sounds" aria-label={sounds ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} title={sounds ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} onclick={() => setSounds(!sounds)}>
@@ -151,6 +159,8 @@
   .toggle.alert small { color: var(--danger); }
   .toggle:hover { background: var(--bg); }
   .toggle:disabled { opacity: 0.5; }
+  .toggle { position: relative; overflow: hidden; }
+  .toggle .progress { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--accent-ink); }
   .sounds { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 4px 0 0 2px; }
   .sounds-toggle.open { color: var(--accent-ink); border-color: var(--accent); }
   .sounds-label { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--muted); }

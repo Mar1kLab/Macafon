@@ -10,6 +10,9 @@ import type {
   ChainSettings,
   ChannelSettings,
   Device,
+  DictationPrefsPatch,
+  DictationResult,
+  DictationState,
   Event,
   Hello,
   HotkeysState,
@@ -24,7 +27,7 @@ import type {
 } from '../ipc/protocol';
 import { PROTOCOL_VERSION, SOUNDPAD_UPLOAD_CHUNK_BYTES } from '../ipc/protocol';
 import { t } from '../i18n';
-import { deviceMeterBus, meterBus, mixerMeterBus } from './meters';
+import { deviceMeterBus, dictationLevelBus, meterBus, mixerMeterBus } from './meters';
 
 export interface Toast {
   id: number;
@@ -73,6 +76,10 @@ export class DaemonStore {
   soundpad = $state.raw<SoundpadState | null>(null);
   /** Progress of the playing sound, updated about 10 times a second. */
   soundpadPlayback = $state.raw<SoundpadPlayback | null>(null);
+  /** Dictation (§8.4); `null` where the platform has none. */
+  dictation = $state.raw<DictationState | null>(null);
+  /** The latest TRY IT result, shown in the panel and not kept in the history. */
+  dictationTest = $state.raw<DictationResult | null>(null);
   /** Files being added to the library: name → 0…1. */
   uploads = $state<Record<string, number>>({});
   toasts = $state<Toast[]>([]);
@@ -129,6 +136,10 @@ export class DaemonStore {
 
   get soundpadAvailable(): boolean {
     return this.hello?.capabilities.soundpad ?? false;
+  }
+
+  get dictationAvailable(): boolean {
+    return this.hello?.capabilities.dictation ?? false;
   }
 
   /** Windows without VB-CABLE: processing runs, but no app can hear it (WIN-MIC-001). */
@@ -191,6 +202,7 @@ export class DaemonStore {
         this.soundpad = null;
         this.soundpadPlayback = null;
       }
+      this.dictation = hello.capabilities.dictation ? await this.client.call('dictation.get') : null;
       this.syncMeters();
     } catch (error) {
       this.fail(error);
@@ -285,6 +297,17 @@ export class DaemonStore {
         break;
       case 'soundpad.playback':
         this.soundpadPlayback = event.data;
+        break;
+      case 'dictation.changed':
+        this.applyDictation(event.data);
+        break;
+      case 'dictation.level':
+        dictationLevelBus.rms = event.data.rms_dbfs;
+        dictationLevelBus.peak = event.data.peak_dbfs;
+        dictationLevelBus.receivedAt = performance.now();
+        break;
+      case 'dictation.result':
+        if (event.data.outcome === 'test') this.dictationTest = event.data;
         break;
       case 'mic.noise_fallback':
         this.toast(t('mic.toastNoiseFallback'), { message: t('mic.toastNoiseFallbackBody'), tone: 'danger' });
@@ -554,6 +577,68 @@ export class DaemonStore {
       }
     }
     return added;
+  }
+
+  // --- Dictation --------------------------------------------------------------------------
+
+  private dictationPending: DictationPrefsPatch | null = null;
+  private dictationInFlight = false;
+  private dictationPatch: DictationPrefsPatch | null = null;
+
+  /** A slider drag keeps its local value until the last request is answered. */
+  private applyDictation(state: DictationState) {
+    const local = this.dictation?.prefs;
+    const editing = { ...this.dictationPatch, ...this.dictationPending };
+    const prefs = { ...state.prefs };
+    if (local) {
+      for (const key of Object.keys(editing) as (keyof DictationPrefsPatch)[]) {
+        if (editing[key] !== null && editing[key] !== undefined) {
+          (prefs as Record<string, unknown>)[key] = local[key];
+        }
+      }
+    }
+    this.dictation = { ...state, prefs };
+  }
+
+  async setDictation(request: Promise<DictationState | null>): Promise<boolean> {
+    const state = await this.run(request.then((value) => value ?? this.dictation));
+    if (state) this.applyDictation(state);
+    return state !== undefined;
+  }
+
+  /** Optimistic preference change; rapid changes send only the latest values. */
+  setDictationPrefs(patch: DictationPrefsPatch): void {
+    const dictation = this.dictation;
+    if (!dictation) return;
+    const prefs = { ...dictation.prefs };
+    for (const [key, value] of Object.entries(patch)) {
+      if (value !== undefined && value !== null) (prefs as Record<string, unknown>)[key] = value;
+    }
+    this.dictation = { ...dictation, prefs };
+    if (this.dictationInFlight) {
+      this.dictationPending = { ...this.dictationPending, ...patch };
+      return;
+    }
+    this.dictationInFlight = true;
+    this.dictationPatch = patch;
+    this.client
+      .call('dictation.set_prefs', { patch })
+      .then((state) => {
+        this.dictationPatch = null;
+        this.applyDictation(state);
+      })
+      .catch(async (error) => {
+        this.fail(error);
+        this.dictationPatch = null;
+        const state = await this.run(this.client.call('dictation.get'));
+        if (state) this.applyDictation(state);
+      })
+      .finally(() => {
+        this.dictationInFlight = false;
+        const next = this.dictationPending;
+        this.dictationPending = null;
+        if (next) this.setDictationPrefs(next);
+      });
   }
 
   // --- Chain edits --------------------------------------------------------------------------

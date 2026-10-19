@@ -41,9 +41,10 @@
       // Single sounds get their shortcuts on the Soundpad screen.
       if (binding.action.startsWith('soundpad_play.')) continue;
       const soundpad = binding.action.startsWith('soundpad_');
-      const channel = soundpad ? undefined : binding.action.split('.')[1];
+      const dictation = binding.action.startsWith('dictation_');
+      const channel = soundpad || dictation ? undefined : binding.action.split('.')[1];
       const general = binding.action === 'quick_panel' || binding.action.startsWith('master_');
-      const id = channel ?? (general ? 'general' : soundpad ? 'soundpad' : '');
+      const id = channel ?? (general ? 'general' : soundpad ? 'soundpad' : dictation ? 'dictation' : '');
       let group = result.find((g) => g.id === id);
       if (!group) {
         const title = channel
@@ -52,7 +53,9 @@
             ? t('settings.hotkeys.general')
             : soundpad
               ? t('settings.hotkeys.soundpad')
-              : t('settings.hotkeys.microphone');
+              : dictation
+                ? t('settings.hotkeys.dictation')
+                : t('settings.hotkeys.microphone');
         group = { id, title, bindings: [] };
         result.push(group);
       }

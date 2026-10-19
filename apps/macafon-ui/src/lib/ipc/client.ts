@@ -117,6 +117,7 @@ interface Results {
   'soundpad.rename': SoundpadState;
   'soundpad.move': SoundpadState;
   'soundpad.delete': SoundpadState;
+  'soundpad.delete_problem_sounds': SoundpadState;
   'soundpad.create_category': SoundpadState;
   'soundpad.rename_category': SoundpadState;
   'soundpad.delete_category': SoundpadState;

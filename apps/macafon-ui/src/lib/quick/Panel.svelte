@@ -29,14 +29,37 @@
     return { width: Math.ceil(rect?.width ?? 0), height: Math.ceil(rect?.height ?? 0) };
   }
 
+  let fitting = false;
+  let refit = false;
+
+  /** One fit at a time: while a side panel opens or closes the page resizes every frame, and
+   * the window follows with the latest size instead of a queue of stale ones. */
   async function fit() {
     if (!root || !tauri) return;
-    const { width, height } = measure();
-    // The overlay's main part stays where it is when a side panel opens to its right.
-    const main = root.querySelector('[data-overlay-main]')?.getBoundingClientRect();
-    const anchor = main ? Math.ceil(main.right) : null;
-    if (width > 0 && height > 0) {
-      await invoke('quick_panel_fit', { width: width - extraWidth, height: height - extraHeight, anchor });
+    if (fitting) {
+      refit = true;
+      return;
+    }
+    fitting = true;
+    try {
+      do {
+        refit = false;
+        const { width, height } = measure();
+        // Anchored: the overlay's main part stays where it is and a side panel grows the window
+        // away from it. Centered (or no main part): the whole window is centered.
+        const main = root.querySelector('[data-overlay-main]:not([data-overlay-centered])')?.getBoundingClientRect();
+        const origin = root.getBoundingClientRect();
+        if (width > 0 && height > 0) {
+          await invoke('quick_panel_fit', {
+            width: width - extraWidth,
+            height: height - extraHeight,
+            anchorLeft: main ? main.left - origin.left : null,
+            anchorRight: main ? main.right - origin.left : null,
+          });
+        }
+      } while (refit);
+    } finally {
+      fitting = false;
     }
   }
 

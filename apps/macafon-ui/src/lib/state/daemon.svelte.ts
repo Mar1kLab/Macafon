@@ -101,6 +101,8 @@ export class DaemonStore {
   private deviceMetersOn = false;
   /** Components showing per-device levels; the daemon meters every input only while > 0. */
   private deviceWatchers = 0;
+  /** `watchMeters` callers. */
+  private meterWatchers = 0;
   private recoveryShown: string | null = null;
   /** APP-003: icon name → `data:` URL, `null` when the daemon found none. */
   private icons = new SvelteMap<string, string | null>();
@@ -209,6 +211,20 @@ export class DaemonStore {
     }
   }
 
+  /** Live meters in a window that has them off (the overlay's mic level) until the returned
+   * function is called; the bridge keeps the daemon's stream while any window wants it. */
+  watchMeters(): () => void {
+    this.meterWatchers++;
+    this.syncMeters();
+    let stopped = false;
+    return () => {
+      if (stopped) return;
+      stopped = true;
+      this.meterWatchers--;
+      this.syncMeters();
+    };
+  }
+
   /** Live levels of every microphone (MIC-002) until the returned function is called. */
   watchDevices(): () => void {
     this.deviceWatchers++;
@@ -237,7 +253,7 @@ export class DaemonStore {
   /** Meters flow only while the window is visible (MTR-004, NFR-R7). */
   private syncMeters() {
     this.syncDeviceMeters();
-    const want = this.meters && this.connected && document.visibilityState === 'visible';
+    const want = (this.meters || this.meterWatchers > 0) && this.connected && document.visibilityState === 'visible';
     if (want === this.metersOn) return;
     this.metersOn = want;
     const request = want

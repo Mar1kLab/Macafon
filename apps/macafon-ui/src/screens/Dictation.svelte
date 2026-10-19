@@ -2,7 +2,10 @@
   // 04 / DICTATION (PRD §8.4, §9.9): local speech to text. The header turns it on (STT-001) and
   // shows the worker; the cards set the engine and models, language, input, output, the worker's
   // footprint, the popup and the vocabulary; TRY IT at the bottom runs the whole pipeline.
-  import { Keyboard, Trash2, TriangleAlert, X } from '@lucide/svelte';
+  import { CircleHelp, Keyboard, Trash2, TriangleAlert, X } from '@lucide/svelte';
+  import Dropdown from '../lib/components/Dropdown.svelte';
+  import Onboarding, { dictationOnboarded } from '../lib/dictation/Onboarding.svelte';
+  import { layoutLanguageOptions, otherLanguageOptions } from '../lib/dictation/languages';
   import Toggle from '../lib/components/Toggle.svelte';
   import Segmented from '../lib/components/Segmented.svelte';
   import RulerSlider from '../lib/components/RulerSlider.svelte';
@@ -15,7 +18,6 @@
   import type {
     DictationGamePolicy,
     DictationInsert,
-    DictationLanguage,
     DictationLanguagePolicy,
     DictationTap,
   } from '../lib/ipc/protocol';
@@ -48,11 +50,11 @@
     { value: 'fixed', label: t('dictation.language.fixed') },
     { value: 'auto', label: t('dictation.language.auto') },
   ];
-  const languages: { value: DictationLanguage; label: string }[] = [
-    { value: 'en', label: t('dictation.language.en') },
-    { value: 'uk', label: t('dictation.language.uk') },
-    { value: 'ru', label: t('dictation.language.ru') },
-  ];
+  /** The user's keyboard layout languages as chips; any other Whisper language from a list. */
+  const languages = $derived(layoutLanguageOptions(dictation ?? null));
+  const otherLanguages = $derived([{ value: '', label: t('dictation.language.other') }, ...otherLanguageOptions(dictation ?? null)]);
+  /** First visit: the step-by-step guide. */
+  let guide = $state(!dictationOnboarded());
   const taps: { value: DictationTap; label: string }[] = [
     { value: 'raw', label: t('dictation.input.raw') },
     { value: 'clean', label: t('dictation.input.clean') },
@@ -148,6 +150,7 @@
           <kbd class:empty={!row.shortcut}>{row.shortcut ? displayShortcut(row.shortcut) : t('settings.hotkeys.notSet')}</kbd>
         </span>
       {/each}
+      <button class="btn icon ghost" aria-label={t('dictation.onboarding.open')} title={t('dictation.onboarding.open')} onclick={() => (guide = true)}><CircleHelp size={15} strokeWidth={1.5} /></button>
       <button class="btn icon ghost" aria-label={t('dictation.changeShortcuts')} title={t('dictation.changeShortcuts')} onclick={() => openSettings('hotkeys')}><Keyboard size={15} strokeWidth={1.5} /></button>
       <span class="master" title={hasModel ? t('dictation.toggleHint') : t('dictation.test.unavailable')}>
         <span class="hud-label">{t('dictation.toggle')}</span>
@@ -178,6 +181,9 @@
             <Segmented label={t('dictation.language.label')} options={policies} value={prefs.language} disabled={parakeet} hint={parakeet ? t('dictation.language.parakeetBody') : languageBody} onchange={(language) => daemon.setDictationPrefs({ language })} />
             {#if prefs.language === 'fixed' && !parakeet}
               <Segmented label={t('dictation.language.fixedLanguage')} options={languages} value={prefs.fixed_language} onchange={(fixed_language) => daemon.setDictationPrefs({ fixed_language })} />
+              {#if otherLanguages.length > 1}
+                <Dropdown label={t('dictation.language.other')} options={otherLanguages} value={''} width="100%" onchange={(fixed_language) => fixed_language && daemon.setDictationPrefs({ fixed_language })} />
+              {/if}
             {/if}
           </Card>
 
@@ -280,6 +286,7 @@
 
     <TryPanel {dictation} />
   </div>
+  <Onboarding open={guide} onclose={() => (guide = false)} />
 {:else}
   <div class="loading" role="status">{t('daemon.loading')}</div>
 {/if}
@@ -502,6 +509,10 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+    /* The defaults alone are dozens of words: a few rows, the rest scrolls. */
+    max-height: 100px;
+    overflow-y: auto;
+    padding-right: 2px;
   }
 
   .words li {

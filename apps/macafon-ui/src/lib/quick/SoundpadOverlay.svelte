@@ -1,12 +1,15 @@
 <script lang="ts" module>
-  import { SOUND_SORTS, savedSort, type SoundSort } from '../soundpad/format';
+  import { FAVORITES, SOUND_SORTS, savedSort, type SoundSort } from '../soundpad/format';
 
   /** Where the user was in the sounds: kept across openings and UI restarts. */
   interface Place {
+    /** A category, or `null` for every sound. */
     scope: string | null;
+    /** Only the favorites of that scope. */
+    favorites: boolean;
     query: string;
     scrollTop: number;
-    /** The overlay's own order; the Soundpad screen's until the user picks one here. */
+    /** The overlay's own order; the SoundDeck screen's until the user picks one here. */
     sort: SoundSort;
   }
 
@@ -15,37 +18,40 @@
   function loadPlace(): Place {
     try {
       const saved = JSON.parse(localStorage.getItem(PLACE_KEY) ?? 'null') as Partial<Place> | null;
+      // Favorites used to be one of the scopes.
+      const oldFavorites = saved?.scope === FAVORITES;
       return {
-        scope: typeof saved?.scope === 'string' ? saved.scope : null,
+        scope: typeof saved?.scope === 'string' && !oldFavorites ? saved.scope : null,
+        favorites: saved?.favorites === true || oldFavorites,
         query: typeof saved?.query === 'string' ? saved.query : '',
         scrollTop: typeof saved?.scrollTop === 'number' ? saved.scrollTop : 0,
         sort: SOUND_SORTS.includes(saved?.sort as SoundSort) ? (saved?.sort as SoundSort) : savedSort(),
       };
     } catch {
-      return { scope: null, query: '', scrollTop: 0, sort: savedSort() };
+      return { scope: null, favorites: false, query: '', scrollTop: 0, sort: savedSort() };
     }
   }
 </script>
 
 <script lang="ts">
-  // The soundpad in the hotkey overlay (§7.6, SND-006), shown while its round button in the
-  // overlay is on: searchable, sortable pads with a category filter, the playing sound's
-  // transport and the output volumes. The category, search, order and scroll position are
-  // remembered, so a long library opens where the user left it. Pads are drawn a page at a
-  // time, so a library of thousands of sounds opens as fast as a small one.
+  // SoundDeck in the hotkey overlay (§7.6, SND-006), shown while its panel is open: searchable,
+  // sortable pads with a Favorites chip and one list of categories (many categories do not
+  // crowd the panel), a star on each pad, the playing sound's transport and the output
+  // volumes. The category, favorites, search, order and scroll position are remembered, so a
+  // long library opens where the user left it. Pads are drawn a page at a time, so a library of
+  // thousands of sounds opens as fast as a small one.
   import { onMount, tick } from 'svelte';
   import { Headphones, Mic, Pause, Play, Search, Square, Star } from '@lucide/svelte';
   import Dropdown from '../components/Dropdown.svelte';
   import RulerSlider from '../components/RulerSlider.svelte';
-  import { radioKeys } from '../components/radioKeys';
   import SeekBar from '../soundpad/SeekBar.svelte';
   import { indexShortcuts } from '../settings/shortcut';
-  import { FAVORITES, formatDuration, inScope, matches, sortOptions, sortSounds, type SoundScope } from '../soundpad/format';
+  import { formatDuration, inScope, matches, sortOptions, sortSounds, type SoundScope } from '../soundpad/format';
   import type { SoundInfo, SoundpadOverlayView } from '../ipc/protocol';
   import { daemon } from '../state';
   import { t } from '../i18n';
 
-  /** `library`: the sounds, in the overlay's right panel; `player`: the transport and the output
+  /** `library`: the sounds, in the overlay's side panel; `player`: the transport and the output
    * volumes, docked along the bottom of the overlay. */
   let { part = 'library' }: { part?: 'library' | 'player' } = $props();
 
@@ -62,6 +68,7 @@
   const playback = $derived(daemon.soundpadPlayback);
   const place = loadPlace();
   let scope = $state<SoundScope>(place.scope);
+  let favorites = $state(place.favorites);
   let query = $state(place.query);
   let scrollTop = place.scrollTop;
   let list: HTMLDivElement | undefined = $state();
@@ -75,14 +82,14 @@
 
   const scopes = $derived([
     { value: null as SoundScope, label: t('soundpad.all') },
-    ...(soundpad?.sounds.some((sound) => sound.favorite) ? [{ value: FAVORITES as SoundScope, label: t('soundpad.favorites') }] : []),
     ...(soundpad?.categories ?? []).map((category) => ({ value: category as SoundScope, label: category })),
   ]);
+  const favoriteCount = $derived(soundpad?.sounds.filter((sound) => sound.favorite).length ?? 0);
   // A category that is gone falls back to every sound.
   const activeScope = $derived(scopes.some((item) => item.value === scope) ? scope : null);
   const pads = $derived(
     sortSounds(
-      (soundpad?.sounds ?? []).filter((sound) => !sound.error && inScope(sound, activeScope) && matches(sound, query)),
+      (soundpad?.sounds ?? []).filter((sound) => !sound.error && inScope(sound, activeScope) && (!favorites || sound.favorite) && matches(sound, query)),
       sort,
     ).sort((a, b) => Number(b.favorite) - Number(a.favorite)),
   );
@@ -100,7 +107,7 @@
   function save() {
     cancelAnimationFrame(saveFrame);
     saveFrame = requestAnimationFrame(() => {
-      localStorage.setItem(PLACE_KEY, JSON.stringify({ scope, query, scrollTop, sort } satisfies Place));
+      localStorage.setItem(PLACE_KEY, JSON.stringify({ scope, favorites, query, scrollTop, sort } satisfies Place));
     });
   }
 
@@ -116,9 +123,19 @@
     restart();
   }
 
+  function setFavorites(value: boolean) {
+    favorites = value;
+    restart();
+  }
+
   function setSort(value: SoundSort) {
     sort = value;
     restart();
+  }
+
+  /** The pad's star: favorites without leaving the overlay. */
+  function star(sound: SoundInfo) {
+    void daemon.setSoundpad(daemon.client.call('soundpad.set_sound', { id: sound.id, patch: { favorite: !sound.favorite } }));
   }
 
   /** Name, category, length and plays: everything the pad has no room for. */
@@ -193,45 +210,40 @@
         }}
       />
     </label>
-    <div class="scopes" role="radiogroup" aria-label={t('soundpad.categories')} use:radioKeys>
-      {#each scopes as item (item.value)}
-        <button class="chip" role="radio" aria-checked={activeScope === item.value} tabindex={activeScope === item.value ? 0 : -1} class:active={activeScope === item.value} onclick={() => setScope(item.value)}>
-          {#if item.value === FAVORITES}<Star size={11} strokeWidth={1.5} />{/if}{item.label}
-        </button>
-      {/each}
+    <div class="filters">
+      <button class="chip favorites" class:active={favorites} aria-pressed={favorites} title={t('quick.soundpadFavoritesHint')} onclick={() => setFavorites(!favorites)}>
+        <Star size={11} strokeWidth={1.5} />{t('soundpad.favorites')}<small>{favoriteCount}</small>
+      </button>
+      <div class="scope"><Dropdown label={t('soundpad.categories')} options={scopes} value={activeScope} width="138px" onchange={setScope} /></div>
+      <div class="sort"><Dropdown label={t('soundpad.sort')} options={sorts} value={sort} width="138px" onchange={setSort} /></div>
     </div>
-    <div class="sort"><Dropdown label={t('soundpad.sort')} options={sorts} value={sort} width="150px" onchange={setSort} /></div>
   </div>
-
 
   {#if (soundpad?.sounds.length ?? 0) === 0}
     <p class="empty">{t('quick.soundpadEmpty')}</p>
   {:else if pads.length === 0}
-    <p class="empty">{t('quick.soundpadNoMatches', { query })}</p>
+    <p class="empty">{favorites && !query ? t('quick.soundpadNoFavorites') : t('quick.soundpadNoMatches', { query })}</p>
   {:else}
     <div class="pads" class:list={view === 'list'} bind:this={list} {onscroll}>
       {#each visible as sound (sound.id)}
         {@const active = playback?.sound_id === sound.id}
         {@const shortcut = shortcuts.get(`soundpad_play.${sound.id}`) ?? null}
-        <button
-          class="pad"
-          class:active
-          aria-label={t('quick.soundpadPlay', { name: sound.name })}
-          title={describe(sound)}
-          style:--progress={active && playback ? `${Math.min(playback.position_ms / Math.max(playback.duration_ms, 1), 1) * 100}%` : '0%'}
-          onclick={() => (active ? daemon.stopSound() : daemon.playSound(sound.id))}
-        >
-          <span class="name">{#if sound.favorite}<Star size={11} strokeWidth={1.5} />{/if}{sound.name}</span>
-          <span class="meta">
-            <span class="length">{active && playback ? `${formatDuration(playback.position_ms)} / ` : ''}{formatDuration(sound.duration_ms, true)}</span>
-            {#if sound.category && activeScope !== sound.category}<span class="category">{sound.category}</span>{/if}
-            {#if shortcut}<kbd>{shortcut}</kbd>{/if}
-          </span>
-        </button>
+        <div class="pad" class:active class:favorite={sound.favorite} style:--progress={active && playback ? `${Math.min(playback.position_ms / Math.max(playback.duration_ms, 1), 1) * 100}%` : '0%'}>
+          <button class="play" aria-label={t('quick.soundpadPlay', { name: sound.name })} title={describe(sound)} onclick={() => (active ? daemon.stopSound() : daemon.playSound(sound.id))}>
+            <span class="name">{sound.name}</span>
+            <span class="meta">
+              <span class="length">{active && playback ? `${formatDuration(playback.position_ms)} / ` : ''}{formatDuration(sound.duration_ms, true)}</span>
+              {#if sound.category && activeScope !== sound.category}<span class="category">{sound.category}</span>{/if}
+              {#if shortcut}<kbd>{shortcut}</kbd>{/if}
+            </span>
+          </button>
+          <button class="star" aria-pressed={sound.favorite} aria-label={sound.favorite ? t('soundpad.unfavorite') : t('soundpad.favorite')} title={sound.favorite ? t('soundpad.unfavorite') : t('soundpad.favorite')} onclick={() => star(sound)}>
+            <Star size={12} strokeWidth={1.5} />
+          </button>
+        </div>
       {/each}
     </div>
   {/if}
-
 </section>
 {/if}
 
@@ -250,9 +262,8 @@
 
   .bar {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px 12px;
+    flex-direction: column;
+    gap: 8px;
     min-width: 0;
   }
 
@@ -260,7 +271,6 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    flex: 1 1 200px;
     height: 32px;
     padding: 0 12px;
     border: 1px solid var(--line);
@@ -288,34 +298,54 @@
     color: var(--faint);
   }
 
-  .scopes {
-    flex: 1;
+  .filters {
     display: flex;
-    gap: 6px;
+    align-items: center;
+    gap: 8px;
     min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: none;
-    order: 3;
-    flex: 1 0 100%;
+  }
+
+  .filters .sort {
+    margin-left: auto;
   }
 
   .chip {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     flex: none;
-    height: 24px;
-    padding: 0 10px;
+    height: 32px;
+    padding: 0 12px;
     border: 1px solid var(--line);
     border-radius: 12px;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--muted);
     background: var(--bg-sunken);
+    transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+  }
+
+  .chip:hover {
+    border-color: var(--line-strong);
+    color: var(--ink);
+  }
+
+  .chip small {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--faint);
+  }
+
+  .chip :global(svg) {
+    color: var(--app-amber-ink);
   }
 
   .chip.active {
     color: var(--ink-strong);
-    border-color: var(--line-strong);
+    border-color: var(--app-amber-ink);
+  }
+
+  .chip.active :global(svg) {
+    fill: currentColor;
   }
 
   .player {
@@ -385,7 +415,8 @@
     font-size: 11px;
   }
 
-  .sort :global(.trigger) {
+  .sort :global(.trigger),
+  .scope :global(.trigger) {
     height: 32px;
     border-radius: 12px;
     font-size: 12px;
@@ -422,7 +453,7 @@
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
-    max-height: 290px;
+    max-height: 260px;
     overflow-y: auto;
     padding-right: 2px;
   }
@@ -430,15 +461,10 @@
   .pad {
     position: relative;
     overflow: hidden;
-    display: grid;
-    align-content: space-between;
-    gap: 6px;
     height: 52px;
-    padding: 8px 10px;
     border: 1px solid var(--line);
     border-radius: 12px;
     background: var(--bg-sunken);
-    text-align: left;
     transition:
       border-color var(--dur) var(--ease),
       background var(--dur) var(--ease);
@@ -463,21 +489,67 @@
     background: var(--accent);
   }
 
-  .name {
-    display: flex;
+  .play {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    align-content: space-between;
+    gap: 6px;
+    padding: 8px 10px;
+    border: 0;
+    background: none;
+    text-align: left;
+  }
+
+  .play:focus-visible,
+  .star:focus-visible {
+    outline: 1px solid var(--ink);
+    outline-offset: -2px;
+  }
+
+  /* The star sits in the pad's corner: shown on hover and focus, always on a favorite. */
+  .star {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
     align-items: center;
-    gap: 4px;
+    justify-content: center;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    color: var(--muted);
+    opacity: 0;
+    transition:
+      opacity var(--dur) var(--ease),
+      color var(--dur) var(--ease);
+  }
+
+  .pad:hover .star,
+  .star:focus-visible,
+  .pad.favorite .star {
+    opacity: 1;
+  }
+
+  .star:hover,
+  .pad.favorite .star {
+    color: var(--app-amber-ink);
+  }
+
+  .pad.favorite .star :global(svg) {
+    fill: currentColor;
+  }
+
+  .name {
     min-width: 0;
+    padding-right: 18px;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
     font-size: 12px;
     color: var(--ink);
-  }
-
-  .name :global(svg) {
-    flex: none;
-    color: var(--app-amber-ink);
   }
 
   .meta {
@@ -521,15 +593,23 @@
 
   .list .pad {
     height: 28px;
-    padding: 0 10px;
+    border-radius: 8px;
+  }
+
+  .list .play {
     display: flex;
     align-items: center;
     gap: 12px;
-    border-radius: 8px;
+    padding: 0 34px 0 10px;
+  }
+
+  .list .star {
+    top: 3px;
   }
 
   .list .name {
     flex: 1;
+    padding-right: 0;
   }
 
   .list .meta {
@@ -556,7 +636,9 @@
   .sketch .chip,
   .sketch .round,
   .sketch .pad,
-  .sketch .sort :global(.trigger) {
+  .sketch .star,
+  .sketch .sort :global(.trigger),
+  .sketch .scope :global(.trigger) {
     border-radius: 0;
   }
 
@@ -580,7 +662,9 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .pad {
+    .pad,
+    .chip,
+    .star {
       transition: none;
     }
   }

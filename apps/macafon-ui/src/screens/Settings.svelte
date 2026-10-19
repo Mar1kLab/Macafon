@@ -18,7 +18,9 @@
   import Doctor from '../lib/settings/Doctor.svelte';
   import Hotkeys from '../lib/settings/Hotkeys.svelte';
   import MonitorPicture from '../lib/settings/MonitorPicture.svelte';
-  import OverlayPicture from '../lib/settings/OverlayPicture.svelte';
+  import OverlayLayoutPicture from '../lib/settings/OverlayLayoutPicture.svelte';
+  import OverlayParts from '../lib/settings/OverlayParts.svelte';
+  import { DEFAULT_OVERLAY } from '../lib/quick/overlay';
   import PictureChoice from '../lib/settings/PictureChoice.svelte';
   import PopupPicture from '../lib/settings/PopupPicture.svelte';
   import LookPicture from '../lib/settings/LookPicture.svelte';
@@ -32,6 +34,9 @@
     OsdLook,
     OsdPrefs,
     OsdStyle,
+    OverlayExpand,
+    OverlayPlacement,
+    OverlayPrefs,
     SoundpadOverlayControls,
     SoundpadOverlayView,
   } from '../lib/ipc/protocol';
@@ -78,13 +83,14 @@
     label: t(`settings.closeActions.${value}`),
   }));
 
-  async function setPrefs(patch: { volume_step_pct?: number; quantum_frames?: number; close_action?: CloseAction; osd?: OsdPrefs }) {
+  async function setPrefs(patch: { volume_step_pct?: number; quantum_frames?: number; close_action?: CloseAction; osd?: OsdPrefs; overlay?: OverlayPrefs }) {
     const next = await daemon.run(
       daemon.client.call('prefs.set', {
         volume_step_pct: patch.volume_step_pct ?? null,
         quantum_frames: patch.quantum_frames ?? null,
         close_action: patch.close_action ?? null,
         osd: patch.osd ?? null,
+        overlay: patch.overlay ?? null,
       }),
     );
     if (next) daemon.prefs = next;
@@ -115,11 +121,22 @@
     label: t(value ? 'settings.osd.primaryMonitor' : 'settings.osd.activeMonitor'),
     hint: t(value ? 'settings.osd.primaryHint' : 'settings.osd.activeHint'),
   }));
-  const overlayOptions = [true, false].map((value) => ({
+  // §9.9: the hotkey overlay's parts, where its side panels open and how it is placed.
+  const overlay = $derived(prefs?.overlay ?? DEFAULT_OVERLAY);
+  const expandOptions = (['right', 'left', 'down'] as OverlayExpand[]).map((value) => ({
     value,
-    label: t(value ? 'settings.overlay.withSounds' : 'settings.overlay.withoutSounds'),
-    hint: t(value ? 'settings.overlay.withSoundsHint' : 'settings.overlay.withoutSoundsHint'),
+    label: t(`settings.overlay.expands.${value}`),
+    hint: t(`settings.overlay.expandHints.${value}`),
   }));
+  const placementOptions = (['anchored', 'centered'] as OverlayPlacement[]).map((value) => ({
+    value,
+    label: t(`settings.overlay.placements.${value}`),
+    hint: t(`settings.overlay.placementHints.${value}`),
+  }));
+
+  function setOverlay(patch: Partial<OverlayPrefs>) {
+    void setPrefs({ overlay: { ...overlay, ...patch } });
+  }
 
   function setOsd(patch: Partial<OsdPrefs>) {
     if (!prefs) return;
@@ -140,7 +157,7 @@
   ];
 
   // The section list: what this platform and daemon show, in page order.
-  type SectionId = 'general' | 'audio' | 'outputs' | 'mixer' | 'soundpad' | 'hotkeys' | 'popup' | 'dictation' | 'doctor' | 'about';
+  type SectionId = 'general' | 'audio' | 'outputs' | 'mixer' | 'soundpad' | 'hotkeys' | 'popup' | 'overlay' | 'dictation' | 'doctor' | 'about';
   const sections = $derived(
     (
       [
@@ -151,6 +168,7 @@
         ['soundpad', t('settings.soundpad'), !!daemon.soundpad],
         ['hotkeys', t('settings.hotkeys.title'), !!daemon.hotkeys],
         ['popup', t('settings.osd.title'), !!prefs && !!daemon.hello?.capabilities.hotkey_popup],
+        ['overlay', t('settings.overlay.title'), !!prefs],
         ['dictation', t('settings.dictationPopup.title'), !!daemon.dictation],
         ['doctor', t('settings.doctor'), true],
         ['about', t('settings.about'), true],
@@ -485,43 +503,61 @@
               {#snippet picture(primary)}<MonitorPicture {primary} />{/snippet}
             </PictureChoice>
           </div>
-          {#if daemon.soundpad}
-            <div class="row column">
-              <p class="name">{t('settings.soundpadOverlay')}</p>
-              <PictureChoice
-                label={t('settings.soundpadOverlay')}
-                options={overlayOptions}
-                value={daemon.soundpad.prefs.show_in_overlay}
-                onchange={(show_in_overlay) => daemon.setSoundpadPrefs({ show_in_overlay })}
-              >
-                {#snippet picture(soundpad)}<OverlayPicture {soundpad} />{/snippet}
-              </PictureChoice>
+        </section>
+      {/if}
+
+      {#if prefs}
+        <section id="settings-overlay">
+          <h2 class="hud-label" tabindex="-1">{t('settings.overlay.title')}</h2>
+          <div class="row column">
+            <div>
+              <p class="name">{t('settings.overlay.parts')}</p>
+              <p class="hint">{t('settings.overlay.partsHint')}</p>
             </div>
-            {#if daemon.soundpad.prefs.show_in_overlay}
-              <div class="row">
-                <p class="name">{t('settings.overlay.view')}</p>
-                <Segmented
-                  label={t('settings.overlay.view')}
-                  layout="inline"
-                  options={overlayViewOptions}
-                  value={daemon.soundpad.prefs.overlay_view}
-                  onchange={(overlay_view) => daemon.setSoundpadPrefs({ overlay_view })}
-                />
+            <OverlayParts setup={overlay} onchange={setOverlay} />
+          </div>
+          <div class="row column">
+            <div>
+              <p class="name">{t('settings.overlay.expand')}</p>
+              <p class="hint">{t('settings.overlay.expandHint')}</p>
+            </div>
+            <PictureChoice label={t('settings.overlay.expand')} options={expandOptions} value={overlay.expand} onchange={(expand) => setOverlay({ expand })}>
+              {#snippet picture(expand)}<OverlayLayoutPicture {expand} placement={overlay.placement} />{/snippet}
+            </PictureChoice>
+          </div>
+          <div class="row column">
+            <div>
+              <p class="name">{t('settings.overlay.placement')}</p>
+              <p class="hint">{overlay.expand === 'down' ? t('settings.overlay.placementDown') : t('settings.overlay.placementHint')}</p>
+            </div>
+            <PictureChoice label={t('settings.overlay.placement')} options={placementOptions} value={overlay.placement} onchange={(placement) => setOverlay({ placement })}>
+              {#snippet picture(placement)}<OverlayLayoutPicture expand={overlay.expand === 'down' ? 'right' : overlay.expand} {placement} />{/snippet}
+            </PictureChoice>
+          </div>
+          {#if daemon.soundpad?.prefs.show_in_overlay}
+            <div class="row">
+              <p class="name">{t('settings.overlay.view')}</p>
+              <Segmented
+                label={t('settings.overlay.view')}
+                layout="inline"
+                options={overlayViewOptions}
+                value={daemon.soundpad.prefs.overlay_view}
+                onchange={(overlay_view) => daemon.setSoundpadPrefs({ overlay_view })}
+              />
+            </div>
+            <div class="row">
+              <div>
+                <p class="name">{t('settings.overlay.controls')}</p>
+                <p class="hint">{t('settings.overlay.controlsHint')}</p>
               </div>
-              <div class="row">
-                <div>
-                  <p class="name">{t('settings.overlay.controls')}</p>
-                  <p class="hint">{t('settings.overlay.controlsHint')}</p>
-                </div>
-                <Segmented
-                  label={t('settings.overlay.controls')}
-                  layout="inline"
-                  options={overlayControlsOptions}
-                  value={daemon.soundpad.prefs.overlay_controls}
-                  onchange={(overlay_controls) => daemon.setSoundpadPrefs({ overlay_controls })}
-                />
-              </div>
-            {/if}
+              <Segmented
+                label={t('settings.overlay.controls')}
+                layout="inline"
+                options={overlayControlsOptions}
+                value={daemon.soundpad.prefs.overlay_controls}
+                onchange={(overlay_controls) => daemon.setSoundpadPrefs({ overlay_controls })}
+              />
+            </div>
           {/if}
         </section>
       {/if}
@@ -569,13 +605,6 @@
                 onchange={(popup_offset_pct) => daemon.setDictationPrefs({ popup_offset_pct })}
               />
             </div>
-          </div>
-          <div class="row">
-            <div>
-              <p class="name">{t('dictation.popup.overlayTile')}</p>
-              <p class="hint">{t('settings.dictationPopup.tileHint')}</p>
-            </div>
-            <Toggle checked={dictation.show_in_overlay} label={t('dictation.popup.overlayTile')} onchange={(show_in_overlay) => daemon.setDictationPrefs({ show_in_overlay })} />
           </div>
         </section>
       {/if}
@@ -854,10 +883,10 @@
   }
 
   .dictation-look > span {
-    width: 62%;
+    width: 46%;
   }
 
   .dictation-look.analog > span {
-    width: 78%;
+    width: 52%;
   }
 </style>

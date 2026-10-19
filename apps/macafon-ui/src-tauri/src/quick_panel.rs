@@ -198,7 +198,7 @@ fn place(
     monitor: &Monitor,
     width: f64,
     height: f64,
-    anchor: Option<f64>,
+    anchor: Option<(f64, f64)>,
 ) -> tauri::Result<()> {
     let scale = monitor.scale_factor();
     let area = monitor.work_area();
@@ -214,12 +214,13 @@ fn place(
     let at = |width: i32, height: i32| {
         let x = match mode {
             Mode::Tray => area.position.x + area.size.width as i32 - width - margin,
-            // Centered on its main part, so a side panel grows the window to the right.
+            // Centered on its main part, so a side panel grows the window away from it; without
+            // an anchor the whole window is centered.
             Mode::Overlay => {
-                let main = anchor.map_or(width, |anchor| {
-                    ((anchor * scale).round() as i32).clamp(1, width)
+                let center = anchor.map_or(width / 2, |(left, right)| {
+                    (((left + right) / 2.0 * scale).round() as i32).clamp(0, width)
                 });
-                area.position.x + (area.size.width as i32 - main) / 2
+                area.position.x + area.size.width as i32 / 2 - center
             }
         };
         let y = match mode {
@@ -248,6 +249,31 @@ fn place(
     let extra_height = outer.height as i32 - inner.height as i32;
     let size = PhysicalSize::new(width as u32, height as u32);
     let target = at(width + extra_width, height + extra_height);
+    // A side panel opening or closing resizes the window every frame: position and size change
+    // together, or a panel growing to the left shakes.
+    #[cfg(windows)]
+    if inner != size || window.outer_position().ok() != Some(target) {
+        use windows::Win32::{
+            Foundation::HWND,
+            UI::WindowsAndMessaging::{SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos},
+        };
+        let hwnd = window.hwnd()?;
+        // SAFETY: the handle belongs to this live window; SetWindowPos only moves and sizes it.
+        let moved = unsafe {
+            SetWindowPos(
+                HWND(hwnd.0),
+                None,
+                target.x,
+                target.y,
+                width + extra_width,
+                height + extra_height,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            )
+        };
+        if moved.is_ok() {
+            return Ok(());
+        }
+    }
     if window.outer_position().ok() != Some(target) {
         window.set_position(target)?;
     }
@@ -264,7 +290,13 @@ fn place(
 
 /// The page measured its layout: size and place the window, and show it if it was asked for.
 #[tauri::command]
-pub fn quick_panel_fit(app: AppHandle, width: f64, height: f64, anchor: Option<f64>) {
+pub fn quick_panel_fit(
+    app: AppHandle,
+    width: f64,
+    height: f64,
+    anchor_left: Option<f64>,
+    anchor_right: Option<f64>,
+) {
     if !width.is_finite() || !height.is_finite() {
         return;
     }
@@ -280,7 +312,9 @@ pub fn quick_panel_fit(app: AppHandle, width: f64, height: f64, anchor: Option<f
     let Some((mode, Some(monitor), wanted)) = target else {
         return;
     };
-    let anchor = anchor.filter(|anchor| anchor.is_finite() && *anchor > 0.0);
+    let anchor = anchor_left.zip(anchor_right).filter(|(left, right)| {
+        left.is_finite() && right.is_finite() && *left >= 0.0 && right > left
+    });
     if let Err(error) = place(&window, mode, &monitor, width, height, anchor) {
         tracing::warn!(%error, "cannot place the quick panel");
     }

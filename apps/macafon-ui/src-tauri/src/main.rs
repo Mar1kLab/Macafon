@@ -13,6 +13,19 @@ use bridge::{Bridge, BridgeError, Sink, Status};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
+/// Windows that asked for live levels. The daemon streams them per connection and every
+/// window shares this one, so the stream stops only when the last window lets it go, and the
+/// 60 Hz events reach only the windows that show them (the warm quick panel stays out of that
+/// path unless its overlay shows the microphone level).
+#[derive(Default)]
+struct MeterWindows(std::sync::Mutex<std::collections::BTreeSet<String>>);
+
+impl MeterWindows {
+    fn labels(&self) -> std::sync::MutexGuard<'_, std::collections::BTreeSet<String>> {
+        self.0.lock().unwrap_or_else(|error| error.into_inner())
+    }
+}
+
 struct AppSink {
     app: AppHandle,
     /// The daemon was reached: losing it later ends a UI that has no window open.
@@ -31,12 +44,12 @@ impl Sink for AppSink {
             open_requested(&self.app, Some(request));
             return;
         }
-        // Only the main window subscribes to live levels. Keep the warm quick panel
-        // out of the 60 Hz WebView dispatch/JSON/reactivity path, even while visible.
-        let result = if matches!(
-            event["event"].as_str(),
-            Some("meters" | "mixer.meters" | "devices.meter")
-        ) {
+        let result = if matches!(event["event"].as_str(), Some("meters" | "mixer.meters")) {
+            let labels = self.app.state::<MeterWindows>().labels().clone();
+            labels
+                .iter()
+                .try_for_each(|label| self.app.emit_to(label.as_str(), "daemon://event", &event))
+        } else if event["event"] == "devices.meter" {
             self.app.emit_to("main", "daemon://event", event)
         } else {
             self.app.emit("daemon://event", event)
@@ -50,6 +63,10 @@ impl Sink for AppSink {
         use std::sync::atomic::Ordering;
         let connected = matches!(status, Status::Connected { .. });
         let was = self.connected.swap(connected, Ordering::SeqCst);
+        if !connected {
+            // A new connection streams nothing until a window subscribes again.
+            self.app.state::<MeterWindows>().labels().clear();
+        }
         // The daemon quit (tray, `ctl quit`, an upgrade): a warm UI without its main window
         // goes too, instead of waiting for a daemon that is not coming back.
         if was && !connected && self.app.get_webview_window("main").is_none() {
@@ -66,9 +83,24 @@ impl Sink for AppSink {
 async fn daemon_call(
     bridge: tauri::State<'_, Bridge>,
     app: AppHandle,
+    window: tauri::Window,
     method: String,
     params: Option<Value>,
 ) -> Result<Value, BridgeError> {
+    let meters = app.state::<MeterWindows>();
+    match method.as_str() {
+        "meters.subscribe" => {
+            meters.labels().insert(window.label().to_owned());
+        }
+        "meters.unsubscribe" => {
+            let mut labels = meters.labels();
+            labels.remove(window.label());
+            if !labels.is_empty() {
+                return Ok(Value::Null);
+            }
+        }
+        _ => {}
+    }
     let bridge = bridge.inner().clone();
     let quit = method == "daemon.quit";
     let result = tauri::async_runtime::spawn_blocking(move || bridge.call(&method, params))
@@ -239,6 +271,7 @@ fn main() {
                 },
                 bridge::launch_daemon,
             );
+            app.manage(MeterWindows::default());
             app.manage(bridge);
             app.manage(quick_panel::PanelState::default());
             // The panel page loads now, so `ui.show` later only has to show it.

@@ -1,7 +1,8 @@
 <script lang="ts">
-  // 03 / SOUNDPAD (PRD §7.6): a library of sound files played into Macafon Microphone and
+  // 03 / SOUNDDECK (PRD §7.6): a library of sound files played into Macafon Microphone and
   // the headphones at once. Categories are the folder's subfolders; files are added with a
   // button, by dropping them on the window or by copying them into the folder (SND-001).
+  // Files that cannot be played are moved to the Unplayable folder and listed apart, to delete.
   // Each sound has its own volume and hotkeys (SND-004/005); the bottom bar is the transport.
   import { tick } from 'svelte';
   import {
@@ -67,6 +68,19 @@
   let deletingSound = $state<SoundInfo | null>(null);
 
   const sounds = $derived(soundpad?.sounds ?? []);
+  /** Not a folder name: the daemon refuses `Unplayable` as a category. */
+  const PROBLEMS = '\u0000unplayable';
+  const problems = $derived(soundpad?.problem_sounds ?? []);
+  let confirmProblems = $state(false);
+  // The list emptied: back to every sound.
+  $effect(() => {
+    if (scope === PROBLEMS && problems.length === 0) scope = null;
+  });
+
+  async function deleteProblems() {
+    confirmProblems = false;
+    await daemon.setSoundpad(daemon.client.call('soundpad.delete_problem_sounds'));
+  }
   const visible = $derived(sortSounds(sounds.filter((sound) => inScope(sound, scope) && matches(sound, query)), sort));
   // Rows are drawn a page at a time, so a library of thousands of sounds opens at once; a new
   // filter or order starts from the first page again.
@@ -298,6 +312,16 @@
             {/each}
           </ul>
           <button class="new" onclick={() => (categoryDialog = { from: null, name: '' })}><Plus size={13} strokeWidth={1.5} /><span class="hud-label">{t('soundpad.newCategory')}</span></button>
+          {#if problems.length}
+            <ul class="problems">
+              <li>
+                <button class="scope problem" class:active={scope === PROBLEMS} aria-current={scope === PROBLEMS ? 'true' : undefined} title={t('soundpad.unplayableHint')} onclick={() => (scope = PROBLEMS)}>
+                  <TriangleAlert size={13} strokeWidth={1.5} />
+                  <span class="label">{t('soundpad.unplayable')}</span><span class="count value">{problems.length}</span>
+                </button>
+              </li>
+            </ul>
+          {/if}
         </section>
 
         <section class="output" aria-label={t('soundpad.output')}>
@@ -323,7 +347,25 @@
       </aside>
 
       <section class="list" aria-label={t('soundpad.section')}>
-        {#if sounds.length === 0}
+        {#if scope === PROBLEMS}
+          <div class="problem-head">
+            <div>
+              <h2 class="hud-label">{t('soundpad.unplayable')}</h2>
+              <p>{t('soundpad.unplayableBody')}</p>
+            </div>
+            <button class="btn danger" onclick={() => (confirmProblems = true)}><Trash2 size={13} strokeWidth={1.5} />{t('soundpad.deleteAllUnplayable')}</button>
+          </div>
+          <ul class="rows problem-rows" aria-label={t('soundpad.unplayable')}>
+            {#each problems as sound (sound.id)}
+              <li class="problem-row">
+                <TriangleAlert size={13} strokeWidth={1.5} />
+                <span class="title"><b>{sound.name}</b><small>{sound.id.split('/').pop()}</small></span>
+                <span class="reason" title={sound.error ?? ''}>{sound.error ?? t('soundpad.unplayableReason')}</span>
+                <button class="btn icon ghost small" aria-label={t('soundpad.deleteSound', { name: sound.name })} title={t('soundpad.deleteSound', { name: sound.name })} onclick={() => daemon.setSoundpad(daemon.client.call('soundpad.delete', { id: sound.id }))}><Trash2 size={13} strokeWidth={1.5} /></button>
+              </li>
+            {/each}
+          </ul>
+        {:else if sounds.length === 0}
           <div class="empty">
             <div class="intro">
               <Ticks />
@@ -450,6 +492,14 @@
     <SoundDialog sound={editingSound} onclose={() => (editing = null)} onrenamed={(id) => (editing = selected = id)} />
   {/key}
 {/if}
+
+<Dialog open={confirmProblems} title={t('soundpad.deleteAllUnplayable')} onclose={() => (confirmProblems = false)}>
+  <p>{t('soundpad.deleteAllUnplayableBody', { count: problems.length })}</p>
+  {#snippet actions()}
+    <button class="btn" onclick={() => (confirmProblems = false)}>{t('common.cancel')}</button>
+    <button class="btn danger on" onclick={deleteProblems}>{t('soundpad.deleteAllUnplayable')}</button>
+  {/snippet}
+</Dialog>
 
 <Dialog open={categoryDialog !== null} title={categoryDialog?.from ? t('soundpad.renameCategory') : t('soundpad.newCategory')} onclose={() => (categoryDialog = null)}>
   {#if categoryDialog}
@@ -898,6 +948,72 @@
 
   .fav.on :global(svg) {
     fill: var(--app-amber);
+  }
+
+  .problems {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+
+  .scope.problem :global(svg) {
+    color: var(--app-amber-ink);
+  }
+
+  .problem-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .problem-head p {
+    margin-top: 6px;
+    max-width: 560px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .problem-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 24px;
+    border-bottom: 1px solid var(--line);
+    color: var(--app-amber-ink);
+  }
+
+  .problem-row .title {
+    display: grid;
+    min-width: 0;
+  }
+
+  .problem-row b {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-weight: 400;
+    color: var(--ink);
+  }
+
+  .problem-row small {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--faint);
+  }
+
+  .problem-row .reason {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 12px;
+    color: var(--muted);
   }
 
   .none {

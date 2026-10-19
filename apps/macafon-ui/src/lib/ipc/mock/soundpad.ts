@@ -8,7 +8,7 @@ const EXTENSIONS = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'];
 
 let initialIndex = 0;
 
-function sound(id: string, duration_ms: number, extra: Partial<SoundInfo> = {}): SoundInfo {
+function sound(id: string, duration_ms: number | null, extra: Partial<SoundInfo> = {}): SoundInfo {
   const file = id.split('/').pop()!;
   const category = id.includes('/') ? id.split('/')[0]! : null;
   return {
@@ -78,6 +78,11 @@ export class MockSoundpad {
       },
       playback: null,
       microphone_ready: true,
+      // Files the daemon could not play went to the library's Unplayable folder.
+      problem_sounds: [
+        { ...sound('Unplayable/Broken intro.mp3', null), category: null, error: 'Damaged file: no audio frames' },
+        { ...sound('Unplayable/Voice memo.amr', null), category: null, error: 'Unsupported format (AMR)' },
+      ],
     };
   }
 
@@ -162,6 +167,10 @@ export class MockSoundpad {
       case 'soundpad.delete':
         if (s.playback?.sound_id === p.id) this.stop();
         s.sounds = s.sounds.filter((x) => x.id !== p.id);
+        s.problem_sounds = s.problem_sounds.filter((x) => x.id !== p.id);
+        return this.changed();
+      case 'soundpad.delete_problem_sounds':
+        s.problem_sounds = [];
         return this.changed();
       case 'soundpad.create_category': {
         const name = String(p.name).trim();

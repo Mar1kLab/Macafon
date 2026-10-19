@@ -22,7 +22,7 @@ const DOWNLOAD_BYTES_PER_SEC = 24 * MB;
 const LOGICAL_CORES = 12;
 const DEFAULT_THREADS = 3;
 
-const SAMPLES: Record<DictationLanguage, string[]> = {
+const SAMPLES: Record<string, string[]> = {
   en: ['Thanks, I will send the build tonight.', 'Can we move the call to four thirty?', 'Ship it once the tests are green.'],
   uk: ['Привіт, це перевірка диктовки.', 'Скинь, будь ласка, посилання на реліз.', 'Зустрінемось о пів на п’яту.'],
   ru: ['Привет, это проверка диктовки.', 'Давай созвонимся после обеда.', 'Сборку выложу сегодня вечером.'],
@@ -59,7 +59,7 @@ export class MockDictation {
       engine: 'whisper',
       model: null,
       language: 'layout',
-      fixed_language: 'uk',
+      fixed_language: 'en',
       tap: 'clean',
       mute_mic_while_dictating: true,
       insert: 'paste',
@@ -72,7 +72,8 @@ export class MockDictation {
       pre_roll: true,
       keep_history: true,
       save_history: false,
-      vocabulary: ['Macafon', 'PipeWire'],
+      // The daemon's English defaults (config).
+      vocabulary: ['Macafon', 'PipeWire', 'GitHub', 'JavaScript', 'TypeScript', 'Kubernetes', 'PostgreSQL', 'Wi-Fi', 'Bluetooth', 'YouTube', 'ChatGPT', 'Discord', 'Twitch', 'OBS', 'VB-CABLE', 'macOS', 'iPhone', 'SQL', 'API', 'JSON', 'npm', 'Rust', 'Svelte', 'Tauri', 'Linux', 'Ubuntu', 'Nvidia', 'Steam', 'Docker', 'VS Code', 'WebAssembly', 'FFmpeg', 'OpenAI', 'GitLab', 'Next.js', 'Node.js', 'OAuth', 'GraphQL', 'SQLite', 'Redis'],
       popup_look: 'flow',
       popup_position: 'bottom',
       popup_offset_pct: 0,
@@ -91,6 +92,17 @@ export class MockDictation {
       models: manifest(),
       storage: { folder: DEFAULT_FOLDER, default_folder: true, free_bytes: 212 * 1024 * MB, used_bytes: 0, rotational: false, moving: null },
       history: [],
+      // The keyboard layouts of a plausible machine and a few of Whisper's languages.
+      layout_languages: [
+        { code: 'en', name: 'English' },
+        { code: 'uk', name: 'Ukrainian' },
+        { code: 'de', name: 'German' },
+      ],
+      supported_languages: [
+        ['en', 'English'], ['uk', 'Ukrainian'], ['de', 'German'], ['ru', 'Russian'], ['fr', 'French'], ['es', 'Spanish'],
+        ['it', 'Italian'], ['pl', 'Polish'], ['pt', 'Portuguese'], ['nl', 'Dutch'], ['cs', 'Czech'], ['tr', 'Turkish'],
+        ['ja', 'Japanese'], ['ko', 'Korean'], ['zh', 'Chinese'], ['ar', 'Arabic'], ['hi', 'Hindi'], ['sv', 'Swedish'],
+      ].map(([code, name]) => ({ code: code!, name: name! })),
     };
     if (mode === 'ready' || mode === 'error') {
       this.finishDownload('whisper-large-v3-turbo-q5_0');
@@ -222,7 +234,7 @@ export class MockDictation {
     this.state.phase = 'transcribing';
     const prefs = this.state.prefs;
     const language: DictationLanguage = prefs.language === 'fixed' ? prefs.fixed_language : (['uk', 'en', 'ru'] as const)[this.sample % 3]!;
-    const result = this.result(SAMPLES[language][this.sample++ % 3]!, prefs.engine === 'parakeet' ? null : language, audio_ms, outcome);
+    const result = this.result((SAMPLES[language] ?? SAMPLES.en!)[this.sample++ % 3]!, prefs.engine === 'parakeet' ? null : language, audio_ms, outcome);
     window.setTimeout(() => {
       this.state.phase = 'ready';
       this.state.loaded_model = prefs.model;

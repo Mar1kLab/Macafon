@@ -113,6 +113,18 @@ export class MockTransport implements Transport {
     quantum_frames: 128,
     close_action: 'tray',
     osd: { primary_monitor: false, style: 'vertical', edge: 'right', offset_pct: 0, look: this.query.get('look') === 'sketch' ? 'sketch' : 'classic' },
+    // `?expand=left|down`, `?placement=centered`, `?parts=all` for screenshots of the overlay setups.
+    overlay: {
+      volumes: true,
+      mic_switch: true,
+      processing_switch: true,
+      mixer_switch: true,
+      preset: true,
+      output_device: this.query.get('parts') === 'all',
+      mic_level: this.query.get('parts') === 'all',
+      expand: this.query.get('expand') === 'left' ? 'left' : this.query.get('expand') === 'down' ? 'down' : 'right',
+      placement: this.query.get('placement') === 'centered' ? 'centered' : 'anchored',
+    },
   };
   private autostart: AutostartState = { enabled: true, method: this.windows ? 'windows_run' : 'systemd' };
   private shortcuts = new Map<string, string>([
@@ -557,6 +569,7 @@ export class MockTransport implements Transport {
         if (p.quantum_frames != null) this.prefs.quantum_frames = Number(p.quantum_frames);
         if (p.close_action != null) this.prefs.close_action = p.close_action as Preferences['close_action'];
         if (p.osd != null) this.prefs.osd = clone(p.osd as Preferences['osd']);
+        if (p.overlay != null) this.prefs.overlay = clone(p.overlay as Preferences['overlay']);
         this.emit({ event: 'prefs.changed', data: clone(this.prefs) });
         return clone(this.prefs);
       }

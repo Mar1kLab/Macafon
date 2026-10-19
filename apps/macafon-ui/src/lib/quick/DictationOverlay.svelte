@@ -6,7 +6,8 @@
   import { radioKeys } from '../components/radioKeys';
   import { formatClock, formatSeconds } from '../dictation/format';
   import { displayShortcut } from '../settings/shortcut';
-  import type { DictationEngine, DictationLanguage, DictationLanguagePolicy, DictationResult } from '../ipc/protocol';
+  import { languageName, layoutLanguageOptions } from '../dictation/languages';
+  import type { DictationEngine, DictationLanguagePolicy, DictationResult } from '../ipc/protocol';
   import { daemon } from '../state';
   import { t } from '../i18n';
 
@@ -22,11 +23,8 @@
     { value: 'fixed', label: t('dictation.language.fixed') },
     { value: 'auto', label: t('dictation.language.auto') },
   ];
-  const languages: { value: DictationLanguage; label: string }[] = [
-    { value: 'en', label: t('dictation.language.en') },
-    { value: 'uk', label: t('dictation.language.uk') },
-    { value: 'ru', label: t('dictation.language.ru') },
-  ];
+  /** The user's keyboard layout languages; others are picked on the Dictation screen. */
+  const languages = $derived(layoutLanguageOptions(dictation ?? null));
   const engines: { value: DictationEngine; label: string }[] = [
     { value: 'whisper', label: t('dictation.engine.whisper') },
     { value: 'parakeet', label: t('dictation.engine.parakeet') },
@@ -42,7 +40,7 @@
   }
 
   function language(entry: DictationResult): string {
-    return entry.language ? t(`dictation.language.${entry.language}`) : t('dictation.test.auto');
+    return entry.language ? languageName(dictation ?? null, entry.language) : t('dictation.test.auto');
   }
 </script>
 

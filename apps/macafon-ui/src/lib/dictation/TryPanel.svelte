@@ -9,6 +9,7 @@
   import { daemon } from '../state';
   import { t } from '../i18n';
   import { formatClock, formatSeconds } from './format';
+  import { languageName } from './languages';
 
   let { dictation }: { dictation: DictationState } = $props();
 
@@ -27,7 +28,7 @@
   }
 
   function language(entry: DictationResult): string {
-    return entry.language ? t(`dictation.language.${entry.language}`) : t('dictation.test.auto');
+    return entry.language ? languageName(dictation, entry.language) : t('dictation.test.auto');
   }
 
   async function start() {
@@ -113,8 +114,6 @@
             look={prefs.popup_look}
             source="live"
             {transcribing}
-            engine={`${prefs.engine.toUpperCase()} · ${modelName(prefs.model ?? '').toUpperCase()}`}
-            language={prefs.engine === 'parakeet' ? 'AUTO' : prefs.language === 'fixed' ? t(`dictation.language.${prefs.fixed_language}`) : null}
           />
         </span>
         <span class="muted">{listening ? t('dictation.test.listening') : t('dictation.test.transcribing')}</span>
@@ -170,11 +169,11 @@
 
   .look {
     flex: none;
-    width: 150px;
+    width: 116px;
   }
 
   .look.analog {
-    width: 112px;
+    width: 96px;
   }
 
   .text {

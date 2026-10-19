@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Offline app exports and optional previews. Requires local Tauri CLI, Node, Pillow.
+"""Offline Voice Ribbon app exports and optional previews. Requires Pillow.
 
 python tools/design/generate-app-icons.py --previews
-The SVG is the master; small exports simplify the grille and use thicker strokes.
+The approved transparent PNG in assets/branding is the raster master.
 Use --reference PATH with --previews for the dark/light comparison sheet.
 Tray previews are opt-in (--tray-previews) and compile the actual Rust renderer.
 """
@@ -10,24 +10,39 @@ Tray previews are opt-in (--tray-previews) and compile the actual Rust renderer.
 import argparse
 import io
 from pathlib import Path
-import shutil
 import struct
 import subprocess
 import tempfile
-from xml.etree import ElementTree as ET
 
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[2]
 ICONS = ROOT / "apps/macafon-ui/src-tauri/icons"
-CLI = ROOT / "apps/macafon-ui/node_modules/@tauri-apps/cli/tauri.js"
-SIZES = (16, 24, 32, 48, 64, 128, 256, 512, 1024)
-NS = "{http://www.w3.org/2000/svg}"
-ET.register_namespace("", NS[1:-1])
+MASTER = ROOT / "assets/branding/macafon-voice-ribbon.png"
+SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256, 512, 1024)
+
+
+def app_images():
+    """Fit the complete artwork inside a square with consistent transparent padding."""
+    with Image.open(MASTER) as source:
+        artwork = source.convert("RGBA")
+    bounds = artwork.getchannel("A").getbbox()
+    if bounds is None:
+        raise ValueError("The app icon master is fully transparent")
+    artwork = artwork.crop(bounds)
+    images = {}
+    for size in SIZES:
+        image = Image.new("RGBA", (size, size))
+        fitted = artwork.copy()
+        extent = max(1, round(size * 0.92))
+        fitted.thumbnail((extent, extent), Image.Resampling.LANCZOS)
+        image.alpha_composite(fitted, ((size - fitted.width) // 2, (size - fitted.height) // 2))
+        images[size] = image
+    return images
 
 
 def ico(images, destination, sizes):
-    """Use explicitly rendered frames, including hinted small sizes."""
+    """Store each exported size as a separate lossless RGBA frame."""
     frames = []
     for size in sizes:
         stream = io.BytesIO()
@@ -130,55 +145,30 @@ def main():
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="macafon-icons-") as directory:
         temporary = Path(directory)
-        images = {}
-        for size in SIZES:
-            tree = ET.parse(ICONS / "icon.svg")
-            if size <= 32:
-                for parent in tree.iter():
-                    for child in list(parent):
-                        if child.get("id") in ("detail", "screws"):
-                            parent.remove(child)
-                for element in tree.iter():
-                    if element.get("id") == "grille":
-                        element.set("d", "M36 32H60M36 53H60")
-                    if element.get("id") == "stem":
-                        element.set("d", "M48 93V106")
-                    widths = {
-                        "housing": 4, "grille": 5 if size <= 24 else 4,
-                        "yoke-outline": 12, "yoke": 7,
-                        "stem-outline": 12, "stem": 7, "foot": 4,
-                    }
-                    if element.get("id") in widths:
-                        element.set("stroke-width", str(widths[element.get("id")]))
-                    if element.get("id") == "tile":
-                        element.set("transform", "translate(-2 -2) scale(1.03125)")
-            source = temporary / f"{size}.svg"
-            tree.write(source, encoding="unicode")
-            subprocess.run(["node", str(CLI), "icon", str(source), "--output", str(temporary), "--png", str(size)], check=True, stdout=subprocess.DEVNULL)
-            with Image.open(temporary / f"{size}x{size}.png") as image:
-                images[size] = image.convert("RGBA")
+        images = app_images()
         for name, size in (("icon", 512), ("32x32", 32), ("128x128", 128), ("128x128@2x", 256)):
             images[size].save(ICONS / f"{name}.png")
-        ico(images, ICONS / "icon.ico", (16, 24, 32, 48, 64, 256))
+        ico(images, ICONS / "icon.ico", tuple(size for size in SIZES if size <= 256))
         images[1024].save(ICONS / "icon.icns", append_images=[images[s] for s in (16, 32, 64, 128, 256, 512)])
         public = ROOT / "apps/macafon-ui/public"
-        shutil.copyfile(ICONS / "icon.svg", public / "favicon.svg")
+        images[32].save(public / "favicon.png")
         ico(images, public / "favicon.ico", (16, 32, 48))
         hicolor = ROOT / "packaging/icons/hicolor"
-        shutil.copyfile(ICONS / "icon.svg", hicolor / "scalable/apps/macafon.svg")
         for size in SIZES[:-1]:
-            images[size].save(hicolor / f"{size}x{size}/apps/macafon.png")
+            destination = hicolor / f"{size}x{size}/apps/macafon.png"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            images[size].save(destination)
         if args.previews or args.tray_previews:
             destination = ROOT / ".artifacts/screenshots"
             destination.mkdir(parents=True, exist_ok=True)
             if args.previews:
                 for size in (256, 48, 32, 16):
-                    images[size].save(destination / f"2026-10-17-icon-app-{size}.png")
+                    images[size].save(destination / f"2026-10-19-voice-ribbon-{size}.png")
                 if args.reference:
                     app_comparison(images, args.reference, destination)
             if args.tray_previews:
                 tray_previews(destination, temporary)
-    print("Exported app, favicon and Linux icons from icon.svg (offline).")
+    print("Exported Voice Ribbon app, favicon and Linux icons from the PNG master (offline).")
 
 
 if __name__ == "__main__":

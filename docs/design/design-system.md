@@ -139,11 +139,13 @@ bends smoothly like rubber. Bypass is additionally marked with a pause sign, a c
 dot (BG-002). The transition takes 300 ms (`--dur-card`), does not repeat at rest and continues from the
 current position on fast toggling. The UI respects `prefers-reduced-motion`. In the 16/22 px tray a
 thicker, simplified outline with two grille lines is used. The white, black and red versions of the logo
-have a transparent background. The launcher master is `apps/macafon-ui/src-tauri/icons/icon.svg`,
-exported by `tools/design/generate-app-icons.py`: an asymmetric amber/orange speech cloud with a flat
-bottom and tail, on the rounded dark tile (owner request, 2026-10-17). The filled light Retro microphone
-has a dark grille and outline for contrast; 16..32 px exports simplify the grille and thicken the yoke.
-The launcher uses the amber/orange palette above; its tile finish is independent of UI surfaces.
+have a transparent background. The launcher uses **Voice Ribbon** (owner request, 2026-10-19): an
+engraved off-white ribbon around a blue waveform, with a transparent background. Its approved raster
+master is `assets/branding/macafon-voice-ribbon.png`. `tools/design/generate-app-icons.py` exports
+the Tauri PNGs, a multi-resolution Windows ICO (16, 20, 24, 32, 40, 48, 64, 96, 128 and 256 px),
+ICNS, browser favicon and Linux hicolor PNGs up to 512 px. Exports preserve the complete artwork with
+transparent padding; the master is not a vector image. The Retro UI/tray mark and its state animation
+remain separate from this launcher artwork.
 
 ## 8. UI text tone
 

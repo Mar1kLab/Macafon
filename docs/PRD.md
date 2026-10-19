@@ -922,7 +922,8 @@ transcripts (AGENTS §5).
   push-to-talk shortcut (`HOLD · Ctrl+Win`). While a model downloads, the tile shows a thin progress line
   at its bottom; with no model, it is dimmed and its subtitle reads `GET MODEL`, and a click opens the
   Dictation screen. A right click / long press on the tile opens the Dictation screen.
-- The tray menu gains `Dictation` ✓ under `Bypass processing`.
+- On Windows the compact tray panel (HK-007) is the right-click menu; its Dictation tile is the tray
+  toggle. No separate native menu is shown.
 - The overlay's soundpad bar and the Dictation tile are independent; Settings → Hotkey popup gets a
   "Show Dictation tile" switch (default on).
 
@@ -1332,6 +1333,7 @@ Cider   ─┘ session × (Music 70% × …)
 | WIN-CH-009 | An application cannot be redirected "into a channel" at the audio level — a channel does not change the application's device. Moving a chip only changes which fader controls the application | P0 |
 | WIN-CH-010 | Per-channel effects without extra cables (for example, WASAPI process loopback) — outside 1.x; revisited in ADR-0004 | P2 |
 | WIN-CH-011 | Settings shows Windows sessions as the active mixer mode and a disabled VB-CABLE (Soon) option. A future cable mixer requires a separate user-installed cable; no cable mixer or effects are enabled yet (owner decision, 2026-10-17) | P0 |
+| WIN-CH-012 | A session of an app Macafon has no settings for yet gets the default channel's volume on the mixer worker the moment the session appears, before the app is classified; it is then corrected to its channel or restored if unmanaged. A new app's first sound (a notification) must not play at full volume past its channel (owner report, 2026-10-19) | P0 |
 
 **Accepted limitations of this approach:** one virtual microphone; higher microphone latency than on Linux;
 a foreign device name in applications (until WIN-MIC-010); no channel or Master effects on Windows;

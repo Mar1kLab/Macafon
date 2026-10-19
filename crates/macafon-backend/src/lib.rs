@@ -207,6 +207,11 @@ pub trait MixerHost {
     fn mixer_enabled(&self) -> bool {
         false
     }
+    /// The faders a just-appeared app gets until it is classified: the default channel's.
+    /// `None` leaves new apps alone.
+    fn new_app_mix(&self) -> Option<AppMix> {
+        None
+    }
     /// The faders of `stream`'s app, `None` while Macafon does not manage it.
     fn app_mix(&self, _stream: &PlaybackStream) -> Option<AppMix> {
         None

@@ -18,6 +18,8 @@ pub(crate) struct VolumeGroups {
     streams: Vec<(String, PlaybackStream)>,
     /// What was last written per executable; external changes update it too.
     applied: HashMap<String, MixSettings>,
+    /// The new-app faders last given to the watcher.
+    new_app: Option<MixSettings>,
     /// App mutes set outside Macafon (WIN-CH-003); Macafon has no app mute of its own.
     muted: HashMap<String, bool>,
     enabled: bool,
@@ -44,6 +46,7 @@ impl VolumeGroups {
             ids: HashMap::new(),
             streams: Vec::new(),
             applied: HashMap::new(),
+            new_app: None,
             muted: HashMap::new(),
             enabled: false,
             refresh: true,
@@ -99,6 +102,13 @@ impl VolumeGroups {
                         host.app_volume_changed(stream, app_pct);
                     }
                 }
+                MixerEvent::NewAppDefaulted { exe } => {
+                    // Written by the watcher: the loop below corrects it to the app's real
+                    // channel, or restores it if Macafon does not manage the app.
+                    if let Some(settings) = self.new_app {
+                        self.applied.entry(exe).or_insert(settings);
+                    }
+                }
                 MixerEvent::Error(message) => tracing::warn!(%message, "App volumes"),
                 MixerEvent::RecoveryPending { sessions } => {
                     tracing::info!(sessions, "App volumes to restore when their apps return");
@@ -110,6 +120,16 @@ impl VolumeGroups {
             self.release(Some(watcher));
         }
         self.enabled = enabled;
+        let new_app = enabled
+            .then(|| host.new_app_mix())
+            .flatten()
+            .map(|mix| settings(mix, false));
+        if new_app != self.new_app {
+            match watcher.set_new_app(new_app) {
+                Ok(()) => self.new_app = new_app,
+                Err(error) => tracing::warn!(%error, "Cannot set new app volume"),
+            }
+        }
         // Every tick: the apps carry fresh peaks for the meters.
         match watcher.apps() {
             Ok(apps) => self.apps_changed(host, apps),
@@ -207,6 +227,8 @@ impl VolumeGroups {
             }
         }
         self.applied.clear();
+        // The watcher's restore dropped the new-app faders too.
+        self.new_app = None;
         self.following_system = false;
         if let Err(error) = self
             .output

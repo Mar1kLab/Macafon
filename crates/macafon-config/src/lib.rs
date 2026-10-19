@@ -408,7 +408,8 @@ mod tests {
             let before = old.hotkeys.clone();
             assert!(old.offer_default_hotkeys(|_| true));
             // New dictation actions may be added; nothing the user had changes.
-            old.hotkeys.retain(|action, _| !action.starts_with("dictation_"));
+            old.hotkeys
+                .retain(|action, _| !action.starts_with("dictation_"));
             assert_eq!(old.hotkeys, before, "{edit}");
         }
         let mut missing = Config::default();

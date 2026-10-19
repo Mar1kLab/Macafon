@@ -315,6 +315,18 @@ impl MixerHost for DaemonHost {
         self.mixer.app_mix(&self.config, stream)
     }
 
+    fn new_app_mix(&self) -> Option<AppMix> {
+        let mixer = &self.config.mixer;
+        let channel = mixer.channel(&mixer.default_channel)?;
+        Some(AppMix {
+            channel_pct: channel.settings.volume_pct,
+            app_pct: 100.0,
+            master_pct: mixer.master_volume_pct,
+            channel_muted: channel.settings.muted,
+            master_muted: mixer.master_muted,
+        })
+    }
+
     fn app_volume_changed(&mut self, stream: &PlaybackStream, volume_pct: f32) {
         let Some((key, channel)) = self.mixer.app_of(&self.config, stream) else {
             return;

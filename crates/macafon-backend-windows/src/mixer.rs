@@ -102,6 +102,11 @@ pub enum MixerEvent {
         muted: bool,
     },
     Error(String),
+    /// A session of an app without settings got the new-app faders (`set_new_app`) the moment
+    /// it appeared; the caller corrects or restores it once the app is classified.
+    NewAppDefaulted {
+        exe: String,
+    },
     /// Recovery records retained for absent apps/endpoints or ambiguous new session IDs.
     /// They are retried on the next start or explicit `restore()`.
     RecoveryPending {
@@ -117,6 +122,7 @@ enum Command {
     Apps(Sender<Result<Vec<App>, Error>>),
     Peaks(Sender<Result<Vec<OutputPeak>, Error>>),
     Set(String, MixSettings, Sender<Result<(), Error>>),
+    NewApp(Option<MixSettings>, Sender<Result<(), Error>>),
     RestoreApp(String, Sender<Result<(), Error>>),
     Restore(Sender<Result<(), Error>>),
     Stop,
@@ -189,6 +195,12 @@ impl SessionWatcher {
     pub fn set_app(&self, exe: &str, settings: MixSettings) -> Result<(), Error> {
         self.request(|reply| Command::Set(exe.to_lowercase(), settings, reply))
     }
+    /// Faders for sessions of apps that have no settings yet — the default channel — applied
+    /// on the worker as the session appears, so a new app's first sound is not played at full
+    /// volume while the daemon classifies it. `None` leaves new apps alone.
+    pub fn set_new_app(&self, settings: Option<MixSettings>) -> Result<(), Error> {
+        self.request(|reply| Command::NewApp(settings, reply))
+    }
     /// Stop managing this executable (including future sessions), and conditionally
     /// restore its original volume/mute. Failed or absent sessions remain journaled.
     pub fn restore_app(&self, exe: &str) -> Result<(), Error> {
@@ -260,6 +272,10 @@ struct Worker {
     endpoints: Vec<Endpoint>,
     sessions: Vec<LiveSession>,
     settings: HashMap<String, MixSettings>,
+    /// Faders for apps without settings (`set_new_app`).
+    new_app: Option<MixSettings>,
+    /// Apps the caller stopped managing: never given the new-app faders again.
+    released: std::collections::HashSet<String>,
     /// New sessions whose settings are not applied yet; kept until a write succeeds.
     unapplied: Vec<String>,
     events: Sender<MixerEvent>,
@@ -284,6 +300,8 @@ impl Worker {
             endpoints: Vec::new(),
             sessions: Vec::new(),
             settings: HashMap::new(),
+            new_app: None,
+            released: std::collections::HashSet::new(),
             unapplied: Vec::new(),
             events,
         })
@@ -482,18 +500,30 @@ impl Worker {
     fn apply_new(&mut self, journal: &mut Journal) -> Result<(), Error> {
         let mut first_error = None;
         for instance in std::mem::take(&mut self.unapplied) {
-            let Some(settings) = self
+            let Some(exe) = self
                 .sessions
                 .iter()
                 .find(|s| s.instance == instance)
-                .and_then(|s| self.settings.get(&s.key.exe))
-                .copied()
+                .map(|s| s.key.exe.clone())
             else {
-                continue; // Gone or unmanaged.
+                continue; // Gone.
             };
-            if let Err(error) = self.apply(&instance, settings, journal) {
-                self.unapplied.push(instance);
-                first_error.get_or_insert(error);
+            let (settings, defaulted) = match self.settings.get(&exe) {
+                Some(settings) => (*settings, false),
+                None => match self.new_app.filter(|_| !self.released.contains(&exe)) {
+                    Some(settings) => (settings, true),
+                    None => continue, // Unmanaged.
+                },
+            };
+            match self.apply(&instance, settings, journal) {
+                Ok(()) if defaulted => {
+                    let _ = self.events.send(MixerEvent::NewAppDefaulted { exe });
+                }
+                Ok(()) => {}
+                Err(error) => {
+                    self.unapplied.push(instance);
+                    first_error.get_or_insert(error);
+                }
             }
         }
         first_error.map_or(Ok(()), Err)
@@ -580,8 +610,13 @@ impl Worker {
                         .collect();
                     let _ = reply.send(Ok(peaks));
                 }
+                Ok(Command::NewApp(settings, reply)) => {
+                    self.new_app = settings;
+                    let _ = reply.send(Ok(()));
+                }
                 Ok(Command::Set(exe, settings, reply)) => {
                     self.external_changes();
+                    self.released.remove(&exe);
                     self.settings.insert(exe.clone(), settings);
                     let instances: Vec<_> = self
                         .sessions
@@ -599,12 +634,14 @@ impl Worker {
                 }
                 Ok(Command::RestoreApp(exe, reply)) => {
                     self.settings.remove(&exe);
+                    self.released.insert(exe.clone());
                     let result = journal.restore_app(self, &exe);
                     self.report_pending(journal);
                     let _ = reply.send(result);
                 }
                 Ok(Command::Restore(reply)) => {
                     self.settings.clear();
+                    self.new_app = None;
                     let result = journal.restore(self);
                     self.report_pending(journal);
                     let _ = reply.send(result);

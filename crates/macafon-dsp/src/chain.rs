@@ -22,6 +22,14 @@ pub enum ProcessorBuildError {
     StudioUnavailable,
 }
 
+/// Observable chain boundaries; callbacks borrow samples only for the duration of a block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TapPoint {
+    Raw,
+    Clean,
+    Processed,
+}
+
 const METER_RMS_MS: f32 = 300.0;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -332,7 +340,23 @@ impl MicrophoneProcessor {
         Ok(())
     }
 
+    #[inline]
     pub fn process(&mut self, io: &mut [f32]) {
+        self.process_inner::<false>(io, &mut |_, _| {});
+    }
+
+    /// RT-safe borrowed observation. A tap runs even when the final output is muted.
+    #[inline]
+    pub fn process_with_tap(&mut self, io: &mut [f32], tap: &mut impl FnMut(TapPoint, &[f32])) {
+        self.process_inner::<true>(io, tap);
+    }
+
+    #[inline]
+    fn process_inner<const TAPPING: bool>(
+        &mut self,
+        io: &mut [f32],
+        tap: &mut impl FnMut(TapPoint, &[f32]),
+    ) {
         if io.is_empty() {
             return;
         }
@@ -341,7 +365,7 @@ impl MicrophoneProcessor {
         let silenced = !self.mute.is_ramping() && self.mute.value()[0] == 0.0;
         // Muted costs nothing, unless someone watches the meters: the input stays visible
         // while the output is digital silence (MIC-013, MTR-001).
-        if silenced && !metering {
+        if silenced && !metering && !TAPPING {
             io.fill(0.0);
             return;
         }
@@ -353,6 +377,9 @@ impl MicrophoneProcessor {
         record(metering, &t.raw_peak, raw_peak);
         if let Some(gain) = &mut self.gain {
             gain.process(io);
+        }
+        if TAPPING {
+            tap(TapPoint::Raw, io);
         }
         if metering {
             self.input_meter.measure(
@@ -372,6 +399,9 @@ impl MicrophoneProcessor {
             if module.overloaded() {
                 t.studio_overloaded.store(true, Ordering::Release);
             }
+        }
+        if TAPPING {
+            tap(TapPoint::Clean, io);
         }
         if let Some(module) = &mut self.expander {
             module.process(io);
@@ -393,6 +423,9 @@ impl MicrophoneProcessor {
             record(metering, &t.limiter_reduction, -module.reduction_db());
         }
         self.output.process(io);
+        if TAPPING {
+            tap(TapPoint::Processed, io);
+        }
         if silenced {
             io.fill(0.0);
         } else if self.mute.is_ramping() || self.mute.value()[0] != 1.0 {
@@ -456,4 +489,45 @@ fn is_silent_level(value: &f32) -> bool {
 #[cfg(feature = "serde")]
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+#[cfg(test)]
+mod tap_tests {
+    use super::*;
+    use assert_no_alloc::assert_no_alloc;
+    #[test]
+    fn borrowed_taps_are_allocation_free_bit_exact_and_pre_mute() {
+        let settings = crate::Preset::Broadcast.settings();
+        let mut plain = MicrophoneProcessor::new(&settings).expect("processor");
+        let mut tapped = MicrophoneProcessor::new(&settings).expect("processor");
+        let mut a = [0.1; 480];
+        let mut b = a;
+        let mut counts = [0; 3];
+        assert_no_alloc(|| {
+            plain.process(&mut a);
+            tapped.process_with_tap(&mut b, &mut |point, samples| {
+                counts[match point {
+                    TapPoint::Raw => 0,
+                    TapPoint::Clean => 1,
+                    TapPoint::Processed => 2,
+                }] += samples.len();
+            });
+        });
+        assert_eq!(a, b);
+        assert_eq!(counts, [480; 3]);
+        let mut settings = ChainSettings::raw();
+        settings.muted = true;
+        let mut muted = MicrophoneProcessor::new(&settings).expect("muted processor");
+        let mut signal = [0.25; 480];
+        let mut before_mute = 0.0;
+        assert_no_alloc(|| {
+            muted.process_with_tap(&mut signal, &mut |point, samples| {
+                if point == TapPoint::Processed {
+                    before_mute = samples[0];
+                }
+            })
+        });
+        assert_eq!(before_mute, 0.25);
+        assert!(signal.iter().all(|x| *x == 0.0));
+    }
 }

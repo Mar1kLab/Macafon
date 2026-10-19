@@ -1,12 +1,16 @@
 <p align="center">
+  <img alt="Macafon logo: a sound wave inside a ribbon" src="packaging/icons/hicolor/256x256/apps/macafon.png" width="128">
+</p>
+
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/branding/macafon-wordmark-white.svg">
-    <img alt="Macafon" src="assets/branding/macafon-wordmark-black.svg" width="320">
+    <img alt="Macafon" src="assets/branding/macafon-wordmark-black.svg" width="280">
   </picture>
 </p>
 
 <p align="center">
-  <b>Microphone processing, per-app mixer, soundpad and local dictation for Windows 11.</b>
+  <b>Microphone processing, per-app mixer, SoundDeck and local dictation for Windows 11.</b>
 </p>
 
 <p align="center">
@@ -29,11 +33,11 @@ Compressor → De-esser → Limiter and comes out as a virtual microphone for Di
 
 **Mixer.** Apps appear automatically; drag them between channels (Main, Voice, Music, up to eight) to
 control their volume with one fader. Pick the output device or a priority list for automatic switching.
-Your soundpad's headphone playback is an app of its own, so it goes into any channel too.
+SoundDeck's headphone playback is an app of its own, so it goes into any channel too.
 
 ![Mixer screen](docs/images/mixer.png)
 
-**Soundpad.** Play sounds into your voice chat — you hear them in your headphones too.
+**SoundDeck.** Play sounds into your voice chat — you hear them in your headphones too.
 
 - Drop audio files on the window or into the library folder — `Music\Macafon Sounds` or any folder on
   any drive. Each subfolder is a category: new folders show up in the app, and moving a sound to
@@ -42,43 +46,52 @@ Your soundpad's headphone playback is an app of its own, so it goes into any cha
   the voice chat from clipping.
 - MP3, WAV, OGG, FLAC, M4A, AAC. Search, sort, favorites, per-sound volume and hotkeys; large libraries
   load in the background.
+- Damaged or unsupported files are found automatically and moved to an **Unplayable** folder: they
+  stay out of All sounds, and you see them in one list to delete.
 - Your voice processing is not applied to sounds. Optionally mute your voice while a sound plays.
 
-![Soundpad screen](docs/images/soundpad.png)
+![SoundDeck screen](docs/images/sounddeck.png)
 
-**Dictation.** Hold `Ctrl+Win`, speak, release — the text appears in the window you were typing in,
-like Wispr Flow, but free and fully offline. English, Ukrainian and Russian.
+**Dictation.** Hold `Ctrl+Win`, speak, release — the text appears in the window you were typing in.
+Free and fully local: speech is recognized on your own computer, works offline once the model is
+downloaded, and your voice and text never leave it. A short guide walks you through it the first time.
 
-- Two local engines: **Whisper** (whisper.cpp, the most accurate for Ukrainian and Russian) and
-  **Parakeet** (NVIDIA Parakeet TDT v3, fast on the CPU). Whisper runs on any GPU through Vulkan —
-  ten seconds of speech in about a third of a second — and falls back to the CPU. Models are downloaded from Hugging Face only when you
-  click *Get*, checked by SHA-256 and kept in any folder you choose.
-- The keyboard layout of the target window decides between Ukrainian and Russian; or fix the language.
+- Two local engines: **Whisper** (whisper.cpp, about a hundred languages) and **Parakeet** (NVIDIA
+  Parakeet TDT v3, fast on the CPU for European languages). Whisper runs on any GPU through Vulkan —
+  ten seconds of speech in about a third of a second — and falls back to the CPU. Models are
+  downloaded from Hugging Face only when you click *Get*, checked by SHA-256 and kept in any folder
+  you choose.
+- Your languages: Macafon finds the keyboard layouts installed on your computer and follows the
+  layout of the window you dictate into. Or fix any language Whisper knows, or let it detect one.
+- A vocabulary of names and terms recognizers often get wrong (GitHub, PostgreSQL, Wi-Fi…) is
+  included; add your own.
 - `Ctrl+Win+Space` dictates hands-free, `Shift+Alt+Z` pastes the last result again, `Shift+Alt+X`
   copies it, `Ctrl+Win+Shift` dictates to the clipboard only.
 - Costs nothing while unused: the speech worker starts on the key press, runs at low priority and
   unloads after a few minutes. Your voice chat does not hear you dictate.
-- Two popups: a Flow-style pill with level bars, or a vintage VU meter.
+- Two small popups that show only your voice: a pill with level bars, or a vintage VU meter.
 
 ![Dictation screen](docs/images/dictation.png)
 
 **Always at hand.** Global hotkeys (push-to-talk, mute, volume, sounds; left and right Ctrl/Alt are
 told apart) work with the window closed and show a small on-screen popup. The tray icon opens a quick
-panel; `LCtrl+LAlt+Z` opens an overlay with volumes and a searchable soundpad. **Doctor** checks your
-audio setup.
+panel; `LCtrl+LAlt+Z` opens the **quick controls overlay** with volumes, switches, SoundDeck and
+dictation. Choose in Settings what it shows — including an output device switcher and a live
+microphone meter — whether side panels open to the right, left or below, and whether the overlay
+stays in place or keeps itself centered. **Doctor** checks your audio setup.
 
 <details>
 <summary>More screenshots</summary>
 <br>
 
 <p align="center">
-  <img alt="Hotkey overlay" src="docs/images/hotkey-overlay.png" width="720"><br>
-  <sub><b>Hotkey overlay</b> (<code>LCtrl+LAlt+Z</code>): channel volumes, microphone, processing and preset over any app.</sub>
+  <img alt="Quick controls overlay" src="docs/images/hotkey-overlay.png" width="720"><br>
+  <sub><b>Quick controls overlay</b> (<code>LCtrl+LAlt+Z</code>): channel volumes, switches and preset over any app. The flags on Dictation and Sounds open their panels.</sub>
 </p>
 
 <p align="center">
-  <img alt="Hotkey overlay with sounds" src="docs/images/hotkey-overlay-sounds.png" width="720"><br>
-  <sub><b>Overlay with sounds</b>: the round button opens the soundpad — search, categories, one click to play.</sub>
+  <img alt="Overlay with SoundDeck" src="docs/images/hotkey-overlay-sounds.png" width="860"><br>
+  <sub><b>Overlay with SoundDeck</b>: search, favorites, categories, a star on every pad and one click to play.</sub>
 </p>
 
 <p align="center">
@@ -87,13 +100,13 @@ audio setup.
 </p>
 
 <p align="center">
-  <img alt="Settings: hotkey popup" src="docs/images/settings.png" width="720"><br>
-  <sub><b>Settings → Hotkey popup</b>: pick the popup style, edge and monitor from pictures of where it appears.</sub>
+  <img alt="Settings: quick controls overlay" src="docs/images/settings.png" width="720"><br>
+  <sub><b>Settings → Quick controls overlay</b>: pick what the overlay shows and where its panels open.</sub>
 </p>
 
 <p align="center">
-  <img alt="Settings: soundpad folder" src="docs/images/settings-soundpad.png" width="720"><br>
-  <sub><b>Settings → Soundpad</b>: use any folder on any drive as the sound library.</sub>
+  <img alt="Settings: SoundDeck folder" src="docs/images/settings-sounddeck.png" width="720"><br>
+  <sub><b>Settings → SoundDeck</b>: use any folder on any drive as the sound library.</sub>
 </p>
 
 </details>
@@ -113,7 +126,7 @@ original audio devices and app volumes.
 ## Linux (experimental)
 
 The PipeWire backend creates its own virtual microphone and supports channel EQ and effects, but is
-less tested. Soundpad is Windows-only for now. Requires PipeWire ≥ 1.0 and WirePlumber ≥ 0.5.
+less tested. SoundDeck is Windows-only for now. Requires PipeWire ≥ 1.0 and WirePlumber ≥ 0.5.
 
 ```sh
 sudo apt install build-essential pkg-config libclang-dev libpipewire-0.3-dev pipewire-bin \
@@ -129,7 +142,7 @@ macafon ctl status
 macafon ctl preset broadcast            # natural, discord-clear, noisy-room, broadcast, warm-podcast, raw
 macafon ctl mic mute toggle
 macafon ctl channel voice volume +5
-macafon ctl soundpad list
+macafon ctl soundpad list               # SoundDeck
 macafon ctl soundpad play "Memes/airhorn.mp3"
 macafon ctl soundpad stop
 macafon ctl dictation toggle            # on, off, toggle

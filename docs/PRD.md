@@ -447,7 +447,7 @@ by default, except those set by the channel template.
 
 ---
 
-### 7.6 Soundpad
+### 7.6 SoundDeck
 
 Owner request, 2026-10-18: a soundboard with parity to the classic [Soundpad](https://www.leppsoft.com/soundpad/en/).
 Sounds play into Macafon Microphone (the voice chat hears them) and into the user's headphones at
@@ -456,13 +456,13 @@ the same time. Windows only for now (`Capabilities::soundpad`); Linux reports it
 ```
 library folder -> decoder (48 kHz stereo, loudness/peak cache) -> SoundpadControl
   |-> limiter(voice * duck + normalized sound) -> CABLE Input
-  \-> normalized monitor -> Soundpad audio session -> headphones / chosen output
+  \-> normalized monitor -> SoundDeck audio session -> headphones / chosen output
 ```
 
 | ID | Requirement | Priority |
 |---|---|---|
-| SND-001 | A library folder (default `Music\Macafon Sounds`; any folder on any drive can be picked with the system folder dialog in Settings → Soundpad or on the Soundpad screen, and reset to the default — owner request, 2026-10-18; switching stops playback, settings and hotkeys of sounds stay by their relative paths): files in it and in its first-level subfolders (= categories) are the library; files copied in by hand and empty category folders are discovered by a background check every 3 s (plus filesystem scan time). Owner request, 2026-10-18: categories are physical first-level folders; app moves and category edits change those folders, and uploads land in the selected category using collision-safe names. External folder renames/moves preserve settings and both hotkeys when the disappeared/arrived file metadata match uniquely; ambiguous matches retain the old settings without guessing. Deeper folders, dot-prefixed entries, Windows hidden/system files, reparse points and unsupported files are ignored and left untouched. Category deletion moves managed sounds to the root; a folder containing ignored content remains until that content is removed in Explorer. Uploads stage in the ignored `.macafon-uploads` directory on the selected volume and finalize by rename. Open folder dispatches Windows shell activation off the control loop and acknowledges immediately; shell failures are logged. Rescan returns the current snapshot and publishes the completed background inventory asynchronously MP3, WAV, OGG, FLAC, M4A, AAC up to 200 MB and 10 minutes. The UI adds files by a file picker or by dropping them anywhere on the window (uploaded to the daemon in chunks; the Soundpad screen opens), opens the folder, creates, renames and deletes categories, renames, moves and deletes sounds | P0 |
-| SND-002 | Playing a sound replaces the current one (short fade, no clicks). It is mixed after the microphone chain into the cable, so mute/bypass of the voice do not affect it, and into a monitor stream on the default or a chosen output. Each target has an on/off switch and a 0-200 % volume; each sound has its own 0-200 % volume. At 100 %, sounds are loudness-normalized: microphone follows typical processed voice (-18 dBFS RMS fallback), headphones use -24 dBFS RMS. Normalization respects -1 dBFS sample-peak headroom; a linked limiter protects voice + sound after trims. The Windows monitor has its own movable **Soundpad** app entry controlled by channel/app faders and mute, independently of the cable stream (owner request, 2026-10-18) | P0 |
+| SND-001 | A library folder (default `Music\Macafon Sounds`; any folder on any drive can be picked with the system folder dialog in Settings → SoundDeck or on the SoundDeck screen, and reset to the default — owner request, 2026-10-18; switching stops playback, settings and hotkeys of sounds stay by their relative paths): files in it and in its first-level subfolders (= categories) are the library; files copied in by hand and empty category folders are discovered by a background check every 3 s (plus filesystem scan time). Owner request, 2026-10-18: categories are physical first-level folders; app moves and category edits change those folders, and uploads land in the selected category using collision-safe names. External folder renames/moves preserve settings and both hotkeys when the disappeared/arrived file metadata match uniquely; ambiguous matches retain the old settings without guessing. Deeper folders, dot-prefixed entries, Windows hidden/system files, reparse points and unsupported files are ignored and left untouched. Category deletion moves managed sounds to the root; a folder containing ignored content remains until that content is removed in Explorer. Uploads stage in the ignored `.macafon-uploads` directory on the selected volume and finalize by rename. Open folder dispatches Windows shell activation off the control loop and acknowledges immediately; shell failures are logged. Rescan returns the current snapshot and publishes the completed background inventory asynchronously MP3, WAV, OGG, FLAC, M4A, AAC up to 200 MB and 10 minutes. The UI adds files by a file picker or by dropping them anywhere on the window (uploaded to the daemon in chunks; the SoundDeck screen opens), opens the folder, creates, renames and deletes categories, renames, moves and deletes sounds | P0 |
+| SND-002 | Playing a sound replaces the current one (short fade, no clicks). It is mixed after the microphone chain into the cable, so mute/bypass of the voice do not affect it, and into a monitor stream on the default or a chosen output. Each target has an on/off switch and a 0-200 % volume; each sound has its own 0-200 % volume. At 100 %, sounds are loudness-normalized: microphone follows typical processed voice (-18 dBFS RMS fallback), headphones use -24 dBFS RMS. Normalization respects -1 dBFS sample-peak headroom; a linked limiter protects voice + sound after trims. The Windows monitor has its own movable **SoundDeck** app entry controlled by channel/app faders and mute, independently of the cable stream (owner request, 2026-10-18) | P0 |
 | SND-003 | Transport: play/stop per sound, pause/resume, stop, repeat, seek on a progress ruler, play a random sound (of the visible list or a category); progress about 10 Hz | P0 |
 | SND-004 | Every sound can have primary and secondary global hotkeys (`soundpad_play.<id>`, HK-009 rules); global actions stop, pause/resume and random. Owner request, 2026-10-18: automatic decoding ahead is bounded to the first four distinct hotkeyed sound IDs in sorted order, at most 8 MiB decoded each, one decode at a time and one attempt per file revision; other sounds decode on demand. Eviction does not trigger repeated idle preloads. Renaming or moving a sound keeps its settings and hotkeys | P0 |
 | SND-005 | Library view: distinct rows, search, sort — newest first by default (file creation time), remembered when changed; oldest, name, plays, length, category — favorites, play counts, decode errors shown per sound; keyboard: arrows, Enter/Space play, F2 edit, Delete | P1 |
@@ -470,7 +470,7 @@ library folder -> decoder (48 kHz stereo, loudness/peak cache) -> SoundpadContro
 | SND-007 | "Mute my voice while playing": while a sound plays into the microphone the voice fades out. The loudness reference observes processed voice before this duck, retaining its last value during silence/mute (owner request, 2026-10-18) | P1 |
 | SND-008 | RT rules (AGENTS section 4.1): taps are allocation- and lock-free; decoded sounds are only freed on the control loop. Loudness/peak measurement and normalization coefficients are computed once at decode time; reference tracking, smoothed gains and zero-lookahead limiting allocate nothing (owner request, 2026-10-18) | P0 |
 
-Soundpad loudness policy (owner request, 2026-10-18): decode measures stereo RMS in 400 ms
+SoundDeck loudness policy (owner request, 2026-10-18): decode measures stereo RMS in 400 ms
 blocks gated below -60 dBFS and sample peak, caching normalization coefficients with the PCM.
 Normalization uses a maximum +40 dB gain and a -1 dBFS sample-peak ceiling before relative trims.
 The microphone reference observes 400 ms processed-voice blocks before sound/duck, gated below
@@ -491,6 +491,12 @@ level. Windows opens the monitor in a dedicated, named WASAPI session, with a st
 and a separate mixer identity. Existing session volume journaling, external changes, meters and
 channel assignment apply to it; no extra cable, driver, audio rerouting or Master multiplication.
 This is a reversible use of ADR-0004's session mixer, not a replacement architecture.
+
+SoundDeck scan/rescan probes files in the background. Permanent format/decode failures move files into
+reserved `Unplayable/` (collision suffix ` (2)`); transient I/O failures never move files. This folder
+is excluded from categories and normal sounds, and exposed separately as `problem_sounds` with a short
+in-memory error. Individual deletion uses `soundpad.delete`; `soundpad.delete_problem_sounds` deletes
+all problem files. Category creation/renaming cannot use the reserved name (SND-001).
 
 ## 8. Background operation, tray, autostart, hotkeys, dictation
 
@@ -568,18 +574,18 @@ CC-BY-4.0 and the runtime licenses appears in Settings → About.
 |---|---|---|
 | STT-001 | Dictation is **off by default**. Off means: no tap in the RT path, no ring buffer, no worker process, no dictation hotkeys registered — zero CPU and RAM. Turning it on needs at least one downloaded model; without one, the toggle opens the model picker | P0 |
 | STT-002 | Activation modes: **Hold** (push-to-talk; record while the shortcut is held) and **Hands-free** (press to start, press again to stop; a double tap of the Hold shortcut also starts it, as in Wispr Flow). `Esc` cancels in both modes and inserts nothing. A hold shortcut starts recording only after it is held for 250 ms, so brushing the keys or fast typing never starts it; the pre-roll (STT-005) keeps what was said meanwhile, and a release before 250 ms counts as a tap (owner report, 2026-10-19). Recordings under 300 ms are ignored. Maximum length 5 min; the popup warns at 4:30 and recording stops at 5:00 and is transcribed | P0 |
-| STT-003 | Hotkey actions (HK-009 rules, two shortcuts each), Windows defaults following Wispr Flow (owner decision, 2026-10-19): `dictation_hold` push-to-talk `Ctrl+Win`; `dictation_toggle` hands-free `Ctrl+Win+Space`; `dictation_paste_last` re-inserts the last result into the focused window `Shift+Alt+Z`; `dictation_copy_last` copies the last result to the clipboard `Shift+Alt+X`; `dictation_hold_copy` push-to-talk that only copies the result to the clipboard, never inserting it `Ctrl+Win+Shift`; `Esc` cancels while recording (registered only then). Unassigned by default: `dictation_enable_toggle` (feature on/off) and `dictation_language_cycle` (Fixed EN → UK → RU → By layout). Modifier-only chords go through the existing `WH_KEYBOARD_LL` hook, either side of Ctrl/Shift/Alt/Win. The hook never swallows a modifier event (a swallowed Win release left Windows thinking Win was held for the whole system); instead it injects a tap of the unassigned virtual key 0xE8 when the chord fires, so releasing Win does not open the Start menu. The last result is kept in daemon memory even when history is off and cleared on Quit. Defaults are applied once like HK-008: never over a customized map, skipped on conflict | P0 |
+| STT-003 | Hotkey actions (HK-009 rules, two shortcuts each), Windows defaults following Wispr Flow (owner decision, 2026-10-19): `dictation_hold` push-to-talk `Ctrl+Win`; `dictation_toggle` hands-free `Ctrl+Win+Space`; `dictation_paste_last` re-inserts the last result into the focused window `Shift+Alt+Z`; `dictation_copy_last` copies the last result to the clipboard `Shift+Alt+X`; `dictation_hold_copy` push-to-talk that only copies the result to the clipboard, never inserting it `Ctrl+Win+Shift`; `Esc` cancels while recording (registered only then). Unassigned by default: `dictation_enable_toggle` (feature on/off) and `dictation_language_cycle` (Fixed installed layout languages in layout order → By layout). Modifier-only chords go through the existing `WH_KEYBOARD_LL` hook, either side of Ctrl/Shift/Alt/Win. The hook never swallows a modifier event (a swallowed Win release left Windows thinking Win was held for the whole system); instead it injects a tap of the unassigned virtual key 0xE8 when the chord fires, so releasing Win does not open the Start menu. The last result is kept in daemon memory even when history is off and cleared on Quit. Defaults are applied once like HK-008: never over a customized map, skipped on conflict | P0 |
 | STT-004 | Audio tap (AGENTS §4.1): the RT thread checks one `AtomicBool`; while recording it copies the block into a preallocated `rtrb` (2 s at 48 kHz mono, allocated when the feature turns on, freed when it turns off). A daemon STT thread drains it, resamples 48 → 16 kHz mono (`rubato`, outside RT) and streams 16 kHz chunks to the worker during recording, so audio never waits for the release. Tap point: **Clean** (after noise suppression, before expander/compressor — default), **Raw** (after Gain) or **Processed** (chain output) | P0 |
 | STT-005 | Pre-roll: while the feature is on, the tap keeps the last 300 ms in a small ring so the first syllable said together with the key press is not cut. It costs one copy of each block and nothing else. Can be turned off in Performance | P1 |
-| STT-006 | "Mute my microphone while dictating" (default on): the virtual microphone output is muted for the recording and restored to its previous state afterwards (an existing mute stays). The voice chat does not hear the dictation. Soundpad playback is not affected | P0 |
+| STT-006 | "Mute my microphone while dictating" (default on): the virtual microphone output is muted for the recording and restored to its previous state afterwards (an existing mute stays). The voice chat does not hear the dictation. SoundDeck playback is not affected | P0 |
 | STT-007 | Worker lifecycle: the key press starts recording **and** spawns `macafon-stt`, which loads the model in parallel (typical 0.5–2 s from SSD), hidden behind speech time. One worker at most. It is unloaded (process exits) after the **unload timeout**: Immediately / 1 / 3 (default) / 10 min / Never. The worker exits when its stdin closes and lives in a Job object with `KILL_ON_JOB_CLOSE`, so a daemon crash never leaves it running. A worker crash shows the error state in the popup and never affects audio | P0 |
 | STT-008 | Low system impact: the worker runs at `BELOW_NORMAL_PRIORITY_CLASS` (EcoQoS only in game mode: on hybrid CPUs it parks the worker on efficiency cores, measured 13 s instead of 1 s for Parakeet), CPU by default, threads = max(2, physical cores / 2), adjustable 1..logical cores. **Game mode** (default on): when `SHQueryUserNotificationState` reports a full-screen D3D app or busy state at the key press, the job uses CPU even if GPU is chosen, keeps the thread limit, and the worker unloads right after the result regardless of the timeout | P0 |
 | STT-009 | Two engines (§8.4.1), switchable in the UI; switching unloads the current worker. Engine-specific options are hidden for the other engine (language forcing and vocabulary are Whisper-only) | P0 |
-| STT-010 | Language policy (§8.4.4): **By keyboard layout** (default), **Fixed** EN / UK / RU, **Auto**. The layout is read from the target window at the key press. Parakeet supports only Auto; the UI says so | P0 |
+| STT-010 | Language policy (§8.4.4): **By keyboard layout** (default), **Fixed** any Whisper-supported language, **Auto**. The layout is read from the target window at the key press. Parakeet supports only Auto; the UI says so | P0 |
 | STT-011 | Silence and hallucination guard: VAD trims leading/trailing silence and long pauses before inference. If VAD finds under 200 ms of speech, nothing is inserted and the popup shows "No speech". Whisper runs with `no_speech` suppression; a whole-output match against a short list of known Whisper hallucinations ("Thank you for watching", "Продолжение следует…", "Дякую за перегляд" and similar) is dropped | P0 |
 | STT-012 | Text insertion (§8.4.5): into the window captured at the key press; **Paste** (default, clipboard + `Ctrl+V`, clipboard restored) or **Type** (`SendInput` with `KEYEVENTF_UNICODE`). Options: trailing space (default on), what to do in full-screen games (Insert / Copy only (default) / Ignore) | P0 |
 | STT-013 | Model manager (§8.4.6): list, download with progress, cancel, resume, SHA-256 verification, delete, disk-space check, import a local file that matches a manifest hash. Downloads start only from an explicit user action | P0 |
-| STT-014 | Vocabulary: up to 50 user words/names (Whisper passes them as `initial_prompt`; Parakeet ignores them in 1.0). Edited on the Dictation screen | P1 |
+| STT-014 | Vocabulary: up to 50 user words/names (Whisper passes them as `initial_prompt`; Parakeet ignores them in 1.0). New profiles start with 40 English tech/product terms; existing lists stay. The prompt is tokenized and capped at 192 tokens, below Whisper's 224-token limit. Edited on the Dictation screen | P1 |
 | STT-015 | History: the last 20 results with time, engine, language and duration; copy and re-insert from the Dictation screen and the overlay. Three modes (owner request, 2026-10-19): **Off**; **Session** — in daemon memory, cleared on Quit (default); **Saved** — also written to `%LOCALAPPDATA%\Macafon\dictation-history.json` (temp file + rename) and loaded at start. Clear history and switching away from Saved delete the file | P1 |
 | STT-016 | Dictation popup (§8.4.7, §9.9.3): looks **Flow** (default) and **Analog**, position bottom-center (default) or top-center, vertical offset in percent, and its own monitor choice — follow the active window's monitor (default) or the primary only — independent of the hotkey popup's (owner request, 2026-10-19). Drawn natively by the daemon, so it works with the UI closed | P0 |
 | STT-017 | Quick access: a **Dictation** tile in the tray quick panel and the hotkey overlay (HK-007), and `Dictation` ✓ in the tray menu (BG-003); all toggle STT-001. The tile shows the download progress when a model is downloading and is disabled with a hint when no model is present | P0 |
@@ -614,18 +620,20 @@ common failure is an English layout left over from code or a password while the 
 Russian; forcing `en` there would produce a transliteration.
 
 1. At the key press: `GetForegroundWindow` → `GetWindowThreadProcessId` → `GetKeyboardLayout(thread)` →
-   `PRIMARYLANGID` (`0x09` en, `0x22` uk, `0x19` ru, anything else = unknown). UWP: the thread of the
+   LANGID to ISO language code, validated against Whisper's supported languages. UWP: the thread of the
    child `CoreWindow` of `ApplicationFrameHost`. Console hosts report unreliable layouts → unknown.
 2. **Fixed** → that language, no detection pass.
 3. Otherwise Whisper detects the language (one extra encoder pass over the first 30 s window);
-   probabilities are restricted to {en, uk, ru} and renormalized.
+   probabilities are restricted to the installed keyboard-layout languages, or all supported languages when none are known, and renormalized. Other supported target layouts use their language directly; the following EN/UK/RU heuristic remains for those layouts.
 4. `p_en > p_uk + p_ru` → **en** (Latin vs Cyrillic is reliable).
 5. Cyrillic: layout uk/ru → the layout's language, unless the other one has `p ≥ 0.90`.
    Layout en/unknown → the last Cyrillic language used in this session unless the other has `p ≥ 0.90`,
    else the larger of `p_uk`, `p_ru`. The threshold is a constant tuned in D5.
-6. **Auto** → the larger of the three restricted probabilities.
+6. **Auto** → the highest probability among installed layout languages (all supported languages when none are known).
 7. The chosen language is passed to transcription, shown in the popup badge and remembered as the last
    Cyrillic one when applicable. Parakeet: always Auto, badge `AUTO`.
+
+The daemon exposes installed layout languages (deduplicated in layout order) and all supported languages with English names. Fixed language defaults to the first installed supported layout, falling back to English. Language codes remain strings in configuration and IPC.
 
 The layout is only read; Macafon never switches it. Insertion does not depend on it (`Ctrl+V`
 uses the same virtual key in Latin and Cyrillic layouts; Unicode `SendInput` ignores layouts).
@@ -669,12 +677,12 @@ uses the same virtual key in Latin and Cyrillic layouts; Unicode `SendInput` ign
 | State | Trigger | Flow look | Analog look |
 |---|---|---|---|
 | Loading | press, worker not ready yet, and listening | — (shown as Listening; loading is hidden behind speech) | the same |
-| Listening | push-to-talk held / hands-free started | pill expands, 15 white bars react to the level | needle on the VU scale, `● REC` and timer |
+| Listening | push-to-talk held / hands-free started | pill expands, 15 white bars react to the level | needle on the VU scale, a blinking `●` |
 | Transcribing | release / hands-free stopped | bars collapse into a shimmering 3-dot row | needle falls back with VU ballistics, the scale dims, a scanning tick strip |
 | Done | text inserted or copied | short check, then the pill shrinks away | `TYPED · 14 WORDS` or `COPIED` for 700 ms |
 | No speech | STT-011 | a small shake, `No speech` | needle twitch, `NO SPEECH` |
 | Error | worker crash, no model, download needed | pill tinted `--danger`, short text | `--danger` lamp, short text |
-| Too long | 4:30 | timer appears in the pill | timer turns amber |
+| Too long | 4:30 | the bars turn amber | the REC dot turns amber |
 
 During push-to-talk the popup is click-through. In hands-free it accepts clicks: `■` stop and `✕` cancel.
 The popup never takes focus. Springs and timing reuse the HK-006 popup engine and turn off with
@@ -716,7 +724,7 @@ The visual language is the [design system](design/design-system.md). The window 
  64px sidebar: Microphone · Mixer · Settings ; at the bottom — daemon status (a dot) and CPU %
 ```
 
-On Windows the sidebar also has Soundpad (§7.6) and Dictation (§9.9) when the daemon reports them.
+On Windows the sidebar also has SoundDeck (§7.6) and Dictation (§9.9) when the daemon reports them.
 
 ### 9.2 Onboarding (first launch, M1)
 
@@ -804,10 +812,11 @@ Every step can be skipped; onboarding is available again from Settings.
 |---|---|
 | General | Start with system, Close button behaviour (tray / quit), Check for updates (GitHub releases, opt-in), Re-run onboarding |
 | Audio | Preferred quantum (64 / 128 / 256 / 512 frames; 128 = 2.7 ms by default), Output device priority list, Mic fallback device, Mono/Stereo virtual mic |
-| Soundpad | Library folder (SND-001) |
+| SoundDeck | Library folder (SND-001) |
 | Dictation | A link to the Dictation screen (§9.9), where all its settings live |
 | Hotkeys | A list of actions, shortcut assignment, backend status (Portal / X11 / Unavailable → CLI commands) |
-| Hotkey popup | Style, position, offset and monitor (HK-006) and the overlay's soundpad bar (SND-006), each shown as a picture of the screen with the popup or overlay where it appears |
+| Hotkey popup | Look, style, position, offset and monitor (HK-006), each shown as a picture of the screen with the popup where it appears |
+| Quick controls overlay | What the overlay shows (§9.9.2 configurator), where side panels open and how the overlay is placed, as pictures; SoundDeck pads/list and its player bar (SND-006) |
 | Doctor | Diagnostics (§9.6) |
 | About | Version, third-party licenses (RNNoise, DeepFilterNet, whisper.cpp, sherpa-onnx, ONNX Runtime, the CC-BY-4.0 Parakeet attribution, fonts), GitHub links |
 
@@ -845,7 +854,7 @@ A self-check with clear one-click fixes (like One-Click Fix in Sonar, but transp
 
 ### 9.9 Dictation screen and popups
 
-Requirements: §8.4. A sidebar item **Dictation** (Lucide `Speech`) after Soundpad, shown when
+Requirements: §8.4. A sidebar item **Dictation** (Lucide `Speech`) after SoundDeck, shown when
 `Capabilities::dictation` is true. All settings of the feature live on this screen; Settings has a
 "Dictation" row linking to it. The mock daemon simulates models, downloads, worker states, levels and
 transcripts (AGENTS §5).
@@ -900,7 +909,8 @@ the switch. The ASCII sketch below is the first version.
   move, the line becomes a progress bar with cancel. A first-time empty state
   replaces the rows with one recommended card: "Whisper Turbo — best for EN / UK / RU — 0.57 GB —
   `Download`".
-- **02 LANGUAGE.** Policy `Segmented`; the EN/UK/RU chips are enabled only in Fixed. With Parakeet the
+- **02 LANGUAGE.** Policy `Segmented`; in Fixed, chips of the user's keyboard-layout languages and a
+  list of every other Whisper language (owner request, 2026-10-19: no fixed set of three). With Parakeet the
   card shows `AUTO ONLY` and a one-line hint, the controls are disabled (40 % content, border kept).
 - **03 INPUT.** Tap point, a live horizontal `LevelMeter` of the chosen tap (subscription only while
   the screen is visible), the mute-while-dictating toggle.
@@ -918,16 +928,24 @@ the switch. The ASCII sketch below is the first version.
   inserting it, with timing, model and language. **History** expands upward: rows with time, text
   (one line, ellipsis, full text on hover), language, duration, `COPY` and `↵` re-insert into the
   previously focused window.
+- **First visit** (owner request, 2026-10-19): a four-step guide opens over the screen — Private
+  (everything runs on this computer: no account, no cloud, works offline once the model is
+  downloaded), Model, Talk (the hold shortcut, Esc) and Languages (the keyboard layouts found). Skip
+  or finish marks it seen in the UI's local storage; a `?` button in the header opens it again.
 - Keyboard and ARIA (§9.8): Tab order follows the cards; the hold button responds to Space down/up;
   model progress is `role="progressbar"` with `aria-valuetext="48 %, 12.4 MB per second"`.
 
 #### 9.9.2 Overlay, quick panel and tray
 
 - The hotkey overlay (owner request, 2026-10-19): the toggles are small 2×2 switches, filled when
-  on and outlined when off. Under them, tabs open the Sounds or the Dictation panel to the right of
-  the controls; the window grows to the right and keeps its main part in place. The Dictation panel
+  on and outlined when off; the main part is at least 816 px wide (a little wider than the first
+  840 px window). Dictation and Sounds are switches too, each with a flag on the side its panel
+  opens to: the Dictation switch turns dictation on and off, the Sounds switch and both flags open
+  their panel (one at a time). A panel grows out of the overlay and folds back the same way (its
+  width, or height when opening down, with a fade); the window follows it every frame, moved and
+  sized in one call. The Dictation panel
   has the language mode (Layout / Fixed / Auto) with the fixed language, the engine, GPU/CPU and the
-  history with copy and insert-again. The Sounds panel holds the pads; the soundpad's transport and
+  history with copy and insert-again. The Sounds panel holds the pads; SoundDeck's transport and
   volumes dock along the bottom of the overlay with a slide-in.
 - The tray quick panel and the hotkey overlay (HK-007) get a fourth tile **Dictation** (Lucide
   `Speech`) after Mixer. On = filled `--accent` tile like the existing ones; the subtitle shows the
@@ -936,8 +954,18 @@ the switch. The ASCII sketch below is the first version.
   Dictation screen. A right click / long press on the tile opens the Dictation screen.
 - On Windows the compact tray panel (HK-007) is the right-click menu; its Dictation tile is the tray
   toggle. No separate native menu is shown.
-- The overlay's soundpad bar and the Dictation tile are independent; Settings → Hotkey popup gets a
-  "Show Dictation tile" switch (default on).
+- Optional parts (configurator): an output device switcher (previous/next output, OUT-001) and a
+  live level meter of the microphone output; the overlay window receives meters only while it shows
+  the meter (the UI process keeps one daemon subscription for all its windows).
+- The Sounds panel: search, a Favorites chip, one list of categories (All sounds and every category,
+  so many categories do not crowd it) and the order; each pad has a star to add or remove the sound
+  from favorites.
+
+The hotkey overlay configurator (section 9.9.2, HK-007) persists `[ui.overlay]`: volumes, microphone,
+processing and mixer switches, and preset picker default on; output-device switcher and microphone
+meter default off. Side panels expand right (default), left or down. Placement is anchored (default,
+main controls stay put) or centered (the whole overlay stays centered). Sounds and Dictation retain
+their own `show_in_overlay` preferences. Updating overlay preferences never shows a sample popup.
 
 #### 9.9.3 Dictation popup looks
 
@@ -954,7 +982,7 @@ Classic popup and HK-007):
   ╭────────────────────────╮          ╭──────────────╮            ╭──────╮
   │  ▁▃▅▇▅▃▂▃▆▇▆▄▂▁▂        │          │   ·  •  ·     │            │  ✓   │
   ╰────────────────────────╯          ╰──────────────╯            ╰──────╯
-     200×40 DIPs, radius 20              120×32                      40×32 → fades
+     116×32 DIPs (150×32 hands-free)      88×28                       36×28 → fades
 ```
 
 - Pill: `--invert-fg` fill at 92 % opacity, 1px `--line` hairline, a soft shadow (the HK-006
@@ -967,14 +995,14 @@ Classic popup and HK-007):
 - Done: a check morphs in, holds 400 ms, the pill shrinks to a point and fades. Copied: the check plus
   `Copied` text in Inter 12px.
 - Hands-free: on hover the pill grows `✕` (cancel) on the left and `■` (stop) on the right.
-- A language badge (`UK`, 10px Geist Mono, `--muted`) sits at the right end while listening when the
-  policy picked a language from the layout; `AUTO` for Parakeet.
+- Owner request, 2026-10-19: no timer and no language in either look; both are smaller. The last
+  30 seconds before the limit are shown by color only.
 
 **Analog** (in the app's own style: a small, quiet VU meter, square corners, corner ticks; owner
-request 2026-10-19: smaller and more minimal than the first version, livelier motion). 168×76 DIPs:
+request 2026-10-19: smaller and more minimal than the first version, livelier motion). 128×60 DIPs:
 a thin arc with the red 0…+3 VU zone and five marks, no numbers; a white needle with VU ballistics
 and a faint peak ghost that falls slowly; an amber lamp glow under the arc that breathes with the
-voice; a blinking REC dot, the time and the language on one HUD line. Transcribing: the needle sways
+voice; a blinking REC dot (no timer, no language), the state text after listening. Transcribing: the needle sways
 and a light runs along the arc. The detailed description below is the first version and is kept
 for its calibration and states:
 
@@ -1340,7 +1368,7 @@ Cider   ─┘ session × (Music 70% × …)
 
 | ID | Requirement | Priority |
 |---|---|---|
-| WIN-CH-001 | Application auto-detection — `IAudioSessionManager2` + `IAudioSessionNotification` on all output devices; grouping by exe (APP-002), with Macafon's dedicated monitor session exposed separately as **Soundpad** and its internal cable/preview sessions excluded (owner request, 2026-10-18); icons from the exe / AppX manifest (APP-003); system sounds — a pseudo-chip (APP-011) | P0 |
+| WIN-CH-001 | Application auto-detection — `IAudioSessionManager2` + `IAudioSessionNotification` on all output devices; grouping by exe (APP-002), with Macafon's dedicated monitor session exposed separately as **SoundDeck** and its internal cable/preview sessions excluded (owner request, 2026-10-18); icons from the exe / AppX manifest (APP-003); system sounds — a pseudo-chip (APP-011) | P0 |
 | WIN-CH-002 | Session volume = a cubic curve (`channel × application`) through `ISimpleAudioVolume`; channel mute affects sessions. Master mirrors the default Windows render endpoint through `IAudioEndpointVolume`, including external volume/mute changes, adopts Windows on startup/device changes, and never attenuates sessions a second time. Explicit Master edits persist as system volume on exit (owner decision, 2026-10-17). A change applies to all of the application's sessions, including new ones (APP-005) | P0 |
 | WIN-CH-003 | A change of an application's volume in the Windows volume mixer (or by the application itself) is recognized by Macafon through `IAudioSessionEvents::OnSimpleVolumeChanged` (its own event-context GUID tells its own changes apart) and accepted as the application's new volume (CH-008), not overwritten | P0 |
 | WIN-CH-004 | Meters: session `IAudioMeterInformation`; a channel meter is the maximum of its applications' peaks (CH-005), Master is the output device meter | P0 |

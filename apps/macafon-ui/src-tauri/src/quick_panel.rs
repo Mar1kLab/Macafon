@@ -198,6 +198,7 @@ fn place(
     monitor: &Monitor,
     width: f64,
     height: f64,
+    anchor: Option<f64>,
 ) -> tauri::Result<()> {
     let scale = monitor.scale_factor();
     let area = monitor.work_area();
@@ -206,14 +207,20 @@ fn place(
     let available_height = (area.size.height as i32 - 2 * margin).max(1);
     let max_width = match mode {
         Mode::Tray => 360.0,
-        Mode::Overlay => 880.0,
+        Mode::Overlay => 1440.0,
     };
     let width = ((width.clamp(1.0, max_width) * scale).round() as i32).min(available_width);
     let height = ((height.max(1.0) * scale).round() as i32).min(available_height);
     let at = |width: i32, height: i32| {
         let x = match mode {
             Mode::Tray => area.position.x + area.size.width as i32 - width - margin,
-            Mode::Overlay => area.position.x + (area.size.width as i32 - width) / 2,
+            // Centered on its main part, so a side panel grows the window to the right.
+            Mode::Overlay => {
+                let main = anchor.map_or(width, |anchor| {
+                    ((anchor * scale).round() as i32).clamp(1, width)
+                });
+                area.position.x + (area.size.width as i32 - main) / 2
+            }
         };
         let y = match mode {
             Mode::Tray => area.position.y + area.size.height as i32 - height - margin,
@@ -257,7 +264,7 @@ fn place(
 
 /// The page measured its layout: size and place the window, and show it if it was asked for.
 #[tauri::command]
-pub fn quick_panel_fit(app: AppHandle, width: f64, height: f64) {
+pub fn quick_panel_fit(app: AppHandle, width: f64, height: f64, anchor: Option<f64>) {
     if !width.is_finite() || !height.is_finite() {
         return;
     }
@@ -273,7 +280,8 @@ pub fn quick_panel_fit(app: AppHandle, width: f64, height: f64) {
     let Some((mode, Some(monitor), wanted)) = target else {
         return;
     };
-    if let Err(error) = place(&window, mode, &monitor, width, height) {
+    let anchor = anchor.filter(|anchor| anchor.is_finite() && *anchor > 0.0);
+    if let Err(error) = place(&window, mode, &monitor, width, height, anchor) {
         tracing::warn!(%error, "cannot place the quick panel");
     }
     if wanted && !window.is_visible().unwrap_or(true) {

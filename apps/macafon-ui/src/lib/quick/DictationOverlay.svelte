@@ -1,12 +1,12 @@
 <script lang="ts">
-  // Dictation in the hotkey overlay (§9.9.2), opened by its round button like the soundpad:
-  // the state and shortcuts, a quick language switch, the engine and device, and the history
-  // with copy and insert-again — the things wanted mid-conversation without opening the app.
+  // Dictation in the hotkey overlay's right panel (§9.9.2): the language mode with its fixed
+  // language, the engine and device, and the history with copy and insert-again — what is
+  // wanted mid-conversation without opening the app.
   import { Copy, CornerDownLeft, Trash2 } from '@lucide/svelte';
   import { radioKeys } from '../components/radioKeys';
   import { formatClock, formatSeconds } from '../dictation/format';
   import { displayShortcut } from '../settings/shortcut';
-  import type { DictationLanguage, DictationResult } from '../ipc/protocol';
+  import type { DictationEngine, DictationLanguage, DictationLanguagePolicy, DictationResult } from '../ipc/protocol';
   import { daemon } from '../state';
   import { t } from '../i18n';
 
@@ -14,26 +14,24 @@
   const prefs = $derived(dictation?.prefs);
   const parakeet = $derived(prefs?.engine === 'parakeet');
   const model = $derived(dictation?.models.find((m) => m.id === prefs?.model)?.name ?? '—');
+  const hold = $derived(daemon.hotkeys?.bindings.find((binding) => binding.action === 'dictation_hold')?.shortcut ?? null);
   let copied = $state<number | null>(null);
 
-  type Choice = 'layout' | DictationLanguage;
-  const choices: { value: Choice; label: string }[] = [
+  const policies: { value: DictationLanguagePolicy; label: string }[] = [
     { value: 'layout', label: t('dictation.language.layout') },
+    { value: 'fixed', label: t('dictation.language.fixed') },
+    { value: 'auto', label: t('dictation.language.auto') },
+  ];
+  const languages: { value: DictationLanguage; label: string }[] = [
     { value: 'en', label: t('dictation.language.en') },
     { value: 'uk', label: t('dictation.language.uk') },
     { value: 'ru', label: t('dictation.language.ru') },
   ];
-  const choice = $derived<Choice>(prefs?.language === 'fixed' ? prefs.fixed_language : 'layout');
-
-  function choose(value: Choice) {
-    if (value === 'layout') daemon.setDictationPrefs({ language: 'layout' });
-    else daemon.setDictationPrefs({ language: 'fixed', fixed_language: value });
-  }
-
-  function shortcut(action: string): string | null {
-    const value = daemon.hotkeys?.bindings.find((binding) => binding.action === action)?.shortcut;
-    return value ? displayShortcut(value) : null;
-  }
+  const engines: { value: DictationEngine; label: string }[] = [
+    { value: 'whisper', label: t('dictation.engine.whisper') },
+    { value: 'parakeet', label: t('dictation.engine.parakeet') },
+  ];
+  const engineReady = (engine: DictationEngine) => dictation?.models.some((m) => m.engine === engine && m.status === 'ready') ?? false;
 
   async function copy(entry: DictationResult) {
     await navigator.clipboard.writeText(entry.text);
@@ -48,47 +46,53 @@
   }
 </script>
 
+{#snippet chips<T>(label: string, options: { value: T; label: string; disabled?: boolean }[], value: T, onchange: (value: T) => void, disabled = false)}
+  <div class="row">
+    <span class="hud-label">{label}</span>
+    <div class="chips" role="radiogroup" aria-label={label} tabindex="-1" use:radioKeys>
+      {#each options as option (option.label)}
+        <button class="chip" class:active={value === option.value} role="radio" aria-checked={value === option.value} tabindex={value === option.value ? 0 : -1} disabled={disabled || option.disabled} onclick={() => onchange(option.value)}>{option.label}</button>
+      {/each}
+    </div>
+  </div>
+{/snippet}
+
 {#if dictation && prefs}
   <section class="dictation" id="overlay-dictation" aria-label={t('quick.dictation')}>
-    <div class="bar">
-      <div class="languages" role="radiogroup" aria-label={t('dictation.language.label')} tabindex="-1" use:radioKeys>
-        {#each choices as option (option.value)}
-          <button class="chip" class:active={choice === option.value} role="radio" aria-checked={choice === option.value} tabindex={choice === option.value ? 0 : -1} disabled={parakeet} onclick={() => choose(option.value)}>{option.label}</button>
-        {/each}
-      </div>
-      <span class="badge">{prefs.engine.toUpperCase()} · {model.toUpperCase()} · {prefs.gpu && !parakeet ? 'GPU' : 'CPU'}</span>
-      <span class="spacer"></span>
-      <span class="keys">
-        {#each [['dictation_hold', t('dictation.hold')], ['dictation_paste_last', t('dictation.pasteLast')]] as [action, label] (action)}
-          {@const key = shortcut(action!)}
-          {#if key}<span class="key"><small>{label}</small><kbd>{key}</kbd></span>{/if}
-        {/each}
-      </span>
+    <header>
+      <h2 class="hud-label">{t('quick.dictation')}</h2>
+      <span class="badge">{model.toUpperCase()} · {prefs.gpu && !parakeet ? 'GPU' : 'CPU'}</span>
+      {#if hold}<span class="hint">{t('dictation.hold')} <kbd>{displayShortcut(hold)}</kbd></span>{/if}
+    </header>
+
+    <div class="settings">
+      {@render chips(t('dictation.language.label'), policies, parakeet ? 'auto' : prefs.language, (language) => daemon.setDictationPrefs({ language }), parakeet)}
+      {@render chips(t('dictation.language.fixedLanguage'), languages, prefs.fixed_language, (fixed_language) => daemon.setDictationPrefs({ fixed_language, language: 'fixed' }), parakeet)}
+      {@render chips(t('dictation.engine.label'), engines.map((engine) => ({ ...engine, disabled: !engineReady(engine.value) })), prefs.engine, (engine) => daemon.setDictationPrefs({ engine }))}
+      {@render chips(t('dictation.performance.device'), [{ value: true, label: t('dictation.performance.gpu') }, { value: false, label: t('dictation.performance.cpu') }], parakeet ? false : prefs.gpu, (gpu) => daemon.setDictationPrefs({ gpu }), parakeet)}
     </div>
 
-    <div class="history">
-      <div class="head">
-        <span class="hud-label">{t('dictation.test.history')}</span>
-        <small>{t('dictation.test.historyHint')}</small>
-        <span class="spacer"></span>
-        <button class="round" aria-label={t('dictation.test.clear')} title={t('dictation.test.clear')} disabled={dictation.history.length === 0} onclick={() => daemon.setDictation(daemon.client.call('dictation.history_clear'))}><Trash2 size={13} strokeWidth={1.5} /></button>
-      </div>
-      {#if dictation.history.length === 0}
-        <p class="empty">{prefs.keep_history ? t('quick.dictationEmpty') : t('dictation.test.historyOff')}</p>
-      {:else}
-        <ul>
-          {#each dictation.history as entry (entry.id)}
-            <li>
-              <span class="time">{formatClock(entry.at_unix_ms)}</span>
-              <span class="text" title={entry.text}>{entry.text}</span>
-              <span class="meta">{language(entry)} · {formatSeconds(entry.elapsed_ms)}</span>
+    <div class="head">
+      <span class="hud-label">{t('dictation.test.history')}</span>
+      <span class="spacer"></span>
+      <button class="round" aria-label={t('dictation.test.clear')} title={t('dictation.test.clear')} disabled={dictation.history.length === 0} onclick={() => daemon.setDictation(daemon.client.call('dictation.history_clear'))}><Trash2 size={13} strokeWidth={1.5} /></button>
+    </div>
+    {#if dictation.history.length === 0}
+      <p class="empty">{prefs.keep_history ? t('quick.dictationEmpty') : t('dictation.test.historyOff')}</p>
+    {:else}
+      <ul>
+        {#each dictation.history as entry (entry.id)}
+          <li>
+            <span class="text" title={entry.text}>{entry.text}</span>
+            <span class="meta">{formatClock(entry.at_unix_ms)} · {language(entry)} · {formatSeconds(entry.elapsed_ms)}</span>
+            <span class="actions">
               <button class="round" aria-label={t('dictation.test.copy')} title={copied === entry.id ? t('dictation.test.copied') : t('dictation.test.copy')} onclick={() => copy(entry)}><Copy size={13} strokeWidth={1.5} /></button>
               <button class="round" aria-label={t('dictation.test.reinsert')} title={t('dictation.test.reinsert')} onclick={() => daemon.run(daemon.client.call('dictation.reinsert', { id: entry.id }))}><CornerDownLeft size={13} strokeWidth={1.5} /></button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </div>
+            </span>
+          </li>
+        {/each}
+      </ul>
+    {/if}
   </section>
 {/if}
 
@@ -97,64 +101,24 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px solid var(--line);
-  }
-
-  .bar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px 12px;
-  }
-
-  .languages {
-    display: flex;
-    gap: 6px;
-  }
-
-  .chip {
-    padding: 5px 12px;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    background: var(--bg-sunken);
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .chip.active {
-    border-color: var(--accent);
-    color: var(--ink-strong);
-    background: color-mix(in srgb, var(--accent) 18%, var(--bg-sunken));
-  }
-
-  .chip:disabled {
-    opacity: 0.4;
-  }
-
-  .spacer {
+    min-height: 0;
     flex: 1;
   }
 
-  .keys {
+  header {
     display: flex;
-    gap: 12px;
-  }
-
-  .key {
-    display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 10px;
   }
 
-  .key small,
-  .head small,
-  .meta,
-  .time {
+  h2 {
+    color: var(--ink);
+  }
+
+  .hint {
+    margin-left: auto;
     font-size: 11px;
     color: var(--faint);
-    white-space: nowrap;
   }
 
   kbd {
@@ -167,37 +131,87 @@
     color: var(--ink);
   }
 
-  .history {
+  .settings {
+    display: grid;
+    gap: 8px;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+  }
+
+  .row .hud-label {
+    font-size: 10px;
+  }
+
+  .chips {
     display: flex;
-    flex-direction: column;
-    gap: 6px;
+    gap: 4px;
+  }
+
+  .chip {
+    padding: 4px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: transparent;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .chip:hover:not(:disabled) {
+    border-color: var(--line-strong);
+    color: var(--ink);
+  }
+
+  .chip.active {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--ink-strong);
+  }
+
+  .chip:disabled {
+    opacity: 0.35;
   }
 
   .head {
     display: flex;
     align-items: center;
     gap: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+
+  .spacer {
+    flex: 1;
   }
 
   ul {
     list-style: none;
     margin: 0;
     padding: 0;
-    max-height: 196px;
     overflow-y: auto;
+    min-height: 0;
+    flex: 1;
   }
 
   li {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-height: 36px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    column-gap: 10px;
+    padding: 6px 0;
     border-top: 1px solid var(--line);
   }
 
+  .text,
+  .meta {
+    grid-column: 1;
+  }
+
   .text {
-    flex: 1;
-    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -205,12 +219,21 @@
     color: var(--ink);
   }
 
-  .time {
-    font-family: var(--font-mono);
+  .meta {
+    font-size: 11px;
+    color: var(--faint);
+  }
+
+  .actions {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    align-self: center;
+    display: flex;
+    gap: 4px;
   }
 
   .empty {
-    padding: 12px 0;
+    padding: 8px 0;
     font-size: 13px;
     color: var(--muted);
   }

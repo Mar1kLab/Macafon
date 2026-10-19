@@ -45,16 +45,19 @@
   import { daemon } from '../state';
   import { t } from '../i18n';
 
+  /** `library`: the sounds, in the overlay's right panel; `player`: the transport and the output
+   * volumes, docked along the bottom of the overlay. */
+  let { part = 'library' }: { part?: 'library' | 'player' } = $props();
+
   /** Pads per page: a little more than the visible area in either view. */
   const PAGE = 60;
 
   const soundpad = $derived(daemon.soundpad);
   /** SND-006: pads in a grid or rows in a list; the player above or below them, or none. */
   const view = $derived(soundpad?.prefs.overlay_view ?? 'grid');
-  const controls = $derived(soundpad?.prefs.overlay_controls ?? 'top');
   const sketch = $derived(daemon.prefs?.osd.look === 'sketch');
   /** Row height and columns of the view, to load enough rows for a scroll position. */
-  const metricsOf = (layout: SoundpadOverlayView) => (layout === 'list' ? { row: 32, columns: 1 } : { row: 60, columns: 5 });
+  const metricsOf = (layout: SoundpadOverlayView) => (layout === 'list' ? { row: 32, columns: 1 } : { row: 60, columns: 3 });
   const metrics = $derived(metricsOf(view));
   const playback = $derived(daemon.soundpadPlayback);
   const place = loadPlace();
@@ -89,7 +92,7 @@
   onMount(() => {
     void tick().then(() => {
       if (list) list.scrollTop = scrollTop;
-      search?.focus({ preventScroll: true });
+      if (part === 'library') search?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(saveFrame);
   });
@@ -168,6 +171,9 @@
   </div>
 {/snippet}
 
+{#if part === 'player'}
+  <section class="dock" class:sketch aria-label={t('soundpad.transport')}>{@render player()}</section>
+{:else}
 <section id="overlay-sounds" class="soundpad" class:sketch aria-label={t('quick.soundpad')}>
   <div class="bar">
     <label class="search">
@@ -197,7 +203,6 @@
     <div class="sort"><Dropdown label={t('soundpad.sort')} options={sorts} value={sort} width="150px" onchange={setSort} /></div>
   </div>
 
-  {#if controls === 'top'}{@render player()}{/if}
 
   {#if (soundpad?.sounds.length ?? 0) === 0}
     <p class="empty">{t('quick.soundpadEmpty')}</p>
@@ -227,22 +232,27 @@
     </div>
   {/if}
 
-  {#if controls === 'bottom'}{@render player()}{/if}
 </section>
+{/if}
 
 <style>
   .soundpad {
-    margin-top: 16px;
-    padding-top: 14px;
-    border-top: 1px solid var(--line);
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 10px;
+    min-height: 0;
+    flex: 1;
+  }
+
+  .dock {
+    display: block;
   }
 
   .bar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 12px;
+    gap: 8px 12px;
     min-width: 0;
   }
 
@@ -250,8 +260,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    flex: none;
-    width: 220px;
+    flex: 1 1 200px;
     height: 32px;
     padding: 0 12px;
     border: 1px solid var(--line);
@@ -286,6 +295,8 @@
     min-width: 0;
     overflow-x: auto;
     scrollbar-width: none;
+    order: 3;
+    flex: 1 0 100%;
   }
 
   .chip {
@@ -409,9 +420,9 @@
 
   .pads {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
-    max-height: 236px;
+    max-height: 290px;
     overflow-y: auto;
     padding-right: 2px;
   }

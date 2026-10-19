@@ -32,8 +32,11 @@
   async function fit() {
     if (!root || !tauri) return;
     const { width, height } = measure();
+    // The overlay's main part stays where it is when a side panel opens to its right.
+    const main = root.querySelector('[data-overlay-main]')?.getBoundingClientRect();
+    const anchor = main ? Math.ceil(main.right) : null;
     if (width > 0 && height > 0) {
-      await invoke('quick_panel_fit', { width: width - extraWidth, height: height - extraHeight });
+      await invoke('quick_panel_fit', { width: width - extraWidth, height: height - extraHeight, anchor });
     }
   }
 

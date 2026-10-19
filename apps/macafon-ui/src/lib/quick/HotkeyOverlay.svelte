@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { AudioLines, AudioWaveform, ChevronLeft, ChevronRight, Mic, MicOff, SlidersHorizontal, Speech, Square, Volume2, VolumeX, X } from '@lucide/svelte';
+  import { AudioLines, AudioWaveform, ChevronLeft, ChevronRight, Mic, MicOff, SlidersHorizontal, Speech, Volume2, VolumeX, X } from '@lucide/svelte';
   import Logo from '../components/Logo.svelte';
   import VerticalSlider from './VerticalSlider.svelte';
   import SoundpadOverlay from './SoundpadOverlay.svelte';
   import DictationOverlay from './DictationOverlay.svelte';
   import { channelIcon } from '../mixer/icons';
   import { displayShortcut } from '../settings/shortcut';
+  import { fly } from 'svelte/transition';
   import { daemon } from '../state';
   import { dictationTile } from '../dictation/tile';
   import { t } from '../i18n';
@@ -33,6 +34,8 @@
   const DICTATION_KEY = 'macafon.overlay.dictationOpen';
   let dictationOpen = $state(localStorage.getItem(DICTATION_KEY) === '1');
   const lastResult = $derived(daemon.dictation?.history[0] ?? null);
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 
   function setSounds(open: boolean) {
     sounds = open;
@@ -70,6 +73,8 @@
     <p class="status" role="status">{daemon.status.state === 'unavailable' ? t('daemon.unavailable') : t('daemon.loading')}</p>
   {:else}
     <div class="body">
+      <!-- The window keeps this part in place when a side panel opens (Panel.svelte). -->
+      <div class="main" data-overlay-main>
       <section class="volumes" aria-label={t('quick.mixer')}>
         {#if mixer?.enabled}
           <div class="strip master" style:--channel-ink="var(--app-teal-ink)">
@@ -95,41 +100,41 @@
       </section>
 
       <section class="controls" aria-label={t('quick.microphone')}>
-        <button class="toggle" class:alert={muted} role="switch" aria-checked={!muted} onclick={() => daemon.setMic(daemon.client.call('mic.set_muted', { muted: !muted }))}>
-          {#if muted}<MicOff size={18} strokeWidth={1.5} />{:else}<Mic size={18} strokeWidth={1.5} />{/if}
-          <span>{t('quick.microphone')}</span><small>{muted ? t('quick.muted') : t('quick.on')}</small>
-        </button>
-        <button class="toggle" class:active={!bypass} role="switch" aria-checked={!bypass} onclick={() => daemon.setMic(daemon.client.call('mic.set_bypass', { bypass: !bypass }))}>
-          <AudioLines size={18} strokeWidth={1.5} /><span>{t('quick.processing')}</span><small>{bypass ? t('quick.bypassed') : t('quick.on')}</small>
-        </button>
-        <button class="toggle" class:active={mixer?.enabled} role="switch" aria-checked={mixer?.enabled ?? false} disabled={!mixer} onclick={() => mixer && daemon.setMixer(daemon.client.call('mixer.set_enabled', { enabled: !mixer.enabled }))}>
-          <SlidersHorizontal size={18} strokeWidth={1.5} /><span>{t('quick.mixer')}</span><small>{mixer?.enabled ? t('quick.on') : t('quick.off')}</small>
-        </button>
-        {#if dictation}
-          <button class="toggle" class:active={dictation.on} role="switch" aria-checked={dictation.on} disabled={dictation.needsModel} title={t('quick.dictationHint')} onclick={() => daemon.setDictationPrefs({ enabled: !dictation.on })}>
-            <Speech size={18} strokeWidth={1.5} /><span>{t('quick.dictation')}</span><small>{dictation.state}</small>
-            {#if dictation.progress !== null}<i class="progress" style:width="{dictation.progress}%"></i>{/if}
+        <!-- Small switches: on is filled, off is a plain outline. -->
+        <div class="switches">
+          <button class="switch" class:on={!muted} class:alert={muted} role="switch" aria-checked={!muted} title={muted ? t('quick.muted') : t('quick.on')} onclick={() => daemon.setMic(daemon.client.call('mic.set_muted', { muted: !muted }))}>
+            {#if muted}<MicOff size={16} strokeWidth={1.5} />{:else}<Mic size={16} strokeWidth={1.5} />{/if}<span>{t('quick.microphone')}</span>
+          </button>
+          <button class="switch" class:on={!bypass} role="switch" aria-checked={!bypass} title={bypass ? t('quick.bypassed') : t('quick.on')} onclick={() => daemon.setMic(daemon.client.call('mic.set_bypass', { bypass: !bypass }))}>
+            <AudioLines size={16} strokeWidth={1.5} /><span>{t('quick.processing')}</span>
+          </button>
+          <button class="switch" class:on={mixer?.enabled} role="switch" aria-checked={mixer?.enabled ?? false} disabled={!mixer} onclick={() => mixer && daemon.setMixer(daemon.client.call('mixer.set_enabled', { enabled: !mixer.enabled }))}>
+            <SlidersHorizontal size={16} strokeWidth={1.5} /><span>{t('quick.mixer')}</span>
+          </button>
+          {#if dictation}
+            <button class="switch" class:on={dictation.on} role="switch" aria-checked={dictation.on} disabled={dictation.needsModel} title={`${t('quick.dictationHint')} · ${dictation.state}`} onclick={() => daemon.setDictationPrefs({ enabled: !dictation.on })}>
+              <Speech size={16} strokeWidth={1.5} /><span>{t('quick.dictation')}</span>
+              {#if dictation.progress !== null}<i class="progress" style:width="{dictation.progress}%"></i>{/if}
+            </button>
+          {/if}
+        </div>
+
+        <!-- Panels open to the right of the controls. -->
+        {#if soundpad}
+          <button class="panel-tab" class:open={sounds} aria-expanded={sounds} aria-controls="overlay-sounds" title={sounds ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} onclick={() => setSounds(!sounds)}>
+            <AudioWaveform size={15} strokeWidth={1.5} />
+            <span class="tab-label">{#if playing}<b title={playing.name}>{playing.name}</b>{:else}{t('quick.soundpadShow')}<small>{soundpad.sounds.length}</small>{/if}</span>
+            <ChevronRight size={14} strokeWidth={1.5} />
           </button>
         {/if}
         {#if dictation && !dictation.needsModel}
-          <div class="sounds">
-            <button class="round sounds-toggle" class:open={dictationOpen} aria-expanded={dictationOpen} aria-controls="overlay-dictation" aria-label={dictationOpen ? t('quick.dictationHide') : t('quick.dictationShow')} title={dictationOpen ? t('quick.dictationHide') : t('quick.dictationShow')} onclick={() => setDictationOpen(!dictationOpen)}>
-              <Speech size={16} strokeWidth={1.5} />
-            </button>
-            <span class="sounds-label">{#if lastResult}<b title={lastResult.text}>{lastResult.text}</b>{:else}{t('quick.dictationHistory')}<small>{daemon.dictation?.history.length ?? 0}</small>{/if}</span>
-          </div>
+          <button class="panel-tab" class:open={dictationOpen} aria-expanded={dictationOpen} aria-controls="overlay-dictation" title={dictationOpen ? t('quick.dictationHide') : t('quick.dictationShow')} onclick={() => setDictationOpen(!dictationOpen)}>
+            <Speech size={15} strokeWidth={1.5} />
+            <span class="tab-label">{#if lastResult}<b title={lastResult.text}>{lastResult.text}</b>{:else}{t('quick.dictationHistory')}<small>{daemon.dictation?.history.length ?? 0}</small>{/if}</span>
+            <ChevronRight size={14} strokeWidth={1.5} />
+          </button>
         {/if}
-        {#if soundpad}
-          <div class="sounds">
-            <button class="round sounds-toggle" class:open={sounds} aria-expanded={sounds} aria-controls="overlay-sounds" aria-label={sounds ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} title={sounds ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} onclick={() => setSounds(!sounds)}>
-              <AudioWaveform size={16} strokeWidth={1.5} />
-            </button>
-            <span class="sounds-label">{#if playing}<b title={playing.name}>{playing.name}</b>{:else}{t('quick.soundpadShow')}<small>{soundpad.sounds.length}</small>{/if}</span>
-            {#if playback && !sounds}
-              <button class="round" aria-label={t('quick.soundpadStop')} title={t('quick.soundpadStop')} onclick={() => daemon.stopSound()}><Square size={12} strokeWidth={1.5} /></button>
-            {/if}
-          </div>
-        {/if}
+
         <div class="preset">
           <span class="hud-label">{t('quick.preset')}</span>
           <div class="preset-nav">
@@ -139,19 +144,29 @@
           </div>
         </div>
       </section>
+      </div>
+
+      {#if soundpad && sounds}
+        <aside class="side" transition:fly={{ x: 24, duration: reduced ? 0 : 220 }}>
+          <SoundpadOverlay part="library" />
+        </aside>
+      {:else if dictationOpen && dictation && !dictation.needsModel}
+        <aside class="side" transition:fly={{ x: 24, duration: reduced ? 0 : 220 }}>
+          <DictationOverlay />
+        </aside>
+      {/if}
     </div>
-    {#if soundpad && sounds}
-      <SoundpadOverlay />
-    {/if}
-    {#if dictationOpen && dictation && !dictation.needsModel}
-      <DictationOverlay />
+    {#if soundpad && sounds && soundpad.prefs.overlay_controls !== 'hidden'}
+      <div class="dock" transition:fly={{ y: 16, duration: reduced ? 0 : 260 }}>
+        <SoundpadOverlay part="player" />
+      </div>
     {/if}
   {/if}
 </div>
 
 <style>
   :global(html), :global(body) { background: var(--bg-raised); background-image: none; overflow: hidden; }
-  .overlay { position: relative; width: 840px; min-height: 368px; padding: 28px 32px 24px; background: var(--bg-raised); }
+  .overlay { position: relative; width: max-content; min-height: 368px; padding: 28px 32px 24px; background: var(--bg-raised); }
   /* Lines 12 px inside the window edge, each running 8 px past the corners. */
   .frame { position: absolute; inset: 12px; pointer-events: none; }
   .frame i { position: absolute; background: var(--line-strong); }
@@ -171,26 +186,30 @@
   .round:hover { border-color: var(--line-strong); color: var(--ink-strong); }
   .close { background: var(--bg); }
   .body { display: flex; gap: 24px; padding-top: 16px; }
-  .volumes { min-width: 0; flex: 1; display: flex; overflow-x: auto; padding: 0 2px 4px; }
-  .strip { flex: 1 0 88px; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .main { display: flex; gap: 24px; }
+  .volumes { min-width: 0; display: flex; overflow-x: auto; padding: 0 2px 4px; }
+  .strip { flex: 0 0 76px; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
   .master { border-right: 1px solid var(--line); margin-right: 8px; padding-right: 8px; }
   .strip-name { font-family: var(--font-display); font-size: 13px; font-weight: 600; color: var(--ink-strong); max-width: 88px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .mute { color: var(--channel-ink); }
   .alert, .round.alert { color: var(--danger); border-color: var(--danger); }
-  .controls { width: 232px; flex: none; padding-left: 24px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
-  .toggle { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-sunken); text-align: left; font-size: 12px; }
-  .toggle small { margin-left: auto; color: var(--muted); font-size: 10px; }
-  .toggle.active :global(svg) { color: var(--accent-ink); }
-  .toggle.alert small { color: var(--danger); }
-  .toggle:hover { background: var(--bg); }
-  .toggle:disabled { opacity: 0.5; }
-  .toggle { position: relative; overflow: hidden; }
-  .toggle .progress { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--accent-ink); }
-  .sounds { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 4px 0 0 2px; }
-  .sounds-toggle.open { color: var(--accent-ink); border-color: var(--accent); }
-  .sounds-label { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--muted); }
-  .sounds-label b { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 400; color: var(--accent-ink); }
-  .sounds-label small { font-family: var(--font-mono); font-size: 10px; color: var(--faint); }
+  .controls { width: 196px; flex: none; padding-left: 24px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+  .switches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 4px; }
+  .switch { position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: 54px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: transparent; color: var(--faint); font-size: 11px; transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease); }
+  .switch span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .switch:hover:not(:disabled) { border-color: var(--line-strong); color: var(--ink); }
+  .switch.on { background: var(--accent); border-color: var(--accent); color: var(--ink-strong); }
+  .switch.alert { border-color: var(--danger); color: var(--danger); }
+  .switch:disabled { opacity: 0.4; }
+  .switch .progress { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--accent-ink); }
+  .panel-tab { display: flex; align-items: center; gap: 8px; min-width: 0; height: 34px; padding: 0 8px 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-sunken); color: var(--muted); font-size: 12px; text-align: left; }
+  .panel-tab:hover { border-color: var(--line-strong); color: var(--ink); }
+  .panel-tab.open { border-color: var(--accent); color: var(--accent-ink); }
+  .tab-label { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; overflow: hidden; }
+  .tab-label b { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 400; color: var(--accent-ink); }
+  .tab-label small { font-family: var(--font-mono); font-size: 10px; color: var(--faint); }
+  .side { width: 440px; flex: none; padding-left: 24px; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; max-height: 360px; }
+  .dock { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
   .preset { margin-top: auto; padding-top: 8px; }
   .preset .hud-label { font-size: 9px; }
   .preset-nav { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
@@ -198,12 +217,8 @@
   .preset-name small { display: block; font-size: 9px; color: var(--app-amber-ink); }
   .status { flex: 1; align-self: center; padding: 24px; font-size: 13px; color: var(--muted); }
   /* Sketch: the app's own look — sharp corners, HUD labels, accent marks instead of fills. */
-  .sketch .round, .sketch .toggle, .sketch kbd { border-radius: 0; }
-  .sketch .toggle { position: relative; }
-  .sketch .toggle small { font-family: var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; }
-  .sketch .toggle.active::before, .sketch .toggle.alert::before { content: ''; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 2px; background: var(--accent); }
-  .sketch .toggle.alert::before { background: var(--danger); }
-  .sketch .toggle.alert { border-color: var(--line); }
+  .sketch .round, .sketch .switch, .sketch .panel-tab, .sketch kbd { border-radius: 0; }
+  .sketch .switch span { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
   .sketch .strip-name { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
   @media (prefers-reduced-motion: reduce) { .round { transition: none; } }
 </style>

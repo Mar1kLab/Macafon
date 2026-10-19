@@ -10,7 +10,9 @@
 
 mod ab;
 mod channel;
+mod dictation;
 mod drift;
+pub use dictation::DictationReader;
 
 pub use ab::{AbControl, AbRt, SWITCH_FADE_SAMPLES, ab_player};
 pub use channel::{ChannelControl, ChannelRt, channel};
@@ -34,6 +36,7 @@ const CAPTURE_SAMPLES: usize = macafon_dsp::SAMPLE_RATE_HZ as usize;
 #[allow(clippy::large_enum_variant)]
 enum Command {
     Retune(ChainSettings),
+    Dictation(Option<Box<dictation::DictationTap>>),
     Replace(Box<MicrophoneProcessor>),
 }
 
@@ -120,6 +123,8 @@ pub fn microphone(
     let (garbage, garbage_queue) = rtrb::RingBuffer::new(GARBAGE_CAPACITY);
     let (capture, capture_queue) = rtrb::RingBuffer::new(CAPTURE_SAMPLES);
     let capture_flags = Arc::new(CaptureFlags::default());
+    let (tap_garbage, tap_retired) = rtrb::RingBuffer::new(8);
+    let dictation_mute = Arc::new(AtomicBool::new(false));
     Ok((
         MicControl {
             settings: *settings,
@@ -128,6 +133,8 @@ pub fn microphone(
             garbage: garbage_queue,
             telemetry,
             capture: capture_queue,
+            tap_retired,
+            dictation_mute: dictation_mute.clone(),
             capture_flags: capture_flags.clone(),
         },
         MicRt {
@@ -142,6 +149,10 @@ pub fn microphone(
             garbage,
             capture,
             capture_flags,
+            tap: None,
+            tap_garbage,
+            retired_tap: None,
+            dictation_mute,
         },
     ))
 }
@@ -153,10 +164,36 @@ pub struct MicControl {
     garbage: rtrb::Consumer<Box<MicrophoneProcessor>>,
     telemetry: Arc<Telemetry>,
     capture: rtrb::Consumer<f32>,
+    tap_retired: rtrb::Consumer<Box<dictation::DictationTap>>,
+    dictation_mute: Arc<AtomicBool>,
     capture_flags: Arc<CaptureFlags>,
 }
 
 impl MicControl {
+    /// Allocate while enabling; removed taps return for off-thread destruction.
+    pub fn enable_dictation(
+        &mut self,
+        pre_roll: bool,
+        point: macafon_dsp::TapPoint,
+    ) -> Result<DictationReader, EngineError> {
+        while self.tap_retired.pop().is_ok() {}
+        let (reader, tap) = dictation::tap(pre_roll, point);
+        self.commands
+            .push(Command::Dictation(Some(tap)))
+            .map_err(|_| EngineError::Busy)?;
+        Ok(reader)
+    }
+    pub fn disable_dictation(&mut self) -> Result<(), EngineError> {
+        self.dictation_mute.store(false, Ordering::Release);
+        self.commands
+            .push(Command::Dictation(None))
+            .map_err(|_| EngineError::Busy)
+    }
+    /// Independent gate: microphone settings and an existing mute remain untouched.
+    pub fn mute_for_dictation(&self, mute: bool) {
+        self.dictation_mute.store(mute, Ordering::Release);
+    }
+
     /// Settings most recently sent to the audio thread.
     pub fn settings(&self) -> &ChainSettings {
         &self.settings
@@ -272,6 +309,7 @@ impl MicControl {
 
     /// Free processors the audio thread has swapped out.
     pub fn collect_garbage(&mut self) {
+        while self.tap_retired.pop().is_ok() {}
         while let Ok(processor) = self.garbage.pop() {
             drop(processor);
         }
@@ -289,6 +327,10 @@ pub struct MicRt {
     commands: rtrb::Consumer<Command>,
     garbage: rtrb::Producer<Box<MicrophoneProcessor>>,
     capture: rtrb::Producer<f32>,
+    tap: Option<Box<dictation::DictationTap>>,
+    tap_garbage: rtrb::Producer<Box<dictation::DictationTap>>,
+    retired_tap: Option<Box<dictation::DictationTap>>,
+    dictation_mute: Arc<AtomicBool>,
     capture_flags: Arc<CaptureFlags>,
 }
 
@@ -304,18 +346,45 @@ impl MicRt {
             self.capture(io);
         }
         if self.outgoing.is_none() {
-            self.current.process(io);
+            if let Some(tap) = &mut self.tap {
+                self.current.process_with_tap(io, &mut |point, audio| {
+                    if point == tap.point {
+                        tap.process(audio);
+                    }
+                });
+            } else {
+                self.current.process(io);
+            }
+            if self.dictation_mute.load(Ordering::Acquire) {
+                io.fill(0.0);
+            }
             return;
         }
         for chunk in io.chunks_mut(SCRATCH_SAMPLES) {
             let Some(old) = &mut self.outgoing else {
-                self.current.process(chunk);
+                if let Some(tap) = &mut self.tap {
+                    self.current.process_with_tap(chunk, &mut |point, audio| {
+                        if point == tap.point {
+                            tap.process(audio);
+                        }
+                    });
+                } else {
+                    self.current.process(chunk);
+                }
                 continue;
             };
             let previous = &mut self.scratch[..chunk.len()];
             previous.copy_from_slice(chunk);
             old.process(previous);
-            self.current.process(chunk);
+            if let Some(tap) = &mut self.tap {
+                self.current.process_with_tap(chunk, &mut |point, audio| {
+                    if point == tap.point {
+                        tap.process(audio);
+                    }
+                });
+            } else {
+                self.current.process(chunk);
+            }
             for (sample, old_sample) in chunk.iter_mut().zip(previous.iter()) {
                 if self.warmup_remaining > 0 {
                     self.warmup_remaining -= 1;
@@ -330,6 +399,9 @@ impl MicRt {
                 self.retired = self.outgoing.take();
                 self.release_retired();
             }
+        }
+        if self.dictation_mute.load(Ordering::Acquire) {
+            io.fill(0.0);
         }
     }
 
@@ -354,14 +426,23 @@ impl MicRt {
 
     fn drain(&mut self) {
         self.release_retired();
+        if let Some(tap) = self.retired_tap.take() {
+            if let Err(rtrb::PushError::Full(tap)) = self.tap_garbage.push(tap) {
+                self.retired_tap = Some(tap);
+            }
+        }
         loop {
             let busy = self.outgoing.is_some() || self.retired.is_some();
             match self.commands.peek() {
                 Ok(Command::Replace(_)) if busy => return,
+                Ok(Command::Dictation(_)) if self.retired_tap.is_some() => return,
                 Ok(_) => {}
                 Err(_) => return,
             }
             match self.commands.pop() {
+                Ok(Command::Dictation(tap)) => {
+                    self.retired_tap = std::mem::replace(&mut self.tap, tap);
+                }
                 Ok(Command::Retune(settings)) => {
                     // The control side only sends retunes that keep the topology.
                     let _ = self.current.retune(&settings);

@@ -426,6 +426,7 @@ const scenarios = {
     await page.goto(`${base}?platform=windows&screen=settings&section=dictation&dictation=ready`);
     await page.waitForSelector('#settings-dictation');
     await page.waitForTimeout(3500);
+    await page.locator('#settings-dictation').scrollIntoViewIfNeeded();
   },
   'settings-dictation-hotkeys': async (page) => {
     await page.goto(`${base}?platform=windows&screen=settings&section=hotkeys&dictation=ready`);
@@ -436,8 +437,20 @@ const scenarios = {
   'overlay-dictation': async (page) => {
     await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay&dictation=ready`);
     await page.waitForSelector('.overlay');
-    await page.getByRole('button', { name: 'Show dictation history and language' }).click();
+    await page.locator('[aria-controls="overlay-dictation"]').click();
     await page.waitForTimeout(400);
+  },
+  'overlay-sounds-side': async (page) => {
+    await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay&dictation=ready`);
+    await page.waitForSelector('.overlay');
+    await page.locator('[aria-controls="overlay-sounds"]').click();
+    await page.getByRole('button', { name: /Play Air horn/ }).click();
+    await page.waitForTimeout(500);
+  },
+  'overlay-collapsed-new': async (page) => {
+    await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay&dictation=ready`);
+    await page.waitForSelector('.overlay');
+    await page.waitForTimeout(300);
   },
   'tray-panel-dictation': async (page) => {
     await page.goto(`${base}?platform=windows&view=quick-panel&dictation=ready`);

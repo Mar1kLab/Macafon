@@ -2,7 +2,7 @@
   // 04 / DICTATION (PRD §8.4, §9.9): local speech to text. The header turns it on (STT-001) and
   // shows the worker; the cards set the engine and models, language, input, output, the worker's
   // footprint, the popup and the vocabulary; TRY IT at the bottom runs the whole pipeline.
-  import { Keyboard, TriangleAlert, X } from '@lucide/svelte';
+  import { Keyboard, Trash2, TriangleAlert, X } from '@lucide/svelte';
   import Toggle from '../lib/components/Toggle.svelte';
   import Segmented from '../lib/components/Segmented.svelte';
   import RulerSlider from '../lib/components/RulerSlider.svelte';
@@ -67,6 +67,19 @@
     { value: 'copy', label: t('dictation.output.gameCopy') },
     { value: 'ignore', label: t('dictation.output.gameIgnore') },
   ];
+  // STT-015: off, in memory until Macafon quits, or saved across restarts.
+  type HistoryMode = 'off' | 'memory' | 'saved';
+  const historyModes: { value: HistoryMode; label: string }[] = [
+    { value: 'off', label: t('dictation.history.off') },
+    { value: 'memory', label: t('dictation.history.memory') },
+    { value: 'saved', label: t('dictation.history.saved') },
+  ];
+  const historyMode = $derived<HistoryMode>(!prefs?.keep_history ? 'off' : prefs.save_history ? 'saved' : 'memory');
+
+  function setHistoryMode(mode: HistoryMode) {
+    daemon.setDictationPrefs({ keep_history: mode !== 'off', save_history: mode === 'saved' });
+  }
+
   const devices: { value: 'gpu' | 'cpu'; label: string }[] = [
     { value: 'gpu', label: t('dictation.performance.gpu') },
     { value: 'cpu', label: t('dictation.performance.cpu') },
@@ -155,16 +168,49 @@
         </section>
       {/if}
 
+      <!-- Left to right, top to bottom: the model, how it understands you, the path from the
+           microphone to the text and its history, then the resources it may use. -->
       <div class="grid">
         <EngineCard {dictation} />
 
-        <Card number="02" title={t('dictation.language.title')} hint={t('dictation.language.hint')} color="violet" dimmed={parakeet} badge={parakeet ? t('dictation.language.autoOnly') : undefined}>
-          <Segmented label={t('dictation.language.label')} options={policies} value={prefs.language} disabled={parakeet} onchange={(language) => daemon.setDictationPrefs({ language })} />
-          <Segmented label={t('dictation.language.fixedLanguage')} options={languages} value={prefs.fixed_language} disabled={parakeet || prefs.language !== 'fixed'} onchange={(fixed_language) => daemon.setDictationPrefs({ fixed_language })} />
-          <p class="body">{parakeet ? t('dictation.language.parakeetBody') : languageBody}</p>
-        </Card>
+        <div class="stack">
+          <Card number="02" title={t('dictation.language.title')} hint={t('dictation.language.hint')} color="violet" dimmed={parakeet} badge={parakeet ? t('dictation.language.autoOnly') : undefined}>
+            <Segmented label={t('dictation.language.label')} options={policies} value={prefs.language} disabled={parakeet} hint={parakeet ? t('dictation.language.parakeetBody') : languageBody} onchange={(language) => daemon.setDictationPrefs({ language })} />
+            {#if prefs.language === 'fixed' && !parakeet}
+              <Segmented label={t('dictation.language.fixedLanguage')} options={languages} value={prefs.fixed_language} onchange={(fixed_language) => daemon.setDictationPrefs({ fixed_language })} />
+            {/if}
+          </Card>
 
-        <Card number="03" title={t('dictation.input.title')} hint={t('dictation.input.hint')} color="lime">
+          <Card number="03" title={t('dictation.vocabulary.title')} hint={t('dictation.vocabulary.hint')} color="teal" dimmed={parakeet} badge={parakeet ? t('dictation.language.autoOnly') : undefined}>
+            {#if prefs.vocabulary.length}
+              <ul class="words" aria-label={t('dictation.vocabulary.title')}>
+                {#each prefs.vocabulary as entry (entry)}
+                  <li>
+                    <span>{entry}</span>
+                    <button aria-label={t('dictation.vocabulary.remove', { word: entry })} title={t('dictation.vocabulary.remove', { word: entry })} disabled={parakeet} onclick={() => daemon.setDictationPrefs({ vocabulary: prefs.vocabulary.filter((w) => w !== entry) })}><X size={12} strokeWidth={1.5} /></button>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+            <input
+              class="word"
+              bind:value={word}
+              placeholder={prefs.vocabulary.length >= MAX_WORDS ? t('dictation.vocabulary.full', { max: MAX_WORDS }) : t('dictation.vocabulary.placeholder')}
+              aria-label={t('dictation.vocabulary.add')}
+              title={parakeet ? t('dictation.vocabulary.parakeet') : t('dictation.vocabulary.hint')}
+              maxlength={48}
+              disabled={parakeet || prefs.vocabulary.length >= MAX_WORDS}
+              onkeydown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  addWord();
+                }
+              }}
+            />
+          </Card>
+        </div>
+
+        <Card number="04" title={t('dictation.input.title')} hint={t('dictation.input.hint')} color="lime">
           <Segmented label={t('dictation.input.tap')} options={taps} value={prefs.tap} color="lime" hint={t('dictation.input.tapHint')} onchange={(tap) => daemon.setDictationPrefs({ tap })} />
           {#if prefs.tap === 'processed'}
             <LevelMeter label={t('dictation.input.level')} peakKey="output_peak_dbfs" rmsKey="output_rms_dbfs" color="lime" />
@@ -175,76 +221,59 @@
             <span>{t('dictation.input.mute')}</span>
             <Toggle checked={prefs.mute_mic_while_dictating} label={t('dictation.input.mute')} color="lime" onchange={(mute_mic_while_dictating) => daemon.setDictationPrefs({ mute_mic_while_dictating })} />
           </label>
+          <label class="row" title={t('dictation.performance.preRollHint')}>
+            <span>{t('dictation.performance.preRoll')}</span>
+            <Toggle checked={prefs.pre_roll} label={t('dictation.performance.preRoll')} color="lime" onchange={(pre_roll) => daemon.setDictationPrefs({ pre_roll })} />
+          </label>
         </Card>
 
-        <Card number="04" title={t('dictation.output.title')} hint={t('dictation.output.hint')} color="pink">
+        <Card number="05" title={t('dictation.output.title')} hint={t('dictation.output.hint')} color="pink">
           <Segmented label={t('dictation.output.insert')} options={inserts} value={prefs.insert} color="pink" hint={t('dictation.output.insertHint')} onchange={(insert) => daemon.setDictationPrefs({ insert })} />
           <Segmented label={t('dictation.output.games')} options={gamePolicies} value={prefs.fullscreen_games} color="pink" hint={t('dictation.output.gamesHint')} onchange={(fullscreen_games) => daemon.setDictationPrefs({ fullscreen_games })} />
-          <label class="row" title={t('dictation.test.historyHint')}>
-            <span>{t('dictation.output.keepHistory')}</span>
-            <Toggle checked={prefs.keep_history} label={t('dictation.output.keepHistory')} color="pink" onchange={(keep_history) => daemon.setDictationPrefs({ keep_history })} />
-          </label>
           <label class="row">
             <span>{t('dictation.output.trailingSpace')}</span>
             <Toggle checked={prefs.trailing_space} label={t('dictation.output.trailingSpace')} color="pink" onchange={(trailing_space) => daemon.setDictationPrefs({ trailing_space })} />
           </label>
         </Card>
 
-        <Card number="05" title={t('dictation.performance.title')} hint={t('dictation.performance.hint')} color="amber">
-          <Segmented label={t('dictation.performance.unload')} options={unloads} value={prefs.unload_after_s} color="amber" hint={t('dictation.performance.unloadHint')} onchange={(unload_after_s) => daemon.setDictationPrefs({ unload_after_s })} />
-          <Segmented label={t('dictation.performance.device')} options={devices} value={parakeet ? 'cpu' : prefs.gpu ? 'gpu' : 'cpu'} color="amber" disabled={parakeet} hint={parakeet ? t('dictation.performance.deviceParakeet') : t('dictation.performance.deviceHint')} onchange={(device) => daemon.setDictationPrefs({ gpu: device === 'gpu' })} />
-          <RulerSlider
-            compact
-            label={t('dictation.performance.threads')}
-            value={prefs.threads || dictation.default_threads}
-            min={1}
-            max={dictation.logical_cores}
-            defaultValue={dictation.default_threads}
-            step={1}
-            color="amber"
-            format={(value) => t('dictation.performance.threadsValue', { value, max: dictation.logical_cores })}
-            onchange={(threads) => daemon.setDictationPrefs({ threads: threads === dictation.default_threads ? 0 : threads })}
-          />
-          <label class="row" title={t('dictation.performance.gameModeHint')}>
-            <span>{t('dictation.performance.gameMode')}</span>
-            <Toggle checked={prefs.game_mode} label={t('dictation.performance.gameMode')} color="amber" onchange={(game_mode) => daemon.setDictationPrefs({ game_mode })} />
-          </label>
-          <label class="row" title={t('dictation.performance.preRollHint')}>
-            <span>{t('dictation.performance.preRoll')}</span>
-            <Toggle checked={prefs.pre_roll} label={t('dictation.performance.preRoll')} color="amber" onchange={(pre_roll) => daemon.setDictationPrefs({ pre_roll })} />
-          </label>
+        <Card number="06" title={t('dictation.history.title')} hint={t('dictation.history.hint')} color="orange">
+          <Segmented label={t('dictation.history.keep')} options={historyModes} value={historyMode} color="orange" onchange={setHistoryMode} />
+          <p class="body">{t(`dictation.history.${historyMode}Body`)}</p>
+          {#snippet footer()}
+            <span class="history-foot">
+              <span>{t('dictation.history.count', { count: dictation.history.length })}</span>
+              <button class="link" disabled={dictation.history.length === 0} onclick={() => daemon.setDictation(daemon.client.call('dictation.history_clear'))}><Trash2 size={12} strokeWidth={1.5} />{t('dictation.test.clear')}</button>
+            </span>
+          {/snippet}
+        </Card>
+
+        <Card number="07" title={t('dictation.performance.title')} hint={t('dictation.performance.hint')} color="amber" class="performance">
+          <div class="perf">
+            <Segmented label={t('dictation.performance.device')} options={devices} value={parakeet ? 'cpu' : prefs.gpu ? 'gpu' : 'cpu'} color="amber" disabled={parakeet} hint={parakeet ? t('dictation.performance.deviceParakeet') : t('dictation.performance.deviceHint')} onchange={(device) => daemon.setDictationPrefs({ gpu: device === 'gpu' })} />
+            <Segmented label={t('dictation.performance.unload')} options={unloads} value={prefs.unload_after_s} color="amber" hint={t('dictation.performance.unloadHint')} onchange={(unload_after_s) => daemon.setDictationPrefs({ unload_after_s })} />
+            <label class="row" title={t('dictation.performance.gameModeHint')}>
+              <span>{t('dictation.performance.gameMode')}</span>
+              <Toggle checked={prefs.game_mode} label={t('dictation.performance.gameMode')} color="amber" onchange={(game_mode) => daemon.setDictationPrefs({ game_mode })} />
+            </label>
+            <RulerSlider
+              compact
+              label={t('dictation.performance.threads')}
+              value={prefs.threads || dictation.default_threads}
+              min={1}
+              max={dictation.logical_cores}
+              defaultValue={dictation.default_threads}
+              step={1}
+              color="amber"
+              format={(value) => t('dictation.performance.threadsValue', { value, max: dictation.logical_cores })}
+              onchange={(threads) => daemon.setDictationPrefs({ threads: threads === dictation.default_threads ? 0 : threads })}
+            />
+          </div>
           {#snippet footer()}
             {t('dictation.performance.worker')} ·
             {dictation.worker_ram_bytes
               ? t('dictation.performance.loaded', { ram: formatBytes(dictation.worker_ram_bytes), device: prefs.gpu && !parakeet ? 'GPU' : 'CPU', threads: dictation.worker_threads ?? '—' })
               : t('dictation.performance.unloaded')}
           {/snippet}
-        </Card>
-
-        <Card number="06" title={t('dictation.vocabulary.title')} hint={t('dictation.vocabulary.hint')} color="teal" dimmed={parakeet} badge={parakeet ? t('dictation.language.autoOnly') : undefined} class="vocabulary">
-          <ul class="words" aria-label={t('dictation.vocabulary.title')}>
-            {#each prefs.vocabulary as entry (entry)}
-              <li>
-                <span>{entry}</span>
-                <button aria-label={t('dictation.vocabulary.remove', { word: entry })} title={t('dictation.vocabulary.remove', { word: entry })} disabled={parakeet} onclick={() => daemon.setDictationPrefs({ vocabulary: prefs.vocabulary.filter((w) => w !== entry) })}><X size={12} strokeWidth={1.5} /></button>
-              </li>
-            {/each}
-          </ul>
-          <input
-            class="word"
-            bind:value={word}
-            placeholder={prefs.vocabulary.length >= MAX_WORDS ? t('dictation.vocabulary.full', { max: MAX_WORDS }) : t('dictation.vocabulary.placeholder')}
-            aria-label={t('dictation.vocabulary.add')}
-            maxlength={48}
-            disabled={parakeet || prefs.vocabulary.length >= MAX_WORDS}
-            onkeydown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                addWord();
-              }
-            }}
-          />
-          <p class="body">{parakeet ? t('dictation.vocabulary.parakeet') : t('dictation.vocabulary.hint')}</p>
         </Card>
       </div>
     </div>
@@ -404,8 +433,48 @@
     grid-column: span 2;
   }
 
-  .grid :global(.vocabulary) {
+  .stack {
+    display: grid;
+    gap: 16px;
+    align-content: start;
+  }
+
+  .grid :global(.performance) {
     grid-column: span 3;
+  }
+
+  .perf {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: center;
+    gap: 12px 32px;
+  }
+
+  .history-foot {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .history-foot > span {
+    flex: 1;
+  }
+
+  .link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font: inherit;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  .link:hover:not(:disabled) {
+    color: var(--ink);
+  }
+
+  .link:disabled {
+    opacity: 0.4;
   }
 
   .body {

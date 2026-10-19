@@ -71,10 +71,12 @@ export class MockDictation {
       gpu: true,
       pre_roll: true,
       keep_history: true,
+      save_history: false,
       vocabulary: ['Macafon', 'PipeWire'],
       popup_look: 'flow',
       popup_position: 'bottom',
       popup_offset_pct: 0,
+      popup_primary_monitor: false,
       show_in_overlay: true,
     };
     this.state = {

@@ -541,6 +541,15 @@
               {/snippet}
             </PictureChoice>
           </div>
+          <div class="row column">
+            <div>
+              <p class="name">{t('settings.osd.monitor')}</p>
+              <p class="hint">{t('settings.dictationPopup.monitorHint')}</p>
+            </div>
+            <PictureChoice label={t('settings.dictationPopup.monitor')} options={monitorOptions} value={dictation.popup_primary_monitor} onchange={(popup_primary_monitor) => daemon.setDictationPrefs({ popup_primary_monitor })}>
+              {#snippet picture(primary)}<MonitorPicture {primary} />{/snippet}
+            </PictureChoice>
+          </div>
           <div class="row">
             <p class="name">{t('dictation.popup.position')}</p>
             <Segmented label={t('dictation.popup.position')} layout="inline" options={dictationPositions} value={dictation.popup_position} onchange={(popup_position) => daemon.setDictationPrefs({ popup_position })} />

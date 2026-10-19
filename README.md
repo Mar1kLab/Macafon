@@ -50,7 +50,8 @@ Your soundpad's headphone playback is an app of its own, so it goes into any cha
 like Wispr Flow, but free and fully offline. English, Ukrainian and Russian.
 
 - Two local engines: **Whisper** (whisper.cpp, the most accurate for Ukrainian and Russian) and
-  **Parakeet** (NVIDIA Parakeet TDT v3, faster). Models are downloaded from Hugging Face only when you
+  **Parakeet** (NVIDIA Parakeet TDT v3, fast on the CPU). Whisper runs on any GPU through Vulkan —
+  ten seconds of speech in about a third of a second — and falls back to the CPU. Models are downloaded from Hugging Face only when you
   click *Get*, checked by SHA-256 and kept in any folder you choose.
 - The keyboard layout of the target window decides between Ukrainian and Russian; or fix the language.
 - `Ctrl+Win+Space` dictates hands-free, `Shift+Alt+Z` pastes the last result again, `Shift+Alt+X`
@@ -139,7 +140,8 @@ macafon ctl doctor
 
 Needs stable Rust, Node.js 24, Python 3.12+, CMake, LLVM/libclang (set `LIBCLANG_PATH` if it is not
 found) and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/#windows). CMake and
-libclang build the dictation engines (whisper.cpp, sherpa-onnx).
+libclang build the dictation engines (whisper.cpp, sherpa-onnx); the GPU build of Whisper also needs
+the [Vulkan SDK](https://vulkan.lunarg.com/) (`VULKAN_SDK`, for `glslc`).
 
 ```powershell
 corepack enable

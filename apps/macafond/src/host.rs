@@ -33,6 +33,8 @@ use std::time::{Duration, Instant};
 
 /// CFG-001: write the config 500 ms after the last change.
 const SAVE_DEBOUNCE: Duration = Duration::from_millis(500);
+/// A failed save stays pending and is tried again after this long.
+const SAVE_RETRY: Duration = Duration::from_secs(5);
 
 #[allow(clippy::large_enum_variant)] // One transient request; settings are already bounded by the protocol.
 pub enum ControlMessage {
@@ -169,16 +171,24 @@ impl DaemonHost {
 
     /// Persist pending changes now (shutdown).
     pub fn flush(&mut self) {
-        if self.changed_at.take().is_some() {
-            self.save();
+        if self.changed_at.is_some() && self.save() {
+            self.changed_at = None;
         }
     }
 
-    fn save(&self) {
-        if let Some(store) = &self.store {
-            match store.save(&self.config) {
-                Ok(()) => tracing::debug!(path = %store.path().display(), "Config saved"),
-                Err(error) => tracing::error!(%error, "Cannot save config"),
+    /// False when the config could not be written; it is then still unsaved.
+    fn save(&self) -> bool {
+        let Some(store) = &self.store else {
+            return true;
+        };
+        match store.save(&self.config) {
+            Ok(()) => {
+                tracing::debug!(path = %store.path().display(), "Config saved");
+                true
+            }
+            Err(error) => {
+                tracing::error!(%error, "Cannot save config");
+                false
             }
         }
     }
@@ -648,8 +658,8 @@ impl MicrophoneHost for DaemonHost {
             .changed_at
             .is_some_and(|changed| changed.elapsed() >= SAVE_DEBOUNCE)
         {
-            self.changed_at = None;
-            self.save();
+            // `elapsed` of a future instant is zero: the retry waits a whole SAVE_RETRY.
+            self.changed_at = (!self.save()).then(|| Instant::now() + SAVE_RETRY - SAVE_DEBOUNCE);
         }
     }
 }
@@ -960,6 +970,27 @@ mod tests {
         })
         .expect("rename");
         assert_eq!(bound.try_iter().count(), 1);
+    }
+
+    #[test]
+    fn chain_edit_sent_after_a_mute_hotkey_keeps_the_microphone_muted() {
+        let (sender, _receiver) = crate::platform::control_channel();
+        let mut host = DaemonHost::new(
+            Config::default(),
+            None,
+            PresetStore::in_memory(),
+            unused_endpoint(),
+            sender,
+            false,
+        );
+        let mut stale = host.config.mic.chain;
+        host.respond(Request::MicSetMuted { muted: true })
+            .expect("mute");
+        stale.gain.params.gain_db = 3.0;
+        host.respond(Request::MicSet { settings: stale })
+            .expect("edit");
+        assert!(host.config.mic.chain.muted);
+        assert_eq!(host.config.mic.chain.gain.params.gain_db, 3.0);
     }
 
     #[test]

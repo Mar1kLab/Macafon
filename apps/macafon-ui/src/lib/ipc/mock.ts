@@ -464,7 +464,7 @@ export class MockTransport implements Transport {
         return this.mic();
       case 'mic.set': {
         const settings = p.settings as ChainSettings;
-        this.settings = clone(settings);
+        this.settings = { ...clone(settings), muted: this.settings.muted, bypass: this.settings.bypass };
         return this.micChanged();
       }
       case 'mic.set_preset': {

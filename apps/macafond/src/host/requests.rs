@@ -91,7 +91,13 @@ impl DaemonHost {
                 return Ok(serde_json::json!(self.hotkeys_state()));
             }
             Request::MicGet => self.state(),
-            Request::MicSet { settings } => self.update(|config| config.mic.chain = settings)?,
+            Request::MicSet { settings } => self.update(|config| {
+                let chain = &mut config.mic.chain;
+                let (muted, bypass) = (chain.muted, chain.bypass);
+                *chain = settings;
+                chain.muted = muted;
+                chain.bypass = bypass;
+            })?,
             Request::MicSetPreset { preset } => {
                 let settings = self.preset_settings(&preset).ok_or_else(|| {
                     ErrorBody::new(ErrorCode::NotFound, format!("unknown preset {preset:?}"))

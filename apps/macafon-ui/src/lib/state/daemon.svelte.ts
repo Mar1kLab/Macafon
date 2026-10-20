@@ -331,11 +331,15 @@ export class DaemonStore {
     }
   }
 
-  /** While our own edits are pending, their settings are newer than any echo. */
+  /** While our own edits are pending, their settings are newer than any echo; mute and
+   * bypass are the daemon's (hotkeys change them, `mic.set` never does). */
   private applyMic(state: MicState) {
     const previous = this.mic;
     if (this.inFlight || this.queued) {
-      if (previous) this.mic = { ...state, settings: previous.settings };
+      if (previous) {
+        const { muted, bypass } = state.settings;
+        this.mic = { ...state, settings: { ...previous.settings, muted, bypass } };
+      }
     } else {
       this.mic = state;
     }

@@ -28,6 +28,8 @@ pub enum Request {
     #[serde(rename = "mic.get")]
     MicGet,
     /// Replace the whole chain; continuous changes are smoothed, structural ones crossfaded.
+    /// Mute and bypass stay as they are: they have their own requests, and a chain edit sent
+    /// just after a mute hotkey must not reopen the microphone.
     #[serde(rename = "mic.set")]
     MicSet { settings: ChainSettings },
     #[serde(rename = "mic.set_preset")]

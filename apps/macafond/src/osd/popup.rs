@@ -413,8 +413,9 @@ impl Popup {
             (Some(Osd::Status { title: a, .. }), Osd::Status { title: b, .. }) => a == b,
             _ => false,
         };
-        // Settings changing the setup moves a visible popup right away.
-        if !self.visible || setup != self.layout.setup {
+        // Settings changing the setup moves a visible popup right away, and a hotkey used
+        // in an app on another monitor brings it there; dictation updates leave it in place.
+        if !self.visible || setup != self.layout.setup || !matches!(osd, Osd::Dictation(_)) {
             if let Err(error) = self.place(setup, matches!(osd, Osd::Dictation(_))) {
                 tracing::debug!(%error, "Cannot place hotkey popup");
                 return;

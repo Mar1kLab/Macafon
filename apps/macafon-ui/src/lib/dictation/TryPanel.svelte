@@ -55,7 +55,7 @@
 
 <div class="panel">
   {#if historyOpen}
-    <div class="history" transition:slide={{ duration: 300 }}>
+    <div class="history" transition:slide={{ duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 300 }}>
       <div class="history-head">
         <span class="hud-label">{t('dictation.test.history')}</span>
         <span class="hint">{t('dictation.test.historyHint')}</span>

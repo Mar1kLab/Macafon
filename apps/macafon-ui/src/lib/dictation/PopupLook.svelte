@@ -7,6 +7,7 @@
   import { onFrame } from '../state/frame';
   import { SILENCE_DB, dictationLevelBus } from '../state/meters';
   import { Needle, VU_MIN, dbfsToVu, vuToTravel } from './needle';
+  import { t } from '../i18n';
 
   interface Props {
     look: DictationPopupLook;
@@ -175,7 +176,7 @@
     <circle class="pivot" cx={PIVOT.x} cy={PIVOT.y} r="2.5" />
     {#if peak && !transcribing}<rect class="lamp on" x="116" y="8" width="4" height="4" />{/if}
     {#if transcribing}
-      <text class="hud" x="8" y="56">TRANSCRIBING</text>
+      <text class="hud" x="8" y="56">{t('dictation.popup.transcribing')}</text>
     {:else}
       <circle class="rec" cx="10.5" cy="52.5" r="2" />
     {/if}

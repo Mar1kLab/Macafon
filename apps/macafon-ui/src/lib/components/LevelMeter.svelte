@@ -5,6 +5,7 @@
   import { cssVar, fitCanvas, onFrame } from '../state/frame';
   import { Ballistics, meterBus, type MeterKey } from '../state/meters';
   import { formatLevel } from '../dsp/format';
+  import { t } from '../i18n';
 
   interface Props {
     label: string;
@@ -92,7 +93,7 @@
   <span class="hud-label">{label}</span>
   <canvas bind:this={canvas} aria-hidden="true"></canvas>
   <!-- Hidden unless clipping, but keeps its width so the readout does not jump. -->
-  <span class="clip" class:on={clipped} aria-hidden={!clipped}>CLIP</span>
+  <span class="clip" class:on={clipped} aria-hidden={!clipped}>{t('meter.clip')}</span>
   <span class="value level" bind:this={readout}></span>
   <span class="unit hud-label">dB</span>
 </div>

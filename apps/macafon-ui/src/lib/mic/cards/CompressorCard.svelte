@@ -78,10 +78,16 @@
 
 <style>
   .makeup {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
     align-items: center;
+  }
+
+  /* The ruler keeps a usable width; on a narrow card Auto goes under it. */
+  .makeup > :global(:first-child) {
+    flex: 1 1 200px;
+    min-width: 0;
   }
 
   .auto {

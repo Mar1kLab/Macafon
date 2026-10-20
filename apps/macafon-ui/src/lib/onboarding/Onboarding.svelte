@@ -371,9 +371,10 @@
   .onboarding {
     display: grid;
     grid-template-rows: auto 1fr auto;
+    grid-template-columns: minmax(0, 1fr);
     height: 100%;
-    min-width: 960px;
-    min-height: 640px;
+    min-width: 0;
+    min-height: 0;
   }
 
   .top {

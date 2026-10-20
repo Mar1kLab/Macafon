@@ -8,6 +8,8 @@
   import Ticks from './Ticks.svelte';
   import ReductionMeter from './ReductionMeter.svelte';
   import { t } from '../i18n';
+
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   import type { ModuleInfo } from '../mic/modules';
 
   interface Props {
@@ -81,7 +83,7 @@
       <span class="chevron" class:open><ChevronDown size={12} strokeWidth={1.5} /></span>
     </button>
     {#if open}
-      <div class="advanced content" id={advancedId} transition:slide={{ duration: 300 }}>
+      <div class="advanced content" id={advancedId} transition:slide={{ duration: reduced ? 0 : 300 }}>
         {@render advanced()}
       </div>
     {/if}

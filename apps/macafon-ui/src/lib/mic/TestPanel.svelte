@@ -176,7 +176,7 @@
   <button class="btn" class:on={ab?.playing} onclick={loop} disabled={!hasClip || recording !== null}>
     {#if ab?.playing}<Square size={10} fill="currentColor" strokeWidth={0} />{t('test.stop')}{:else}<Play size={11} fill="currentColor" strokeWidth={0} />{t('test.loop')}{/if}
   </button>
-  <div class="ab" role="radiogroup" aria-label="A / B" title={t('test.switchHint')}>
+  <div class="ab" role="radiogroup" aria-label={t('test.abLabel')} title={t('test.switchHint')}>
     <button role="radio" aria-checked={side === 'a'} class:selected={side === 'a'} disabled={!hasClip} onclick={() => daemon.run(daemon.client.call('ab.select', { side: 'a' }))}>
       <b>A</b> {t('test.a')}
     </button>

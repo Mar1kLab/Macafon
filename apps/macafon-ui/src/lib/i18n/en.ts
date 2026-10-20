@@ -226,7 +226,11 @@ export const en = {
     expand: 'Expand graph',
     collapse: 'Collapse graph',
   },
+  meter: {
+    clip: 'CLIP',
+  },
   test: {
+    abLabel: 'A / B',
     title: 'Test',
     rec: 'Rec',
     recording: 'Recording',
@@ -545,6 +549,10 @@ export const en = {
     dictationHide: 'Hide dictation',
     dictationHistory: 'Dictation',
     dictationEmpty: 'Nothing dictated yet.',
+    dictationLoaded: 'In memory · {ram}',
+    dictationUnloaded: 'Unloaded',
+    dictationLoadedHint: 'The model is in memory: dictation starts at once.',
+    dictationUnloadedHint: 'The model is not in memory: it loads on the next dictation, which then starts a little later.',
 
     // Tray panel actions.
     trayClose: 'Close panel',
@@ -1063,6 +1071,7 @@ export const en = {
       loaded: 'Loaded · {ram} · {device} · {threads} threads',
     },
     popup: {
+      transcribing: 'TRANSCRIBING',
       title: 'Popup',
       hint: 'What appears on screen while you dictate.',
       look: 'Look',

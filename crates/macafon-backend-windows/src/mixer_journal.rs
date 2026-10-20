@@ -27,7 +27,7 @@ pub(crate) trait SessionStore {
     fn set(&mut self, instance: &str, value: Value) -> Result<(), Error>;
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct Entry {
     key: Key,
     // A hint for live sessions, never the recovery key after a process restart.
@@ -49,6 +49,52 @@ impl Entry {
     }
 }
 
+/// The value a session of one app had before Macafon, from what it shows now. Windows keeps
+/// an app's volume for its next sessions, so a session may start at a value Macafon set for
+/// an earlier one: follow those records back until the value is not Macafon's. `first` is
+/// tried first (the session's own record); otherwise the newest record wins.
+fn original(entries: &[&Entry], first: Option<usize>, current: Value) -> Value {
+    fn trace<T: Copy>(
+        entries: &[&Entry],
+        first: Option<usize>,
+        mut value: T,
+        ours: impl Fn(&Entry, T) -> bool,
+        previous: impl Fn(&Entry) -> T,
+        same: impl Fn(T, T) -> bool,
+    ) -> T {
+        let mut used = vec![false; entries.len()];
+        loop {
+            let next = first
+                .into_iter()
+                .chain((0..entries.len()).rev())
+                .find(|&i| {
+                    !used[i] && ours(entries[i], value) && !same(previous(entries[i]), value)
+                });
+            let Some(i) = next else { return value };
+            used[i] = true;
+            value = previous(entries[i]);
+        }
+    }
+    Value {
+        volume: trace(
+            entries,
+            first,
+            current.volume,
+            Entry::is_ours_volume,
+            |entry| entry.previous.volume,
+            close,
+        ),
+        muted: trace(
+            entries,
+            first,
+            current.muted,
+            Entry::is_ours_mute,
+            |entry| entry.previous.muted,
+            |a, b| a == b,
+        ),
+    }
+}
+
 pub(crate) struct Journal {
     path: PathBuf,
     entries: Vec<Entry>,
@@ -63,11 +109,25 @@ impl Journal {
 
     pub fn open(state_dir: &Path) -> Result<Self, Error> {
         let path = state_dir.join("session-volumes.json");
-        let entries = match std::fs::read(&path) {
+        let mut entries: Vec<Entry> = match std::fs::read(&path) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(error)?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(error(e)),
         };
+        // Records that differ only in a long-gone session id restore the same way.
+        let mut unique: Vec<Entry> = Vec::with_capacity(entries.len());
+        for entry in entries.drain(..) {
+            let duplicate = unique.iter().any(|kept| {
+                kept.key == entry.key
+                    && kept.previous == entry.previous
+                    && kept.ours == entry.ours
+                    && kept.pending == entry.pending
+            });
+            if !duplicate {
+                unique.push(entry);
+            }
+        }
+        let entries = unique;
         Ok(Self {
             path,
             entries,
@@ -75,8 +135,10 @@ impl Journal {
         })
     }
 
-    /// Note the value about to be written to `session`; `commit` makes it durable.
-    pub fn record(&mut self, session: &StoredSession, ours: Value) {
+    /// Note the value about to be written to `session`; `commit` makes it durable. A new
+    /// session of an app takes over the records of its ended sessions (`live` tells which
+    /// session ids still exist), so the journal holds one record per live session.
+    pub fn record(&mut self, session: &StoredSession, ours: Value, live: impl Fn(&str) -> bool) {
         if let Some(entry) = self
             .entries
             .iter_mut()
@@ -89,10 +151,18 @@ impl Journal {
             }
             entry.pending = Some(ours);
         } else {
+            let related: Vec<&Entry> = self
+                .entries
+                .iter()
+                .filter(|entry| entry.key == session.key)
+                .collect();
+            let previous = original(&related, None, session.value);
+            self.entries
+                .retain(|entry| entry.key != session.key || live(&entry.instance));
             self.entries.push(Entry {
                 key: session.key.clone(),
                 instance: session.instance.clone(),
-                previous: session.value,
+                previous,
                 ours,
                 pending: None,
             });
@@ -116,54 +186,37 @@ impl Journal {
         self.restore_matching(store, Some(exe))
     }
 
+    /// Give every present session of the journaled apps its original value back, then drop
+    /// their records. Apps or endpoints that are absent keep theirs for a later start.
     fn restore_matching(
         &mut self,
         store: &mut impl SessionStore,
         exe: Option<&str>,
     ) -> Result<(), Error> {
         let sessions = store.list()?;
-        let mut completed = Vec::new();
-        for (index, entry) in self.entries.iter().enumerate() {
-            if exe.is_some_and(|exe| entry.key.exe != exe) {
-                continue;
+        let mut keys: Vec<Key> = Vec::new();
+        for entry in &self.entries {
+            if exe.is_none_or(|exe| entry.key.exe == exe) && !keys.contains(&entry.key) {
+                keys.push(entry.key.clone());
             }
-            let exact = sessions
-                .iter()
-                .any(|s| s.key == entry.key && s.instance == entry.instance);
-            let candidates: Vec<_> = sessions
-                .iter()
-                .filter(|s| s.key == entry.key && (!exact || s.instance == entry.instance))
-                .collect();
-            if candidates.is_empty() {
+        }
+        let mut completed = Vec::new();
+        for key in keys {
+            let present: Vec<_> = sessions.iter().filter(|s| s.key == key).collect();
+            if present.is_empty() {
                 continue; // An absent endpoint/app may return on the next start.
             }
-            // Several original values for one executable cannot safely be assigned to new
-            // session IDs. Keep those records for explicit recovery instead of guessing.
-            if !exact
-                && self
-                    .entries
-                    .iter()
-                    .any(|other| other.key == entry.key && other.previous != entry.previous)
-            {
-                continue;
-            }
-            for session in candidates {
-                let mut value = session.value;
-                if entry.is_ours_volume(value.volume) {
-                    value.volume = entry.previous.volume;
-                }
-                if entry.is_ours_mute(value.muted) {
-                    value.muted = entry.previous.muted;
-                }
+            let related: Vec<&Entry> = self.entries.iter().filter(|e| e.key == key).collect();
+            for session in present {
+                let own = related.iter().position(|e| e.instance == session.instance);
+                let value = original(&related, own, session.value);
                 if value != session.value {
                     store.set(&session.instance, value)?;
                 }
             }
-            completed.push(index);
+            completed.push(key);
         }
-        for index in completed.into_iter().rev() {
-            self.entries.remove(index);
-        }
+        self.entries.retain(|entry| !completed.contains(&entry.key));
         self.save()
     }
 
@@ -250,7 +303,7 @@ mod tests {
         );
         let mut journal = Journal::open(&dir).expect("journal");
         for session in &mut store.0 {
-            journal.record(session, ours);
+            journal.record(session, ours, |_| true);
             journal.commit().expect("record");
             session.value = ours;
         }
@@ -262,7 +315,7 @@ mod tests {
         assert_eq!(journal.pending(), 1);
 
         // Re-managing starts a new journal entry from the restored session value.
-        journal.record(&store.0[0], ours);
+        journal.record(&store.0[0], ours, |_| true);
         journal.commit().expect("manage again");
         store.0[0].value = ours;
         // A subsequent external volume change must survive; our mute is restored.
@@ -305,7 +358,7 @@ mod tests {
             value: original,
         }]);
         let mut journal = Journal::open(&dir).expect("open");
-        journal.record(&store.0[0], ours);
+        journal.record(&store.0[0], ours, |_| true);
         journal.commit().expect("record before mutation");
         store.0[0].value = ours;
         journal.record(
@@ -314,6 +367,7 @@ mod tests {
                 volume: 0.25,
                 ..ours
             },
+            |_| true,
         );
         journal.commit().expect("second change");
         store.0[0].instance = "new-pid".into();
@@ -331,7 +385,7 @@ mod tests {
             }
         );
         store.0[0].value = original;
-        journal.record(&store.0[0], ours);
+        journal.record(&store.0[0], ours, |_| true);
         journal.commit().expect("record");
         store.0[0].value = ours;
         let missing = store.0.pop().expect("session");
@@ -363,7 +417,7 @@ mod tests {
             value: original,
         }]);
         let mut journal = Journal::open(&dir).expect("journal");
-        journal.record(&store.0[0], first);
+        journal.record(&store.0[0], first, |_| true);
         journal.commit().expect("first");
         store.0[0].value = first;
         // The second write is journaled, then SetMasterVolume fails or the daemon crashes.
@@ -371,9 +425,55 @@ mod tests {
             volume: 0.25,
             ..first
         };
-        journal.record(&store.0[0], second);
+        journal.record(&store.0[0], second, |_| true);
         journal.commit().expect("second");
         let mut journal = Journal::open(&dir).expect("restart");
+        journal.restore(&mut store).expect("restore");
+        assert_eq!(store.0[0].value, original);
+        assert_eq!(journal.pending(), 0);
+    }
+
+    #[test]
+    fn relaunched_app_keeps_one_record_and_its_true_original() {
+        let dir = std::env::temp_dir().join(format!("macafon-relaunch-{}", std::process::id()));
+        let key = Key {
+            exe: "game.exe".into(),
+            endpoint: "speakers".into(),
+        };
+        let original = Value {
+            volume: 1.0,
+            muted: false,
+        };
+        let ours = Value {
+            volume: 0.125,
+            muted: false,
+        };
+        let mut store = Fake(vec![StoredSession {
+            key: key.clone(),
+            instance: "pid-0".into(),
+            value: original,
+        }]);
+        let mut journal = Journal::open(&dir).expect("journal");
+        for launch in 0..5 {
+            let live = format!("pid-{launch}");
+            store.0[0].instance = live.clone();
+            // Windows gives a new session the volume Macafon set for the last one.
+            journal.record(&store.0[0], ours, |instance| instance == live);
+            journal.commit().expect("record");
+            store.0[0].value = ours;
+            assert_eq!(journal.pending(), 1, "one record per live session");
+        }
+        // A journal left by an older build: several records that disagree on the original.
+        journal.entries.push(Entry {
+            key: key.clone(),
+            instance: "pid-old".into(),
+            previous: ours,
+            ours,
+            pending: None,
+        });
+        journal.commit().expect("older records");
+        let mut journal = Journal::open(&dir).expect("restart");
+        store.0[0].instance = "pid-new".into();
         journal.restore(&mut store).expect("restore");
         assert_eq!(store.0[0].value, original);
         assert_eq!(journal.pending(), 0);

@@ -519,6 +519,7 @@ impl Worker {
                     value: previous,
                 },
                 target,
+                |instance| self.sessions.iter().any(|s| s.instance == instance),
             );
             writes.push((index, previous, target));
         }

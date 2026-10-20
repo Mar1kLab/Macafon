@@ -22,6 +22,17 @@ const HOLD_SLOW: f32 = 8.0;
 pub(super) const HOLD_FAST: f32 = 40.0;
 const HOLD_RAMP_S: f32 = 1.6;
 
+/// Volume up and down repeat while held; everything else acts once per press.
+fn is_volume_step(action: &HotkeyAction) -> bool {
+    matches!(
+        action,
+        HotkeyAction::ChannelVolumeUp(_)
+            | HotkeyAction::ChannelVolumeDown(_)
+            | HotkeyAction::MasterVolumeUp
+            | HotkeyAction::MasterVolumeDown
+    )
+}
+
 struct VolumeHold {
     /// When the held motion starts (after `HOLD_DELAY`).
     moving_from: Instant,
@@ -38,27 +49,6 @@ fn hold_distance(moving_s: f32) -> f32 {
     let ramp = HOLD_RAMP_S * (p * p * p - 0.5 * p * p * p * p);
     let after = (moving_s - HOLD_RAMP_S).max(0.0);
     HOLD_SLOW * moving_s + (HOLD_FAST - HOLD_SLOW) * (ramp + after)
-}
-
-#[cfg(test)]
-mod acceleration_tests {
-    use super::*;
-
-    #[test]
-    fn held_speed_eases_from_slow_to_fast_without_jumps() {
-        let speed = |t: f32| (hold_distance(t + 0.005) - hold_distance(t - 0.005)) / 0.01;
-        assert!((speed(0.005) - HOLD_SLOW).abs() < 0.1);
-        assert!((speed(HOLD_RAMP_S / 2.0) - (HOLD_SLOW + HOLD_FAST) / 2.0).abs() < 0.1);
-        assert!((speed(HOLD_RAMP_S + 1.0) - HOLD_FAST).abs() < 0.1);
-        // Monotonic speed with a bounded change per 10 ms: no steps in the ramp.
-        let mut previous = speed(0.005);
-        for ms in (15..3000).step_by(10) {
-            let now = speed(ms as f32 / 1000.0);
-            assert!(now + 0.02 >= previous, "slows down at {ms} ms");
-            assert!(now - previous < 0.5, "jump at {ms} ms");
-            previous = now;
-        }
-    }
 }
 
 pub(super) struct VolumeRepeats(HashMap<String, VolumeHold>, crate::hotkeys::RepeatTimer);
@@ -109,7 +99,12 @@ impl DaemonHost {
                     HotkeyAction::SoundpadStop => "SoundDeck: stop",
                     HotkeyAction::SoundpadPauseToggle => "SoundDeck: pause or resume",
                     HotkeyAction::SoundpadRandom => "SoundDeck: play a random sound",
-                    _ => "Previous microphone preset",
+                    HotkeyAction::PresetPrevious => "Previous microphone preset",
+                    // Not global: described with their channel or sound below.
+                    HotkeyAction::ChannelVolumeUp(_)
+                    | HotkeyAction::ChannelVolumeDown(_)
+                    | HotkeyAction::ChannelMute(_)
+                    | HotkeyAction::SoundpadPlay(_) => "",
                 };
                 (action, description.to_owned())
             })
@@ -333,13 +328,7 @@ impl DaemonHost {
         let Some(action) = HotkeyAction::parse(action) else {
             return;
         };
-        if matches!(
-            action,
-            HotkeyAction::ChannelVolumeUp(_)
-                | HotkeyAction::ChannelVolumeDown(_)
-                | HotkeyAction::MasterVolumeUp
-                | HotkeyAction::MasterVolumeDown
-        ) {
+        if is_volume_step(&action) {
             if !pressed {
                 self.volume_repeats.0.remove(&binding);
                 self.volume_repeats.schedule();
@@ -385,13 +374,14 @@ impl DaemonHost {
         }
         let step_pct = f32::from(self.config.ui.volume_step_pct) * step_scale;
         let request = match &action {
-            HotkeyAction::DictationHold => return,
-            HotkeyAction::DictationToggle => return,
-            HotkeyAction::DictationPasteLast => return,
-            HotkeyAction::DictationCopyLast => return,
-            HotkeyAction::DictationHoldCopy => return,
-            HotkeyAction::DictationEnableToggle => return,
-            HotkeyAction::DictationLanguageCycle => return,
+            // Handled by `dictation_hotkey` above.
+            HotkeyAction::DictationHold
+            | HotkeyAction::DictationToggle
+            | HotkeyAction::DictationPasteLast
+            | HotkeyAction::DictationCopyLast
+            | HotkeyAction::DictationHoldCopy
+            | HotkeyAction::DictationEnableToggle
+            | HotkeyAction::DictationLanguageCycle => return,
             HotkeyAction::QuickPanel => {
                 if self.config.ui.overlay.enabled {
                     crate::ui::overlay();
@@ -399,16 +389,14 @@ impl DaemonHost {
                 return;
             }
             HotkeyAction::MasterVolumeUp | HotkeyAction::MasterVolumeDown => {
+                let delta_pct = if matches!(action, HotkeyAction::MasterVolumeUp) {
+                    step_pct
+                } else {
+                    -step_pct
+                };
                 Request::MixerSetMaster {
                     volume_pct: Some(
-                        (self.config.mixer.master_volume_pct
-                            + step_pct
-                                * if matches!(action, HotkeyAction::MasterVolumeUp) {
-                                    1.0
-                                } else {
-                                    -1.0
-                                })
-                        .clamp(0.0, 100.0),
+                        (self.config.mixer.master_volume_pct + delta_pct).clamp(0.0, 100.0),
                     ),
                     muted: None,
                 }
@@ -445,13 +433,13 @@ impl DaemonHost {
         }
         let chain = &self.config.mic.chain;
         let osd = match &action {
-            HotkeyAction::DictationHold => return,
-            HotkeyAction::DictationToggle => return,
-            HotkeyAction::DictationPasteLast => return,
-            HotkeyAction::DictationCopyLast => return,
-            HotkeyAction::DictationHoldCopy => return,
-            HotkeyAction::DictationEnableToggle => return,
-            HotkeyAction::DictationLanguageCycle => return,
+            HotkeyAction::DictationHold
+            | HotkeyAction::DictationToggle
+            | HotkeyAction::DictationPasteLast
+            | HotkeyAction::DictationCopyLast
+            | HotkeyAction::DictationHoldCopy
+            | HotkeyAction::DictationEnableToggle
+            | HotkeyAction::DictationLanguageCycle => return,
             // A sound is heard; a popup on every press would only be in the way.
             HotkeyAction::QuickPanel
             | HotkeyAction::SoundpadStop
@@ -571,4 +559,25 @@ pub(super) fn osd_config(prefs: OsdPrefs) -> OsdConfig {
         offset_pct: prefs.offset_pct,
     }
     .normalized()
+}
+
+#[cfg(test)]
+mod acceleration_tests {
+    use super::*;
+
+    #[test]
+    fn held_speed_eases_from_slow_to_fast_without_jumps() {
+        let speed = |t: f32| (hold_distance(t + 0.005) - hold_distance(t - 0.005)) / 0.01;
+        assert!((speed(0.005) - HOLD_SLOW).abs() < 0.1);
+        assert!((speed(HOLD_RAMP_S / 2.0) - (HOLD_SLOW + HOLD_FAST) / 2.0).abs() < 0.1);
+        assert!((speed(HOLD_RAMP_S + 1.0) - HOLD_FAST).abs() < 0.1);
+        // Monotonic speed with a bounded change per 10 ms: no steps in the ramp.
+        let mut previous = speed(0.005);
+        for ms in (15..3000).step_by(10) {
+            let now = speed(ms as f32 / 1000.0);
+            assert!(now + 0.02 >= previous, "slows down at {ms} ms");
+            assert!(now - previous < 0.5, "jump at {ms} ms");
+            previous = now;
+        }
+    }
 }

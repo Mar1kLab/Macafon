@@ -30,20 +30,15 @@
     const peak = new Ballistics();
     const rms = new Ballistics();
     const clip = new Ballistics(-0.1);
-    let colors: Record<string, string> = {};
     let lastText = '';
     let textAt = -Infinity;
-    const readColors = () => {
-      const element = canvas!;
-      colors = {
-        ink: cssVar(element, `--app-${color}-ink`),
-        amber: cssVar(element, '--app-amber-ink'),
-        danger: cssVar(element, '--danger'),
-        empty: cssVar(element, '--line'),
-      };
+    const colors = {
+      ink: cssVar(canvas!, `--app-${color}-ink`),
+      amber: cssVar(canvas!, '--app-amber-ink'),
+      danger: cssVar(canvas!, '--danger'),
+      empty: cssVar(canvas!, '--line'),
     };
-    readColors();
-    const colorAt = (db: number) => (db > -1 ? colors.danger! : db > -6 ? colors.amber! : colors.ink!);
+    const colorAt = (db: number) => (db > -1 ? colors.danger : db > -6 ? colors.amber : colors.ink);
     return drawEveryFrame(canvas!, (surface, now) => {
       const frame = meterBus.latest;
       peak.update(frame[peakKey], now);
@@ -79,7 +74,7 @@
           context.fillStyle = colorAt(db);
         } else {
           context.globalAlpha = 1;
-          context.fillStyle = colors.empty!;
+          context.fillStyle = colors.empty;
         }
         context.fillRect(left, 0, 2, height);
       }

@@ -313,12 +313,22 @@ impl RepeatTimer {
     }
 }
 
+/// Escape is consumed by the hook only while a dictation recording is active.
+pub fn dictation_recording(active: bool) {
+    #[cfg(windows)]
+    sided::DICTATION_RECORDING.store(active, std::sync::atomic::Ordering::Release);
+    #[cfg(not(windows))]
+    let _ = active;
+}
+
 #[cfg(test)]
 mod repeat_tests {
     use super::*;
     use std::time::{Duration, Instant};
 
     #[test]
+    // The control channel hands back the unsent message, as the daemon's does.
+    #[allow(clippy::result_large_err)]
     fn timer_wakes_without_backend_ticks_and_waits_for_rearming() {
         let (sender, receiver) = mpsc::channel();
         let control =
@@ -351,12 +361,4 @@ mod repeat_tests {
             "release cancels the timer"
         );
     }
-}
-
-/// Escape is consumed by the hook only while a dictation recording is active.
-pub fn dictation_recording(active: bool) {
-    #[cfg(windows)]
-    sided::DICTATION_RECORDING.store(active, std::sync::atomic::Ordering::Release);
-    #[cfg(not(windows))]
-    let _ = active;
 }

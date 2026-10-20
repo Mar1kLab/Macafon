@@ -62,12 +62,19 @@
     dx: number;
     dy: number;
     width: number;
+    height: number;
     moved: boolean;
   }
   let drag = $state<Drag | null>(null);
   let target = $state<Target | null>(null);
   let canvas: HTMLDivElement | undefined = $state();
   let tray: HTMLDivElement | undefined = $state();
+
+  $effect(() => {
+    if (!drag?.moved) return;
+    document.documentElement.classList.add('overlay-builder-dragging');
+    return () => document.documentElement.classList.remove('overlay-builder-dragging');
+  });
 
   const inside = (rect: DOMRect, x: number, y: number) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 
@@ -113,6 +120,7 @@
       dx: event.clientX - rect.left,
       dy: event.clientY - rect.top,
       width: rect.width,
+      height: rect.height,
       moved: false,
     };
   }
@@ -128,7 +136,7 @@
   function onpointerup(event: PointerEvent) {
     if (!drag || event.pointerId !== drag.pointer) return;
     const { part, from, moved } = drag;
-    const drop = target;
+    const drop = moved ? locate(event.clientX, event.clientY, part) : null;
     drag = null;
     target = null;
     if (!moved) return setShown(part, from === 'tray');
@@ -169,11 +177,13 @@
   const markOf = (part: OverlayItem) =>
     target?.zone === 'canvas' && target.ref === part && drag?.part !== part ? `${target.after ? 'after' : 'before'}-${target.axis}` : '';
   const partLabel = (part: OverlayItem) => t(`settings.overlay.part.${part}`);
+  const chipClass = (part: OverlayItem, from: 'canvas' | 'tray') => from === 'tray' ? 'hidden-part' : isSwitch(part) ? 'switch' : part === 'volumes' ? 'volumes' : 'wide';
 </script>
 
 {#snippet face(part: OverlayItem)}
   {@const Icon = ICONS[part]}
   {#if part === 'volumes'}
+    <span class="hud-label volumes-label">{partLabel(part)}</span>
     <span class="strips" aria-hidden="true">
       {#each strips as name, index (index)}
         <span class="strip" class:master={index === 0}><i style:--fill="{70 - index * 12}%"></i><small>{name}</small></span>
@@ -193,12 +203,16 @@
   {/if}
 {/snippet}
 
+{#snippet trayFace(part: OverlayItem)}
+  {@const Icon = ICONS[part]}
+  <GripVertical size={12} strokeWidth={1.5} /><Icon size={14} strokeWidth={1.5} /><span class="label">{partLabel(part)}</span>
+{/snippet}
+
 {#snippet chip(part: OverlayItem, from: 'canvas' | 'tray')}
   <button
     type="button"
-    class="part {isSwitch(part) ? 'switch' : part === 'volumes' ? 'volumes' : 'wide'} {from === 'canvas' ? markOf(part) : ''}"
+    class="part {chipClass(part, from)} {from === 'canvas' ? markOf(part) : ''}"
     class:dragging={drag?.moved && drag.part === part}
-    class:hidden-part={from === 'tray'}
     data-control={from === 'canvas' && part !== 'volumes' ? part : undefined}
     data-builder-part={part}
     aria-label={from === 'canvas' ? t('settings.overlay.builder.shownPart', { name: partLabel(part) }) : t('settings.overlay.builder.hiddenPart', { name: partLabel(part) })}
@@ -211,13 +225,14 @@
     onkeydown={(event) => onkeydown(event, part, from)}
   >
     {#if from === 'tray'}
-      {@const Icon = ICONS[part]}
-      <GripVertical size={12} strokeWidth={1.5} /><Icon size={14} strokeWidth={1.5} /><span class="label">{partLabel(part)}</span>
+      {@render trayFace(part)}
     {:else}
       {@render face(part)}
     {/if}
   </button>
 {/snippet}
+
+<svelte:window onblur={oncancel} onkeydown={(event) => { if (event.key === 'Escape') oncancel(); }} onpointerout={(event) => { if (event.relatedTarget === null) oncancel(); }} />
 
 <div class="builder" class:busy={drag?.moved}>
   <div class="stage">
@@ -225,6 +240,7 @@
     <div
       class="canvas"
       class:right={!volumesLeft}
+      class:drop={target?.zone === 'canvas'}
       class:drop-start={target?.zone === 'canvas' && drag?.part === 'volumes' && target.ref === 'start'}
       class:drop-end={target?.zone === 'canvas' && drag?.part === 'volumes' && target.ref === 'end'}
       class:no-volumes={!shown.includes('volumes')}
@@ -235,7 +251,7 @@
       {#if shown.includes('volumes')}
         <div class="volumes-slot" role="listitem">{@render chip('volumes', 'canvas')}</div>
       {/if}
-      <div class="column">
+      <div class="column" class:drop-empty={target?.zone === 'canvas' && drag?.part !== 'volumes' && !shown.some((part) => part !== 'volumes' && part !== drag?.part)}>
         {#each rows as row, index (row.kind === 'wide' ? row.part : `switches-${index}`)}
           {#if row.kind === 'switches'}
             <div class="switches" role="listitem">
@@ -271,15 +287,19 @@
 </div>
 
 {#if drag?.moved}
-  {@const Icon = ICONS[drag.part]}
   <div
-    class="ghost"
+    class="part ghost {chipClass(drag.part, drag.from)}"
     aria-hidden="true"
-    style:left="{toCss(drag.x - Math.min(drag.dx, 200))}px"
+    style:left="{toCss(drag.x - drag.dx)}px"
     style:top="{toCss(drag.y - drag.dy)}px"
-    style:width="{Math.min(toCss(drag.width), 220)}px"
+    style:width="{toCss(drag.width)}px"
+    style:height="{toCss(drag.height)}px"
   >
-    <Icon size={14} strokeWidth={1.5} /><span>{partLabel(drag.part)}</span>
+    {#if drag.from === 'tray'}
+      {@render trayFace(drag.part)}
+    {:else}
+      {@render face(drag.part)}
+    {/if}
   </div>
 {/if}
 
@@ -292,6 +312,15 @@
   .busy,
   .busy :global(*) {
     cursor: grabbing;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  :global(.overlay-builder-dragging),
+  :global(.overlay-builder-dragging *) {
+    cursor: grabbing !important;
+    user-select: none !important;
+    -webkit-user-select: none !important;
   }
 
   .caption {
@@ -318,6 +347,15 @@
     padding: 14px;
     border: 1px solid var(--line-strong);
     background: var(--bg-raised);
+  }
+
+  .canvas.drop {
+    border-color: var(--accent);
+  }
+
+  .column.drop-empty {
+    outline: 1px dashed var(--accent);
+    outline-offset: 2px;
   }
 
   .canvas.right {
@@ -365,7 +403,7 @@
     border-right: 1px solid var(--line);
   }
 
-  .no-volumes .column {
+  .canvas.no-volumes .column {
     flex: 1;
     max-width: 260px;
     margin: 0 auto;
@@ -405,8 +443,7 @@
     -webkit-user-select: none;
     transition:
       border-color var(--dur) var(--ease),
-      color var(--dur) var(--ease),
-      opacity var(--dur) var(--ease);
+      color var(--dur) var(--ease);
   }
 
   .part:hover {
@@ -423,6 +460,10 @@
   .part.dragging {
     opacity: 0.35;
     border-style: dashed;
+  }
+
+  .part :global(svg) {
+    flex: none;
   }
 
   .label {
@@ -484,8 +525,14 @@
 
   .volumes {
     flex: 1;
+    flex-direction: column;
     align-items: stretch;
     padding: 8px;
+  }
+
+  .volumes-label {
+    font-size: 9px;
+    color: var(--faint);
   }
 
   .strips {
@@ -578,8 +625,17 @@
   }
 
   .hidden-part {
+    flex: none;
+    height: 30px;
+    max-width: 100%;
+    white-space: nowrap;
     padding: 6px 10px 6px 6px;
     color: var(--faint);
+  }
+
+  .tray-parts > span {
+    display: flex;
+    max-width: 100%;
   }
 
   .empty {
@@ -609,21 +665,11 @@
   .ghost {
     position: fixed;
     z-index: 100;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 10px;
-    border: 1px solid var(--accent);
-    background: var(--bg-raised);
+    margin: 0;
+    border-color: var(--accent);
     color: var(--ink-strong);
-    font-size: 11px;
     pointer-events: none;
-  }
-
-  .ghost span {
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    transition: none;
   }
 
   @media (prefers-reduced-motion: reduce) {

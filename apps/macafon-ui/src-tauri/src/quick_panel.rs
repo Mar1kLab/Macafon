@@ -111,6 +111,16 @@ pub fn prewarm(app: &AppHandle) {
 
 /// The same mode again hides the panel; otherwise it shows in `mode`.
 pub fn toggle(app: &AppHandle, mode: Mode) {
+    if mode == Mode::Overlay
+        && app
+            .state::<crate::Bridge>()
+            .call("prefs.get", None)
+            .ok()
+            .is_some_and(|prefs| prefs["overlay"]["enabled"] == false)
+    {
+        hide(app);
+        return;
+    }
     let visible = app
         .get_webview_window(LABEL)
         .is_some_and(|window| window.is_visible().unwrap_or(false));

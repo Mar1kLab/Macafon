@@ -849,7 +849,7 @@ mod tests {
         host.hotkey_at("master_volume_up#secondary", true, at(11000));
         host.repeat_hotkeys(at(16000));
         assert_eq!(
-            host.config.mixer.master_volume_pct, 54.5,
+            host.config.mixer.master_volume_pct, 59.0,
             "no catch-up burst after a stall"
         );
         host.hotkey_at("master_volume_up#secondary", false, at(16001));

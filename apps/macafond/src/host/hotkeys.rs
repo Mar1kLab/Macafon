@@ -13,7 +13,36 @@ use std::time::{Duration, Instant};
 const REPEAT_DELAY: Duration = Duration::from_millis(400);
 const REPEAT_INTERVAL: Duration = Duration::from_millis(50);
 
-pub(super) struct VolumeRepeats(HashMap<String, Instant>, crate::hotkeys::RepeatTimer);
+struct VolumeHold {
+    started: Instant,
+    next: Instant,
+}
+
+/// Multiplier of the configured step: a short hold stays precise, then ramps to 4x.
+fn volume_acceleration(held: Duration) -> f32 {
+    1.0 + 3.0 * ((held.as_secs_f32() - 0.5) / 1.5).clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod acceleration_tests {
+    use super::*;
+
+    #[test]
+    fn hold_stays_precise_then_ramps_and_caps() {
+        for (ms, expected) in [
+            (0, 1.0),
+            (400, 1.0),
+            (500, 1.0),
+            (1250, 2.5),
+            (2000, 4.0),
+            (10000, 4.0),
+        ] {
+            assert!((volume_acceleration(Duration::from_millis(ms)) - expected).abs() < 0.0001);
+        }
+    }
+}
+
+pub(super) struct VolumeRepeats(HashMap<String, VolumeHold>, crate::hotkeys::RepeatTimer);
 
 impl VolumeRepeats {
     pub(super) fn new(control: macafon_backend::ControlSender<super::ControlMessage>) -> Self {
@@ -21,7 +50,7 @@ impl VolumeRepeats {
     }
 
     fn schedule(&self) {
-        self.1.schedule(self.0.values().copied().min());
+        self.1.schedule(self.0.values().map(|hold| hold.next).min());
     }
 }
 
@@ -242,24 +271,27 @@ impl DaemonHost {
     /// Run a hotkey action like the matching request (HK-001), then show what it changed
     /// (HK-006).
     pub(super) fn repeat_hotkeys(&mut self, now: Instant) {
-        let due: Vec<String> = self
+        let due: Vec<(String, f32)> = self
             .volume_repeats
             .0
             .iter_mut()
-            .filter_map(|(binding, next)| {
-                if now < *next {
+            .filter_map(|(binding, hold)| {
+                if now < hold.next {
                     return None;
                 }
                 // Skip missed ticks rather than producing a burst after a stalled control loop.
-                let late_ns = now.duration_since(*next).as_nanos() % REPEAT_INTERVAL.as_nanos();
-                *next = now - Duration::from_nanos(late_ns as u64) + REPEAT_INTERVAL;
-                Some(binding.clone())
+                let late_ns = now.duration_since(hold.next).as_nanos() % REPEAT_INTERVAL.as_nanos();
+                hold.next = now - Duration::from_nanos(late_ns as u64) + REPEAT_INTERVAL;
+                Some((
+                    binding.clone(),
+                    volume_acceleration(now.saturating_duration_since(hold.started)),
+                ))
             })
             .collect();
         self.volume_repeats.schedule();
-        for binding in due {
+        for (binding, acceleration) in due {
             if let Some(action) = HotkeyAction::parse(base_action(&binding)) {
-                self.apply_hotkey(action, true, 0.5);
+                self.apply_hotkey(action, true, 0.5 * acceleration);
             }
         }
     }
@@ -295,7 +327,10 @@ impl DaemonHost {
             if let std::collections::hash_map::Entry::Vacant(entry) =
                 self.volume_repeats.0.entry(binding.clone())
             {
-                entry.insert(now + REPEAT_DELAY);
+                entry.insert(VolumeHold {
+                    started: now,
+                    next: now + REPEAT_DELAY,
+                });
                 self.volume_repeats.schedule();
             } else {
                 return;
@@ -336,7 +371,9 @@ impl DaemonHost {
             HotkeyAction::DictationEnableToggle => return,
             HotkeyAction::DictationLanguageCycle => return,
             HotkeyAction::QuickPanel => {
-                crate::ui::overlay();
+                if self.config.ui.overlay.enabled {
+                    crate::ui::overlay();
+                }
                 return;
             }
             HotkeyAction::MasterVolumeUp | HotkeyAction::MasterVolumeDown => {

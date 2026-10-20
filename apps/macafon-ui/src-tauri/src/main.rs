@@ -167,16 +167,21 @@ fn show_main(app: &AppHandle) -> bool {
     static MAIN: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _guard = MAIN.lock().unwrap_or_else(|error| error.into_inner());
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
+        if !window.is_visible().unwrap_or(true) {
+            place_main(app, &window);
+        }
+        foreground_main(&window);
         return true;
     }
     let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main") else {
         return false;
     };
-    match tauri::WebviewWindowBuilder::from_config(app, config).and_then(|b| b.build()) {
+    match tauri::WebviewWindowBuilder::from_config(app, config)
+        .and_then(|b| b.visible(false).build())
+    {
         Ok(window) => {
+            place_main(app, &window);
+            foreground_main(&window);
             let app = app.clone();
             window.on_window_event(move |event| {
                 if matches!(event, tauri::WindowEvent::Destroyed) {
@@ -190,6 +195,58 @@ fn show_main(app: &AppHandle) -> bool {
             false
         }
     }
+}
+
+/// A saved monitor only affects a new or hidden window, never a visible workspace.
+fn place_main(app: &AppHandle, window: &tauri::WebviewWindow) {
+    let Some(name) = app
+        .state::<Bridge>()
+        .call("prefs.get", None)
+        .ok()
+        .and_then(|prefs| prefs["main_monitor"].as_str().map(str::to_owned))
+        .filter(|name| !name.is_empty())
+    else {
+        return;
+    };
+    let Some(monitor) = app.available_monitors().ok().and_then(|monitors| {
+        monitors
+            .into_iter()
+            .find(|monitor| monitor.name() == Some(&name))
+    }) else {
+        return;
+    };
+    // Move to the monitor first so the size reflects its DPI before centering.
+    let area = monitor.work_area();
+    let _ = window.set_position(area.position);
+    if let Ok(size) = window.outer_size() {
+        let _ = window.set_position(tauri::PhysicalPosition::new(
+            area.position.x + (i64::from(area.size.width) - i64::from(size.width)) as i32 / 2,
+            area.position.y + (i64::from(area.size.height) - i64::from(size.height)) as i32 / 2,
+        ));
+    }
+}
+
+fn foreground_main(window: &tauri::WebviewWindow) {
+    let _ = window.unminimize();
+    let _ = window.show();
+    #[cfg(windows)]
+    if let Ok(hwnd) = window.hwnd() {
+        let hwnd = windows::Win32::Foundation::HWND(hwnd.0);
+        use windows::Win32::UI::WindowsAndMessaging::{
+            BringWindowToTop, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+            SetForegroundWindow, SetWindowPos,
+        };
+        // SAFETY: the HWND belongs to this live window. No pointers are retained;
+        // temporary topmost promotion is immediately undone, preserving normal stacking.
+        unsafe {
+            let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
+            let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, flags);
+            let _ = SetWindowPos(hwnd, Some(HWND_NOTOPMOST), 0, 0, 0, 0, flags);
+            let _ = BringWindowToTop(hwnd);
+            let _ = SetForegroundWindow(hwnd);
+        }
+    }
+    let _ = window.set_focus();
 }
 
 /// The process stays warm without the main window: stop what only the window wanted (meters,

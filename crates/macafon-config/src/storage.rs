@@ -293,6 +293,7 @@ volume_pct = 300.0
                 overlay: Default::default(),
                 hotkey_defaults: 1,
                 volume_step_pct: 5,
+                main_monitor: String::new(),
             },
             audio: AudioConfig {
                 quantum_frames: 256,

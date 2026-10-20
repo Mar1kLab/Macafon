@@ -19,11 +19,6 @@
   /** Bumped every time the daemon asks to show a panel: the overlay starts collapsed again. */
   let opened = $state(0);
 
-  // Windows gives an undecorated window with a shadow a larger viewport than requested (its
-  // hidden caption): what it gets beyond the request is taken off the next one.
-  let extraWidth = 0;
-  let extraHeight = 0;
-
   function measure() {
     const rect = root?.getBoundingClientRect();
     return { width: Math.ceil(rect?.width ?? 0), height: Math.ceil(rect?.height ?? 0) };
@@ -32,8 +27,8 @@
   let fitting = false;
   let refit = false;
 
-  /** One fit at a time: while a side panel opens or closes the page resizes every frame, and
-   * the window follows with the latest size instead of a queue of stale ones. */
+  /** Serialize layout changes so a native resize cannot queue stale measurements. The
+   * reveal transition reserves its final size throughout the animation. */
   async function fit() {
     if (!root || !tauri) return;
     if (fitting) {
@@ -51,8 +46,8 @@
         const origin = root.getBoundingClientRect();
         if (width > 0 && height > 0) {
           await invoke('quick_panel_fit', {
-            width: width - extraWidth,
-            height: height - extraHeight,
+            width,
+            height,
             anchorLeft: main ? main.left - origin.left : null,
             anchorRight: main ? main.right - origin.left : null,
           });
@@ -81,19 +76,9 @@
         void close();
       }
     };
-    const onresize = () => {
-      const { width, height } = measure();
-      const offWidth = window.innerWidth - width;
-      const offHeight = window.innerHeight - height;
-      if (Math.abs(offWidth) <= 1 && Math.abs(offHeight) <= 1) return;
-      extraWidth += offWidth;
-      extraHeight += offHeight;
-      void fit();
-    };
     const observer = new ResizeObserver(() => void fit());
     if (root) observer.observe(root);
     window.addEventListener('keydown', onkey);
-    window.addEventListener('resize', onresize);
     let unlisten: (() => void) | undefined;
     if (tauri) {
       void (async () => {
@@ -106,7 +91,6 @@
     return () => {
       observer.disconnect();
       window.removeEventListener('keydown', onkey);
-      window.removeEventListener('resize', onresize);
       unlisten?.();
     };
   });

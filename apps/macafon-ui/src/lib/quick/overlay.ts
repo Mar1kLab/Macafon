@@ -18,14 +18,17 @@ export const DEFAULT_OVERLAY: OverlayPrefs = {
   placement: 'anchored',
 };
 
-/** A side panel grows out of the overlay: its width (or height, opening down) goes from zero
- * to its own and back, so the window follows it smoothly both ways, and its content fades. */
+/** Reserve the final layout before revealing it. The native window grows once on entry
+ * and shrinks after exit; clipping never feeds intermediate dimensions back through IPC. */
 export function reveal(node: HTMLElement, { expand, duration }: { expand: OverlayExpand; duration: number }): TransitionConfig {
-  const down = expand === 'down';
-  const size = down ? node.offsetHeight : node.offsetWidth;
+  const { width, height } = node.getBoundingClientRect();
   return {
     duration,
     easing: cubicInOut,
-    css: (t) => `overflow: hidden; ${down ? 'height' : 'width'}: ${t * size}px; opacity: ${cubicOut(t)};`,
+    css: (t) => {
+      const hidden = (1 - t) * 100;
+      const inset = expand === 'down' ? `0 0 ${hidden}% 0` : expand === 'left' ? `0 0 0 ${hidden}%` : `0 ${hidden}% 0 0`;
+      return `width: ${width}px; height: ${height}px; overflow: hidden; clip-path: inset(${inset}); opacity: ${cubicOut(t)};`;
+    },
   };
 }

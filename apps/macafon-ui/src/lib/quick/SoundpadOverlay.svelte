@@ -66,6 +66,7 @@
   const metricsOf = (layout: SoundpadOverlayView) => (layout === 'list' ? { row: 32, columns: 1 } : { row: 60, columns: 3 });
   const metrics = $derived(metricsOf(view));
   const playback = $derived(daemon.soundpadPlayback);
+  const playingId = $derived(playback?.sound_id ?? null);
   const place = loadPlace();
   let scope = $state<SoundScope>(place.scope);
   let favorites = $state(place.favorites);
@@ -74,7 +75,7 @@
   let list: HTMLDivElement | undefined = $state();
   let search: HTMLInputElement | undefined = $state();
   let sort = $state<SoundSort>(place.sort);
-  let saveFrame = 0;
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
   const sorts = sortOptions();
   /** Enough pads to reach the remembered scroll position, then a page more on demand. */
   const first = metricsOf(daemon.soundpad?.prefs.overlay_view ?? 'grid');
@@ -94,21 +95,26 @@
     ).sort((a, b) => Number(b.favorite) - Number(a.favorite)),
   );
   const visible = $derived(pads.slice(0, shown));
-  const playing = $derived(playback && soundpad?.sounds.find((sound) => sound.id === playback.sound_id));
+  const playing = $derived(playingId === null ? null : soundpad?.sounds.find((sound) => sound.id === playingId));
 
   onMount(() => {
     void tick().then(() => {
       if (list) list.scrollTop = scrollTop;
       if (part === 'library') search?.focus({ preventScroll: true });
     });
-    return () => cancelAnimationFrame(saveFrame);
+    return () => {
+      clearTimeout(saveTimer);
+      persist();
+    };
   });
 
   function save() {
-    cancelAnimationFrame(saveFrame);
-    saveFrame = requestAnimationFrame(() => {
-      localStorage.setItem(PLACE_KEY, JSON.stringify({ scope, favorites, query, scrollTop, sort } satisfies Place));
-    });
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(persist, 200);
+  }
+
+  function persist() {
+    if (part === 'library') localStorage.setItem(PLACE_KEY, JSON.stringify({ scope, favorites, query, scrollTop, sort } satisfies Place));
   }
 
   function restart() {
@@ -226,7 +232,7 @@
   {:else}
     <div class="pads" class:list={view === 'list'} bind:this={list} {onscroll}>
       {#each visible as sound (sound.id)}
-        {@const active = playback?.sound_id === sound.id}
+        {@const active = playingId === sound.id}
         {@const shortcut = shortcuts.get(`soundpad_play.${sound.id}`) ?? null}
         <div class="pad" class:active class:favorite={sound.favorite} style:--progress={active && playback ? `${Math.min(playback.position_ms / Math.max(playback.duration_ms, 1), 1) * 100}%` : '0%'}>
           <button class="play" aria-label={t('quick.soundpadPlay', { name: sound.name })} title={describe(sound)} onclick={() => (active ? daemon.stopSound() : daemon.playSound(sound.id))}>
@@ -253,11 +259,14 @@
     flex-direction: column;
     gap: 10px;
     min-height: 0;
+    min-width: 0;
     flex: 1;
   }
 
   .dock {
     display: block;
+    min-width: 0;
+    container-type: inline-size;
   }
 
   .bar {
@@ -353,7 +362,8 @@
     align-items: center;
     gap: 8px;
     min-width: 0;
-    height: 28px;
+    min-height: 28px;
+    flex-wrap: wrap;
   }
 
   .player .round {
@@ -454,6 +464,13 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
     max-height: 260px;
+    min-height: 0;
+    flex: 1 1 auto;
+    grid-auto-rows: 52px;
+    align-content: start;
+    overflow-anchor: none;
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
     overflow-y: auto;
     padding-right: 2px;
   }
@@ -587,8 +604,29 @@
   }
 
   .pads.list {
+    grid-auto-rows: 28px;
     grid-template-columns: minmax(0, 1fr);
     gap: 4px;
+  }
+
+  :global(.body.down) .soundpad {
+    flex: none;
+  }
+
+  :global(.body.down) .pads {
+    max-height: 112px;
+  }
+
+  @container (max-width: 500px) {
+    .player {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+
+    .now { width: auto; min-width: 0; grid-column: span 6; }
+    .time { grid-column: span 4; }
+    .player > :global(.track) { grid-column: 1 / -1; grid-row: 2; }
+    .volume { width: auto; margin-left: 0; grid-column: span 6; }
   }
 
   .list .pad {

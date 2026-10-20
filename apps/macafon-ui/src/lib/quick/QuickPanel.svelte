@@ -157,7 +157,8 @@
     </div>
 
     {#if mixer?.enabled}
-      <div class="volumes">
+      <!-- Many channels on a small screen: the volumes scroll, the footer stays. -->
+      <div class="volumes" style:max-height="{Math.max(160, screen.availHeight - 340)}px">
         <div class="row">
           <button
             class="round icon"
@@ -439,6 +440,9 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .row :global(.pill) {

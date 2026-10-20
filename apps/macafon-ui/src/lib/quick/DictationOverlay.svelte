@@ -4,7 +4,7 @@
   // wanted mid-conversation without opening the app.
   import { Copy, CornerDownLeft, Trash2 } from '@lucide/svelte';
   import { radioKeys } from '../components/radioKeys';
-  import { formatClock, formatSeconds } from '../dictation/format';
+  import { formatBytes, formatClock, formatSeconds } from '../dictation/format';
   import { displayShortcut } from '../settings/shortcut';
   import { languageName, layoutLanguageOptions } from '../dictation/languages';
   import type { DictationEngine, DictationLanguagePolicy, DictationResult } from '../ipc/protocol';
@@ -17,6 +17,13 @@
   const model = $derived(dictation?.models.find((m) => m.id === prefs?.model)?.name ?? '—');
   const hold = $derived(daemon.hotkeys?.bindings.find((binding) => binding.action === 'dictation_hold')?.shortcut ?? null);
   let copied = $state<number | null>(null);
+  /** Whether the model sits in memory now (it loads on first use, unloads when idle). */
+  const loaded = $derived(!!dictation?.loaded_model);
+  const memory = $derived(
+    loaded
+      ? t('quick.dictationLoaded', { ram: dictation?.worker_ram_bytes ? formatBytes(dictation.worker_ram_bytes) : '—' })
+      : t('quick.dictationUnloaded'),
+  );
 
   const policies: { value: DictationLanguagePolicy; label: string }[] = [
     { value: 'layout', label: t('dictation.language.layout') },
@@ -60,6 +67,7 @@
     <header>
       <h2 class="hud-label">{t('quick.dictation')}</h2>
       <span class="badge">{model.toUpperCase()} · {prefs.gpu && !parakeet ? 'GPU' : 'CPU'}</span>
+      <span class="memory" class:loaded role="status" title={loaded ? t('quick.dictationLoadedHint') : t('quick.dictationUnloadedHint')}><i aria-hidden="true"></i>{memory}</span>
       {#if hold}<span class="hint">{t('dictation.hold')} <kbd>{displayShortcut(hold)}</kbd></span>{/if}
     </header>
 
@@ -100,6 +108,7 @@
     flex-direction: column;
     gap: 12px;
     min-height: 0;
+    min-width: 0;
     flex: 1;
   }
 
@@ -107,10 +116,42 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    flex-wrap: wrap;
+    flex: none;
   }
 
   h2 {
     color: var(--ink);
+  }
+
+  .memory {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    transition: color var(--dur) var(--ease);
+  }
+
+  .memory i {
+    width: 6px;
+    height: 6px;
+    border: 1px solid var(--faint);
+    transition:
+      background var(--dur) var(--ease),
+      border-color var(--dur) var(--ease);
+  }
+
+  .memory.loaded {
+    color: var(--app-teal-ink);
+  }
+
+  .memory.loaded i {
+    border-color: var(--app-teal-ink);
+    background: var(--app-teal-ink);
   }
 
   .hint {
@@ -132,6 +173,7 @@
   .settings {
     display: grid;
     gap: 8px;
+    flex: none;
   }
 
   .row {
@@ -148,6 +190,7 @@
   .chips {
     display: flex;
     gap: 4px;
+    flex-wrap: wrap;
   }
 
   .chip {
@@ -178,6 +221,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    flex: none;
     padding-top: 10px;
     border-top: 1px solid var(--line);
   }
@@ -193,6 +237,9 @@
     overflow-y: auto;
     min-height: 0;
     flex: 1;
+    max-height: 180px;
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
   }
 
   li {
@@ -262,4 +309,18 @@
   :global(.sketch) kbd {
     border-radius: 0;
   }
+
+  :global(.body.down) .dictation {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    column-gap: 24px;
+    flex: none;
+  }
+
+  :global(.body.down) header { grid-column: 1 / -1; }
+  :global(.body.down) .settings { grid-column: 1; grid-row: 2 / 4; }
+  :global(.body.down) .head { grid-column: 2; grid-row: 2; padding-top: 0; border-top: 0; }
+  :global(.body.down) ul,
+  :global(.body.down) .empty { grid-column: 2; grid-row: 3; max-height: 120px; }
 </style>

@@ -259,6 +259,12 @@
   .body { display: flex; padding-top: 16px; }
   .body.left { flex-direction: row-reverse; }
   .body.down { flex-direction: column; }
+  /* Side content never stretches the main part; the player docks under Sounds. */
+  .body { align-items: flex-start; }
+  .body.down { align-items: stretch; }
+  .main { flex: none; }
+  .overlay:has(.body:not(.down)) .dock-reveal { width: 440px; margin-left: auto; }
+  .overlay:has(.body.left) .dock-reveal { margin-left: 0; }
   /* As wide as the overlay was before side panels, a little wider: the strips share it. */
   .main { display: flex; gap: 24px; min-width: 816px; }
   .main.compact { min-width: 0; }

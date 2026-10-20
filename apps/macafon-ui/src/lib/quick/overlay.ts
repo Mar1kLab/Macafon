@@ -6,11 +6,12 @@ import type { OverlayExpand, OverlayPrefs } from '../ipc/protocol';
 /** Until a daemon without `[ui.overlay]` answers: everything the overlay always had. */
 export const DEFAULT_OVERLAY: OverlayPrefs = {
   enabled: true,
-  order: ['volumes', 'mic_switch', 'processing_switch', 'mixer_switch', 'dictation', 'sounds', 'output_device', 'mic_level', 'preset'],
+  order: ['volumes', 'mic_switch', 'processing_switch', 'mixer_switch', 'dictation', 'dictation_history', 'sounds', 'output_device', 'mic_level', 'preset'],
   volumes: true,
   mic_switch: true,
   processing_switch: true,
   mixer_switch: true,
+  dictation_history: true,
   preset: true,
   output_device: false,
   mic_level: false,

@@ -53,14 +53,14 @@
 
   /** `library`: the sounds, in the overlay's side panel; `player`: the transport and the output
    * volumes, docked along the bottom of the overlay. */
-  /** `wide`: the player in one row (the overlay opens down), else in two under the list. */
+  /** `wide`: the player in one row across the full overlay. */
   let { part = 'library', wide = false }: { part?: 'library' | 'player'; wide?: boolean } = $props();
 
   /** Pads per page: a little more than the visible area in either view. */
   const PAGE = 60;
 
   const soundpad = $derived(daemon.soundpad);
-  /** SND-006: pads in a grid or rows in a list; the player above or below them, or none. */
+  /** SND-006: pads in a grid or rows in a list. */
   const view = $derived(soundpad?.prefs.overlay_view ?? 'grid');
   const sketch = $derived(daemon.prefs?.osd.look === 'sketch');
   /** Row height and columns of the view, to load enough rows for a scroll position. */

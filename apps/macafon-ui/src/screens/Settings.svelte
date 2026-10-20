@@ -40,7 +40,6 @@
     OverlayExpand,
     OverlayPlacement,
     OverlayPrefs,
-    SoundpadOverlayControls,
     SoundpadOverlayView,
   } from '../lib/ipc/protocol';
   import { OSD_MAX_OFFSET_PCT, QUANTUM_CHOICES, SAMPLE_RATE_HZ } from '../lib/ipc/dsp';
@@ -165,10 +164,6 @@
     hint: t(`settings.osd.lookHints.${value}`),
   }));
   const overlayViewOptions = (['grid', 'list'] as SoundpadOverlayView[]).map((value) => ({ value, label: t(`settings.overlay.views.${value}`) }));
-  const overlayControlsOptions = (['top', 'bottom', 'hidden'] as SoundpadOverlayControls[]).map((value) => ({
-    value,
-    label: t(`settings.overlay.controlsPlaces.${value}`),
-  }));
   const monitorOptions = [false, true].map((value) => ({
     value,
     label: t(value ? 'settings.osd.primaryMonitor' : 'settings.osd.activeMonitor'),
@@ -627,19 +622,7 @@
                 onchange={(overlay_view) => daemon.setSoundpadPrefs({ overlay_view })}
               />
             </div>
-            <div class="row">
-              <div>
-                <p class="name">{t('settings.overlay.controls')}</p>
-                <p class="hint">{t('settings.overlay.controlsHint')}</p>
-              </div>
-              <Segmented
-                label={t('settings.overlay.controls')}
-                layout="inline"
-                options={overlayControlsOptions}
-                value={daemon.soundpad.prefs.overlay_controls}
-                onchange={(overlay_controls) => daemon.setSoundpadPrefs({ overlay_controls })}
-              />
-            </div>
+
           {/if}
           </div>
         </section>

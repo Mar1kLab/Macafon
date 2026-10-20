@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { AudioLines, AudioWaveform, ChevronDown, ChevronLeft, ChevronRight, Headphones, Mic, MicOff, SlidersHorizontal, Speech, Volume2, VolumeX, X } from '@lucide/svelte';
+  import { AudioLines, AudioWaveform, ChevronDown, ChevronLeft, ChevronRight, Headphones, History, Mic, MicOff, SlidersHorizontal, Speech, Volume2, VolumeX, X } from '@lucide/svelte';
   import Logo from '../components/Logo.svelte';
   import LevelMeter from '../components/LevelMeter.svelte';
   import VerticalSlider from './VerticalSlider.svelte';
   import SoundpadOverlay from './SoundpadOverlay.svelte';
   import DictationOverlay from './DictationOverlay.svelte';
+  import DictationHistoryOverlay from './DictationHistoryOverlay.svelte';
   import { DEFAULT_OVERLAY, reveal } from './overlay';
   import { overlayOrder, overlayRows, volumesFirst } from './layout';
   import type { OverlayItem } from '../ipc/protocol';
@@ -40,6 +41,8 @@
       switch (part) {
         case 'dictation':
           return !!dictation;
+        case 'dictation_history':
+          return setup.dictation_history && !!daemon.dictation;
         case 'sounds':
           return !!soundpad;
         case 'output_device':
@@ -50,24 +53,43 @@
     }),
   );
   const rows = $derived(overlayRows(parts));
-  /** Where the Sounds column shows the player, if at all. */
-  const dock = $derived(soundpad?.prefs.overlay_controls ?? 'hidden');
   const volumesLeft = $derived(volumesFirst(parts));
 
   /** SND-006, §9.9.2: one side panel at a time, the way the overlay was last closed, across
    * openings and UI restarts. */
-  type Side = 'sounds' | 'dictation' | null;
+  type Side = 'sounds' | 'dictation' | 'history' | null;
   const PANEL_KEY = 'macafon.overlay.panel';
   function savedPanel(): Side {
     const saved = localStorage.getItem(PANEL_KEY);
-    if (saved === 'sounds' || saved === 'dictation') return saved;
+    if (saved === 'sounds' || saved === 'dictation' || saved === 'history') return saved;
     // Before one key held both.
     if (localStorage.getItem('macafon.overlay.soundsOpen') === '1') return 'sounds';
     if (localStorage.getItem('macafon.overlay.dictationOpen') === '1') return 'dictation';
     return null;
   }
   let panel = $state<Side>(savedPanel());
-  const side = $derived(panel === 'sounds' && soundpad ? 'sounds' : panel === 'dictation' && dictation && !dictation.needsModel ? 'dictation' : null);
+  const side = $derived(panel === 'sounds' && soundpad ? 'sounds' : panel === 'dictation' && dictation && !dictation.needsModel ? 'dictation' : panel === 'history' && daemon.dictation && setup.dictation_history ? 'history' : null);
+
+  let normalHeight = $state(0);
+  function measureMain(node: HTMLDivElement, _layout: unknown) {
+    // Measure the normal layout once per content change, outside the observed page. Compact
+    // dimensions change atomically; only opacity/translation animate, never the native size.
+    function measure() {
+      const copy = node.cloneNode(true) as HTMLDivElement;
+      copy.classList.remove('sounds-compact');
+      const host = node.closest('.overlay')!.cloneNode(false) as HTMLDivElement;
+      host.inert = true;
+      host.style.cssText = 'position: fixed; visibility: hidden; top: 0; left: 0; padding: 0; min-height: 0;';
+      host.append(copy);
+      document.body.append(host);
+      normalHeight = copy.getBoundingClientRect().height;
+      host.remove();
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    measure();
+    return { update: measure, destroy: () => observer.disconnect() };
+  }
 
   function toggle(next: Exclude<Side, null>) {
     panel = panel === next ? null : next;
@@ -94,8 +116,8 @@
   });
 </script>
 
-{#snippet flag(open: boolean, label: string, onclick: () => void, disabled = false)}
-  <button class="flag" class:open aria-expanded={open} aria-label={label} title={label} {disabled} {onclick}>
+{#snippet flag(open: boolean, label: string, onclick: () => void, disabled = false, controls?: string)}
+  <button class="flag" class:open aria-expanded={open} aria-controls={controls} aria-label={label} title={label} {disabled} {onclick}>
     <Flag size={13} strokeWidth={1.5} />
   </button>
 {/snippet}
@@ -119,14 +141,21 @@
         <Speech size={16} strokeWidth={1.5} /><span>{t('quick.dictation')}</span>
         {#if dictation.progress !== null}<i class="progress" style:width="{dictation.progress}%"></i>{/if}
       </button>
-      {@render flag(side === 'dictation', side === 'dictation' ? t('quick.dictationHide') : t('quick.dictationShow'), () => toggle('dictation'), dictation.needsModel)}
+      {@render flag(side === 'dictation', side === 'dictation' ? t('quick.dictationHide') : t('quick.dictationShow'), () => toggle('dictation'), dictation.needsModel, 'overlay-dictation')}
+    </div>
+  {:else if part === 'dictation_history' && daemon.dictation}
+    <div class="split {expand}" class:open={side === 'history'}>
+      <button class="switch" class:on={daemon.dictation.prefs.keep_history} title={t('settings.overlay.partHint.dictation_history')} role="switch" aria-checked={daemon.dictation.prefs.keep_history} onclick={() => daemon.setDictationPrefs({ keep_history: !daemon.dictation!.prefs.keep_history })}>
+        <History size={16} strokeWidth={1.5} /><span>{t('quick.history')}</span>
+      </button>
+      {@render flag(side === 'history', t('quick.dictationHistoryToggle'), () => toggle('history'), false, 'overlay-history')}
     </div>
   {:else if part === 'sounds' && soundpad}
     <div class="split {expand}" class:open={side === 'sounds'}>
       <button class="switch" class:on={!!playback} aria-expanded={side === 'sounds'} aria-controls="overlay-sounds" title={playing ? playing.name : side === 'sounds' ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} onclick={() => toggle('sounds')}>
         <AudioWaveform size={16} strokeWidth={1.5} /><span>{playing ? playing.name : t('quick.soundpadShow')}</span>
       </button>
-      {@render flag(side === 'sounds', side === 'sounds' ? t('quick.soundpadHide') : t('quick.soundpadShowHint'), () => toggle('sounds'))}
+      {@render flag(side === 'sounds', side === 'sounds' ? t('quick.soundpadHide') : t('quick.soundpadShowHint'), () => toggle('sounds'), false, 'overlay-sounds')}
     </div>
   {:else if part === 'output_device' && mixer}
     <div class="picker">
@@ -170,7 +199,7 @@
   {:else}
     <div class="body" class:left={expand === 'left'} class:down={expand === 'down'}>
       <!-- Anchored, the window keeps this part in place when a side panel opens (Panel.svelte). -->
-      <div class="main" class:compact={!setup.volumes} class:volumes-right={!volumesLeft} data-overlay-main data-overlay-centered={setup.placement === 'centered' ? '' : undefined}>
+      <div class="main" use:measureMain={{ setup, rows, channels, mixerEnabled: mixer?.enabled, sketch }} class:sounds-compact={side === 'sounds' && normalHeight > 0} style:--normal-main-height="{normalHeight}px" class:compact={!setup.volumes} class:volumes-right={!volumesLeft} data-overlay-main data-overlay-centered={setup.placement === 'centered' ? '' : undefined}>
         {#if setup.volumes}
           <section class="volumes" aria-label={t('quick.mixer')}>
             {#if mixer?.enabled}
@@ -215,21 +244,23 @@
       </div>
 
       {#if side}
-        <!-- One column with its own fixed size: the window resizes once, then the content
-             fades in; the player belongs to the Sounds column, above or under its list. -->
+        <!-- Side content scrolls without contributing to the main height or down width. -->
         <div class="side-reveal" transition:reveal={{ expand, duration: reduced ? 0 : 200 }}>
           <aside class="side" class:sounds={side === 'sounds'}>
             {#if side === 'sounds'}
-              {#if dock === 'top'}<div class="dock top"><SoundpadOverlay part="player" wide={expand === 'down'} /></div>{/if}
               <SoundpadOverlay part="library" />
-              {#if dock === 'bottom'}<div class="dock"><SoundpadOverlay part="player" wide={expand === 'down'} /></div>{/if}
-            {:else}
+            {:else if side === 'dictation'}
               <DictationOverlay />
+            {:else}
+              <DictationHistoryOverlay />
             {/if}
           </aside>
         </div>
       {/if}
     </div>
+    {#if side === 'sounds'}
+      <div class="dock"><SoundpadOverlay part="player" wide /></div>
+    {/if}
   {/if}
 </div>
 
@@ -262,8 +293,7 @@
   .body.left { flex-direction: row-reverse; }
   .body.down { flex-direction: column; }
   /* Side content never stretches the main part; the player docks under Sounds. */
-  .body { align-items: flex-start; }
-  .body.down { align-items: stretch; }
+  .body { align-items: stretch; }
   .main { flex: none; }
   /* As wide as the overlay was before side panels, a little wider: the strips share it. */
   .main { display: flex; gap: 24px; min-width: 816px; }
@@ -322,14 +352,26 @@
   .level :global(.hud-label) { font-size: 9px; }
   .level.muted { opacity: 0.5; }
 
-  .side-reveal { flex: none; display: flex; min-width: 0; min-height: 0; }
-  .body.left .side-reveal { justify-content: flex-end; }
-  /* Fixed sizes: what loads inside (sounds, history) scrolls instead of resizing the window. */
-  .side { width: 440px; height: 380px; flex: none; margin-left: 24px; padding-left: 24px; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .side-reveal { position: relative; flex: none; width: 464px; min-height: 0; }
+  .side { position: absolute; inset: 0; margin-left: 24px; padding-left: 24px; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
   .body.left .side { margin: 0 24px 0 0; padding: 0 24px 0 0; border-left: 0; border-right: 1px solid var(--line); }
-  .body.down .side { width: auto; height: 300px; flex: 1; margin: 16px 0 0; padding: 16px 0 0; border-left: 0; border-top: 1px solid var(--line); }
-  .dock { flex: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
-  .dock.top { margin: 0 0 12px; padding: 0 0 12px; border-top: 0; border-bottom: 1px solid var(--line); }
+  .body.down .side-reveal { width: 0; min-width: 100%; height: 300px; }
+  .body.down .side { margin: 16px 0 0; padding: 16px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+  .dock { width: 0; min-width: 100%; height: 53px; box-sizing: border-box; padding-top: 12px; margin-top: 0; border-top: 1px solid var(--line); display: flex; align-items: center; }
+  .dock :global(.dock) { flex: 1; overflow-x: auto; scrollbar-width: thin; }
+  .main.sounds-compact { height: max(180px, calc(var(--normal-main-height) - 53px)); }
+  .sounds-compact .volumes { padding-bottom: 4px; }
+  .sounds-compact .strip { gap: 4px; }
+  .sounds-compact :global(.fader) { gap: 4px; }
+  .sounds-compact :global(.fader .track) { height: 107px; }
+  .sounds-compact :global(.fader .thumb) { bottom: clamp(8px, var(--fill), 97px); }
+  .sounds-compact :global(.fader.sketch .thumb) { bottom: calc(var(--fill) - 1px); }
+  .sounds-compact .controls { gap: 6px; }
+  .sounds-compact .switches { gap: 4px; }
+  .sounds-compact .switch { height: 40px; gap: 2px; }
+  .sounds-compact .split.down .switch { height: 26px; }
+  .sounds-compact .picker-nav { margin-top: 2px; }
+  .sounds-compact .picker .round { width: 28px; height: 28px; }
   .status { flex: 1; align-self: center; padding: 24px; font-size: 13px; color: var(--muted); }
   /* Sketch: the app's own look — sharp corners, HUD labels, accent marks instead of fills. */
   .sketch .round, .sketch .switch, .sketch .flag, .sketch .split .switch, .sketch .split .flag, .sketch kbd { border-radius: 0; }

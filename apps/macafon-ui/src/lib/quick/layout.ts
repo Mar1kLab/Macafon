@@ -10,13 +10,14 @@ export const OVERLAY_PARTS: OverlayItem[] = [
   'processing_switch',
   'mixer_switch',
   'dictation',
+  'dictation_history',
   'sounds',
   'output_device',
   'mic_level',
   'preset',
 ];
 
-const SWITCHES = new Set<OverlayItem>(['mic_switch', 'processing_switch', 'mixer_switch', 'dictation', 'sounds']);
+const SWITCHES = new Set<OverlayItem>(['mic_switch', 'processing_switch', 'mixer_switch', 'dictation', 'dictation_history', 'sounds']);
 
 export const isSwitch = (part: OverlayItem) => SWITCHES.has(part);
 
@@ -35,6 +36,8 @@ export function partShown(setup: OverlayPrefs, part: OverlayItem, extra: { dicta
   switch (part) {
     case 'dictation':
       return extra.dictation ?? false;
+    case 'dictation_history':
+      return setup.dictation_history && extra.dictation !== null;
     case 'sounds':
       return extra.sounds ?? false;
     default:

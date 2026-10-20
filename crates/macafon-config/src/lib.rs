@@ -465,6 +465,8 @@ mod tests {
         changed.ui.overlay.placement = macafon_ipc::OverlayPlacement::Centered;
         changed.ui.overlay.output_device = true;
         changed.ui.overlay.volumes = false;
+        changed.ui.overlay.dictation_history = false;
+        changed.ui.overlay.order = vec![macafon_ipc::OverlayItem::DictationHistory];
         let encoded = toml::to_string(&changed).expect("serialize overlay");
         assert!(encoded.contains("[ui.overlay]"));
         assert_eq!(

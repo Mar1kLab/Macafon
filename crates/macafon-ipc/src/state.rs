@@ -45,6 +45,7 @@ pub struct OverlayPrefs {
     pub mic_switch: bool,
     pub processing_switch: bool,
     pub mixer_switch: bool,
+    pub dictation_history: bool,
     pub preset: bool,
     pub output_device: bool,
     pub mic_level: bool,
@@ -60,6 +61,7 @@ impl Default for OverlayPrefs {
             mic_switch: true,
             processing_switch: true,
             mixer_switch: true,
+            dictation_history: true,
             preset: true,
             output_device: false,
             mic_level: false,
@@ -78,6 +80,7 @@ pub enum OverlayItem {
     ProcessingSwitch,
     MixerSwitch,
     Dictation,
+    DictationHistory,
     Sounds,
     OutputDevice,
     MicLevel,
@@ -85,12 +88,13 @@ pub enum OverlayItem {
 }
 
 impl OverlayItem {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Volumes,
         Self::MicSwitch,
         Self::ProcessingSwitch,
         Self::MixerSwitch,
         Self::Dictation,
+        Self::DictationHistory,
         Self::Sounds,
         Self::OutputDevice,
         Self::MicLevel,

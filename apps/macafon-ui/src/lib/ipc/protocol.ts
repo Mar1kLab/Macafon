@@ -420,11 +420,11 @@ enabled: boolean,
  * The order the overlay lays its parts out in (the layout editor in Settings); parts
  * missing here follow in the default order.
  */
-order: Array<OverlayItem>, volumes: boolean, mic_switch: boolean, processing_switch: boolean, mixer_switch: boolean, preset: boolean, output_device: boolean, mic_level: boolean, expand: OverlayExpand, placement: OverlayPlacement, };
+order: Array<OverlayItem>, volumes: boolean, mic_switch: boolean, processing_switch: boolean, mixer_switch: boolean, dictation_history: boolean, preset: boolean, output_device: boolean, mic_level: boolean, expand: OverlayExpand, placement: OverlayPlacement, };
 
 export type OverlayExpand = "right" | "left" | "down";
 
-export type OverlayItem = "volumes" | "mic_switch" | "processing_switch" | "mixer_switch" | "dictation" | "sounds" | "output_device" | "mic_level" | "preset";
+export type OverlayItem = "volumes" | "mic_switch" | "processing_switch" | "mixer_switch" | "dictation" | "dictation_history" | "sounds" | "output_device" | "mic_level" | "preset";
 
 export type OverlayPlacement = "anchored" | "centered";
 

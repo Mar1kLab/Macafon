@@ -116,11 +116,12 @@ export class MockTransport implements Transport {
     // `?expand=left|down`, `?placement=centered`, `?parts=all` for screenshots of the overlay setups.
     overlay: {
       enabled: true,
-      order: ['volumes', 'mic_switch', 'processing_switch', 'mixer_switch', 'dictation', 'sounds', 'output_device', 'mic_level', 'preset'],
+      order: ['volumes', 'mic_switch', 'processing_switch', 'mixer_switch', 'dictation', 'dictation_history', 'sounds', 'output_device', 'mic_level', 'preset'],
       volumes: true,
       mic_switch: true,
       processing_switch: true,
       mixer_switch: true,
+      dictation_history: true,
       preset: true,
       output_device: this.query.get('parts') === 'all',
       mic_level: this.query.get('parts') === 'all',

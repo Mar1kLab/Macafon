@@ -3,7 +3,7 @@
   // will be, and a tray of hidden ones. Drag a part to move it, into the tray to hide it, out of
   // the tray to show it; a click shows or hides it too. Volumes goes left or right of the
   // controls. Keyboard: arrows move the focused part, Enter or Space shows or hides it.
-  import { AudioLines, AudioWaveform, ChevronLeft, ChevronRight, Gauge, GripVertical, Headphones, Layers, Mic, SlidersHorizontal, SlidersVertical, Speech, RotateCcw } from '@lucide/svelte';
+  import { AudioLines, AudioWaveform, ChevronLeft, ChevronRight, Gauge, History, GripVertical, Headphones, Layers, Mic, SlidersHorizontal, SlidersVertical, Speech, RotateCcw } from '@lucide/svelte';
   import type { Component } from 'svelte';
   import type { OverlayItem, OverlayPrefs } from '../ipc/protocol';
   import { daemon } from '../state';
@@ -19,6 +19,7 @@
     processing_switch: AudioLines,
     mixer_switch: SlidersHorizontal,
     dictation: Speech,
+    dictation_history: History,
     sounds: AudioWaveform,
     output_device: Headphones,
     mic_level: Gauge,
@@ -29,7 +30,7 @@
     dictation: daemon.dictation ? daemon.dictation.prefs.show_in_overlay : null,
     sounds: daemon.soundpad ? daemon.soundpad.prefs.show_in_overlay : null,
   });
-  const available = (part: OverlayItem) => (part === 'dictation' ? extra.dictation !== null : part === 'sounds' ? extra.sounds !== null : true);
+  const available = (part: OverlayItem) => ((part === 'dictation' || part === 'dictation_history') ? extra.dictation !== null : part === 'sounds' ? extra.sounds !== null : true);
   const order = $derived(overlayOrder(setup.order).filter(available));
   const shown = $derived(order.filter((part) => partShown(setup, part, extra)));
   const hidden = $derived(order.filter((part) => !partShown(setup, part, extra)));

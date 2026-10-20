@@ -1,13 +1,9 @@
 <script lang="ts">
-  // Dictation in the hotkey overlay's right panel (§9.9.2): the language mode with its fixed
-  // language, the engine and device, and the history with copy and insert-again — what is
-  // wanted mid-conversation without opening the app.
-  import { Copy, CornerDownLeft, Trash2 } from '@lucide/svelte';
+  // Quick settings; saved dictations have their own panel.
   import { radioKeys } from '../components/radioKeys';
-  import { formatBytes, formatClock, formatSeconds } from '../dictation/format';
-  import { displayShortcut } from '../settings/shortcut';
-  import { languageName, layoutLanguageOptions } from '../dictation/languages';
-  import type { DictationEngine, DictationLanguagePolicy, DictationResult } from '../ipc/protocol';
+  import { formatBytes } from '../dictation/format';
+  import { layoutLanguageOptions } from '../dictation/languages';
+  import type { DictationEngine, DictationLanguagePolicy } from '../ipc/protocol';
   import { daemon } from '../state';
   import { t } from '../i18n';
 
@@ -15,8 +11,6 @@
   const prefs = $derived(dictation?.prefs);
   const parakeet = $derived(prefs?.engine === 'parakeet');
   const model = $derived(dictation?.models.find((m) => m.id === prefs?.model)?.name ?? '—');
-  const hold = $derived(daemon.hotkeys?.bindings.find((binding) => binding.action === 'dictation_hold')?.shortcut ?? null);
-  let copied = $state<number | null>(null);
   /** Whether the model sits in memory now (it loads on first use, unloads when idle). */
   const loaded = $derived(!!dictation?.loaded_model);
   const memory = $derived(
@@ -38,17 +32,6 @@
   ];
   const engineReady = (engine: DictationEngine) => dictation?.models.some((m) => m.engine === engine && m.status === 'ready') ?? false;
 
-  async function copy(entry: DictationResult) {
-    await navigator.clipboard.writeText(entry.text);
-    copied = entry.id;
-    setTimeout(() => {
-      if (copied === entry.id) copied = null;
-    }, 1500);
-  }
-
-  function language(entry: DictationResult): string {
-    return entry.language ? languageName(dictation ?? null, entry.language) : t('dictation.test.auto');
-  }
 </script>
 
 {#snippet chips<T>(label: string, options: { value: T; label: string; disabled?: boolean }[], value: T, onchange: (value: T) => void, disabled = false)}
@@ -68,7 +51,6 @@
       <h2 class="hud-label">{t('quick.dictation')}</h2>
       <span class="badge">{model.toUpperCase()} · {prefs.gpu && !parakeet ? 'GPU' : 'CPU'}</span>
       <span class="memory" class:loaded role="status" title={loaded ? t('quick.dictationLoadedHint') : t('quick.dictationUnloadedHint')}><i aria-hidden="true"></i>{memory}</span>
-      {#if hold}<span class="hint">{t('dictation.hold')} <kbd>{displayShortcut(hold)}</kbd></span>{/if}
     </header>
 
     <div class="settings">
@@ -78,27 +60,6 @@
       {@render chips(t('dictation.performance.device'), [{ value: true, label: t('dictation.performance.gpu') }, { value: false, label: t('dictation.performance.cpu') }], parakeet ? false : prefs.gpu, (gpu) => daemon.setDictationPrefs({ gpu }), parakeet)}
     </div>
 
-    <div class="head">
-      <span class="hud-label">{t('dictation.test.history')}</span>
-      <span class="spacer"></span>
-      <button class="round" aria-label={t('dictation.test.clear')} title={t('dictation.test.clear')} disabled={dictation.history.length === 0} onclick={() => daemon.setDictation(daemon.client.call('dictation.history_clear'))}><Trash2 size={13} strokeWidth={1.5} /></button>
-    </div>
-    {#if dictation.history.length === 0}
-      <p class="empty">{prefs.keep_history ? t('quick.dictationEmpty') : t('dictation.test.historyOff')}</p>
-    {:else}
-      <ul>
-        {#each dictation.history as entry (entry.id)}
-          <li>
-            <span class="text" title={entry.text}>{entry.text}</span>
-            <span class="meta">{formatClock(entry.at_unix_ms)} · {language(entry)} · {formatSeconds(entry.elapsed_ms)}</span>
-            <span class="actions">
-              <button class="round" aria-label={t('dictation.test.copy')} title={copied === entry.id ? t('dictation.test.copied') : t('dictation.test.copy')} onclick={() => copy(entry)}><Copy size={13} strokeWidth={1.5} /></button>
-              <button class="round" aria-label={t('dictation.test.reinsert')} title={t('dictation.test.reinsert')} onclick={() => daemon.run(daemon.client.call('dictation.reinsert', { id: entry.id }))}><CornerDownLeft size={13} strokeWidth={1.5} /></button>
-            </span>
-          </li>
-        {/each}
-      </ul>
-    {/if}
   </section>
 {/if}
 
@@ -154,22 +115,6 @@
     background: var(--app-teal-ink);
   }
 
-  .hint {
-    margin-left: auto;
-    font-size: 11px;
-    color: var(--faint);
-  }
-
-  kbd {
-    padding: 2px 6px;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: var(--bg-sunken);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--ink);
-  }
-
   .settings {
     display: grid;
     gap: 8px;
@@ -217,110 +162,12 @@
     opacity: 0.35;
   }
 
-  .head {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex: none;
-    padding-top: 10px;
-    border-top: 1px solid var(--line);
-  }
-
-  .spacer {
-    flex: 1;
-  }
-
-  ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    overflow-y: auto;
-    min-height: 0;
-    flex: 1;
-    max-height: 180px;
-    scrollbar-gutter: stable;
-    overscroll-behavior: contain;
-  }
-
-  li {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: auto auto;
-    column-gap: 10px;
-    padding: 6px 0;
-    border-top: 1px solid var(--line);
-  }
-
-  .text,
-  .meta {
-    grid-column: 1;
-  }
-
-  .text {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 13px;
-    color: var(--ink);
-  }
-
-  .meta {
-    font-size: 11px;
-    color: var(--faint);
-  }
-
-  .actions {
-    grid-column: 2;
-    grid-row: 1 / 3;
-    align-self: center;
-    display: flex;
-    gap: 4px;
-  }
-
-  .empty {
-    padding: 8px 0;
-    font-size: 13px;
-    color: var(--muted);
-  }
-
-  .round {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    border: 1px solid var(--line);
-    background: var(--bg-sunken);
-    color: var(--ink);
-  }
-
-  .round:hover:not(:disabled) {
-    border-color: var(--line-strong);
-  }
-
-  .round:disabled {
-    opacity: 0.4;
-  }
-
-  :global(.sketch) .chip,
-  :global(.sketch) .round,
-  :global(.sketch) kbd {
+  :global(.sketch) .chip {
     border-radius: 0;
   }
 
-  :global(.body.down) .dictation {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-rows: auto auto minmax(0, 1fr);
-    column-gap: 24px;
-    flex: none;
-  }
-
-  :global(.body.down) header { grid-column: 1 / -1; }
-  :global(.body.down) .settings { grid-column: 1; grid-row: 2 / 4; }
-  :global(.body.down) .head { grid-column: 2; grid-row: 2; padding-top: 0; border-top: 0; }
-  :global(.body.down) ul,
-  :global(.body.down) .empty { grid-column: 2; grid-row: 3; max-height: 120px; }
+  .dictation { overflow-y: auto; overscroll-behavior: contain; }
+  .chip:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+  :global(.body.down) .settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :global(.body.down) .row { grid-template-columns: minmax(0, 1fr); }
 </style>

@@ -295,6 +295,10 @@ impl MixerHost for DaemonHost {
         self.mixer.output_device(&self.config.mixer)
     }
 
+    fn output_priority(&self) -> Vec<String> {
+        self.config.mixer.output_priority.clone()
+    }
+
     fn streams_changed(&mut self, streams: &[PlaybackStream]) {
         self.mixer.streams_changed(streams);
         self.mixer_changed();

@@ -217,7 +217,7 @@ impl VolumeGroups {
         if !self.enabled {
             return;
         }
-        let priority: Vec<String> = host.output_device().into_iter().collect();
+        let priority = host.output_priority();
         if priority.is_empty() {
             // Switching to Follow system default gives back the default Macafon set.
             if !self.following_system {

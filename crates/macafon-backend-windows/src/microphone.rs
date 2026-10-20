@@ -447,6 +447,10 @@ fn capture_thread(
             unsafe { stream.client.Start() }?;
             while !shared.stop.load(Ordering::Acquire) && !shared.input.changed_since(generation) {
                 if !stream.wait(WAIT_TIMEOUT_MS) {
+                    // Invalidation can stop event delivery entirely: probe, so the error
+                    // reaches the supervisor, which reopens the device.
+                    // SAFETY: a call on our initialised client.
+                    unsafe { stream.client.GetCurrentPadding() }?;
                     continue;
                 }
                 let output = shared.render.connected.load(Ordering::Acquire);
@@ -566,6 +570,9 @@ fn render_thread(
                     reader.set_target((i64::from(buffer_frames) + reserve) as usize);
                 }
                 if !stream.wait(WAIT_TIMEOUT_MS) {
+                    // As in capture: an invalidated stream may never signal again.
+                    // SAFETY: a call on our initialised client.
+                    unsafe { stream.client.GetCurrentPadding() }?;
                     continue;
                 }
                 // SAFETY: GetBuffer returns room for `frames` interleaved float32 frames of

@@ -423,7 +423,10 @@ impl Worker {
         Ok(())
     }
 
-    fn external_changes(&mut self) {
+    /// Accept volume changes made outside Macafon. The changed session keeps its value; the
+    /// app's other sessions follow it, since they share one app fader.
+    fn external_changes(&mut self, journal: &mut Journal) {
+        let mut siblings = Vec::new();
         for session in &self.sessions {
             let bits = session.foreign.swap(0, Ordering::AcqRel);
             if bits & VOLUME_PENDING == 0 {
@@ -448,12 +451,26 @@ impl Worker {
             // Observing an unmanaged app must not install a rule for future sessions.
             if let Some(remembered) = self.settings.get_mut(&session.key.exe) {
                 *remembered = settings;
+                siblings.extend(
+                    self.sessions
+                        .iter()
+                        .filter(|s| s.key.exe == session.key.exe && s.instance != session.instance)
+                        .map(|s| (s.instance.clone(), settings)),
+                );
             }
+            // The app's own mute: a channel or Master mute shows on the session too.
             let _ = self.events.send(MixerEvent::ExternalVolume {
                 exe: session.key.exe.clone(),
                 app_pct: settings.app_pct,
-                muted,
+                muted: settings.app_muted,
             });
+        }
+        if !siblings.is_empty() {
+            for (instance, error) in self.apply_all(&siblings, journal) {
+                let _ = self
+                    .events
+                    .send(MixerEvent::Error(format!("{instance}: {error}")));
+            }
         }
     }
 
@@ -626,7 +643,7 @@ impl Worker {
     fn run(&mut self, commands: Receiver<Command>, journal: &mut Journal) {
         let mut refresh_after = Instant::now();
         loop {
-            self.external_changes();
+            self.external_changes(journal);
             if Instant::now() >= refresh_after && self.dirty.swap(false, Ordering::AcqRel) {
                 let result = self.refresh().and_then(|()| self.apply_new(journal));
                 if let Err(e) = result {
@@ -658,7 +675,7 @@ impl Worker {
                     let _ = reply.send(endpoint_master(value));
                 }
                 Ok(Command::Apps(reply)) => {
-                    self.external_changes();
+                    self.external_changes(journal);
                     let _ = reply.send(self.apps());
                 }
                 Ok(Command::Peaks(reply)) => {
@@ -709,7 +726,7 @@ impl Worker {
     }
 
     fn set_apps(&mut self, sets: Vec<(String, MixSettings)>, journal: &mut Journal) {
-        self.external_changes();
+        self.external_changes(journal);
         let mut targets = Vec::new();
         for (exe, settings) in &sets {
             self.released.remove(exe);

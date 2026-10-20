@@ -180,6 +180,11 @@ pub trait MixerHost {
     fn output_device(&self) -> Option<String> {
         None
     }
+    /// The outputs the user picked, most wanted first; empty follows the system default
+    /// (OUT-001). Unlike `output_device` it never falls back to some present device.
+    fn output_priority(&self) -> Vec<String> {
+        self.output_device().into_iter().collect()
+    }
     /// Playback streams appeared, changed or vanished (APP-001).
     fn streams_changed(&mut self, _streams: &[PlaybackStream]) {}
     /// Preferred quantum for Macafon's nodes in frames (§9.5); polled every 100 ms.

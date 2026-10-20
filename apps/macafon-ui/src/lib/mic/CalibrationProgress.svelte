@@ -2,7 +2,7 @@
   // Calibration in progress (§6.5, §9.2 step 3): silence → sentence with a large circular
   // progress and a live level trace.
   import { onMount } from 'svelte';
-  import { cssVar, fitCanvas, onFrame } from '../state/frame';
+  import { cssVar, drawEveryFrame } from '../state/frame';
   import { meterBus } from '../state/meters';
   import { t } from '../i18n';
   import type { CalibrationState } from '../ipc/protocol';
@@ -22,23 +22,21 @@
   onMount(() => {
     const history = new Float32Array(160);
     let index = 0;
-    return onFrame(() => {
-      if (!canvas) return;
+    const ink = cssVar(canvas!, '--accent-ink');
+    return drawEveryFrame(canvas!, (surface) => {
       history[index] = meterBus.latest.raw_peak_dbfs;
       index = (index + 1) % history.length;
-      const context = fitCanvas(canvas);
+      const context = surface.begin();
       if (!context) return;
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
-      context.clearRect(0, 0, w, h);
-      context.fillStyle = cssVar(canvas, '--accent-ink');
-      const step = w / history.length;
+      const { width, height } = surface;
+      context.fillStyle = ink;
+      const step = width / history.length;
       for (let i = 0; i < history.length; i++) {
         const db = history[(index + i) % history.length]!;
         const level = Math.min(Math.max((db + 70) / 70, 0), 1);
-        const bar = Math.max(1, level * h);
+        const bar = Math.max(1, level * height);
         context.globalAlpha = 0.35 + 0.65 * (i / history.length);
-        context.fillRect(i * step, (h - bar) / 2, Math.max(1, step - 1), bar);
+        context.fillRect(i * step, (height - bar) / 2, Math.max(1, step - 1), bar);
       }
       context.globalAlpha = 1;
     });

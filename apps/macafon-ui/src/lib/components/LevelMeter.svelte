@@ -2,7 +2,7 @@
   // Segmented level meter (design system §2.2, §6): 2px segments with 1px gaps, RMS solid,
   // peak dimmer, a held peak tick and a clip latch (MTR-001).
   import { onMount } from 'svelte';
-  import { cssVar, fitCanvas, onFrame } from '../state/frame';
+  import { cssVar, drawEveryFrame } from '../state/frame';
   import { Ballistics, meterBus, type MeterKey } from '../state/meters';
   import { formatLevel } from '../dsp/format';
   import { t } from '../i18n';
@@ -21,6 +21,7 @@
   let { label, peakKey, rmsKey, clipKey, color = 'blue', hint, onclip }: Props = $props();
 
   const MIN_DB = -60;
+  const TEXT_INTERVAL_MS = 100;
   let canvas: HTMLCanvasElement | undefined = $state();
   let readout: HTMLSpanElement | undefined = $state();
   let clipped = $state(false);
@@ -31,6 +32,7 @@
     const clip = new Ballistics(-0.1);
     let colors: Record<string, string> = {};
     let lastText = '';
+    let textAt = -Infinity;
     const readColors = () => {
       const element = canvas!;
       colors = {
@@ -41,8 +43,8 @@
       };
     };
     readColors();
-    return onFrame((now) => {
-      if (!canvas) return;
+    const colorAt = (db: number) => (db > -1 ? colors.danger! : db > -6 ? colors.amber! : colors.ink!);
+    return drawEveryFrame(canvas!, (surface, now) => {
       const frame = meterBus.latest;
       peak.update(frame[peakKey], now);
       rms.update(rmsKey ? frame[rmsKey] : frame[peakKey], now);
@@ -51,22 +53,28 @@
         clipped = clip.clipped;
         onclip?.(clipped);
       }
-      const context = fitCanvas(canvas);
-      if (!context) return;
-      const width = canvas.clientWidth;
-      const height = canvas.clientHeight;
-      context.clearRect(0, 0, width, height);
+      const text = formatLevel(peak.level);
+      // Numbers are read, not watched: 10 updates a second, each one a text layout.
+      if (readout && text !== lastText && now - textAt >= TEXT_INTERVAL_MS) {
+        readout.textContent = text;
+        lastText = text;
+        textAt = now;
+      }
+      const { width, height } = surface;
       const x = (db: number) => Math.min(Math.max((db - MIN_DB) / -MIN_DB, 0), 1) * width;
-      const colorAt = (db: number) =>
-        db > -1 ? colors.danger! : db > -6 ? colors.amber! : colors.ink!;
-      const peakX = x(peak.level);
-      const rmsX = x(rms.level);
+      // Segments start every 3 px: levels within one segment draw the same picture.
+      const peakX = Math.ceil(x(peak.level) / 3);
+      const rmsX = Math.ceil(x(rms.level) / 3);
+      const tick = peak.peak > MIN_DB ? Math.round(Math.min(x(peak.peak), width - 2)) : -1;
+      const context = surface.begin(`${peakX}|${rmsX}|${tick}|${colorAt(peak.peak)}`);
+      if (!context) return;
       for (let left = 0; left < width; left += 3) {
         const db = MIN_DB + (left / width) * -MIN_DB;
-        if (left < rmsX) {
+        const segment = left / 3;
+        if (segment < rmsX) {
           context.globalAlpha = db < -18 ? 0.6 : 1;
           context.fillStyle = colorAt(db);
-        } else if (left < peakX) {
+        } else if (segment < peakX) {
           context.globalAlpha = 0.3;
           context.fillStyle = colorAt(db);
         } else {
@@ -76,14 +84,9 @@
         context.fillRect(left, 0, 2, height);
       }
       context.globalAlpha = 1;
-      if (peak.peak > MIN_DB) {
+      if (tick >= 0) {
         context.fillStyle = colorAt(peak.peak);
-        context.fillRect(Math.min(x(peak.peak), width - 2), 0, 2, height);
-      }
-      const text = formatLevel(peak.level);
-      if (readout && text !== lastText) {
-        readout.textContent = text;
-        lastText = text;
+        context.fillRect(tick, 0, 2, height);
       }
     });
   });

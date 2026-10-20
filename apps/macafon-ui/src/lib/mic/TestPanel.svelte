@@ -6,7 +6,7 @@
   import { Circle, Headphones, Play, Square } from '@lucide/svelte';
   import Toggle from '../components/Toggle.svelte';
   import { daemon } from '../state';
-  import { cssVar, fitCanvas, onFrame } from '../state/frame';
+  import { cssVar, drawEveryFrame, type FrameCanvas } from '../state/frame';
   import { formatMs } from '../dsp/format';
   import { t } from '../i18n';
   import type { AbWaveform } from '../ipc/protocol';
@@ -93,34 +93,41 @@
       }
     };
     window.addEventListener('keydown', onkey);
-    const stop = onFrame(() => drawWaveform());
+    const colors = {
+      line: cssVar(canvas!, '--line'),
+      danger: cssVar(canvas!, '--danger'),
+      a: cssVar(canvas!, '--muted'),
+      b: cssVar(canvas!, '--accent-ink'),
+      head: cssVar(canvas!, '--ink-strong'),
+    };
+    const stop = drawEveryFrame(canvas!, (surface) => drawWaveform(surface, colors));
     return () => {
       window.removeEventListener('keydown', onkey);
       stop();
     };
   });
 
-  function drawWaveform() {
-    if (!canvas) return;
-    const context = fitCanvas(canvas);
-    if (!context) return;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
-    context.clearRect(0, 0, w, h);
-    const mid = h / 2;
-    const line = cssVar(canvas, '--line');
-    context.fillStyle = line;
-    context.fillRect(0, Math.round(mid), w, 1);
+  /** Redrawn only when the recording, the clip, the side or the playhead pixel changes. */
+  function drawWaveform(surface: FrameCanvas, colors: Record<'line' | 'danger' | 'a' | 'b' | 'head', string>) {
+    const { width: w, height: h } = surface;
     const state = daemon.ab;
-    if (state?.recording) {
-      const progress = state.recording.elapsed_ms / state.recording.max_ms;
-      context.fillStyle = cssVar(canvas, '--danger');
+    const recording = state?.recording;
+    const shown = !recording && waveform && state?.clip_ms ? waveform : null;
+    const progress = recording ? Math.round((recording.elapsed_ms / recording.max_ms) * w) : -1;
+    const head = shown && state ? Math.round((state.position_ms / state.clip_ms!) * w) : -1;
+    const context = surface.begin(`${progress}|${shown ? waveformId(shown) : 0}|${state?.side}|${head}`);
+    if (!context) return;
+    const mid = h / 2;
+    context.fillStyle = colors.line;
+    context.fillRect(0, Math.round(mid), w, 1);
+    if (recording) {
+      context.fillStyle = colors.danger;
       context.globalAlpha = 0.5;
-      context.fillRect(0, mid - 1, progress * w, 2);
+      context.fillRect(0, mid - 1, progress, 2);
       context.globalAlpha = 1;
       return;
     }
-    if (!waveform || !state?.clip_ms) return;
+    if (!shown || !state) return;
     const draw = (values: number[], color: string, alpha: number) => {
       context.fillStyle = color;
       context.globalAlpha = alpha;
@@ -130,20 +137,26 @@
         context.fillRect(i * step, mid - half, Math.max(1, step - 1), half * 2);
       });
     };
-    const a = cssVar(canvas, '--muted');
-    const b = cssVar(canvas, '--accent-ink');
     // The selected side is drawn on top at full strength.
     if (state.side === 'a') {
-      draw(waveform.b, b, 0.25);
-      draw(waveform.a, a, 0.8);
+      draw(shown.b, colors.b, 0.25);
+      draw(shown.a, colors.a, 0.8);
     } else {
-      draw(waveform.a, a, 0.25);
-      draw(waveform.b, b, 0.8);
+      draw(shown.a, colors.a, 0.25);
+      draw(shown.b, colors.b, 0.8);
     }
     context.globalAlpha = 1;
-    const x = (state.position_ms / state.clip_ms) * w;
-    context.fillStyle = cssVar(canvas, '--ink-strong');
-    context.fillRect(Math.round(x), 0, 1, h);
+    context.fillStyle = colors.head;
+    context.fillRect(head, 0, 1, h);
+  }
+
+  /** A stable number per waveform object, so a new one is drawn once. */
+  const waveformIds = new WeakMap<AbWaveform, number>();
+  let nextWaveformId = 1;
+  function waveformId(value: AbWaveform): number {
+    let id = waveformIds.get(value);
+    if (id === undefined) waveformIds.set(value, (id = nextWaveformId++));
+    return id;
   }
 
   function seek(event: MouseEvent) {

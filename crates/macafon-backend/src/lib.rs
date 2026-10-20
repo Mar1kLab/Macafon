@@ -220,6 +220,11 @@ pub trait MixerHost {
     fn app_volume_changed(&mut self, _stream: &PlaybackStream, _volume_pct: f32) {}
     /// Linear peaks of apps since the last call, by [`PlaybackStream::id`] (WIN-CH-004).
     fn stream_peaks(&mut self, _peaks: &[(u32, f32)]) {}
+    /// A fader or mute changed since the last call: volume groups write it right away
+    /// instead of on the next poll, so a held volume key moves the sound smoothly.
+    fn take_mix_changed(&mut self) -> bool {
+        false
+    }
 }
 
 /// The daemon side of the microphone and the mixer, driven on the backend's control loop.

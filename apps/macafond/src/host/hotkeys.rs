@@ -10,17 +10,34 @@ use macafon_ipc::{
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-const REPEAT_DELAY: Duration = Duration::from_millis(400);
-const REPEAT_INTERVAL: Duration = Duration::from_millis(50);
+/// A held volume key waits this long after its first step before it starts moving.
+const HOLD_DELAY: Duration = Duration::from_millis(350);
+/// While held, the volume moves on a steady frame clock; each frame adds the distance the
+/// eased speed covers since the previous one, so late or uneven frames never change the speed.
+const HOLD_FRAME: Duration = Duration::from_millis(30);
+/// A stalled control loop resumes from here instead of catching up in one jump.
+const HOLD_MAX_GAP: f32 = 0.1;
+/// Speed in steps per second: it starts here and eases up to `HOLD_FAST` over `HOLD_RAMP_S`.
+const HOLD_SLOW: f32 = 8.0;
+pub(super) const HOLD_FAST: f32 = 40.0;
+const HOLD_RAMP_S: f32 = 1.6;
 
 struct VolumeHold {
-    started: Instant,
+    /// When the held motion starts (after `HOLD_DELAY`).
+    moving_from: Instant,
+    /// Seconds of motion already applied.
+    applied_s: f32,
     next: Instant,
 }
 
-/// Multiplier of the configured step: a short hold stays precise, then ramps to 4x.
-fn volume_acceleration(held: Duration) -> f32 {
-    1.0 + 3.0 * ((held.as_secs_f32() - 0.5) / 1.5).clamp(0.0, 1.0)
+/// Steps travelled after `moving_s` seconds of motion: the integral of a speed that eases
+/// from `HOLD_SLOW` to `HOLD_FAST` along a smoothstep, so the acceleration has no corners.
+fn hold_distance(moving_s: f32) -> f32 {
+    let moving_s = moving_s.max(0.0);
+    let p = (moving_s / HOLD_RAMP_S).min(1.0);
+    let ramp = HOLD_RAMP_S * (p * p * p - 0.5 * p * p * p * p);
+    let after = (moving_s - HOLD_RAMP_S).max(0.0);
+    HOLD_SLOW * moving_s + (HOLD_FAST - HOLD_SLOW) * (ramp + after)
 }
 
 #[cfg(test)]
@@ -28,16 +45,18 @@ mod acceleration_tests {
     use super::*;
 
     #[test]
-    fn hold_stays_precise_then_ramps_and_caps() {
-        for (ms, expected) in [
-            (0, 1.0),
-            (400, 1.0),
-            (500, 1.0),
-            (1250, 2.5),
-            (2000, 4.0),
-            (10000, 4.0),
-        ] {
-            assert!((volume_acceleration(Duration::from_millis(ms)) - expected).abs() < 0.0001);
+    fn held_speed_eases_from_slow_to_fast_without_jumps() {
+        let speed = |t: f32| (hold_distance(t + 0.005) - hold_distance(t - 0.005)) / 0.01;
+        assert!((speed(0.005) - HOLD_SLOW).abs() < 0.1);
+        assert!((speed(HOLD_RAMP_S / 2.0) - (HOLD_SLOW + HOLD_FAST) / 2.0).abs() < 0.1);
+        assert!((speed(HOLD_RAMP_S + 1.0) - HOLD_FAST).abs() < 0.1);
+        // Monotonic speed with a bounded change per 10 ms: no steps in the ramp.
+        let mut previous = speed(0.005);
+        for ms in (15..3000).step_by(10) {
+            let now = speed(ms as f32 / 1000.0);
+            assert!(now + 0.02 >= previous, "slows down at {ms} ms");
+            assert!(now - previous < 0.5, "jump at {ms} ms");
+            previous = now;
         }
     }
 }
@@ -279,19 +298,21 @@ impl DaemonHost {
                 if now < hold.next {
                     return None;
                 }
-                // Skip missed ticks rather than producing a burst after a stalled control loop.
-                let late_ns = now.duration_since(hold.next).as_nanos() % REPEAT_INTERVAL.as_nanos();
-                hold.next = now - Duration::from_nanos(late_ns as u64) + REPEAT_INTERVAL;
-                Some((
-                    binding.clone(),
-                    volume_acceleration(now.saturating_duration_since(hold.started)),
-                ))
+                hold.next = now + HOLD_FRAME;
+                let moving_s = now
+                    .saturating_duration_since(hold.moving_from)
+                    .as_secs_f32();
+                // Skip a stall rather than producing a burst after it.
+                let from_s = hold.applied_s.max(moving_s - HOLD_MAX_GAP);
+                hold.applied_s = moving_s;
+                let steps = hold_distance(moving_s) - hold_distance(from_s);
+                (steps > 0.0).then(|| (binding.clone(), steps))
             })
             .collect();
         self.volume_repeats.schedule();
-        for (binding, acceleration) in due {
+        for (binding, steps) in due {
             if let Some(action) = HotkeyAction::parse(base_action(&binding)) {
-                self.apply_hotkey(action, true, 0.5 * acceleration);
+                self.apply_hotkey(action, true, steps);
             }
         }
     }
@@ -328,8 +349,9 @@ impl DaemonHost {
                 self.volume_repeats.0.entry(binding.clone())
             {
                 entry.insert(VolumeHold {
-                    started: now,
-                    next: now + REPEAT_DELAY,
+                    moving_from: now + HOLD_DELAY,
+                    applied_s: 0.0,
+                    next: now + HOLD_DELAY + HOLD_FRAME,
                 });
                 self.volume_repeats.schedule();
             } else {

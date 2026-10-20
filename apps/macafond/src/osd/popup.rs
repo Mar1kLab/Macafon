@@ -437,8 +437,13 @@ impl Popup {
             } => {
                 let target = (volume_pct / 100.0).clamp(0.0, 1.0);
                 // Pressing on at a limit stretches the slider like Android's overscroll.
+                // A held key keeps pushing: the push is held steady, not added up per update.
                 if same && target == self.level.target && (target == 0.0 || target == 1.0) {
-                    self.stretch.velocity += if target == 1.0 { KICK } else { -KICK };
+                    self.stretch.velocity = if target == 1.0 {
+                        self.stretch.velocity.max(KICK)
+                    } else {
+                        self.stretch.velocity.min(-KICK)
+                    };
                 }
                 if same {
                     self.level.target = target;

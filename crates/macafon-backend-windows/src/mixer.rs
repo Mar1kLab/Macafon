@@ -1,6 +1,7 @@
 //! Windows application volume groups. All COM ownership and disk I/O stay on one MTA
-//! worker. Callers need no COM apartment. Commands are synchronous; events contain no COM
-//! interfaces. One watcher must own a state directory at a time.
+//! worker. Callers need no COM apartment. Commands are synchronous except `set_app`, which
+//! is queued and coalesced so a held volume key never waits for COM or the disk; events
+//! contain no COM interfaces. One watcher must own a state directory at a time.
 use crate::devices::{device_id, enumerator};
 use crate::mixer_journal::{Journal, Key, SessionStore, StoredSession, Value};
 use crate::{ComGuard, Error};
@@ -102,6 +103,11 @@ pub enum MixerEvent {
         muted: bool,
     },
     Error(String),
+    /// Queued faders for this app could not be written; the caller may send them again.
+    SetFailed {
+        exe: String,
+        message: String,
+    },
     /// A session of an app without settings got the new-app faders (`set_new_app`) the moment
     /// it appeared; the caller corrects or restores it once the app is classified.
     NewAppDefaulted {
@@ -121,7 +127,7 @@ enum Command {
     ),
     Apps(Sender<Result<Vec<App>, Error>>),
     Peaks(Sender<Result<Vec<OutputPeak>, Error>>),
-    Set(String, MixSettings, Sender<Result<(), Error>>),
+    Set(String, MixSettings),
     NewApp(Option<MixSettings>, Sender<Result<(), Error>>),
     RestoreApp(String, Sender<Result<(), Error>>),
     Restore(Sender<Result<(), Error>>),
@@ -192,8 +198,11 @@ impl SessionWatcher {
     }
     /// Remember and apply all faders/mutes to every session of this executable, including
     /// future sessions. Group/channel membership remains the caller's responsibility.
+    /// Queued: a failure arrives as [`MixerEvent::SetFailed`].
     pub fn set_app(&self, exe: &str, settings: MixSettings) -> Result<(), Error> {
-        self.request(|reply| Command::Set(exe.to_lowercase(), settings, reply))
+        self.commands
+            .send(Command::Set(exe.to_lowercase(), settings))
+            .map_err(|e| Error::Thread(e.to_string()))
     }
     /// Faders for sessions of apps that have no settings yet — the default channel — applied
     /// on the worker as the session appears, so a new app's first sound is not played at full
@@ -448,57 +457,94 @@ impl Worker {
         }
     }
 
-    fn apply(
+    /// Write faders to sessions: every change is journaled first, in one durable write,
+    /// then set. Returns the instances that failed.
+    fn apply_all(
         &mut self,
-        instance: &str,
-        settings: MixSettings,
+        targets: &[(String, MixSettings)],
         journal: &mut Journal,
-    ) -> Result<(), Error> {
-        let session = self
-            .sessions
-            .iter()
-            .find(|s| s.instance == instance)
-            .ok_or_else(|| Error::DeviceNotFound(instance.into()))?;
-        // SAFETY: these are live session interfaces on their owning MTA worker.
-        unsafe {
-            let previous = Value {
-                volume: session.volume.GetMasterVolume()?,
-                muted: session.volume.GetMute()?.as_bool(),
+    ) -> Vec<(String, Error)> {
+        let mut failed = Vec::new();
+        let mut writes = Vec::new();
+        for (instance, settings) in targets {
+            let Some(index) = self.sessions.iter().position(|s| &s.instance == instance) else {
+                failed.push((instance.clone(), Error::DeviceNotFound(instance.clone())));
+                continue;
+            };
+            let session = &self.sessions[index];
+            // SAFETY: these are live session interfaces on their owning MTA worker.
+            let previous = unsafe {
+                session.volume.GetMasterVolume().and_then(|volume| {
+                    Ok(Value {
+                        volume,
+                        muted: session.volume.GetMute()?.as_bool(),
+                    })
+                })
+            };
+            let previous = match previous {
+                Ok(previous) => previous,
+                Err(error) => {
+                    failed.push((instance.clone(), error.into()));
+                    continue;
+                }
             };
             let target = Value {
                 volume: session_volume(settings.channel_pct, settings.app_pct, settings.master_pct),
                 muted: settings.channel_muted || settings.app_muted || settings.master_muted,
             };
             if previous == target {
-                return Ok(());
+                continue;
             }
-            // Journal each property separately, so a partial COM failure remains recoverable.
-            let mut recorded = StoredSession {
-                key: session.key.clone(),
-                instance: instance.into(),
-                value: previous,
+            journal.record(
+                &StoredSession {
+                    key: session.key.clone(),
+                    instance: instance.clone(),
+                    value: previous,
+                },
+                target,
+            );
+            writes.push((index, previous, target));
+        }
+        // Write-ahead: nothing is set unless its recovery record is on disk.
+        if let Err(error) = journal.commit() {
+            let message = error.to_string();
+            failed.extend(writes.into_iter().map(|(index, ..)| {
+                (
+                    self.sessions[index].instance.clone(),
+                    Error::Journal(message.clone()),
+                )
+            }));
+            return failed;
+        }
+        for (index, previous, target) in writes {
+            let session = &self.sessions[index];
+            // SAFETY: live session interfaces on their owning MTA worker.
+            let result = unsafe {
+                (if previous.volume != target.volume {
+                    session.volume.SetMasterVolume(target.volume, &CONTEXT)
+                } else {
+                    Ok(())
+                })
+                .and_then(|()| {
+                    if previous.muted != target.muted {
+                        session.volume.SetMute(target.muted, &CONTEXT)
+                    } else {
+                        Ok(())
+                    }
+                })
             };
-            if previous.volume != target.volume {
-                let intermediate = Value {
-                    volume: target.volume,
-                    ..previous
-                };
-                journal.record(&recorded, intermediate)?;
-                session.volume.SetMasterVolume(target.volume, &CONTEXT)?;
-                recorded.value = intermediate;
-            }
-            if previous.muted != target.muted {
-                journal.record(&recorded, target)?;
-                session.volume.SetMute(target.muted, &CONTEXT)?;
+            if let Err(error) = result {
+                failed.push((session.instance.clone(), error.into()));
             }
         }
-        Ok(())
+        failed
     }
 
     /// Apply the remembered settings to new sessions; a failed one is retried on the next
     /// refresh instead of being taken for an existing, already handled session.
     fn apply_new(&mut self, journal: &mut Journal) -> Result<(), Error> {
-        let mut first_error = None;
+        let mut targets = Vec::new();
+        let mut defaulted = Vec::new();
         for instance in std::mem::take(&mut self.unapplied) {
             let Some(exe) = self
                 .sessions
@@ -508,23 +554,28 @@ impl Worker {
             else {
                 continue; // Gone.
             };
-            let (settings, defaulted) = match self.settings.get(&exe) {
-                Some(settings) => (*settings, false),
+            let settings = match self.settings.get(&exe) {
+                Some(settings) => *settings,
                 None => match self.new_app.filter(|_| !self.released.contains(&exe)) {
-                    Some(settings) => (settings, true),
+                    Some(settings) => {
+                        defaulted.push((instance.clone(), exe));
+                        settings
+                    }
                     None => continue, // Unmanaged.
                 },
             };
-            match self.apply(&instance, settings, journal) {
-                Ok(()) if defaulted => {
-                    let _ = self.events.send(MixerEvent::NewAppDefaulted { exe });
-                }
-                Ok(()) => {}
-                Err(error) => {
-                    self.unapplied.push(instance);
-                    first_error.get_or_insert(error);
-                }
+            targets.push((instance, settings));
+        }
+        let failed = self.apply_all(&targets, journal);
+        for (instance, exe) in defaulted {
+            if !failed.iter().any(|(bad, _)| *bad == instance) {
+                let _ = self.events.send(MixerEvent::NewAppDefaulted { exe });
             }
+        }
+        let mut first_error = None;
+        for (instance, error) in failed {
+            self.unapplied.push(instance);
+            first_error.get_or_insert(error);
         }
         first_error.map_or(Ok(()), Err)
     }
@@ -585,7 +636,24 @@ impl Worker {
                 }
                 let _ = self.events.send(MixerEvent::AppsChanged);
             }
-            match commands.recv_timeout(Duration::from_millis(20)) {
+            // Queued faders: a held key sends one per frame and app; only the latest per app
+            // is written, in one journal write, before whatever command came after them.
+            let mut received = commands.recv_timeout(Duration::from_millis(20));
+            let mut sets: Vec<(String, MixSettings)> = Vec::new();
+            while let Ok(Command::Set(exe, settings)) = received {
+                match sets.iter_mut().find(|(known, _)| *known == exe) {
+                    Some(set) => set.1 = settings,
+                    None => sets.push((exe, settings)),
+                }
+                received = commands.try_recv().map_err(|error| match error {
+                    mpsc::TryRecvError::Empty => mpsc::RecvTimeoutError::Timeout,
+                    mpsc::TryRecvError::Disconnected => mpsc::RecvTimeoutError::Disconnected,
+                });
+            }
+            if !sets.is_empty() {
+                self.set_apps(sets, journal);
+            }
+            match received {
                 Ok(Command::Master(value, reply)) => {
                     let _ = reply.send(endpoint_master(value));
                 }
@@ -614,24 +682,6 @@ impl Worker {
                     self.new_app = settings;
                     let _ = reply.send(Ok(()));
                 }
-                Ok(Command::Set(exe, settings, reply)) => {
-                    self.external_changes();
-                    self.released.remove(&exe);
-                    self.settings.insert(exe.clone(), settings);
-                    let instances: Vec<_> = self
-                        .sessions
-                        .iter()
-                        .filter(|s| s.key.exe == exe)
-                        .map(|s| s.instance.clone())
-                        .collect();
-                    let mut result = Ok(());
-                    for instance in instances {
-                        if let Err(e) = self.apply(&instance, settings, journal) {
-                            result = Err(e);
-                        }
-                    }
-                    let _ = reply.send(result);
-                }
                 Ok(Command::RestoreApp(exe, reply)) => {
                     self.settings.remove(&exe);
                     self.released.insert(exe.clone());
@@ -652,7 +702,35 @@ impl Worker {
                     }
                     break;
                 }
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                // Sets were drained above.
+                Ok(Command::Set(..)) | Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+        }
+    }
+
+    fn set_apps(&mut self, sets: Vec<(String, MixSettings)>, journal: &mut Journal) {
+        self.external_changes();
+        let mut targets = Vec::new();
+        for (exe, settings) in &sets {
+            self.released.remove(exe);
+            self.settings.insert(exe.clone(), *settings);
+            targets.extend(
+                self.sessions
+                    .iter()
+                    .filter(|s| &s.key.exe == exe)
+                    .map(|s| (s.instance.clone(), *settings)),
+            );
+        }
+        let failed = self.apply_all(&targets, journal);
+        for (exe, _) in sets {
+            let message = failed.iter().find_map(|(instance, error)| {
+                self.sessions
+                    .iter()
+                    .any(|s| &s.instance == instance && s.key.exe == exe)
+                    .then(|| error.to_string())
+            });
+            if let Some(message) = message {
+                let _ = self.events.send(MixerEvent::SetFailed { exe, message });
             }
         }
     }

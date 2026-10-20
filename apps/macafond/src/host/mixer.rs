@@ -43,20 +43,39 @@ impl DaemonHost {
                 self.mixer.rename(channel);
             }
         }
-        if config != self.config {
+        // Held volume keys land here many times a second: only a change is passed on, and
+        // the hotkey actions (named after the channels) only when the channel list changes.
+        let channels_changed = !config
+            .mixer
+            .channels
+            .iter()
+            .map(|channel| (&channel.id, &channel.name))
+            .eq(self
+                .config
+                .mixer
+                .channels
+                .iter()
+                .map(|channel| (&channel.id, &channel.name)));
+        let changed = config != self.config;
+        if changed {
             self.config = config;
             self.changed_at = Some(Instant::now());
+            self.mix_changed = true;
         }
         if was_enabled && !self.config.mixer.enabled {
             // Give the default output back while the channels still exist (OUT-005).
             self.mixer.restore_default_sink();
         }
         self.mixer_telemetry_changed();
-        self.update_tray();
-        self.rebind_hotkeys();
-        self.hotkeys_changed();
         let state = self.mixer_state();
-        self.hub.broadcast(&Event::MixerChanged(state.clone()));
+        if changed {
+            self.update_tray();
+            if channels_changed {
+                self.rebind_hotkeys();
+                self.hotkeys_changed();
+            }
+            self.hub.broadcast(&Event::MixerChanged(state.clone()));
+        }
         serde_json::to_value(state)
             .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))
     }

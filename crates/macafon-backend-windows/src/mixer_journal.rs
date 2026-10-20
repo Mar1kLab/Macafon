@@ -52,6 +52,8 @@ impl Entry {
 pub(crate) struct Journal {
     path: PathBuf,
     entries: Vec<Entry>,
+    /// Records not on disk yet: `commit` writes them before their COM writes.
+    dirty: bool,
 }
 
 impl Journal {
@@ -66,10 +68,15 @@ impl Journal {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(error(e)),
         };
-        Ok(Self { path, entries })
+        Ok(Self {
+            path,
+            entries,
+            dirty: false,
+        })
     }
 
-    pub fn record(&mut self, session: &StoredSession, ours: Value) -> Result<(), Error> {
+    /// Note the value about to be written to `session`; `commit` makes it durable.
+    pub fn record(&mut self, session: &StoredSession, ours: Value) {
         if let Some(entry) = self
             .entries
             .iter_mut()
@@ -90,7 +97,15 @@ impl Journal {
                 pending: None,
             });
         }
-        self.save()
+        self.dirty = true;
+    }
+
+    /// Write the records noted since the last write, once for a whole batch of sessions.
+    pub fn commit(&mut self) -> Result<(), Error> {
+        if self.dirty {
+            self.save()?;
+        }
+        Ok(())
     }
 
     pub fn restore(&mut self, store: &mut impl SessionStore) -> Result<(), Error> {
@@ -152,11 +167,17 @@ impl Journal {
         self.save()
     }
 
-    fn save(&self) -> Result<(), Error> {
+    fn save(&mut self) -> Result<(), Error> {
         if self.entries.is_empty() {
             return match std::fs::remove_file(&self.path) {
-                Ok(()) => Ok(()),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Ok(()) => {
+                    self.dirty = false;
+                    Ok(())
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    self.dirty = false;
+                    Ok(())
+                }
                 Err(e) => Err(error(e)),
             };
         }
@@ -165,10 +186,14 @@ impl Journal {
         }
         let temporary = self.path.with_extension("json.tmp");
         let mut file = std::fs::File::create(&temporary).map_err(error)?;
-        serde_json::to_writer_pretty(&mut file, &self.entries).map_err(error)?;
+        // Compact: rewritten for every batch of volume changes while a key is held.
+        let bytes = serde_json::to_vec(&self.entries).map_err(error)?;
+        std::io::Write::write_all(&mut file, &bytes).map_err(error)?;
         file.sync_all().map_err(error)?;
         drop(file);
-        std::fs::rename(temporary, &self.path).map_err(error)
+        std::fs::rename(temporary, &self.path).map_err(error)?;
+        self.dirty = false;
+        Ok(())
     }
 }
 
@@ -225,7 +250,8 @@ mod tests {
         );
         let mut journal = Journal::open(&dir).expect("journal");
         for session in &mut store.0 {
-            journal.record(session, ours).expect("record");
+            journal.record(session, ours);
+            journal.commit().expect("record");
             session.value = ours;
         }
         journal
@@ -236,7 +262,8 @@ mod tests {
         assert_eq!(journal.pending(), 1);
 
         // Re-managing starts a new journal entry from the restored session value.
-        journal.record(&store.0[0], ours).expect("manage again");
+        journal.record(&store.0[0], ours);
+        journal.commit().expect("manage again");
         store.0[0].value = ours;
         // A subsequent external volume change must survive; our mute is restored.
         store.0[0].value.volume = 0.6;
@@ -278,19 +305,17 @@ mod tests {
             value: original,
         }]);
         let mut journal = Journal::open(&dir).expect("open");
-        journal
-            .record(&store.0[0], ours)
-            .expect("record before mutation");
+        journal.record(&store.0[0], ours);
+        journal.commit().expect("record before mutation");
         store.0[0].value = ours;
-        journal
-            .record(
-                &store.0[0],
-                Value {
-                    volume: 0.25,
-                    ..ours
-                },
-            )
-            .expect("second change");
+        journal.record(
+            &store.0[0],
+            Value {
+                volume: 0.25,
+                ..ours
+            },
+        );
+        journal.commit().expect("second change");
         store.0[0].instance = "new-pid".into();
         store.0[0].value = Value {
             volume: 0.6,
@@ -306,7 +331,8 @@ mod tests {
             }
         );
         store.0[0].value = original;
-        journal.record(&store.0[0], ours).expect("record");
+        journal.record(&store.0[0], ours);
+        journal.commit().expect("record");
         store.0[0].value = ours;
         let missing = store.0.pop().expect("session");
         journal.restore(&mut store).expect("absent");
@@ -337,14 +363,16 @@ mod tests {
             value: original,
         }]);
         let mut journal = Journal::open(&dir).expect("journal");
-        journal.record(&store.0[0], first).expect("first");
+        journal.record(&store.0[0], first);
+        journal.commit().expect("first");
         store.0[0].value = first;
         // The second write is journaled, then SetMasterVolume fails or the daemon crashes.
         let second = Value {
             volume: 0.25,
             ..first
         };
-        journal.record(&store.0[0], second).expect("second");
+        journal.record(&store.0[0], second);
+        journal.commit().expect("second");
         let mut journal = Journal::open(&dir).expect("restart");
         journal.restore(&mut store).expect("restore");
         assert_eq!(store.0[0].value, original);

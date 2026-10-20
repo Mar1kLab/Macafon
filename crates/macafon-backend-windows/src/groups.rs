@@ -110,6 +110,11 @@ impl VolumeGroups {
                     }
                 }
                 MixerEvent::Error(message) => tracing::warn!(%message, "App volumes"),
+                MixerEvent::SetFailed { exe, message } => {
+                    tracing::warn!(%message, app = %exe, "Cannot set app volume");
+                    // Sent again on the next tick.
+                    self.applied.remove(&exe);
+                }
                 MixerEvent::RecoveryPending { sessions } => {
                     tracing::info!(sessions, "App volumes to restore when their apps return");
                 }
@@ -135,9 +140,32 @@ impl VolumeGroups {
             Ok(apps) => self.apps_changed(host, apps),
             Err(error) => tracing::debug!(%error, "Cannot list app sessions"),
         }
-        if !enabled {
-            return;
+        if enabled {
+            self.apply_apps(watcher, host);
         }
+    }
+
+    /// The faders just changed (a held volume key): write them now, not on the next tick.
+    pub fn apply_mix<H: MixerHost>(&mut self, host: &mut H) {
+        let Some(watcher) = self.watcher.take() else {
+            return;
+        };
+        if let Some(previous) = &self.master {
+            let desired = host.master_volume();
+            if (desired.0 - previous.1).abs() > 0.001 || desired.1 != previous.2 {
+                match watcher.master(Some(desired)) {
+                    Ok(actual) => self.master = Some(actual),
+                    Err(error) => tracing::warn!(%error, "Cannot set system volume"),
+                }
+            }
+        }
+        if self.enabled && host.mixer_enabled() {
+            self.apply_apps(&watcher, host);
+        }
+        self.watcher = Some(watcher);
+    }
+
+    fn apply_apps<H: MixerHost>(&mut self, watcher: &SessionWatcher, host: &H) {
         for (exe, stream) in &self.streams {
             let Some(mix) = host.app_mix(stream) else {
                 if self.applied.contains_key(exe) {

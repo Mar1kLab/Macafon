@@ -156,6 +156,11 @@ impl LoopState {
                     if host.quit_requested() {
                         break;
                     }
+                    if host.take_mix_changed() {
+                        if let Some(groups) = &mut self.groups {
+                            groups.apply_mix(&mut *host);
+                        }
+                    }
                     continue;
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}

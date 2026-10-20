@@ -61,6 +61,8 @@ pub struct DaemonHost {
     store: Option<Store>,
     presets: PresetStore,
     changed_at: Option<Instant>,
+    /// The mixer configuration changed since the backend last asked (`take_mix_changed`).
+    mix_changed: bool,
     control: Option<MicControl>,
     telemetry: Arc<Telemetry>,
     inputs: Vec<Device>,
@@ -126,6 +128,7 @@ impl DaemonHost {
             store,
             presets,
             changed_at: None,
+            mix_changed: false,
             control: None,
             telemetry: hub.telemetry(),
             #[cfg(windows)]
@@ -357,6 +360,10 @@ impl MixerHost for DaemonHost {
 
     fn stream_peaks(&mut self, peaks: &[(u32, f32)]) {
         self.mixer.stream_peaks(&self.config, peaks);
+    }
+
+    fn take_mix_changed(&mut self) -> bool {
+        std::mem::take(&mut self.mix_changed)
     }
 }
 
@@ -825,32 +832,45 @@ mod tests {
         );
         let now = Instant::now();
         let at = |ms| now + Duration::from_millis(ms);
+        let volume = |host: &DaemonHost| host.config.mixer.channels[0].settings.volume_pct;
+        let close = |a: f32, b: f32| (a - b).abs() < 0.01;
         host.hotkey_at("channel_volume_up.main", true, at(0));
         host.hotkey_at("channel_volume_up.main", true, at(100));
-        host.repeat_hotkeys(at(399));
-        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 53.0);
-        host.repeat_hotkeys(at(400));
-        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 54.5);
-        host.repeat_hotkeys(at(449));
-        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 54.5);
-        host.repeat_hotkeys(at(450));
-        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 56.0);
-        host.hotkey_at("channel_volume_down.main#secondary", true, at(450));
-        host.hotkey_at("channel_volume_up.main", false, at(510));
-        host.repeat_hotkeys(at(875));
-        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 51.5);
-        host.repeat_hotkeys(at(899));
-        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 51.5);
-        host.repeat_hotkeys(at(900));
-        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 50.0);
-        host.hotkey_at("channel_volume_down.main#secondary", false, at(901));
+        host.repeat_hotkeys(at(379));
+        assert_eq!(volume(&host), 53.0, "a tap is one precise step");
+        host.repeat_hotkeys(at(380));
+        let first = volume(&host);
+        assert!(
+            first > 53.0 && first < 54.0,
+            "the hold starts slowly: {first}"
+        );
+        // Steady frames for a while: the speed eases up, never jumps.
+        let mut last_delta = first - 53.0;
+        for frame in 1..=100 {
+            let before = volume(&host);
+            host.repeat_hotkeys(at(380 + frame * 30));
+            let delta = volume(&host) - before;
+            if before < 100.0 && volume(&host) < 100.0 {
+                assert!(delta + 1e-3 >= last_delta, "accelerates at frame {frame}");
+                assert!(delta - last_delta < 0.2, "smooth at frame {frame}");
+                last_delta = delta;
+            }
+        }
+        assert_eq!(volume(&host), 100.0);
+        host.hotkey_at("channel_volume_up.main", false, at(3500));
+        host.repeat_hotkeys(at(4000));
+        assert_eq!(volume(&host), 100.0, "release stops the motion");
+        host.hotkey_at("channel_volume_down.main#secondary", true, at(5000));
+        assert_eq!(volume(&host), 97.0);
+        host.hotkey_at("channel_volume_down.main#secondary", false, at(5100));
         host.repeat_hotkeys(at(10000));
-        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 50.0);
+        assert_eq!(volume(&host), 97.0);
         host.hotkey_at("master_volume_up#secondary", true, at(11000));
         host.repeat_hotkeys(at(16000));
-        assert_eq!(
-            host.config.mixer.master_volume_pct, 59.0,
-            "no catch-up burst after a stall"
+        let master = host.config.mixer.master_volume_pct;
+        assert!(
+            close(master, 53.0 + 3.0 * super::hotkeys::HOLD_FAST * 0.1),
+            "no catch-up burst after a stall: {master}"
         );
         host.hotkey_at("master_volume_up#secondary", false, at(16001));
         host.hotkey_at("mic_mute_toggle", true, at(17000));
@@ -858,6 +878,7 @@ mod tests {
         assert!(host.config.mic.chain.muted, "toggles do not repeat");
         let (service, _bindings) = crate::hotkeys::Hotkeys::fake();
         host.hotkeys = Some(service);
+        host.config.mixer.channels[0].settings.volume_pct = 50.0;
         host.hotkey_at("channel_volume_up.main", true, at(21000));
         host.rebind_hotkeys();
         host.repeat_hotkeys(at(22000));

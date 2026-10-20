@@ -113,7 +113,11 @@ export type Request = { "method": "output_controls.list" } | { "method": "output
 /**
  * The whole popup setup; the daemon shows a sample popup with it.
  */
-osd: OsdPrefs | null, overlay?: OverlayPrefs | null, } } | { "method": "dictation.get" } | { "method": "dictation.set_prefs", "params": { patch: DictationPrefsPatch, } } | { "method": "dictation.download", "params": { model: string, } } | { "method": "dictation.cancel_download", "params": { model: string, } } | { "method": "dictation.delete_model", "params": { model: string, } } | { "method": "dictation.import_model", "params": { path: string, } } | { "method": "dictation.set_models_dir", "params": { folder: string | null, } } | { "method": "dictation.cancel_move" } | { "method": "dictation.test_start" } | { "method": "dictation.test_stop" } | { "method": "dictation.cancel" } | { "method": "dictation.history_clear" } | { "method": "dictation.reinsert", "params": { id: number, } };
+osd: OsdPrefs | null, overlay?: OverlayPrefs | null,
+/**
+ * The monitor the main window opens on; empty: where the system puts it.
+ */
+main_monitor?: string | null, } } | { "method": "dictation.get" } | { "method": "dictation.set_prefs", "params": { patch: DictationPrefsPatch, } } | { "method": "dictation.download", "params": { model: string, } } | { "method": "dictation.cancel_download", "params": { model: string, } } | { "method": "dictation.delete_model", "params": { model: string, } } | { "method": "dictation.import_model", "params": { path: string, } } | { "method": "dictation.set_models_dir", "params": { folder: string | null, } } | { "method": "dictation.cancel_move" } | { "method": "dictation.test_start" } | { "method": "dictation.test_stop" } | { "method": "dictation.cancel" } | { "method": "dictation.history_clear" } | { "method": "dictation.reinsert", "params": { id: number, } };
 
 export type ErrorCode = "bad_request" | "protocol_mismatch" | "invalid_params" | "not_found" | "already_exists" | "busy" | "internal";
 
@@ -407,9 +411,20 @@ edge: OsdEdge,
  */
 offset_pct: number, };
 
-export type OverlayPrefs = { volumes: boolean, mic_switch: boolean, processing_switch: boolean, mixer_switch: boolean, preset: boolean, output_device: boolean, mic_level: boolean, expand: OverlayExpand, placement: OverlayPlacement, };
+export type OverlayPrefs = {
+/**
+ * Off: the overlay hotkey and the tray do not open it.
+ */
+enabled: boolean,
+/**
+ * The order the overlay lays its parts out in (the layout editor in Settings); parts
+ * missing here follow in the default order.
+ */
+order: Array<OverlayItem>, volumes: boolean, mic_switch: boolean, processing_switch: boolean, mixer_switch: boolean, preset: boolean, output_device: boolean, mic_level: boolean, expand: OverlayExpand, placement: OverlayPlacement, };
 
 export type OverlayExpand = "right" | "left" | "down";
+
+export type OverlayItem = "volumes" | "mic_switch" | "processing_switch" | "mixer_switch" | "dictation" | "sounds" | "output_device" | "mic_level" | "preset";
 
 export type OverlayPlacement = "anchored" | "centered";
 
@@ -421,7 +436,11 @@ quantum_frames: number, close_action: CloseAction,
 /**
  * The hotkey popup; applies where `Capabilities::hotkey_popup` is set.
  */
-osd: OsdPrefs, overlay: OverlayPrefs, };
+osd: OsdPrefs, overlay: OverlayPrefs,
+/**
+ * The monitor the main window opens on (its system name); empty: where the system puts it.
+ */
+main_monitor: string, };
 
 export type SoundInfo = {
 /**

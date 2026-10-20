@@ -36,6 +36,7 @@ impl DaemonHost {
                 close_action,
                 osd,
                 overlay,
+                main_monitor,
             } => {
                 if let Some(step) = volume_step_pct {
                     if !(1..=20).contains(&step) {
@@ -63,6 +64,9 @@ impl DaemonHost {
                 }
                 if let Some(overlay) = overlay {
                     self.config.ui.overlay = overlay;
+                }
+                if let Some(monitor) = main_monitor {
+                    self.config.ui.main_monitor = monitor;
                 }
                 if let Some(osd) = osd {
                     self.config.ui.osd = super::hotkeys::osd_config(osd);

@@ -313,6 +313,9 @@ pub enum Request {
         osd: Option<OsdPrefs>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         overlay: Option<crate::OverlayPrefs>,
+        /// The monitor the main window opens on; empty: where the system puts it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        main_monitor: Option<String>,
     },
     /// Dictation (§8.4): state, models, history.
     #[serde(rename = "dictation.get")]

@@ -115,6 +115,8 @@ export class MockTransport implements Transport {
     osd: { primary_monitor: false, style: 'vertical', edge: 'right', offset_pct: 0, look: this.query.get('look') === 'sketch' ? 'sketch' : 'classic' },
     // `?expand=left|down`, `?placement=centered`, `?parts=all` for screenshots of the overlay setups.
     overlay: {
+      enabled: true,
+      order: ['volumes', 'mic_switch', 'processing_switch', 'mixer_switch', 'dictation', 'sounds', 'output_device', 'mic_level', 'preset'],
       volumes: true,
       mic_switch: true,
       processing_switch: true,
@@ -125,6 +127,7 @@ export class MockTransport implements Transport {
       expand: this.query.get('expand') === 'left' ? 'left' : this.query.get('expand') === 'down' ? 'down' : 'right',
       placement: this.query.get('placement') === 'centered' ? 'centered' : 'anchored',
     },
+    main_monitor: '',
   };
   private autostart: AutostartState = { enabled: true, method: this.windows ? 'windows_run' : 'systemd' };
   private shortcuts = new Map<string, string>([
@@ -570,6 +573,7 @@ export class MockTransport implements Transport {
         if (p.close_action != null) this.prefs.close_action = p.close_action as Preferences['close_action'];
         if (p.osd != null) this.prefs.osd = clone(p.osd as Preferences['osd']);
         if (p.overlay != null) this.prefs.overlay = clone(p.overlay as Preferences['overlay']);
+        if (p.main_monitor != null) this.prefs.main_monitor = String(p.main_monitor);
         this.emit({ event: 'prefs.changed', data: clone(this.prefs) });
         return clone(this.prefs);
       }

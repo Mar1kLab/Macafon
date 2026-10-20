@@ -51,6 +51,9 @@ pub struct UiConfig {
     pub hotkey_defaults: u32,
     #[serde(default = "default_volume_step")]
     pub volume_step_pct: u8,
+    /// The monitor the main window opens on (its system name); empty: the system's choice.
+    #[serde(default)]
+    pub main_monitor: String,
 }
 
 pub fn default_volume_step() -> u8 {
@@ -66,6 +69,7 @@ impl Default for UiConfig {
             overlay: Default::default(),
             hotkey_defaults: 0,
             volume_step_pct: default_volume_step(),
+            main_monitor: String::new(),
         }
     }
 }

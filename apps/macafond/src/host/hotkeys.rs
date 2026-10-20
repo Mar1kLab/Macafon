@@ -171,7 +171,8 @@ impl DaemonHost {
                 macafon_ipc::CloseAction::Tray
             },
             osd: osd_prefs(self.config.ui.osd),
-            overlay: self.config.ui.overlay,
+            overlay: self.config.ui.overlay.clone(),
+            main_monitor: self.config.ui.main_monitor.clone(),
         }
     }
 

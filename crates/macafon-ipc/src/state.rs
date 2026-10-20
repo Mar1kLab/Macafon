@@ -26,13 +26,21 @@ pub struct Preferences {
     pub osd: OsdPrefs,
     #[serde(default)]
     pub overlay: OverlayPrefs,
+    /// The monitor the main window opens on (its system name); empty: where the system puts it.
+    #[serde(default)]
+    pub main_monitor: String,
 }
 
-/// The hotkey overlay (§9.9): visible controls, expansion direction and placement.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// The hotkey overlay (§9.9): visible controls, their order, expansion direction and placement.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default)]
 pub struct OverlayPrefs {
+    /// Off: the overlay hotkey and the tray do not open it.
+    pub enabled: bool,
+    /// The order the overlay lays its parts out in (the layout editor in Settings); parts
+    /// missing here follow in the default order.
+    pub order: Vec<OverlayItem>,
     pub volumes: bool,
     pub mic_switch: bool,
     pub processing_switch: bool,
@@ -46,6 +54,8 @@ pub struct OverlayPrefs {
 impl Default for OverlayPrefs {
     fn default() -> Self {
         Self {
+            enabled: true,
+            order: OverlayItem::ALL.to_vec(),
             volumes: true,
             mic_switch: true,
             processing_switch: true,
@@ -58,6 +68,36 @@ impl Default for OverlayPrefs {
         }
     }
 }
+/// One part of the hotkey overlay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum OverlayItem {
+    Volumes,
+    MicSwitch,
+    ProcessingSwitch,
+    MixerSwitch,
+    Dictation,
+    Sounds,
+    OutputDevice,
+    MicLevel,
+    Preset,
+}
+
+impl OverlayItem {
+    pub const ALL: [Self; 9] = [
+        Self::Volumes,
+        Self::MicSwitch,
+        Self::ProcessingSwitch,
+        Self::MixerSwitch,
+        Self::Dictation,
+        Self::Sounds,
+        Self::OutputDevice,
+        Self::MicLevel,
+        Self::Preset,
+    ];
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]

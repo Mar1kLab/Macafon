@@ -59,7 +59,7 @@ pub use soundpad::{
 pub use state::{
     AbRecording, AbSide, AbState, AbWaveform, AutostartMethod, AutostartState, CalibrationFailure,
     CalibrationState, CalibrationStep, Capabilities, CloseAction, ConfigRecovery, Device,
-    DeviceKind, Hello, MicState, OsdEdge, OsdLook, OsdPrefs, OsdStyle, OverlayExpand,
+    DeviceKind, Hello, MicState, OsdEdge, OsdLook, OsdPrefs, OsdStyle, OverlayExpand, OverlayItem,
     OverlayPlacement, OverlayPrefs, Platform, PlaybackDevice, PlaybackDeviceKind, Preferences,
     PresetInfo,
 };

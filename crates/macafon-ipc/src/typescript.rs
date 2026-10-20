@@ -89,6 +89,7 @@ fn protocol() -> String {
         OsdPrefs::decl(&cfg),
         OverlayPrefs::decl(&cfg),
         OverlayExpand::decl(&cfg),
+        OverlayItem::decl(&cfg),
         OverlayPlacement::decl(&cfg),
         Preferences::decl(&cfg),
         SoundInfo::decl(&cfg),

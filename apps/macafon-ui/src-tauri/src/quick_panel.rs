@@ -84,6 +84,8 @@ pub fn prewarm(app: &AppHandle) {
     .build();
     match built {
         Ok(window) => {
+            // A hidden window's WebView2 keeps rendering until its controller is hidden too.
+            let _ = window.as_ref().hide();
             let handle = window.clone();
             window.on_window_event(move |event| {
                 if let WindowEvent::Focused(focused) = event {
@@ -147,7 +149,11 @@ pub fn toggle(app: &AppHandle, mode: Mode) {
         })
     });
     prewarm(app);
-    // The page lays itself out for `mode` and answers with `quick_panel_fit`, which shows it.
+    // Rendering resumes while the window is still hidden: the page lays itself out for
+    // `mode` and answers with `quick_panel_fit`, which shows the window.
+    if let Some(window) = app.get_webview_window(LABEL) {
+        let _ = window.as_ref().show();
+    }
     if let Err(error) = app.emit_to(LABEL, "panel://show", mode) {
         tracing::warn!(%error, "cannot show the quick panel");
     }
@@ -162,6 +168,8 @@ pub fn hide(app: &AppHandle) {
     FOCUSED.store(false, Ordering::SeqCst);
     if let Some(window) = app.get_webview_window(LABEL) {
         let _ = window.hide();
+        // Stops rendering, timers and meters of the page while nobody sees it.
+        let _ = window.as_ref().hide();
     }
 }
 

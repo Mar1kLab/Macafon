@@ -51,8 +51,9 @@ impl Entry {
 
 /// The value a session of one app had before Macafon, from what it shows now. Windows keeps
 /// an app's volume for its next sessions, so a session may start at a value Macafon set for
-/// an earlier one: follow those records back until the value is not Macafon's. `first` is
-/// tried first (the session's own record); otherwise the newest record wins.
+/// an earlier one: follow those records back until the value is not Macafon's. `entries` are
+/// oldest first; `first` is tried first (the session's own record), then the newest, and each
+/// step only goes to an older record.
 fn original(entries: &[&Entry], first: Option<usize>, current: Value) -> Value {
     fn trace<T: Copy>(
         entries: &[&Entry],
@@ -62,16 +63,16 @@ fn original(entries: &[&Entry], first: Option<usize>, current: Value) -> Value {
         previous: impl Fn(&Entry) -> T,
         same: impl Fn(T, T) -> bool,
     ) -> T {
-        let mut used = vec![false; entries.len()];
+        let mut first = first;
+        let mut older_than = entries.len();
         loop {
             let next = first
+                .take()
                 .into_iter()
-                .chain((0..entries.len()).rev())
-                .find(|&i| {
-                    !used[i] && ours(entries[i], value) && !same(previous(entries[i]), value)
-                });
+                .chain((0..older_than).rev())
+                .find(|&i| ours(entries[i], value) && !same(previous(entries[i]), value));
             let Some(i) = next else { return value };
-            used[i] = true;
+            older_than = i;
             value = previous(entries[i]);
         }
     }
@@ -109,25 +110,11 @@ impl Journal {
 
     pub fn open(state_dir: &Path) -> Result<Self, Error> {
         let path = state_dir.join("session-volumes.json");
-        let mut entries: Vec<Entry> = match std::fs::read(&path) {
+        let entries = match std::fs::read(&path) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(error)?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(error(e)),
         };
-        // Records that differ only in a long-gone session id restore the same way.
-        let mut unique: Vec<Entry> = Vec::with_capacity(entries.len());
-        for entry in entries.drain(..) {
-            let duplicate = unique.iter().any(|kept| {
-                kept.key == entry.key
-                    && kept.previous == entry.previous
-                    && kept.ours == entry.ours
-                    && kept.pending == entry.pending
-            });
-            if !duplicate {
-                unique.push(entry);
-            }
-        }
-        let entries = unique;
         Ok(Self {
             path,
             entries,
@@ -187,7 +174,8 @@ impl Journal {
     }
 
     /// Give every present session of the journaled apps its original value back, then drop
-    /// their records. Apps or endpoints that are absent keep theirs for a later start.
+    /// their records. An absent app or endpoint keeps one record for a later start: Windows
+    /// only remembers the last value Macafon set for it, the newest record's.
     fn restore_matching(
         &mut self,
         store: &mut impl SessionStore,
@@ -203,10 +191,26 @@ impl Journal {
         let mut completed = Vec::new();
         for key in keys {
             let present: Vec<_> = sessions.iter().filter(|s| s.key == key).collect();
-            if present.is_empty() {
-                continue; // An absent endpoint/app may return on the next start.
-            }
             let related: Vec<&Entry> = self.entries.iter().filter(|e| e.key == key).collect();
+            if present.is_empty() {
+                if let [older @ .., newest] = related.as_slice()
+                    && !older.is_empty()
+                {
+                    let previous = original(older, None, newest.previous);
+                    let mut left = related.len();
+                    self.entries.retain(|e| {
+                        if e.key != key {
+                            return true;
+                        }
+                        left -= 1;
+                        left == 0 // The newest record of this key is its last one.
+                    });
+                    if let Some(kept) = self.entries.iter_mut().find(|e| e.key == key) {
+                        kept.previous = previous;
+                    }
+                }
+                continue;
+            }
             for session in present {
                 let own = related.iter().position(|e| e.instance == session.instance);
                 let value = original(&related, own, session.value);
@@ -476,6 +480,42 @@ mod tests {
         store.0[0].instance = "pid-new".into();
         journal.restore(&mut store).expect("restore");
         assert_eq!(store.0[0].value, original);
+        assert_eq!(journal.pending(), 0);
+    }
+
+    #[test]
+    fn absent_app_keeps_only_its_newest_record_with_the_true_original() {
+        let dir = std::env::temp_dir().join(format!("macafon-absent-{}", std::process::id()));
+        let key = Key {
+            exe: "game.exe".into(),
+            endpoint: "speakers".into(),
+        };
+        let value = |volume| Value {
+            volume,
+            muted: false,
+        };
+        let mut journal = Journal::open(&dir).expect("journal");
+        // Three launches by an older build, each starting at the volume set for the last.
+        for (instance, previous, ours) in [("a", 1.0, 0.125), ("b", 0.125, 0.3), ("c", 0.3, 0.2)] {
+            journal.entries.push(Entry {
+                key: key.clone(),
+                instance: instance.into(),
+                previous: value(previous),
+                ours: value(ours),
+                pending: None,
+            });
+        }
+        let mut store = Fake(Vec::new());
+        journal.restore(&mut store).expect("absent");
+        assert_eq!(journal.pending(), 1);
+        store.0.push(StoredSession {
+            key,
+            instance: "d".into(),
+            value: value(0.2),
+        });
+        let mut journal = Journal::open(&dir).expect("restart");
+        journal.restore(&mut store).expect("back");
+        assert_eq!(store.0[0].value, value(1.0));
         assert_eq!(journal.pending(), 0);
     }
 }

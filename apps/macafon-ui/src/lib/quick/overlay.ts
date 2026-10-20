@@ -1,5 +1,5 @@
 // The hotkey overlay's setup (§9.9): what it shows, where side panels open, how it is placed.
-import { cubicInOut, cubicOut } from 'svelte/easing';
+import { cubicOut } from 'svelte/easing';
 import type { TransitionConfig } from 'svelte/transition';
 import type { OverlayExpand, OverlayPrefs } from '../ipc/protocol';
 
@@ -18,17 +18,14 @@ export const DEFAULT_OVERLAY: OverlayPrefs = {
   placement: 'anchored',
 };
 
-/** Reserve the final layout before revealing it. The native window grows once on entry
- * and shrinks after exit; clipping never feeds intermediate dimensions back through IPC. */
-export function reveal(node: HTMLElement, { expand, duration }: { expand: OverlayExpand; duration: number }): TransitionConfig {
-  const { width, height } = node.getBoundingClientRect();
+/** A side panel takes its whole (fixed) size at once, so the window resizes a single time,
+ * and only its content moves: it fades in sliding out of the overlay, and back. Nothing about
+ * the layout changes during the animation, so nothing inside reflows or jumps. */
+export function reveal(_node: HTMLElement, { expand, duration }: { expand: OverlayExpand; duration: number }): TransitionConfig {
+  const [x, y] = expand === 'down' ? [0, -10] : expand === 'left' ? [14, 0] : [-14, 0];
   return {
     duration,
-    easing: cubicInOut,
-    css: (t) => {
-      const hidden = (1 - t) * 100;
-      const inset = expand === 'down' ? `0 0 ${hidden}% 0` : expand === 'left' ? `0 0 0 ${hidden}%` : `0 ${hidden}% 0 0`;
-      return `width: ${width}px; height: ${height}px; overflow: hidden; clip-path: inset(${inset}); opacity: ${cubicOut(t)};`;
-    },
+    easing: cubicOut,
+    css: (t, u) => `opacity: ${t}; transform: translate(${u * x}px, ${u * y}px);`,
   };
 }

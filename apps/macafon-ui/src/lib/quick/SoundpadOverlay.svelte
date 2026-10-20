@@ -53,7 +53,8 @@
 
   /** `library`: the sounds, in the overlay's side panel; `player`: the transport and the output
    * volumes, docked along the bottom of the overlay. */
-  let { part = 'library' }: { part?: 'library' | 'player' } = $props();
+  /** `wide`: the player in one row (the overlay opens down), else in two under the list. */
+  let { part = 'library', wide = false }: { part?: 'library' | 'player'; wide?: boolean } = $props();
 
   /** Pads per page: a little more than the visible area in either view. */
   const PAGE = 60;
@@ -162,7 +163,7 @@
 </script>
 
 {#snippet player()}
-  <div class="player">
+  <div class="player" class:stack={!wide}>
     <button
       class="round"
       class:on={playback && !playback.paused}
@@ -266,7 +267,6 @@
   .dock {
     display: block;
     min-width: 0;
-    container-type: inline-size;
   }
 
   .bar {
@@ -463,9 +463,8 @@
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
-    max-height: 260px;
     min-height: 0;
-    flex: 1 1 auto;
+    flex: 1 1 0;
     grid-auto-rows: 52px;
     align-content: start;
     overflow-anchor: none;
@@ -609,25 +608,20 @@
     gap: 4px;
   }
 
-  :global(.body.down) .soundpad {
-    flex: none;
+  /* Under the list in a side column: controls, name and time; the seek bar; the two volumes. */
+  .player.stack {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
   }
 
-  :global(.body.down) .pads {
-    max-height: 112px;
-  }
+  .stack .now { width: auto; min-width: 0; grid-column: span 6; }
+  .stack .time { grid-column: span 4; justify-self: end; }
+  .stack > :global(.track) { grid-column: 1 / -1; grid-row: 2; }
+  .stack .volume { width: auto; margin-left: 0; grid-column: span 6; }
 
-  @container (max-width: 500px) {
-    .player {
-      display: grid;
-      grid-template-columns: repeat(12, minmax(0, 1fr));
-    }
-
-    .now { width: auto; min-width: 0; grid-column: span 6; }
-    .time { grid-column: span 4; }
-    .player > :global(.track) { grid-column: 1 / -1; grid-row: 2; }
-    .volume { width: auto; margin-left: 0; grid-column: span 6; }
-  }
+  /* One row: the seek bar takes what the rest leaves. */
+  .player:not(.stack) { flex-wrap: nowrap; }
+  .player:not(.stack) > :global(.track) { flex: 1; min-width: 120px; }
 
   .list .pad {
     height: 28px;

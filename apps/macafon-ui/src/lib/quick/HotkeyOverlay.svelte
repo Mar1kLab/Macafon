@@ -1,6 +1,5 @@
 <script lang="ts">
   import { AudioLines, AudioWaveform, ChevronDown, ChevronLeft, ChevronRight, Headphones, Mic, MicOff, SlidersHorizontal, Speech, Volume2, VolumeX, X } from '@lucide/svelte';
-  import { fly } from 'svelte/transition';
   import Logo from '../components/Logo.svelte';
   import LevelMeter from '../components/LevelMeter.svelte';
   import VerticalSlider from './VerticalSlider.svelte';
@@ -51,6 +50,8 @@
     }),
   );
   const rows = $derived(overlayRows(parts));
+  /** Where the Sounds column shows the player, if at all. */
+  const dock = $derived(soundpad?.prefs.overlay_controls ?? 'hidden');
   const volumesLeft = $derived(volumesFirst(parts));
 
   /** SND-006, §9.9.2: one side panel at a time, the way the overlay was last closed, across
@@ -214,20 +215,21 @@
       </div>
 
       {#if side}
-        <div class="side-reveal" transition:reveal={{ expand, duration: reduced ? 0 : 240 }}>
-          <aside class="side">
-            {#if side === 'sounds'}<SoundpadOverlay part="library" />{:else}<DictationOverlay />{/if}
+        <!-- One column with its own fixed size: the window resizes once, then the content
+             fades in; the player belongs to the Sounds column, above or under its list. -->
+        <div class="side-reveal" transition:reveal={{ expand, duration: reduced ? 0 : 200 }}>
+          <aside class="side" class:sounds={side === 'sounds'}>
+            {#if side === 'sounds'}
+              {#if dock === 'top'}<div class="dock top"><SoundpadOverlay part="player" wide={expand === 'down'} /></div>{/if}
+              <SoundpadOverlay part="library" />
+              {#if dock === 'bottom'}<div class="dock"><SoundpadOverlay part="player" wide={expand === 'down'} /></div>{/if}
+            {:else}
+              <DictationOverlay />
+            {/if}
           </aside>
         </div>
       {/if}
     </div>
-    {#if side === 'sounds' && soundpad && soundpad.prefs.overlay_controls !== 'hidden'}
-      <div class="dock-reveal" transition:reveal={{ expand: 'down', duration: reduced ? 0 : 240 }}>
-        <div class="dock" in:fly={{ y: 8, duration: reduced ? 0 : 240 }}>
-          <SoundpadOverlay part="player" />
-        </div>
-      </div>
-    {/if}
   {/if}
 </div>
 
@@ -263,8 +265,6 @@
   .body { align-items: flex-start; }
   .body.down { align-items: stretch; }
   .main { flex: none; }
-  .overlay:has(.body:not(.down)) .dock-reveal { width: 440px; margin-left: auto; }
-  .overlay:has(.body.left) .dock-reveal { margin-left: 0; }
   /* As wide as the overlay was before side panels, a little wider: the strips share it. */
   .main { display: flex; gap: 24px; min-width: 816px; }
   .main.compact { min-width: 0; }
@@ -324,10 +324,12 @@
 
   .side-reveal { flex: none; display: flex; min-width: 0; min-height: 0; }
   .body.left .side-reveal { justify-content: flex-end; }
-  .side { width: 440px; flex: none; margin-left: 24px; padding-left: 24px; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; max-height: 360px; }
+  /* Fixed sizes: what loads inside (sounds, history) scrolls instead of resizing the window. */
+  .side { width: 440px; height: 380px; flex: none; margin-left: 24px; padding-left: 24px; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
   .body.left .side { margin: 0 24px 0 0; padding: 0 24px 0 0; border-left: 0; border-right: 1px solid var(--line); }
-  .body.down .side { width: auto; flex: 1; margin: 16px 0 0; padding: 16px 0 0; border-left: 0; border-top: 1px solid var(--line); max-height: 340px; }
-  .dock { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .body.down .side { width: auto; height: 300px; flex: 1; margin: 16px 0 0; padding: 16px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+  .dock { flex: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .dock.top { margin: 0 0 12px; padding: 0 0 12px; border-top: 0; border-bottom: 1px solid var(--line); }
   .status { flex: 1; align-self: center; padding: 24px; font-size: 13px; color: var(--muted); }
   /* Sketch: the app's own look — sharp corners, HUD labels, accent marks instead of fills. */
   .sketch .round, .sketch .switch, .sketch .flag, .sketch .split .switch, .sketch .split .flag, .sketch kbd { border-radius: 0; }

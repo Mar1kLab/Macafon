@@ -11,10 +11,12 @@
     hint?: string;
     disabled?: boolean;
     layout?: 'row' | 'inline';
+    /** Options wrap onto more lines as separate chips instead of one strip (long lists). */
+    wrap?: boolean;
     extra?: Snippet;
   }
 
-  let { label, options, value, onchange, color = 'blue', hint, disabled = false, layout = 'row', extra }: Props =
+  let { label, options, value, onchange, color = 'blue', hint, disabled = false, layout = 'row', wrap = false, extra }: Props =
     $props();
 
   function onkeydown(event: KeyboardEvent) {
@@ -27,7 +29,7 @@
   }
 </script>
 
-<div class="segmented {layout}" title={hint} style:--c="var(--app-{color})" style:--c-ink="var(--app-{color}-ink)">
+<div class="segmented {layout}" class:wrap title={hint} style:--c="var(--app-{color})" style:--c-ink="var(--app-{color}-ink)">
   {#if layout === 'row'}<span class="hud-label">{label}</span>{/if}
   <div class="options" role="radiogroup" aria-label={label} tabindex="-1" {onkeydown}>
     {#each options as option (option.label)}
@@ -50,6 +52,39 @@
     grid-template-columns: 104px auto 1fr;
     align-items: center;
     gap: 10px;
+  }
+
+  .segmented.row.wrap {
+    grid-template-columns: 104px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .segmented.row.wrap > .hud-label {
+    padding-top: 5px;
+  }
+
+  .wrap .options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 0;
+    border: 0;
+    background: none;
+  }
+
+  .wrap button,
+  .wrap button + button {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border: 1px solid var(--line);
+    background: var(--bg-sunken);
+  }
+
+  .wrap button.selected {
+    border-color: var(--c);
+    background: color-mix(in srgb, var(--c) 30%, var(--bg-sunken));
   }
 
   .segmented.inline {

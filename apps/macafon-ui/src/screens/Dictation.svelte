@@ -23,10 +23,11 @@
   } from '../lib/ipc/protocol';
   import { daemon } from '../lib/state';
   import { t } from '../lib/i18n';
+  import SettingsLink from '../lib/components/SettingsLink.svelte';
+  import { nav } from '../lib/state/nav.svelte';
 
   const MAX_WORDS = 50;
 
-  let { onnavigate }: { onnavigate: (screen: 'settings') => void } = $props();
 
   const dictation = $derived(daemon.dictation);
   const prefs = $derived(dictation?.prefs);
@@ -110,17 +111,7 @@
   );
 
   /** Shortcuts and the popup live in Settings (§9.5); open it at that section. */
-  function openSettings(section: 'hotkeys' | 'dictation') {
-    const url = new URL(location.href);
-    url.searchParams.set('section', section);
-    history.replaceState(history.state, '', url);
-    onnavigate('settings');
-    // Settings reads the section once when it opens; later visits start at the top.
-    setTimeout(() => {
-      url.searchParams.delete('section');
-      history.replaceState(history.state, '', url);
-    }, 200);
-  }
+  const openSettings = (section: 'hotkeys' | 'dictation') => nav.settings(section);
 
   const languageBody = $derived(
     prefs?.language === 'fixed' ? t('dictation.language.fixedBody') : prefs?.language === 'auto' ? t('dictation.language.autoBody') : t('dictation.language.layoutBody'),
@@ -156,6 +147,7 @@
         <span class="hud-label">{t('dictation.toggle')}</span>
         <Toggle checked={prefs.enabled} label={t('dictation.toggle')} disabled={!hasModel} onchange={(enabled) => daemon.setDictationPrefs({ enabled })} />
       </span>
+      <SettingsLink section="dictation" />
     </header>
 
     {#if dictation.phase === 'error' && dictation.error}
@@ -178,9 +170,9 @@
 
         <div class="stack">
           <Card number="02" title={t('dictation.language.title')} hint={t('dictation.language.hint')} color="violet" dimmed={parakeet} badge={parakeet ? t('dictation.language.autoOnly') : undefined}>
-            <Segmented label={t('dictation.language.label')} options={policies} value={prefs.language} disabled={parakeet} hint={parakeet ? t('dictation.language.parakeetBody') : languageBody} onchange={(language) => daemon.setDictationPrefs({ language })} />
+            <Segmented wrap label={t('dictation.language.label')} options={policies} value={prefs.language} disabled={parakeet} hint={parakeet ? t('dictation.language.parakeetBody') : languageBody} onchange={(language) => daemon.setDictationPrefs({ language })} />
             {#if prefs.language === 'fixed' && !parakeet}
-              <Segmented label={t('dictation.language.fixedLanguage')} options={languages} value={prefs.fixed_language} onchange={(fixed_language) => daemon.setDictationPrefs({ fixed_language })} />
+              <Segmented wrap label={t('dictation.language.fixedLanguage')} options={languages} value={prefs.fixed_language} onchange={(fixed_language) => daemon.setDictationPrefs({ fixed_language })} />
               {#if otherLanguages.length > 1}
                 <Dropdown label={t('dictation.language.other')} options={otherLanguages} value={''} width="100%" onchange={(fixed_language) => fixed_language && daemon.setDictationPrefs({ fixed_language })} />
               {/if}
@@ -384,6 +376,7 @@
     min-height: 0;
     overflow-y: auto;
     padding: 24px;
+    container-type: inline-size;
   }
 
   .hero {
@@ -448,6 +441,25 @@
 
   .grid :global(.performance) {
     grid-column: span 3;
+  }
+
+  /* Narrow windows and big UI zoom: the model card takes the whole row, the rest go two by two,
+     then one by one, so nothing is cut at the card edges. */
+  @container (max-width: 1040px) {
+    .grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid :global(.engine),
+    .grid :global(.performance) {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @container (max-width: 640px) {
+    .grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
   .perf {

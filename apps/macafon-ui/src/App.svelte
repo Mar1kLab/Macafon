@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { RefreshCw, Upload } from '@lucide/svelte';
-  import Sidebar, { type Screen } from './lib/components/Sidebar.svelte';
+  import Sidebar from './lib/components/Sidebar.svelte';
+  import TitleBar from './lib/components/TitleBar.svelte';
   import Toasts from './lib/components/Toasts.svelte';
   import Ticks from './lib/components/Ticks.svelte';
   import Microphone from './screens/Microphone.svelte';
@@ -11,10 +12,10 @@
   import Dictation from './screens/Dictation.svelte';
   import Onboarding from './lib/onboarding/Onboarding.svelte';
   import { daemon } from './lib/state';
+  import { nav } from './lib/state/nav.svelte';
   import { t } from './lib/i18n';
 
-  const initial = new URLSearchParams(location.search).get('screen');
-  let screen = $state<Screen>(initial === 'settings' || initial === 'mixer' || initial === 'soundpad' || initial === 'dictation' ? initial : 'microphone');
+  const screen = $derived(nav.screen);
 
   // SND-001: audio files dropped anywhere in the window go to the Soundpad; its own screen
   // takes drops itself, into the category on screen.
@@ -33,7 +34,7 @@
     fileDrag = false;
     if (!hasFiles(event)) return;
     const files = [...(event.dataTransfer?.files ?? [])];
-    screen = 'soundpad';
+    nav.go('soundpad');
     const added = await daemon.uploadSounds(files, null);
     if (added > 0) daemon.toast(t('soundpad.added', { count: added }));
   }
@@ -42,10 +43,12 @@
   // the minimum window (960×640 CSS pixels): a small window caps the scale it applies.
   const ZOOM_STEPS = [0.9, 1, 1.1, 1.25, 1.5];
   const MIN_LAYOUT = { width: 960, height: 640 };
+  // The title bar's 32 px come off the height the layout gets.
+  const TITLE_BAR = 32;
   let zoom = $state(1);
   let viewport = $state({ width: window.innerWidth, height: window.innerHeight });
   const applied = $derived(
-    Math.max(ZOOM_STEPS[0]!, Math.min(zoom, viewport.width / MIN_LAYOUT.width, viewport.height / MIN_LAYOUT.height)),
+    Math.max(ZOOM_STEPS[0]!, Math.min(zoom, viewport.width / MIN_LAYOUT.width, (viewport.height - TITLE_BAR) / MIN_LAYOUT.height)),
   );
 
   onMount(() => {
@@ -74,11 +77,13 @@
   });
 </script>
 
+<div class="window">
+<TitleBar title={t(`nav.${screen}`)} />
 {#if daemon.onboarding && daemon.mic && daemon.status.state === 'connected'}
   <Onboarding
     onfinish={(fineTune) => {
       daemon.finishOnboarding();
-      if (fineTune) screen = 'microphone';
+      if (fineTune) nav.go('microphone');
     }}
   />
 {:else}
@@ -92,7 +97,7 @@
     }}
     {ondrop}
   >
-    <Sidebar {screen} onnavigate={(next) => (screen = next)} />
+    <Sidebar {screen} onnavigate={(next) => nav.go(next)} />
     <main>
       {#if daemon.status.state === 'unavailable'}
         <div class="unavailable" role="alert">
@@ -108,13 +113,13 @@
           </div>
         </div>
       {:else if screen === 'settings'}
-        <Settings onnavigate={(next) => (screen = next)} />
+        <Settings onnavigate={(next) => nav.go(next)} />
       {:else if screen === 'mixer'}
         <Mixer />
       {:else if screen === 'soundpad' && daemon.soundpadAvailable}
         <Soundpad />
       {:else if screen === 'dictation' && daemon.dictationAvailable}
-        <Dictation onnavigate={(next) => (screen = next)} />
+        <Dictation />
       {:else}
         <Microphone />
       {/if}
@@ -128,9 +133,22 @@
     {/if}
   </div>
 {/if}
+</div>
 <Toasts />
 
 <style>
+  .window {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  .window > :global(:not(.titlebar)) {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+  }
+
   .app {
     position: relative;
     display: flex;

@@ -17,6 +17,7 @@
   import { daemon } from '../lib/state';
   import { CHANNEL_COLORS, MAX_CHANNELS } from '../lib/ipc/dsp';
   import { t, type MessageKey } from '../lib/i18n';
+  import SettingsLink from '../lib/components/SettingsLink.svelte';
 
   const PREVIEWS: Record<string, MessageKey> = {
     main: 'mixer.previews.main',
@@ -151,6 +152,7 @@
         <button class="btn small" onclick={() => (outputPanel = outputControl!.id)}>{t('outputDevice.open')}</button>
       {/if}
       {/if}
+      <SettingsLink section="mixer" />
     </header>
 
     {#if !mixer.enabled}

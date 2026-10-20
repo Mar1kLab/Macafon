@@ -7,6 +7,8 @@
   import SoundpadOverlay from './SoundpadOverlay.svelte';
   import DictationOverlay from './DictationOverlay.svelte';
   import { DEFAULT_OVERLAY, reveal } from './overlay';
+  import { overlayOrder, overlayRows, volumesFirst } from './layout';
+  import type { OverlayItem } from '../ipc/protocol';
   import { channelIcon } from '../mixer/icons';
   import { displayShortcut } from '../settings/shortcut';
   import { daemon } from '../state';
@@ -33,6 +35,23 @@
   const playing = $derived(playback && soundpad?.sounds.find((sound) => sound.id === playback.sound_id));
   const output = $derived(mixer?.outputs.find((item) => item.name === mixer.output) ?? null);
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /** The parts in the order the layout editor saved, only those that show (§9.9). */
+  const parts = $derived(
+    overlayOrder(setup.order).filter((part: OverlayItem) => {
+      switch (part) {
+        case 'dictation':
+          return !!dictation;
+        case 'sounds':
+          return !!soundpad;
+        case 'output_device':
+          return setup.output_device && !!mixer;
+        default:
+          return setup[part];
+      }
+    }),
+  );
+  const rows = $derived(overlayRows(parts));
+  const volumesLeft = $derived(volumesFirst(parts));
 
   /** SND-006, §9.9.2: one side panel at a time, the way the overlay was last closed, across
    * openings and UI restarts. */
@@ -80,6 +99,59 @@
   </button>
 {/snippet}
 
+{#snippet control(part: OverlayItem)}
+  {#if part === 'mic_switch'}
+    <button class="switch" class:on={!muted} class:alert={muted} role="switch" aria-checked={!muted} title={muted ? t('quick.muted') : t('quick.on')} onclick={() => daemon.setMic(daemon.client.call('mic.set_muted', { muted: !muted }))}>
+      {#if muted}<MicOff size={16} strokeWidth={1.5} />{:else}<Mic size={16} strokeWidth={1.5} />{/if}<span>{t('quick.microphone')}</span>
+    </button>
+  {:else if part === 'processing_switch'}
+    <button class="switch" class:on={!bypass} role="switch" aria-checked={!bypass} title={bypass ? t('quick.bypassed') : t('quick.on')} onclick={() => daemon.setMic(daemon.client.call('mic.set_bypass', { bypass: !bypass }))}>
+      <AudioLines size={16} strokeWidth={1.5} /><span>{t('quick.processing')}</span>
+    </button>
+  {:else if part === 'mixer_switch'}
+    <button class="switch" class:on={mixer?.enabled} role="switch" aria-checked={mixer?.enabled ?? false} disabled={!mixer} onclick={() => mixer && daemon.setMixer(daemon.client.call('mixer.set_enabled', { enabled: !mixer.enabled }))}>
+      <SlidersHorizontal size={16} strokeWidth={1.5} /><span>{t('quick.mixer')}</span>
+    </button>
+  {:else if part === 'dictation' && dictation}
+    <div class="split {expand}" class:open={side === 'dictation'}>
+      <button class="switch" class:on={dictation.on} role="switch" aria-checked={dictation.on} disabled={dictation.needsModel} title={`${t('quick.dictationHint')} · ${dictation.state}`} onclick={() => daemon.setDictationPrefs({ enabled: !dictation.on })}>
+        <Speech size={16} strokeWidth={1.5} /><span>{t('quick.dictation')}</span>
+        {#if dictation.progress !== null}<i class="progress" style:width="{dictation.progress}%"></i>{/if}
+      </button>
+      {@render flag(side === 'dictation', side === 'dictation' ? t('quick.dictationHide') : t('quick.dictationShow'), () => toggle('dictation'), dictation.needsModel)}
+    </div>
+  {:else if part === 'sounds' && soundpad}
+    <div class="split {expand}" class:open={side === 'sounds'}>
+      <button class="switch" class:on={!!playback} aria-expanded={side === 'sounds'} aria-controls="overlay-sounds" title={playing ? playing.name : side === 'sounds' ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} onclick={() => toggle('sounds')}>
+        <AudioWaveform size={16} strokeWidth={1.5} /><span>{playing ? playing.name : t('quick.soundpadShow')}</span>
+      </button>
+      {@render flag(side === 'sounds', side === 'sounds' ? t('quick.soundpadHide') : t('quick.soundpadShowHint'), () => toggle('sounds'))}
+    </div>
+  {:else if part === 'output_device' && mixer}
+    <div class="picker">
+      <span class="hud-label">{t('quick.output')}</span>
+      <div class="picker-nav">
+        <button class="round" aria-label={t('quick.previousOutput')} title={t('quick.previousOutput')} disabled={mixer.outputs.length < 2} onclick={() => cycleOutput(-1)}><ChevronLeft size={16} strokeWidth={1.5} /></button>
+        <span class="picker-name" title={output?.description ?? t('mixer.noOutput')} aria-live="polite"><Headphones size={13} strokeWidth={1.5} />{output?.description ?? t('mixer.noOutput')}</span>
+        <button class="round" aria-label={t('quick.nextOutput')} title={t('quick.nextOutput')} disabled={mixer.outputs.length < 2} onclick={() => cycleOutput(1)}><ChevronRight size={16} strokeWidth={1.5} /></button>
+      </div>
+    </div>
+  {:else if part === 'mic_level'}
+    <div class="level" class:muted>
+      <LevelMeter label={t('quick.micLevel')} peakKey="output_peak_dbfs" rmsKey="output_rms_dbfs" color="lime" />
+    </div>
+  {:else if part === 'preset' && mic}
+    <div class="picker">
+      <span class="hud-label">{t('quick.preset')}</span>
+      <div class="picker-nav">
+        <button class="round" aria-label={t('quick.previousPreset')} onclick={() => daemon.setMic(daemon.client.call('mic.cycle_preset', { step: -1 }))}><ChevronLeft size={16} strokeWidth={1.5} /></button>
+        <span class="picker-name" title={preset} aria-live="polite">{preset}{#if mic.preset_modified}<small>{t('quick.modified')}</small>{/if}</span>
+        <button class="round" aria-label={t('quick.nextPreset')} onclick={() => daemon.setMic(daemon.client.call('mic.cycle_preset', { step: 1 }))}><ChevronRight size={16} strokeWidth={1.5} /></button>
+      </div>
+    </div>
+  {/if}
+{/snippet}
+
 <div class="overlay" class:sketch>
   <!-- A sketch-like frame: straight lines along the edges that run past the corners. -->
   <span class="frame" aria-hidden="true"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></span>
@@ -97,7 +169,7 @@
   {:else}
     <div class="body" class:left={expand === 'left'} class:down={expand === 'down'}>
       <!-- Anchored, the window keeps this part in place when a side panel opens (Panel.svelte). -->
-      <div class="main" class:compact={!setup.volumes} data-overlay-main data-overlay-centered={setup.placement === 'centered' ? '' : undefined}>
+      <div class="main" class:compact={!setup.volumes} class:volumes-right={!volumesLeft} data-overlay-main data-overlay-centered={setup.placement === 'centered' ? '' : undefined}>
         {#if setup.volumes}
           <section class="volumes" aria-label={t('quick.mixer')}>
             {#if mixer?.enabled}
@@ -127,68 +199,17 @@
         <section class="controls" aria-label={t('quick.microphone')}>
           <!-- Small switches: on is filled, off is a plain outline. Dictation and Sounds carry a
                flag on the side their panel opens to. -->
-          <div class="switches">
-            {#if setup.mic_switch}
-              <button class="switch" class:on={!muted} class:alert={muted} role="switch" aria-checked={!muted} title={muted ? t('quick.muted') : t('quick.on')} onclick={() => daemon.setMic(daemon.client.call('mic.set_muted', { muted: !muted }))}>
-                {#if muted}<MicOff size={16} strokeWidth={1.5} />{:else}<Mic size={16} strokeWidth={1.5} />{/if}<span>{t('quick.microphone')}</span>
-              </button>
-            {/if}
-            {#if setup.processing_switch}
-              <button class="switch" class:on={!bypass} role="switch" aria-checked={!bypass} title={bypass ? t('quick.bypassed') : t('quick.on')} onclick={() => daemon.setMic(daemon.client.call('mic.set_bypass', { bypass: !bypass }))}>
-                <AudioLines size={16} strokeWidth={1.5} /><span>{t('quick.processing')}</span>
-              </button>
-            {/if}
-            {#if setup.mixer_switch}
-              <button class="switch" class:on={mixer?.enabled} role="switch" aria-checked={mixer?.enabled ?? false} disabled={!mixer} onclick={() => mixer && daemon.setMixer(daemon.client.call('mixer.set_enabled', { enabled: !mixer.enabled }))}>
-                <SlidersHorizontal size={16} strokeWidth={1.5} /><span>{t('quick.mixer')}</span>
-              </button>
-            {/if}
-            {#if dictation}
-              <div class="split {expand}" class:open={side === 'dictation'}>
-                <button class="switch" class:on={dictation.on} role="switch" aria-checked={dictation.on} disabled={dictation.needsModel} title={`${t('quick.dictationHint')} · ${dictation.state}`} onclick={() => daemon.setDictationPrefs({ enabled: !dictation.on })}>
-                  <Speech size={16} strokeWidth={1.5} /><span>{t('quick.dictation')}</span>
-                  {#if dictation.progress !== null}<i class="progress" style:width="{dictation.progress}%"></i>{/if}
-                </button>
-                {@render flag(side === 'dictation', side === 'dictation' ? t('quick.dictationHide') : t('quick.dictationShow'), () => toggle('dictation'), dictation.needsModel)}
+          <!-- The parts in the order of the layout editor: neighbouring switches share rows, the
+               rest take a row each, the last one sits at the bottom. -->
+          {#each rows as row, index (row.kind === 'wide' ? row.part : `switches-${index}`)}
+            {#if row.kind === 'switches'}
+              <div class="switches">
+                {#each row.parts as part (part)}{@render control(part)}{/each}
               </div>
+            {:else}
+              <div class="wide" class:last={index > 0 && index === rows.length - 1}>{@render control(row.part)}</div>
             {/if}
-            {#if soundpad}
-              <div class="split {expand}" class:open={side === 'sounds'}>
-                <button class="switch" class:on={!!playback} aria-expanded={side === 'sounds'} aria-controls="overlay-sounds" title={playing ? playing.name : side === 'sounds' ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} onclick={() => toggle('sounds')}>
-                  <AudioWaveform size={16} strokeWidth={1.5} /><span>{playing ? playing.name : t('quick.soundpadShow')}</span>
-                </button>
-                {@render flag(side === 'sounds', side === 'sounds' ? t('quick.soundpadHide') : t('quick.soundpadShowHint'), () => toggle('sounds'))}
-              </div>
-            {/if}
-          </div>
-
-          {#if setup.output_device && mixer}
-            <div class="picker">
-              <span class="hud-label">{t('quick.output')}</span>
-              <div class="picker-nav">
-                <button class="round" aria-label={t('quick.previousOutput')} title={t('quick.previousOutput')} disabled={mixer.outputs.length < 2} onclick={() => cycleOutput(-1)}><ChevronLeft size={16} strokeWidth={1.5} /></button>
-                <span class="picker-name" title={output?.description ?? t('mixer.noOutput')} aria-live="polite"><Headphones size={13} strokeWidth={1.5} />{output?.description ?? t('mixer.noOutput')}</span>
-                <button class="round" aria-label={t('quick.nextOutput')} title={t('quick.nextOutput')} disabled={mixer.outputs.length < 2} onclick={() => cycleOutput(1)}><ChevronRight size={16} strokeWidth={1.5} /></button>
-              </div>
-            </div>
-          {/if}
-
-          {#if setup.mic_level}
-            <div class="level" class:muted>
-              <LevelMeter label={t('quick.micLevel')} peakKey="output_peak_dbfs" rmsKey="output_rms_dbfs" color="lime" />
-            </div>
-          {/if}
-
-          {#if setup.preset}
-            <div class="picker preset">
-              <span class="hud-label">{t('quick.preset')}</span>
-              <div class="picker-nav">
-                <button class="round" aria-label={t('quick.previousPreset')} onclick={() => daemon.setMic(daemon.client.call('mic.cycle_preset', { step: -1 }))}><ChevronLeft size={16} strokeWidth={1.5} /></button>
-                <span class="picker-name" title={preset} aria-live="polite">{preset}{#if mic.preset_modified}<small>{t('quick.modified')}</small>{/if}</span>
-                <button class="round" aria-label={t('quick.nextPreset')} onclick={() => daemon.setMic(daemon.client.call('mic.cycle_preset', { step: 1 }))}><ChevronRight size={16} strokeWidth={1.5} /></button>
-              </div>
-            </div>
-          {/if}
+          {/each}
         </section>
       </div>
 
@@ -249,6 +270,12 @@
   .alert, .round.alert { color: var(--danger); border-color: var(--danger); }
   .controls { width: 240px; flex: none; padding-left: 24px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
   .compact .controls { padding-left: 0; border-left: 0; }
+  /* Volumes after the controls in the layout: on the right of them. */
+  .main.volumes-right { flex-direction: row-reverse; }
+  .volumes-right .controls { padding: 0 24px 0 0; border-left: 0; border-right: 1px solid var(--line); }
+  .compact.volumes-right .controls { padding-right: 0; border-right: 0; }
+  /* The last row sits at the bottom of the column, along the bottom of the strips. */
+  .wide.last { margin-top: auto; padding-top: 4px; }
 
   .switches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   /* An odd last switch takes the whole row. */
@@ -285,7 +312,6 @@
   .picker-name { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 12px; }
   .picker-name :global(svg) { flex: none; color: var(--muted); }
   .picker-name small { margin-left: 6px; font-size: 9px; color: var(--app-amber-ink); }
-  .preset { margin-top: auto; padding-top: 4px; }
   .level :global(.meter) { grid-template-columns: auto 1fr auto 36px auto; gap: 8px; }
   .level :global(.hud-label) { font-size: 9px; }
   .level.muted { opacity: 0.5; }

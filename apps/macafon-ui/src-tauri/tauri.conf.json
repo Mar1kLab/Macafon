@@ -16,6 +16,8 @@
         "create": false,
         "dragDropEnabled": false,
         "title": "Macafon",
+        "decorations": false,
+        "shadow": true,
         "width": 1180,
         "height": 760,
         "minWidth": 960,

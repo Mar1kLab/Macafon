@@ -1,0 +1,13 @@
+<script lang="ts">
+  // A screen header's gear: Settings, scrolled to the section that configures this screen.
+  import { Settings2 } from '@lucide/svelte';
+  import { nav, type SettingsSection } from '../state/nav.svelte';
+  import { t } from '../i18n';
+
+  let { section }: { section: SettingsSection } = $props();
+  const label = $derived(t('nav.settingsFor', { section: t(`nav.sections.${section}`) }));
+</script>
+
+<button class="btn icon ghost" aria-label={label} title={label} onclick={() => nav.settings(section)}>
+  <Settings2 size={15} strokeWidth={1.5} />
+</button>

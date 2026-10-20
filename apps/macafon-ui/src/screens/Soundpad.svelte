@@ -46,6 +46,7 @@
   import { daemon } from '../lib/state';
   import { t } from '../lib/i18n';
   import type { SoundInfo } from '../lib/ipc/protocol';
+  import SettingsLink from '../lib/components/SettingsLink.svelte';
 
   const SOUND_MIME = 'application/x-macafon-sound';
   const ACCEPT = '.mp3,.wav,.ogg,.flac,.m4a,.aac,audio/*';
@@ -262,6 +263,7 @@
           void upload(input.files, uploadCategory).then(() => (input.value = ''));
         }}
       />
+      <SettingsLink section="soundpad" />
     </header>
 
     {#if !soundpad.microphone_ready}

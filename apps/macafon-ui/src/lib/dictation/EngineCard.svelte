@@ -61,7 +61,7 @@
 {/snippet}
 
 <Card number="01" title={t('dictation.engine.title')} hint={t('dictation.engine.hint')} color="blue" class="engine">
-  <Segmented label={t('dictation.engine.label')} options={engines} value={prefs.engine} onchange={(engine) => daemon.setDictationPrefs({ engine })} />
+  <Segmented wrap label={t('dictation.engine.label')} options={engines} value={prefs.engine} onchange={(engine) => daemon.setDictationPrefs({ engine })} />
 
   {#if nothingYet && recommended}
     <div class="empty">

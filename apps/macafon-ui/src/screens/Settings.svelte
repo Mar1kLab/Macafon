@@ -7,19 +7,22 @@
   // daemon draws one), shown in pictures with the overlay (HK-007, SND-006). Doctor (§9.6).
   // A section list on the left follows the scroll and jumps to a section.
   import { onMount, tick } from 'svelte';
+  import { availableMonitors, primaryMonitor } from '@tauri-apps/api/window';
+  import { isTauri } from '../lib/ipc/tauri';
   import Toggle from '../lib/components/Toggle.svelte';
   import Dropdown from '../lib/components/Dropdown.svelte';
   import Segmented from '../lib/components/Segmented.svelte';
   import RulerSlider from '../lib/components/RulerSlider.svelte';
   import Dialog from '../lib/components/Dialog.svelte';
   import OutputDevicePanel from '../lib/mixer/OutputDevicePanel.svelte';
-  import { ArrowDown, ArrowUp, X } from '@lucide/svelte';
+  import { ArrowDown, ArrowLeft, ArrowUp, X } from '@lucide/svelte';
   import { daemon } from '../lib/state';
+  import { nav, type SettingsSection } from '../lib/state/nav.svelte';
   import Doctor from '../lib/settings/Doctor.svelte';
   import Hotkeys from '../lib/settings/Hotkeys.svelte';
   import MonitorPicture from '../lib/settings/MonitorPicture.svelte';
   import OverlayLayoutPicture from '../lib/settings/OverlayLayoutPicture.svelte';
-  import OverlayParts from '../lib/settings/OverlayParts.svelte';
+  import OverlayBuilder from '../lib/settings/OverlayBuilder.svelte';
   import { DEFAULT_OVERLAY } from '../lib/quick/overlay';
   import PictureChoice from '../lib/settings/PictureChoice.svelte';
   import PopupPicture from '../lib/settings/PopupPicture.svelte';
@@ -83,7 +86,14 @@
     label: t(`settings.closeActions.${value}`),
   }));
 
-  async function setPrefs(patch: { volume_step_pct?: number; quantum_frames?: number; close_action?: CloseAction; osd?: OsdPrefs; overlay?: OverlayPrefs }) {
+  async function setPrefs(patch: {
+    volume_step_pct?: number;
+    quantum_frames?: number;
+    close_action?: CloseAction;
+    osd?: OsdPrefs;
+    overlay?: OverlayPrefs;
+    main_monitor?: string;
+  }) {
     const next = await daemon.run(
       daemon.client.call('prefs.set', {
         volume_step_pct: patch.volume_step_pct ?? null,
@@ -91,10 +101,53 @@
         close_action: patch.close_action ?? null,
         osd: patch.osd ?? null,
         overlay: patch.overlay ?? null,
+        ...(patch.main_monitor !== undefined ? { main_monitor: patch.main_monitor } : {}),
       }),
     );
     if (next) daemon.prefs = next;
   }
+
+  // The monitor the main window opens on: the system's monitors, or two made-up ones in a
+  // browser (mock daemon). A saved monitor that is unplugged stays listed until changed.
+  interface Display {
+    name: string;
+    label: string;
+  }
+  let displays = $state<Display[]>([]);
+  const displayName = (name: string, index: number) => {
+    const number = /(\d+)\s*$/.exec(name)?.[1];
+    return t('settings.monitorName', { n: number ?? String(index + 1) });
+  };
+  onMount(() => {
+    if (!isTauri()) {
+      displays = [
+        { name: 'mock-display-1', label: `${displayName('DISPLAY1', 0)} · 2560×1440 · ${t('settings.monitorPrimary')}` },
+        { name: 'mock-display-2', label: `${displayName('DISPLAY2', 1)} · 1920×1080` },
+      ];
+      return;
+    }
+    void Promise.all([availableMonitors(), primaryMonitor()])
+      .then(([monitors, primary]) => {
+        displays = monitors
+          .filter((monitor) => monitor.name)
+          .map((monitor, index) => ({
+            name: monitor.name!,
+            label: [
+              displayName(monitor.name!, index),
+              `${monitor.size.width}×${monitor.size.height}`,
+              ...(monitor.name === primary?.name ? [t('settings.monitorPrimary')] : []),
+            ].join(' · '),
+          }));
+      })
+      .catch(() => (displays = []));
+  });
+  const monitorChoices = $derived([
+    { value: '', label: t('settings.monitorAuto') },
+    ...displays.map((display) => ({ value: display.name, label: display.label })),
+    ...(prefs?.main_monitor && !displays.some((display) => display.name === prefs.main_monitor)
+      ? [{ value: prefs.main_monitor, label: t('settings.monitorMissing', { name: displayName(prefs.main_monitor, 0) }) }]
+      : []),
+  ]);
 
   // HK-006: each style has its own pair of edges; the daemon shows a sample popup on every change.
   const OSD_EDGES: Record<OsdStyle, OsdEdge[]> = { vertical: ['left', 'right'], horizontal: ['top', 'bottom'] };
@@ -157,7 +210,7 @@
   ];
 
   // The section list: what this platform and daemon show, in page order.
-  type SectionId = 'general' | 'audio' | 'outputs' | 'mixer' | 'soundpad' | 'hotkeys' | 'popup' | 'overlay' | 'dictation' | 'doctor' | 'about';
+  type SectionId = SettingsSection;
   const sections = $derived(
     (
       [
@@ -207,14 +260,17 @@
     active = id;
   }
 
-  // `?section=popup` opens Settings at that section once the daemon has shown it, and keeps it
-  // in place while sections above still fill in, until the user scrolls or 3 s pass.
-  let wanted = $state(new URLSearchParams(location.search).get('section'));
+  // A screen's gear (or `?section=popup`) opens Settings at that section once the daemon has
+  // shown it, and keeps it in place while sections above still fill in, until the user scrolls
+  // or 3 s pass.
   let pinFrame = 0;
+  let handled = -1;
   $effect(() => {
-    const section = sections.find(({ id }) => id === wanted);
+    const request = nav.section;
+    if (!request || request.seq === handled) return;
+    const section = sections.find(({ id }) => id === request.id);
     if (!section || !daemon.connected) return;
-    wanted = null;
+    handled = request.seq;
     void jump(section.id, false).then(() => pin(section.id));
   });
 
@@ -267,6 +323,9 @@
 
 <div class="screen">
   <header class="top">
+    <button class="btn small back" title={t('nav.backTo', { screen: t(`nav.${nav.previous}`) })} onclick={() => nav.back()}>
+      <ArrowLeft size={13} strokeWidth={1.5} />{t('nav.back')}
+    </button>
     <h1 class="hud-label">{t('settings.section')}</h1>
   </header>
   <div class="body">
@@ -301,6 +360,21 @@
               value={prefs.close_action}
               width="280px"
               onchange={(close_action) => setPrefs({ close_action })}
+            />
+          </div>
+        {/if}
+        {#if prefs}
+          <div class="row">
+            <div>
+              <p class="name">{t('settings.mainMonitor')}</p>
+              <p class="hint">{t('settings.mainMonitorHint')}</p>
+            </div>
+            <Dropdown
+              label={t('settings.mainMonitor')}
+              options={monitorChoices}
+              value={prefs.main_monitor}
+              width="280px"
+              onchange={(main_monitor) => setPrefs({ main_monitor })}
             />
           </div>
         {/if}
@@ -509,12 +583,20 @@
       {#if prefs}
         <section id="settings-overlay">
           <h2 class="hud-label" tabindex="-1">{t('settings.overlay.title')}</h2>
+          <div class="row">
+            <div>
+              <p class="name">{t('settings.overlay.enabled')}</p>
+              <p class="hint">{t('settings.overlay.enabledHint')}</p>
+            </div>
+            <Toggle checked={overlay.enabled} label={t('settings.overlay.enabled')} onchange={(enabled) => setOverlay({ enabled })} />
+          </div>
+          <div class="overlay-setup" class:off={!overlay.enabled} inert={!overlay.enabled}>
           <div class="row column">
             <div>
               <p class="name">{t('settings.overlay.parts')}</p>
               <p class="hint">{t('settings.overlay.partsHint')}</p>
             </div>
-            <OverlayParts setup={overlay} onchange={setOverlay} />
+            <OverlayBuilder setup={overlay} onchange={setOverlay} />
           </div>
           <div class="row column">
             <div>
@@ -559,6 +641,7 @@
               />
             </div>
           {/if}
+          </div>
         </section>
       {/if}
 
@@ -658,6 +741,15 @@
 <style>
   .mode { display: flex; flex-wrap: wrap; gap: 4px; }
 
+  .overlay-setup {
+    border-top: 1px solid var(--line);
+    transition: opacity var(--dur) var(--ease);
+  }
+
+  .overlay-setup.off {
+    opacity: 0.4;
+  }
+
   .screen {
     display: flex;
     flex-direction: column;
@@ -670,6 +762,14 @@
     min-height: 59px;
     padding: 14px 24px;
     border-bottom: 1px solid var(--line);
+  }
+
+  .top {
+    gap: 16px;
+  }
+
+  .back {
+    gap: 6px;
   }
 
   h1 {

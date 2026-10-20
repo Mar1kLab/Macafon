@@ -15,6 +15,7 @@
   import DeEsserCard from '../lib/mic/cards/DeEsserCard.svelte';
   import LimiterCard from '../lib/mic/cards/LimiterCard.svelte';
   import TestPanel from '../lib/mic/TestPanel.svelte';
+  import SettingsLink from '../lib/components/SettingsLink.svelte';
   import CalibrationDialog from '../lib/mic/CalibrationDialog.svelte';
   import GettingStarted from '../lib/mic/GettingStarted.svelte';
   import { daemon } from '../lib/state';
@@ -87,6 +88,7 @@
         {#if mic.settings.muted}<MicOff size={13} strokeWidth={1.5} />{t('mic.muted')}{:else}<Mic size={13} strokeWidth={1.5} />{t('mic.mute')}{/if}
         <HotkeyHint actions={['mic_mute_toggle', 'push_to_talk', 'push_to_mute']} />
       </button>
+      <SettingsLink section="audio" />
     </header>
 
     <div class="meters">

@@ -53,8 +53,7 @@
 
   /** `library`: the sounds, in the overlay's side panel; `player`: the transport and the output
    * volumes, docked along the bottom of the overlay. */
-  /** `wide`: the player in one row across the full overlay. */
-  let { part = 'library', wide = false }: { part?: 'library' | 'player'; wide?: boolean } = $props();
+  let { part = 'library' }: { part?: 'library' | 'player' } = $props();
 
   /** Pads per page: a little more than the visible area in either view. */
   const PAGE = 60;
@@ -163,7 +162,7 @@
 </script>
 
 {#snippet player()}
-  <div class="player" class:stack={!wide}>
+  <div class="player">
     <button
       class="round"
       class:on={playback && !playback.paused}
@@ -363,7 +362,7 @@
     gap: 8px;
     min-width: 0;
     min-height: 28px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
 
   .player .round {
@@ -608,20 +607,8 @@
     gap: 4px;
   }
 
-  /* Under the list in a side column: controls, name and time; the seek bar; the two volumes. */
-  .player.stack {
-    display: grid;
-    grid-template-columns: repeat(12, minmax(0, 1fr));
-  }
-
-  .stack .now { width: auto; min-width: 0; grid-column: span 6; }
-  .stack .time { grid-column: span 4; justify-self: end; }
-  .stack > :global(.track) { grid-column: 1 / -1; grid-row: 2; }
-  .stack .volume { width: auto; margin-left: 0; grid-column: span 6; }
-
-  /* One row: the seek bar takes what the rest leaves. */
-  .player:not(.stack) { flex-wrap: nowrap; }
-  .player:not(.stack) > :global(.track) { flex: 1; min-width: 120px; }
+  /* The seek bar fills the space left by the transport and output volumes. */
+  .player > :global(.track) { flex: 1; min-width: 120px; }
 
   .list .pad {
     height: 28px;

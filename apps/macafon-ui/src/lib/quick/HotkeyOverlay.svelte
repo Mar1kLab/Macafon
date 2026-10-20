@@ -70,27 +70,6 @@
   let panel = $state<Side>(savedPanel());
   const side = $derived(panel === 'sounds' && soundpad ? 'sounds' : panel === 'dictation' && dictation && !dictation.needsModel ? 'dictation' : panel === 'history' && daemon.dictation && setup.dictation_history ? 'history' : null);
 
-  let normalHeight = $state(0);
-  function measureMain(node: HTMLDivElement, _layout: unknown) {
-    // Measure the normal layout once per content change, outside the observed page. Compact
-    // dimensions change atomically; only opacity/translation animate, never the native size.
-    function measure() {
-      const copy = node.cloneNode(true) as HTMLDivElement;
-      copy.classList.remove('sounds-compact');
-      const host = node.closest('.overlay')!.cloneNode(false) as HTMLDivElement;
-      host.inert = true;
-      host.style.cssText = 'position: fixed; visibility: hidden; top: 0; left: 0; padding: 0; min-height: 0;';
-      host.append(copy);
-      document.body.append(host);
-      normalHeight = copy.getBoundingClientRect().height;
-      host.remove();
-    }
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    measure();
-    return { update: measure, destroy: () => observer.disconnect() };
-  }
-
   function toggle(next: Exclude<Side, null>) {
     panel = panel === next ? null : next;
     localStorage.setItem(PANEL_KEY, panel ?? '');
@@ -199,7 +178,7 @@
   {:else}
     <div class="body" class:left={expand === 'left'} class:down={expand === 'down'}>
       <!-- Anchored, the window keeps this part in place when a side panel opens (Panel.svelte). -->
-      <div class="main" use:measureMain={{ setup, rows, channels, mixerEnabled: mixer?.enabled, sketch }} class:sounds-compact={side === 'sounds' && normalHeight > 0} style:--normal-main-height="{normalHeight}px" class:compact={!setup.volumes} class:volumes-right={!volumesLeft} data-overlay-main data-overlay-centered={setup.placement === 'centered' ? '' : undefined}>
+      <div class="main" class:controls-only={!setup.volumes} class:volumes-right={!volumesLeft} data-overlay-main data-overlay-centered={setup.placement === 'centered' ? '' : undefined}>
         {#if setup.volumes}
           <section class="volumes" aria-label={t('quick.mixer')}>
             {#if mixer?.enabled}
@@ -259,7 +238,8 @@
       {/if}
     </div>
     {#if side === 'sounds'}
-      <div class="dock"><SoundpadOverlay part="player" wide /></div>
+      <!-- Keep the player row reserved until the side panel finishes closing. -->
+      <div class="dock" transition:reveal={{ expand, duration: reduced ? 0 : 200 }}><SoundpadOverlay part="player" /></div>
     {/if}
   {/if}
 </div>
@@ -297,7 +277,7 @@
   .main { flex: none; }
   /* As wide as the overlay was before side panels, a little wider: the strips share it. */
   .main { display: flex; gap: 24px; min-width: 816px; }
-  .main.compact { min-width: 0; }
+  .main.controls-only { min-width: 0; }
   .volumes { flex: 1; min-width: 0; display: flex; overflow-x: auto; padding: 0 2px 4px; }
   .strip { flex: 1 0 88px; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
   .master { flex-grow: 0; border-right: 1px solid var(--line); margin-right: 8px; padding-right: 8px; }
@@ -305,11 +285,11 @@
   .mute { color: var(--channel-ink); }
   .alert, .round.alert { color: var(--danger); border-color: var(--danger); }
   .controls { width: 240px; flex: none; padding-left: 24px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
-  .compact .controls { padding-left: 0; border-left: 0; }
+  .controls-only .controls { padding-left: 0; border-left: 0; }
   /* Volumes after the controls in the layout: on the right of them. */
   .main.volumes-right { flex-direction: row-reverse; }
   .volumes-right .controls { padding: 0 24px 0 0; border-left: 0; border-right: 1px solid var(--line); }
-  .compact.volumes-right .controls { padding-right: 0; border-right: 0; }
+  .controls-only.volumes-right .controls { padding-right: 0; border-right: 0; }
   /* The last row sits at the bottom of the column, along the bottom of the strips. */
   .wide.last { margin-top: auto; padding-top: 4px; }
 
@@ -359,19 +339,6 @@
   .body.down .side { margin: 16px 0 0; padding: 16px 0 0; border-left: 0; border-top: 1px solid var(--line); }
   .dock { width: 0; min-width: 100%; height: 53px; box-sizing: border-box; padding-top: 12px; margin-top: 0; border-top: 1px solid var(--line); display: flex; align-items: center; }
   .dock :global(.dock) { flex: 1; overflow-x: auto; scrollbar-width: thin; }
-  .main.sounds-compact { height: max(180px, calc(var(--normal-main-height) - 53px)); }
-  .sounds-compact .volumes { padding-bottom: 4px; }
-  .sounds-compact .strip { gap: 4px; }
-  .sounds-compact :global(.fader) { gap: 4px; }
-  .sounds-compact :global(.fader .track) { height: 107px; }
-  .sounds-compact :global(.fader .thumb) { bottom: clamp(8px, var(--fill), 97px); }
-  .sounds-compact :global(.fader.sketch .thumb) { bottom: calc(var(--fill) - 1px); }
-  .sounds-compact .controls { gap: 6px; }
-  .sounds-compact .switches { gap: 4px; }
-  .sounds-compact .switch { height: 40px; gap: 2px; }
-  .sounds-compact .split.down .switch { height: 26px; }
-  .sounds-compact .picker-nav { margin-top: 2px; }
-  .sounds-compact .picker .round { width: 28px; height: 28px; }
   .status { flex: 1; align-self: center; padding: 24px; font-size: 13px; color: var(--muted); }
   /* Sketch: the app's own look — sharp corners, HUD labels, accent marks instead of fills. */
   .sketch .round, .sketch .switch, .sketch .flag, .sketch .split .switch, .sketch .split .flag, .sketch kbd { border-radius: 0; }

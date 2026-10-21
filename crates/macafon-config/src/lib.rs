@@ -104,7 +104,13 @@ pub const DICTATION_HOTKEYS: [(&str, &str); 5] = [
     ("dictation_copy_last", "Shift+Alt+X"),
     ("dictation_hold_copy", "Ctrl+Win+Shift"),
 ];
-pub const HOTKEY_DEFAULTS_REVISION: u32 = 4;
+/// Offered once on Windows without replacing customized shortcuts.
+pub const DISPLAY_HOTKEYS: [(&str, &str); 2] = [
+    ("display_all_on", "Ctrl+Alt+Shift+F12"),
+    ("display_revert", "Ctrl+Alt+Shift+F11"),
+];
+pub const HOTKEY_DEFAULTS_REVISION: u32 = 5;
+const DISPLAY_DEFAULTS_REVISION: u32 = 5;
 /// The revision that first offered `DICTATION_HOTKEYS` to every map.
 const DICTATION_DEFAULTS_REVISION: u32 = 4;
 
@@ -222,6 +228,7 @@ impl Config {
         }
         let offer_dictation =
             cfg!(windows) && self.ui.hotkey_defaults < DICTATION_DEFAULTS_REVISION;
+        let offer_displays = cfg!(windows) && self.ui.hotkey_defaults < DISPLAY_DEFAULTS_REVISION;
         let fresh = self.ui.hotkey_defaults == 0 && self.hotkeys.is_empty();
         let previous = self.ui.hotkey_defaults == 2
             && self.hotkeys.len()
@@ -242,6 +249,16 @@ impl Config {
         self.ui.hotkey_defaults = HOTKEY_DEFAULTS_REVISION;
         if offer_dictation {
             for (action, shortcut) in DICTATION_HOTKEYS {
+                if !self.hotkeys.contains_key(action)
+                    && !self.hotkeys.values().any(|bound| bound == shortcut)
+                    && usable(shortcut)
+                {
+                    self.hotkeys.insert(action.to_owned(), shortcut.to_owned());
+                }
+            }
+        }
+        if offer_displays {
+            for (action, shortcut) in DISPLAY_HOTKEYS {
                 if !self.hotkeys.contains_key(action)
                     && !self.hotkeys.values().any(|bound| bound == shortcut)
                     && usable(shortcut)
@@ -373,6 +390,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn display_defaults_are_offered_once_without_overwriting_bindings() {
+        let mut config = Config::default();
+        config.ui.hotkey_defaults = 4;
+        config.hotkeys.insert("display_revert".into(), "F7".into());
+        config.offer_default_hotkeys(|_| true);
+        assert_eq!(config.hotkeys["display_revert"], "F7");
+        assert_eq!(config.hotkeys.contains_key("display_all_on"), cfg!(windows));
+        config.hotkeys.remove("display_all_on");
+        assert!(!config.offer_default_hotkeys(|_| true));
+        assert!(!config.hotkeys.contains_key("display_all_on"));
+        let mut taken = Config::default();
+        taken.ui.hotkey_defaults = 4;
+        taken
+            .hotkeys
+            .insert("custom".into(), "Ctrl+Alt+Shift+F12".into());
+        taken.offer_default_hotkeys(|_| true);
+        assert!(!taken.hotkeys.contains_key("display_all_on"));
+    }
+
+    #[test]
     fn default_hotkeys_migrate_only_fresh_or_exact_legacy_maps() {
         let mut config = Config::default();
         assert!(config.offer_default_hotkeys(|_| true));
@@ -418,9 +455,10 @@ mod tests {
             }
             let before = old.hotkeys.clone();
             assert!(old.offer_default_hotkeys(|_| true));
-            // New dictation actions may be added; nothing the user had changes.
-            old.hotkeys
-                .retain(|action, _| !action.starts_with("dictation_"));
+            // New dictation/display actions may be added; existing choices stay intact.
+            old.hotkeys.retain(|action, _| {
+                !action.starts_with("dictation_") && !action.starts_with("display_")
+            });
             assert_eq!(old.hotkeys, before, "{edit}");
         }
         let mut missing = Config::default();

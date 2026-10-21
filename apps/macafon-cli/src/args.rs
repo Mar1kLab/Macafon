@@ -39,6 +39,11 @@ pub(super) enum Top {
 
 #[derive(Subcommand)]
 pub(super) enum Ctl {
+    /// List and switch saved monitor layouts (Windows).
+    Display {
+        #[command(subcommand)]
+        command: Option<DisplayCommand>,
+    },
     /// Enable or disable local dictation.
     Dictation {
         #[arg(value_enum, default_value_t = Switch::Toggle)]
@@ -340,6 +345,63 @@ impl From<Channel> for macafon_ipc::InputChannel {
             Channel::Left => Self::Left,
             Channel::Right => Self::Right,
             Channel::Mix => Self::Mix,
+        }
+    }
+}
+
+#[derive(Subcommand)]
+pub(super) enum DisplayCommand {
+    List,
+    Apply {
+        id: String,
+    },
+    Next,
+    Revert,
+    AllOn,
+    Save {
+        name: String,
+        #[arg(long, default_value = "monitor")]
+        icon: String,
+    },
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+
+    #[test]
+    fn display_commands_accept_default_list_save_icon_and_global_json() {
+        let cli = Cli::try_parse_from(["macafon", "ctl", "display", "--json"]).expect("list");
+        assert!(matches!(
+            cli.command,
+            Some(Top::Ctl {
+                json: true,
+                command: Ctl::Display { command: None }
+            })
+        ));
+        let cli = Cli::try_parse_from([
+            "macafon",
+            "ctl",
+            "display",
+            "save",
+            "Work desk",
+            "--icon",
+            "briefcase",
+            "--json",
+        ])
+        .expect("save");
+        assert!(
+            matches!(cli.command, Some(Top::Ctl { json: true, command: Ctl::Display { command: Some(DisplayCommand::Save { name, icon }) } }) if name == "Work desk" && icon == "briefcase")
+        );
+        for args in [
+            vec!["list"],
+            vec!["apply", "work"],
+            vec!["next"],
+            vec!["revert"],
+            vec!["all-on"],
+        ] {
+            let command = ["macafon", "ctl", "display"].into_iter().chain(args);
+            assert!(Cli::try_parse_from(command).is_ok());
         }
     }
 }

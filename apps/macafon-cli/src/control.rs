@@ -18,6 +18,7 @@ pub(super) fn run(json: bool, command: Ctl) -> Result<()> {
     let client = &mut client;
     let request = match command {
         Ctl::Status => Request::MicGet,
+        Ctl::Display { command } => return display(client, command, json),
         Ctl::Dictation { state } => return dictation(client, state, json),
         Ctl::SetDefault { confirm } => {
             if !confirm {
@@ -508,6 +509,54 @@ fn preset_request(id: String) -> Request {
         "previous" | "prev" => Request::MicCyclePreset { step: -1 },
         _ => Request::MicSetPreset { preset: id },
     }
+}
+
+fn display(client: &mut Client, command: Option<DisplayCommand>, json: bool) -> Result<()> {
+    let request = match command {
+        None | Some(DisplayCommand::List) => Request::DisplaysGet,
+        Some(DisplayCommand::Apply { id }) => Request::DisplaysApply { id },
+        Some(DisplayCommand::Next) => {
+            let state: macafon_ipc::DisplaysState = client.call_as(Request::DisplaysGet)?;
+            let index = state
+                .active
+                .as_ref()
+                .and_then(|id| {
+                    state
+                        .profiles
+                        .iter()
+                        .position(|info| &info.profile.id == id)
+                })
+                .map_or(0, |index| (index + 1) % state.profiles.len());
+            let info = state
+                .profiles
+                .get(index)
+                .context("no display profiles saved")?;
+            Request::DisplaysApply {
+                id: info.profile.id.clone(),
+            }
+        }
+        Some(DisplayCommand::Revert) => Request::DisplaysRevert,
+        Some(DisplayCommand::AllOn) => Request::DisplaysAllOn,
+        Some(DisplayCommand::Save { name, icon }) => Request::DisplaysSave { name, icon },
+    };
+    let state: macafon_ipc::DisplaysState = client.call_as(request)?;
+    if json {
+        return print_json(&state);
+    }
+    for info in state.profiles {
+        println!(
+            "{}\t{}\t{}\t{}",
+            info.profile.id,
+            info.profile.name,
+            if state.active.as_ref() == Some(&info.profile.id) {
+                "*"
+            } else {
+                ""
+            },
+            info.missing.join(", ")
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]

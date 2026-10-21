@@ -146,6 +146,14 @@ impl DaemonHost {
                 ));
             }
         }
+        if displays {
+            for profile in &self.config.displays.profiles {
+                actions.push((
+                    HotkeyAction::DisplayProfile(profile.id.clone()),
+                    format!("Display: {}", profile.name),
+                ));
+            }
+        }
         actions
     }
 
@@ -387,6 +395,17 @@ impl DaemonHost {
             return;
         }
         let step_pct = f32::from(self.config.ui.volume_step_pct) * step_scale;
+        let display_name = match &action {
+            HotkeyAction::DisplayProfile(id) => {
+                self.config.displays.profile(id).map(|p| p.name.clone())
+            }
+            HotkeyAction::DisplayProfileNext => self
+                .next_display_profile()
+                .and_then(|id| self.config.displays.profile(&id).map(|p| p.name.clone())),
+            HotkeyAction::DisplayRevert => Some("Previous layout".into()),
+            HotkeyAction::DisplayAllOn => Some("All monitors".into()),
+            _ => None,
+        };
         let request = match &action {
             // Handled by `dictation_hotkey` above.
             HotkeyAction::DictationHold
@@ -470,7 +489,12 @@ impl DaemonHost {
             HotkeyAction::DisplayProfile(_)
             | HotkeyAction::DisplayProfileNext
             | HotkeyAction::DisplayRevert
-            | HotkeyAction::DisplayAllOn => return,
+            | HotkeyAction::DisplayAllOn => Osd::Status {
+                icon: StatusIcon::Monitor,
+                title: "Display".into(),
+                value: display_name.unwrap_or_default(),
+                alert: false,
+            },
             HotkeyAction::MasterVolumeUp
             | HotkeyAction::MasterVolumeDown
             | HotkeyAction::MasterMute => Osd::Volume {

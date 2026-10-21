@@ -347,9 +347,13 @@ fn run(
                 match message.lParam.0 as u32 {
                     WM_LBUTTONUP => crate::ui::open(),
                     WM_MBUTTONUP => send(&control, Request::MicToggleMute),
-                    // The compact tray panel (HK-007) is the menu; its Dictation tile toggles
-                    // dictation (§9.9.2).
-                    WM_RBUTTONUP => crate::ui::quick_panel(),
+                    // Keep the compact panel available from the native profile menu.
+                    WM_RBUTTONUP => {
+                        if let Err(error) = display_menu(window, &state, &control) {
+                            tracing::warn!(%error, "Cannot open display profile menu");
+                            crate::ui::quick_panel();
+                        }
+                    }
                     _ => {}
                 }
             } else {
@@ -365,6 +369,86 @@ fn run(
 fn send(control: &ControlSender<ControlMessage>, request: Request) {
     let (reply, _) = mpsc::channel();
     let _ = control.send(ControlMessage::Request { request, reply });
+}
+
+/// Native profile actions and the existing compact panel share the tray menu.
+fn display_menu(
+    window: HWND,
+    state: &TrayState,
+    control: &ControlSender<ControlMessage>,
+) -> windows::core::Result<()> {
+    use windows::Win32::Foundation::POINT;
+    use windows::core::PCWSTR;
+    // SAFETY: menus are owned here, used synchronously and destroyed after TrackPopupMenu.
+    unsafe {
+        let menu = CreatePopupMenu()?;
+        let result = (|| {
+            AppendMenuW(menu, MF_STRING, 1, w!("Open Macafon"))?;
+            AppendMenuW(menu, MF_STRING, 3, w!("Quick panel"))?;
+            if !state.displays.is_empty()
+                || macafon_ipc::Platform::current().capabilities().displays
+            {
+                let profiles = CreatePopupMenu()?;
+                // Attach immediately: destroying the parent also destroys this submenu.
+                if let Err(error) =
+                    AppendMenuW(menu, MF_POPUP, profiles.0 as usize, w!("Display profile"))
+                {
+                    let _ = DestroyMenu(profiles);
+                    return Err(error);
+                }
+                for (index, (id, name)) in state.displays.iter().enumerate() {
+                    let text: Vec<u16> = name
+                        .replace('&', "&&")
+                        .encode_utf16()
+                        .chain(Some(0))
+                        .collect();
+                    let checked = if state.active_display.as_ref() == Some(id) {
+                        MF_CHECKED
+                    } else {
+                        MF_UNCHECKED
+                    };
+                    AppendMenuW(
+                        profiles,
+                        MF_STRING | checked,
+                        index + 100,
+                        PCWSTR(text.as_ptr()),
+                    )?;
+                }
+                if !state.displays.is_empty() {
+                    AppendMenuW(profiles, MF_SEPARATOR, 0, PCWSTR::null())?;
+                }
+                AppendMenuW(profiles, MF_STRING, 2, w!("All monitors on"))?;
+            }
+            let mut point = POINT::default();
+            GetCursorPos(&mut point)?;
+            let _ = SetForegroundWindow(window);
+            let selected = TrackPopupMenu(
+                menu,
+                TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                point.x,
+                point.y,
+                None,
+                window,
+                None,
+            )
+            .0;
+            match selected {
+                1 => crate::ui::open(),
+                2 => send(control, Request::DisplaysAllOn),
+                3 => crate::ui::quick_panel(),
+                id if id >= 100 => {
+                    if let Some((id, _)) = state.displays.get((id - 100) as usize) {
+                        send(control, Request::DisplaysApply { id: id.clone() });
+                    }
+                }
+                _ => {}
+            }
+            let _ = PostMessageW(Some(window), WM_NULL, WPARAM(0), LPARAM(0));
+            Ok(())
+        })();
+        let _ = DestroyMenu(menu);
+        result
+    }
 }
 
 #[cfg(test)]

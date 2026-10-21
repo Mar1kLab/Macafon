@@ -858,6 +858,11 @@ mod tests {
             alert,
         };
         let views = [
+            (
+                "display",
+                status(StatusIcon::Monitor, "Display", "Work", false),
+                0.0,
+            ),
             ("main", volume("Main", "blue", "speaker", 67.0, false), 0.0),
             (
                 "voice-muted",

@@ -1,6 +1,7 @@
 <script lang="ts">
   // Module card (design system §6, DSP-001): number, HUD title, on/off, main control, gain
   // reduction and an Advanced accordion. Off → content at 40% opacity, the frame stays.
+  import { prefersReducedMotion } from 'svelte/motion';
   import type { Snippet } from 'svelte';
   import { slide } from 'svelte/transition';
   import { ChevronDown } from '@lucide/svelte';
@@ -9,7 +10,6 @@
   import ReductionMeter from './ReductionMeter.svelte';
   import { t } from '../i18n';
 
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   import type { ModuleInfo } from '../mic/modules';
 
   interface Props {
@@ -83,7 +83,7 @@
       <span class="chevron" class:open><ChevronDown size={12} strokeWidth={1.5} /></span>
     </button>
     {#if open}
-      <div class="advanced content" id={advancedId} transition:slide={{ duration: reduced ? 0 : 300 }}>
+      <div class="advanced content" id={advancedId} transition:slide={{ duration: prefersReducedMotion.current ? 0 : 300 }}>
         {@render advanced()}
       </div>
     {/if}

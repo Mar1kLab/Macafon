@@ -2,14 +2,15 @@
   // TRY IT (PRD §9.9.1), pinned at the bottom like TEST on the Microphone screen: hold the
   // button or Space to dictate through the whole pipeline; the text shows here instead of being
   // inserted. History (STT-015) expands upward: the last results, in daemon memory only.
+  import { prefersReducedMotion } from 'svelte/motion';
   import { slide } from 'svelte/transition';
   import { ChevronUp, Copy, CornerDownLeft, Mic, Trash2 } from '@lucide/svelte';
   import PopupLook from './PopupLook.svelte';
-  import type { DictationResult, DictationState } from '../ipc/protocol';
+  import type { DictationState } from '../ipc/protocol';
   import { daemon } from '../state';
   import { t } from '../i18n';
   import { formatClock, formatSeconds } from './format';
-  import { languageName } from './languages';
+  import { Copier, clearHistory, reinsert, resultLanguage } from './history.svelte';
 
   let { dictation }: { dictation: DictationState } = $props();
 
@@ -21,14 +22,10 @@
   const busy = $derived(listening || transcribing);
   let holding = $state(false);
   let historyOpen = $state(false);
-  let copied = $state<number | null>(null);
+  const copier = new Copier();
 
   function modelName(id: string): string {
     return dictation.models.find((model) => model.id === id)?.name ?? id;
-  }
-
-  function language(entry: DictationResult): string {
-    return entry.language ? languageName(dictation, entry.language) : t('dictation.test.auto');
   }
 
   async function start() {
@@ -44,23 +41,16 @@
     void daemon.setDictation(daemon.client.call('dictation.test_stop'));
   }
 
-  async function copy(entry: DictationResult) {
-    await navigator.clipboard.writeText(entry.text);
-    copied = entry.id;
-    setTimeout(() => {
-      if (copied === entry.id) copied = null;
-    }, 1500);
-  }
 </script>
 
 <div class="panel">
   {#if historyOpen}
-    <div class="history" transition:slide={{ duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 300 }}>
+    <div class="history" transition:slide={{ duration: prefersReducedMotion.current ? 0 : 300 }}>
       <div class="history-head">
         <span class="hud-label">{t('dictation.test.history')}</span>
         <span class="hint">{t('dictation.test.historyHint')}</span>
         <span class="spacer"></span>
-        <button class="btn small ghost" disabled={dictation.history.length === 0} onclick={() => daemon.setDictation(daemon.client.call('dictation.history_clear'))}><Trash2 size={12} strokeWidth={1.5} />{t('dictation.test.clear')}</button>
+        <button class="btn small ghost" disabled={dictation.history.length === 0} onclick={clearHistory}><Trash2 size={12} strokeWidth={1.5} />{t('dictation.test.clear')}</button>
       </div>
       {#if dictation.history.length === 0}
         <p class="muted">{prefs.keep_history ? t('dictation.test.historyEmpty') : t('dictation.test.historyOff')}</p>
@@ -70,10 +60,10 @@
             <li>
               <span class="time">{formatClock(entry.at_unix_ms)}</span>
               <span class="text" title={entry.text}>{entry.text}</span>
-              <span class="badge">{language(entry)}</span>
+              <span class="badge">{resultLanguage(dictation, entry)}</span>
               <span class="time">{formatSeconds(entry.elapsed_ms)}</span>
-              <button class="btn icon ghost" aria-label={t('dictation.test.copy')} title={copied === entry.id ? t('dictation.test.copied') : t('dictation.test.copy')} onclick={() => copy(entry)}><Copy size={13} strokeWidth={1.5} /></button>
-              <button class="btn icon ghost" aria-label={t('dictation.test.reinsert')} title={t('dictation.test.reinsert')} onclick={() => daemon.run(daemon.client.call('dictation.reinsert', { id: entry.id }))}><CornerDownLeft size={13} strokeWidth={1.5} /></button>
+              <button class="btn icon ghost" aria-label={t('dictation.test.copy')} title={copier.id === entry.id ? t('dictation.test.copied') : t('dictation.test.copy')} onclick={() => copier.copy(entry)}><Copy size={13} strokeWidth={1.5} /></button>
+              <button class="btn icon ghost" aria-label={t('dictation.test.reinsert')} title={t('dictation.test.reinsert')} onclick={() => reinsert(entry)}><CornerDownLeft size={13} strokeWidth={1.5} /></button>
             </li>
           {/each}
         </ul>
@@ -119,8 +109,8 @@
         <span class="muted">{listening ? t('dictation.test.listening') : t('dictation.test.transcribing')}</span>
       {:else if result}
         <span class="text" title={result.text}>“{result.text}”</span>
-        <span class="meta">{formatSeconds(result.elapsed_ms)} · {modelName(result.model)} · {language(result)}</span>
-        <button class="btn small" onclick={() => copy(result)}><Copy size={12} strokeWidth={1.5} />{copied === result.id ? t('dictation.test.copied') : t('dictation.test.copy')}</button>
+        <span class="meta">{formatSeconds(result.elapsed_ms)} · {modelName(result.model)} · {resultLanguage(dictation, result)}</span>
+        <button class="btn small" onclick={() => copier.copy(result)}><Copy size={12} strokeWidth={1.5} />{copier.id === result.id ? t('dictation.test.copied') : t('dictation.test.copy')}</button>
       {:else}
         <span class="muted">{usable ? t('dictation.test.empty') : t('dictation.test.unavailable')}</span>
       {/if}

@@ -14,6 +14,7 @@
   import Card from '../lib/dictation/Card.svelte';
   import EngineCard from '../lib/dictation/EngineCard.svelte';
   import TryPanel from '../lib/dictation/TryPanel.svelte';
+  import { clearHistory } from '../lib/dictation/history.svelte';
   import { formatBytes } from '../lib/dictation/format';
   import type {
     DictationGamePolicy,
@@ -240,7 +241,7 @@
           {#snippet footer()}
             <span class="history-foot">
               <span>{t('dictation.history.count', { count: dictation.history.length })}</span>
-              <button class="link" disabled={dictation.history.length === 0} onclick={() => daemon.setDictation(daemon.client.call('dictation.history_clear'))}><Trash2 size={12} strokeWidth={1.5} />{t('dictation.test.clear')}</button>
+              <button class="link" disabled={dictation.history.length === 0} onclick={clearHistory}><Trash2 size={12} strokeWidth={1.5} />{t('dictation.test.clear')}</button>
             </span>
           {/snippet}
         </Card>

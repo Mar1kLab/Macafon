@@ -3,6 +3,7 @@
   // small pill with mirrored level bars (rounded — an owner exception), and Analog, a vintage VU
   // meter in the app's own style. Only the voice: no timer, no language. `source` picks what
   // drives them: the live tap level, a speech-like demo, or nothing (a still picture).
+  import { prefersReducedMotion } from 'svelte/motion';
   import type { DictationPopupLook } from '../ipc/protocol';
   import { onFrame } from '../state/frame';
   import { SILENCE_DB, dictationLevelBus } from '../state/meters';
@@ -76,7 +77,6 @@
       bars = Array.from({ length: BARS }, (_, i) => still(i));
       return;
     }
-    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const needle = new Needle();
     const smooth = new Array<number>(BARS).fill(0);
     const seeds = Array.from({ length: BARS }, (_, i) => 1.3 + ((i * 7919) % 13) / 4);
@@ -100,7 +100,7 @@
         }
       }
       const target = vuToTravel(Math.max(VU_MIN, dbfsToVu(rms)));
-      travel = reduced ? needle.settle(target, dt) : needle.step(target, dt);
+      travel = prefersReducedMotion.current ? needle.settle(target, dt) : needle.step(target, dt);
       peak = peakDb > -7;
       ghost = Math.max(travel, ghost - dt * 0.35);
       glowLevel = Math.max(0, Math.min(1, travel));

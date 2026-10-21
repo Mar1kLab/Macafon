@@ -3,6 +3,7 @@
   // plays. Drag it to another channel (APP-004), or focus it and press 1…8 / open its menu
   // (APP-008). Remembered apps that are not running are dimmed (APP-007). A click opens the
   // app's own volume inside the channel (CH-008).
+  import { prefersReducedMotion } from 'svelte/motion';
   import { tick } from 'svelte';
   import { uiZoom } from '../components/zoom';
   import { Lock } from '@lucide/svelte';
@@ -90,7 +91,7 @@
 
   /** The lifted chip follows the cursor tilted by 2° (design system §5). */
   function liftedImage(chip: HTMLElement, transfer: DataTransfer, event: DragEvent) {
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (prefersReducedMotion.current) return;
     const rect = chip.getBoundingClientRect();
     const ghost = chip.cloneNode(true) as HTMLElement;
     ghost.style.cssText = `position:fixed;top:-200px;left:0;width:${rect.width}px;transform:rotate(2deg);`;

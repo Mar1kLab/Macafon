@@ -8,6 +8,7 @@
 <script lang="ts">
   // Dictation's first-run guide (§8.4): step by step, what it is and how to start — first of all
   // that everything runs on this computer: no account, no cloud, audio and text never leave it.
+  import { prefersReducedMotion } from 'svelte/motion';
   import { Download, HardDrive, Keyboard, Languages, Mic, ShieldCheck, WifiOff } from '@lucide/svelte';
   import type { Component } from 'svelte';
   import { fly } from 'svelte/transition';
@@ -29,7 +30,6 @@
   let step = $state(0);
   let direction = $state(1);
   const current = $derived(STEPS[step]!);
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   const hold = $derived(daemon.hotkeys?.bindings.find((binding) => binding.action === 'dictation_hold')?.shortcut ?? null);
   const layouts = $derived(daemon.dictation?.layout_languages ?? []);
@@ -60,7 +60,7 @@
     </ol>
 
     {#key step}
-      <section class="step" in:fly={{ x: 24 * direction, duration: reduced ? 0 : 200 }} aria-live="polite">
+      <section class="step" in:fly={{ x: 24 * direction, duration: prefersReducedMotion.current ? 0 : 200 }} aria-live="polite">
         <span class="icon"><current.icon size={28} strokeWidth={1.25} /></span>
         <h3>{t(`dictation.onboarding.${current.id}.title`)}</h3>
         <p>{t(`dictation.onboarding.${current.id}.body`)}</p>

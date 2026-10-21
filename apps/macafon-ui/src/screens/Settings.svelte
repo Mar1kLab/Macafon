@@ -6,6 +6,7 @@
   // library folder (SND-001). Hotkeys (HK-002, HK-004) and their popup (HK-006, where the
   // daemon draws one), shown in pictures with the overlay (HK-007, SND-006). Doctor (§9.6).
   // A section list on the left follows the scroll and jumps to a section.
+  import { prefersReducedMotion } from 'svelte/motion';
   import { onMount, tick } from 'svelte';
   import { availableMonitors, primaryMonitor } from '@tauri-apps/api/window';
   import { isTauri } from '../lib/ipc/tauri';
@@ -249,8 +250,7 @@
     await tick();
     const element = document.getElementById(`settings-${id}`);
     if (!element) return;
-    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    element.scrollIntoView({ behavior: smooth && !reduce ? 'smooth' : 'auto', block: 'start' });
+    element.scrollIntoView({ behavior: smooth && !prefersReducedMotion.current ? 'smooth' : 'auto', block: 'start' });
     element.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true });
     active = id;
   }

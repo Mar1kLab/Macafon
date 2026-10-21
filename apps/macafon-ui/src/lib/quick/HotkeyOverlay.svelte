@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { prefersReducedMotion } from 'svelte/motion';
   import { AudioLines, AudioWaveform, ChevronDown, ChevronLeft, ChevronRight, Headphones, History, Mic, MicOff, SlidersHorizontal, Speech, Volume2, VolumeX, X } from '@lucide/svelte';
   import Logo from '../components/Logo.svelte';
   import LevelMeter from '../components/LevelMeter.svelte';
@@ -34,7 +35,6 @@
   const Flag = $derived(expand === 'left' ? ChevronLeft : expand === 'down' ? ChevronDown : ChevronRight);
   const playing = $derived(playback && soundpad?.sounds.find((sound) => sound.id === playback.sound_id));
   const output = $derived(mixer?.outputs.find((item) => item.name === mixer.output) ?? null);
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   /** The parts in the order the layout editor saved, only those that show (§9.9). */
   const parts = $derived(
     overlayOrder(setup.order).filter((part: OverlayItem) => {
@@ -224,7 +224,7 @@
 
       {#if side}
         <!-- Side content scrolls without contributing to the main height or down width. -->
-        <div class="side-reveal" transition:reveal={{ expand, duration: reduced ? 0 : 200 }}>
+        <div class="side-reveal" transition:reveal={{ expand, duration: prefersReducedMotion.current ? 0 : 200 }}>
           <aside class="side" class:sounds={side === 'sounds'}>
             {#if side === 'sounds'}
               <SoundpadOverlay part="library" />
@@ -239,7 +239,7 @@
     </div>
     {#if side === 'sounds'}
       <!-- Keep the player row reserved until the side panel finishes closing. -->
-      <div class="dock" transition:reveal={{ expand, duration: reduced ? 0 : 200 }}><SoundpadOverlay part="player" /></div>
+      <div class="dock" transition:reveal={{ expand, duration: prefersReducedMotion.current ? 0 : 200 }}><SoundpadOverlay part="player" /></div>
     {/if}
   {/if}
 </div>

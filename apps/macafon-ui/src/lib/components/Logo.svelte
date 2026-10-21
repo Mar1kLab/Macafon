@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { prefersReducedMotion } from 'svelte/motion';
+  import { untrack } from 'svelte';
   import { logoPaths } from '../brand/morph';
   import { cssVar, onFrame } from '../state/frame';
 
@@ -12,22 +13,13 @@
 
   let element: SVGSVGElement | undefined = $state();
   let amount = $state(0);
-  let reduced = $state(true);
   const paths = $derived(logoPaths(amount));
-
-  onMount(() => {
-    const preference = matchMedia('(prefers-reduced-motion: reduce)');
-    const sync = () => { reduced = preference.matches; };
-    sync();
-    preference.addEventListener('change', sync);
-    return () => preference.removeEventListener('change', sync);
-  });
 
   $effect(() => {
     const target = inactive ? 1 : 0;
     const from = untrack(() => amount);
     const duration = element ? parseFloat(cssVar(element, '--dur-card')) : 0;
-    if (reduced || !Number.isFinite(duration) || duration <= 0 || target === from) {
+    if (prefersReducedMotion.current || !Number.isFinite(duration) || duration <= 0 || target === from) {
       amount = target;
       return;
     }

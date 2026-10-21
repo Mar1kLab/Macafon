@@ -1,32 +1,19 @@
 <script lang="ts">
   import { Copy, CornerDownLeft, Trash2 } from '@lucide/svelte';
   import { formatClock, formatSeconds } from '../dictation/format';
-  import { languageName } from '../dictation/languages';
-  import type { DictationResult } from '../ipc/protocol';
+  import { Copier, clearHistory, reinsert, resultLanguage } from '../dictation/history.svelte';
   import { daemon } from '../state';
   import { t } from '../i18n';
   const dictation = $derived(daemon.dictation);
   const prefs = $derived(dictation?.prefs);
-  let copied = $state<number | null>(null);
-  async function copy(entry: DictationResult) {
-    await navigator.clipboard.writeText(entry.text);
-    copied = entry.id;
-    setTimeout(() => {
-      if (copied === entry.id) copied = null;
-    }, 1500);
-  }
-
-  function language(entry: DictationResult): string {
-    return entry.language ? languageName(dictation ?? null, entry.language) : t('dictation.test.auto');
-  }
-
+  const copier = new Copier();
 </script>
 {#if dictation && prefs}
   <section class="history" id="overlay-history" aria-label={t('settings.overlay.part.dictation_history')}>
     <div class="head">
       <span class="hud-label">{t('dictation.test.history')}</span>
       <span class="spacer"></span>
-      <button class="round" aria-label={t('dictation.test.clear')} title={t('dictation.test.clear')} disabled={dictation.history.length === 0} onclick={() => daemon.setDictation(daemon.client.call('dictation.history_clear'))}><Trash2 size={13} strokeWidth={1.5} /></button>
+      <button class="round" aria-label={t('dictation.test.clear')} title={t('dictation.test.clear')} disabled={dictation.history.length === 0} onclick={clearHistory}><Trash2 size={13} strokeWidth={1.5} /></button>
     </div>
     {#if dictation.history.length === 0}
       <p class="empty">{prefs.keep_history ? t('quick.dictationEmpty') : t('dictation.test.historyOff')}</p>
@@ -35,10 +22,10 @@
         {#each dictation.history as entry (entry.id)}
           <li>
             <span class="text" title={entry.text}>{entry.text}</span>
-            <span class="meta">{formatClock(entry.at_unix_ms)} · {language(entry)} · {formatSeconds(entry.elapsed_ms)}</span>
+            <span class="meta">{formatClock(entry.at_unix_ms)} · {resultLanguage(dictation, entry)} · {formatSeconds(entry.elapsed_ms)}</span>
             <span class="actions">
-              <button class="round" aria-label={t('dictation.test.copy')} title={copied === entry.id ? t('dictation.test.copied') : t('dictation.test.copy')} onclick={() => copy(entry)}><Copy size={13} strokeWidth={1.5} /></button>
-              <button class="round" aria-label={t('dictation.test.reinsert')} title={t('dictation.test.reinsert')} onclick={() => daemon.run(daemon.client.call('dictation.reinsert', { id: entry.id }))}><CornerDownLeft size={13} strokeWidth={1.5} /></button>
+              <button class="round" aria-label={t('dictation.test.copy')} title={copier.id === entry.id ? t('dictation.test.copied') : t('dictation.test.copy')} onclick={() => copier.copy(entry)}><Copy size={13} strokeWidth={1.5} /></button>
+              <button class="round" aria-label={t('dictation.test.reinsert')} title={t('dictation.test.reinsert')} onclick={() => reinsert(entry)}><CornerDownLeft size={13} strokeWidth={1.5} /></button>
             </span>
           </li>
         {/each}

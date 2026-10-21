@@ -2,11 +2,16 @@
 
 use anyhow::Result;
 use macafon_ipc::{AbState, CalibrationReport, MicState, MixerState};
+use serde::Serialize;
+
+pub(super) fn print_json(value: &impl Serialize) -> Result<()> {
+    println!("{}", serde_json::to_string_pretty(value)?);
+    Ok(())
+}
 
 pub(super) fn print_ab(state: &AbState, json: bool) -> Result<()> {
     if json {
-        println!("{}", serde_json::to_string_pretty(state)?);
-        return Ok(());
+        return print_json(state);
     }
     let clip = state.clip_ms.map_or("none".to_owned(), |ms| {
         format!("{:.1} s", ms as f32 / 1000.0)
@@ -55,8 +60,7 @@ pub(super) fn print_report(report: &CalibrationReport) {
 
 pub(super) fn print_mixer(state: &MixerState, json: bool) -> Result<()> {
     if json {
-        println!("{}", serde_json::to_string_pretty(state)?);
-        return Ok(());
+        return print_json(state);
     }
     println!(
         "mixer: {}  output: {}  master: {:.0}%{}",

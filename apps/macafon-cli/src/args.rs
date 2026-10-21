@@ -309,3 +309,37 @@ pub(super) enum Switch {
     Off,
     Toggle,
 }
+
+impl Switch {
+    /// The state to set; `current` is asked only for a toggle.
+    pub(super) fn resolve(
+        self,
+        current: impl FnOnce() -> anyhow::Result<bool>,
+    ) -> anyhow::Result<bool> {
+        Ok(match self {
+            Switch::On => true,
+            Switch::Off => false,
+            Switch::Toggle => !current()?,
+        })
+    }
+}
+
+impl From<Side> for macafon_ipc::AbSide {
+    fn from(side: Side) -> Self {
+        match side {
+            Side::A => Self::A,
+            Side::B => Self::B,
+        }
+    }
+}
+
+impl From<Channel> for macafon_ipc::InputChannel {
+    fn from(channel: Channel) -> Self {
+        match channel {
+            Channel::Auto => Self::Auto,
+            Channel::Left => Self::Left,
+            Channel::Right => Self::Right,
+            Channel::Mix => Self::Mix,
+        }
+    }
+}

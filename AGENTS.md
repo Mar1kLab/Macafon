@@ -34,6 +34,16 @@ features without a direct request, but keep things extensible where the PRD expl
 - **Git.** Conventional Commits in English (`feat(dsp): add de-esser`, `fix(pw): …`, `docs: …`).
   Small, logical commits. Commit and push when the owner asks or the task says so.
   Do not rewrite published history.
+- **Versions.** Every push to `main` that changes code (Rust, UI, packaging, build scripts) bumps
+  the app version in the same push, as the last commit (`chore: release X.Y.Z`), with
+  `python tools/bump-version.py patch|minor`:
+  - **patch** `x.y.Z` — fixes, refactoring, performance, small UI edits;
+  - **minor** `x.Y.0` — new features, new requirement IDs, large changes or protocol/config format
+    changes;
+  - **major** `X.0.0` — only on the owner's request.
+  One bump per push (several commits in one push share it). Docs-only and agent-rule pushes do not
+  bump. Do not edit versions by hand: the script keeps `Cargo.toml`, `Cargo.lock`, `package.json`
+  and `tauri.conf.json` in sync.
 - **Language.** Code, identifiers, comments, commits, UI strings and documentation in `docs/` — English.
 
 ## 3. Checks and tests — targeted, not "everything"
@@ -151,4 +161,5 @@ pnpm -C apps/macafon-ui tauri dev        # UI in Tauri with the real daemon
 pnpm -C apps/macafon-ui check            # svelte-check / TypeScript
 pnpm -C apps/macafon-ui gen:ipc          # regenerate TS types from macafon-ipc/macafon-dsp
 python tools/package-windows.py          # Windows: per-user NSIS installer (pnpm via corepack)
+python tools/bump-version.py patch       # version bump before a push to main (§2)
 ```

@@ -28,6 +28,7 @@ import type {
 import { PROTOCOL_VERSION, SOUNDPAD_UPLOAD_CHUNK_BYTES } from '../ipc/protocol';
 import { t } from '../i18n';
 import { deviceMeterBus, dictationLevelBus, meterBus, mixerMeterBus } from './meters';
+import { PrefsQueue, withPatch } from './prefsQueue';
 
 export interface Toast {
   id: number;
@@ -491,22 +492,16 @@ export class DaemonStore {
 
   // --- Soundpad ---------------------------------------------------------------------------
 
-  private soundpadPrefsPending: SoundpadPrefsPatch | null = null;
-  private soundpadPrefsInFlight = false;
-  private soundpadPrefsPatch: SoundpadPrefsPatch | null = null;
+  private soundpadPrefs = new PrefsQueue<SoundpadPrefsPatch, SoundpadState>(
+    (patch) => this.client.call('soundpad.set_prefs', { patch }),
+    () => this.run(this.client.call('soundpad.get')),
+    (state) => this.applySoundpad(state),
+    (error) => this.fail(error),
+  );
 
   /** A volume drag keeps its local value until the last request is answered. */
   private applySoundpad(state: SoundpadState) {
-    const local = this.soundpad?.prefs;
-    const editing = { ...this.soundpadPrefsPatch, ...this.soundpadPrefsPending };
-    const prefs = { ...state.prefs };
-    if (local) {
-      for (const key of Object.keys(editing) as (keyof SoundpadPrefsPatch)[]) {
-        if (editing[key] !== null && editing[key] !== undefined) {
-          (prefs as Record<string, unknown>)[key] = local[key];
-        }
-      }
-    }
+    const prefs = this.soundpadPrefs.keepEditing(state.prefs, this.soundpad?.prefs);
     this.soundpad = { ...state, prefs };
     this.soundpadPlayback = state.playback;
   }
@@ -521,35 +516,8 @@ export class DaemonStore {
   setSoundpadPrefs(patch: SoundpadPrefsPatch): void {
     const soundpad = this.soundpad;
     if (!soundpad) return;
-    const prefs = { ...soundpad.prefs };
-    for (const [key, value] of Object.entries(patch)) {
-      if (value !== undefined && value !== null) (prefs as Record<string, unknown>)[key] = value;
-    }
-    this.soundpad = { ...soundpad, prefs };
-    if (this.soundpadPrefsInFlight) {
-      this.soundpadPrefsPending = { ...this.soundpadPrefsPending, ...patch };
-      return;
-    }
-    this.soundpadPrefsInFlight = true;
-    this.soundpadPrefsPatch = patch;
-    this.client
-      .call('soundpad.set_prefs', { patch })
-      .then((state) => {
-        this.soundpadPrefsPatch = null;
-        if (state) this.applySoundpad(state);
-      })
-      .catch(async (error) => {
-        this.fail(error);
-        this.soundpadPrefsPatch = null;
-        const state = await this.run(this.client.call('soundpad.get'));
-        if (state) this.applySoundpad(state);
-      })
-      .finally(() => {
-        this.soundpadPrefsInFlight = false;
-        const next = this.soundpadPrefsPending;
-        this.soundpadPrefsPending = null;
-        if (next) this.setSoundpadPrefs(next);
-      });
+    this.soundpad = { ...soundpad, prefs: withPatch(soundpad.prefs, patch) };
+    this.soundpadPrefs.push(patch);
   }
 
   playSound(id: string): void {
@@ -601,22 +569,16 @@ export class DaemonStore {
 
   // --- Dictation --------------------------------------------------------------------------
 
-  private dictationPending: DictationPrefsPatch | null = null;
-  private dictationInFlight = false;
-  private dictationPatch: DictationPrefsPatch | null = null;
+  private dictationPrefs = new PrefsQueue<DictationPrefsPatch, DictationState>(
+    (patch) => this.client.call('dictation.set_prefs', { patch }),
+    () => this.run(this.client.call('dictation.get')),
+    (state) => this.applyDictation(state),
+    (error) => this.fail(error),
+  );
 
   /** A slider drag keeps its local value until the last request is answered. */
   private applyDictation(state: DictationState) {
-    const local = this.dictation?.prefs;
-    const editing = { ...this.dictationPatch, ...this.dictationPending };
-    const prefs = { ...state.prefs };
-    if (local) {
-      for (const key of Object.keys(editing) as (keyof DictationPrefsPatch)[]) {
-        if (editing[key] !== null && editing[key] !== undefined) {
-          (prefs as Record<string, unknown>)[key] = local[key];
-        }
-      }
-    }
+    const prefs = this.dictationPrefs.keepEditing(state.prefs, this.dictation?.prefs);
     this.dictation = { ...state, prefs };
   }
 
@@ -630,35 +592,8 @@ export class DaemonStore {
   setDictationPrefs(patch: DictationPrefsPatch): void {
     const dictation = this.dictation;
     if (!dictation) return;
-    const prefs = { ...dictation.prefs };
-    for (const [key, value] of Object.entries(patch)) {
-      if (value !== undefined && value !== null) (prefs as Record<string, unknown>)[key] = value;
-    }
-    this.dictation = { ...dictation, prefs };
-    if (this.dictationInFlight) {
-      this.dictationPending = { ...this.dictationPending, ...patch };
-      return;
-    }
-    this.dictationInFlight = true;
-    this.dictationPatch = patch;
-    this.client
-      .call('dictation.set_prefs', { patch })
-      .then((state) => {
-        this.dictationPatch = null;
-        this.applyDictation(state);
-      })
-      .catch(async (error) => {
-        this.fail(error);
-        this.dictationPatch = null;
-        const state = await this.run(this.client.call('dictation.get'));
-        if (state) this.applyDictation(state);
-      })
-      .finally(() => {
-        this.dictationInFlight = false;
-        const next = this.dictationPending;
-        this.dictationPending = null;
-        if (next) this.setDictationPrefs(next);
-      });
+    this.dictation = { ...dictation, prefs: withPatch(dictation.prefs, patch) };
+    this.dictationPrefs.push(patch);
   }
 
   // --- Chain edits --------------------------------------------------------------------------

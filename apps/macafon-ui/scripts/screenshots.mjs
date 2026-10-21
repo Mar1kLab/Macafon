@@ -187,9 +187,10 @@ const scenarios = {
     await page.goto(`${base}?screen=settings`);
     await page.waitForSelector('.hotkeys li');
     // A conflict: Ctrl+Alt+M already toggles the microphone.
-    await page.getByRole('button', { name: 'Set shortcut for Toggle bypass' }).click();
+    // The first of each action's two bindings: the primary one.
+    await page.getByRole('button', { name: 'Set shortcut for Toggle bypass' }).first().click();
     await page.keyboard.press('Control+Alt+KeyM');
-    await page.getByRole('button', { name: 'Set shortcut for Voice: Toggle mute' }).click();
+    await page.getByRole('button', { name: 'Set shortcut for Voice: Toggle mute' }).first().click();
     await page.keyboard.down('Control');
     await page.keyboard.down('Shift');
     await page.locator('.hotkeys').evaluate((element) => element.closest('section').scrollIntoView({ block: 'start' }));
@@ -336,9 +337,9 @@ const scenarios = {
   'settings-popup-bar': async (page) => {
     await page.goto(`${base}?platform=windows&screen=settings&section=popup`);
     await page.waitForSelector('#settings-popup');
-    await page.getByRole('radio', { name: /Windows 11/ }).click();
+    await page.locator('#settings-popup').getByRole('radio', { name: /Windows 11/ }).click();
     await page.waitForTimeout(300);
-    await page.getByRole('radio', { name: 'Top', exact: true }).click();
+    await page.locator('#settings-popup').getByRole('radio', { name: 'Top', exact: true }).click();
     await page.waitForTimeout(300);
     await page.locator('#settings-popup').getByRole('slider').focus();
     for (let i = 0; i < 3; i += 1) await page.keyboard.press('PageUp');
@@ -353,13 +354,13 @@ const scenarios = {
   },
   'overlay-collapsed': async (page) => {
     await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay`);
-    await page.waitForSelector('.overlay .sounds');
+    await page.waitForSelector('.overlay .controls');
     await page.waitForTimeout(600);
   },
   'overlay-sounds': async (page) => {
     await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay`);
-    await page.waitForSelector('.overlay .sounds');
-    await page.getByRole('button', { name: 'Show the soundpad sounds' }).click();
+    await page.waitForSelector('.overlay .controls');
+    await page.locator('.switch[aria-controls="overlay-sounds"]').click();
     await page.waitForSelector('.pads');
     await page.waitForTimeout(600);
   },
@@ -406,8 +407,9 @@ const scenarios = {
     await page.waitForTimeout(1600);
   },
   'dictation-analog': async (page) => {
-    await page.goto(`${base}?platform=windows&screen=dictation&dictation=ready`);
-    await page.waitForSelector('.grid');
+    // The popup look is chosen in Settings → Dictation.
+    await page.goto(`${base}?platform=windows&screen=settings&section=dictation&dictation=ready`);
+    await page.waitForSelector('#settings-dictation');
     await page.getByRole('radio', { name: /Analog/ }).click();
     await page.getByRole('radio', { name: /Analog/ }).scrollIntoViewIfNeeded();
     await page.waitForTimeout(1200);
@@ -417,6 +419,11 @@ const scenarios = {
     await page.waitForSelector('.grid');
     await page.getByRole('button', { name: /^History/ }).click();
     await page.waitForTimeout(500);
+  },
+  'dictation-onboarding': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=dictation`);
+    await page.waitForSelector('dialog[open]');
+    await page.waitForTimeout(400);
   },
   'dictation-error': async (page) => {
     await page.goto(`${base}?platform=windows&screen=dictation&dictation=error`);
@@ -443,7 +450,7 @@ const scenarios = {
   'overlay-sounds-side': async (page) => {
     await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay&dictation=ready`);
     await page.waitForSelector('.overlay');
-    await page.locator('[aria-controls="overlay-sounds"]').click();
+    await page.locator('.switch[aria-controls="overlay-sounds"]').click();
     await page.getByRole('button', { name: /Play Air horn/ }).click();
     await page.waitForTimeout(500);
   },
@@ -492,10 +499,15 @@ const scenarios = {
     await page.setViewportSize({ width: 960, height: 640 });
     await page.goto(`${base}?platform=windows&screen=soundpad`);
     await page.waitForSelector('.list');
+    const height = () => page.evaluate(() => Math.max(document.documentElement.scrollHeight, document.body.scrollHeight));
+    const closed = await height();
     await page.getByRole('button', { name: 'Headphones device' }).click();
-    await page.waitForSelector('[role="listbox"]');
-    const grown = await page.evaluate(() => document.documentElement.scrollHeight > innerHeight || document.body.scrollHeight > innerHeight);
-    if (grown) throw new Error('the open list made the page taller than the window');
+    // The SoundDeck list is a listbox too; this is the device list.
+    const list = page.getByRole('listbox', { name: 'Headphones device' });
+    await list.waitFor();
+    const box = await list.boundingBox();
+    if ((await height()) > closed) throw new Error('the open list made the page taller');
+    if (!box || box.y < 0 || box.y + box.height > 640) throw new Error('the open list does not fit the window');
     await page.waitForTimeout(300);
   },
   'soundpad-folder': async (page) => {
@@ -524,11 +536,14 @@ const date = new Date().toISOString().slice(0, 10);
 for (const [name, run] of Object.entries(scenarios)) {
   if (only.size && !only.has(name)) continue;
   const page = await context.newPage();
-  // The first-run flow covers the app; only its own scenarios show it.
-  await page.addInitScript((first) => {
+  // The first-run flows (the app's and the Dictation screen's) cover the screen; only their own
+  // scenarios show them.
+  await page.addInitScript(({ first, dictationFirst }) => {
     if (first) localStorage.removeItem('macafon.onboarding');
     else localStorage.setItem('macafon.onboarding', 'done');
-  }, name.startsWith('onboarding'));
+    if (dictationFirst) localStorage.removeItem('macafon.dictation.onboarded');
+    else localStorage.setItem('macafon.dictation.onboarded', '1');
+  }, { first: name.startsWith('onboarding'), dictationFirst: name.startsWith('dictation-onboarding') });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));

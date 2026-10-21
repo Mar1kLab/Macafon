@@ -25,7 +25,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging"] }
 
 [lints]
 workspace = true

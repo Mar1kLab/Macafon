@@ -52,7 +52,7 @@
   const output = $derived(mixer?.outputs.find((o) => o.name === mixer.output)?.description ?? null);
   const shortcut = $derived(daemon.hotkeys?.bindings.find((b) => b.action === 'quick_panel')?.shortcut ?? null);
   /** The look picked for the hotkey popup: the tray panel follows it, like the overlay (HK-006). */
-  const sketch = $derived(daemon.prefs?.osd.look === 'sketch');
+  const sketch = $derived(daemon.sketch);
   const dictation = $derived(dictationTile(daemon.dictation, daemon.hotkeys));
 
   /** §9.9.2: toggles dictation; without a model, or on right click, the app opens instead. */
@@ -488,7 +488,18 @@
      accent marks instead of fills, and the overlay's frame. */
   .sketch {
     position: relative;
+    isolation: isolate;
     padding: 24px;
+    /* Painted only inside its lines; outside them the window is transparent. */
+    background: transparent;
+  }
+
+  .sketch::before {
+    content: '';
+    position: absolute;
+    inset: 8px;
+    z-index: -1;
+    background: var(--bg-raised);
   }
 
   .frame {

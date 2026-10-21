@@ -9,6 +9,7 @@
   import QuickPanel from './QuickPanel.svelte';
   import HotkeyOverlay from './HotkeyOverlay.svelte';
   import { isTauri } from '../ipc/tauri';
+  import { daemon } from '../state';
 
   type Mode = 'tray' | 'overlay';
 
@@ -18,6 +19,13 @@
   let root: HTMLDivElement | undefined = $state();
   /** Bumped every time the daemon asks to show a panel: the overlay starts collapsed again. */
   let opened = $state(0);
+
+  // The Sketch look draws no system frame: the page goes transparent around its lines and the
+  // window drops its shadow and corners on the next fit.
+  $effect(() => {
+    document.documentElement.classList.toggle('frameless', daemon.sketch);
+    void fit();
+  });
 
   function measure() {
     const rect = root?.getBoundingClientRect();
@@ -50,6 +58,7 @@
             height,
             anchorLeft: main ? main.left - origin.left : null,
             anchorRight: main ? main.right - origin.left : null,
+            frameless: daemon.sketch,
           });
         }
       } while (refit);
@@ -105,6 +114,13 @@
 </div>
 
 <style>
+  /* Sketch: no system frame; the desktop shows around the panel's lines (§9.9.2). */
+  :global(html.frameless),
+  :global(html.frameless body) {
+    background: transparent;
+    background-image: none;
+  }
+
   .fit {
     width: max-content;
   }

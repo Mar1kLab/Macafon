@@ -128,10 +128,12 @@ const LEGACY_HOTKEYS: [(&str, &str); 8] = [
 ];
 
 /// How the hotkey popup looks and where it sits (HK-006, Windows).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OsdConfig {
-    #[serde(default)]
+    /// Sketch on a new install (owner decision, 2026-10-22); a `[ui.osd]` saved before the
+    /// looks existed keeps Classic.
+    #[serde(default = "classic_look")]
     pub look: OsdLook,
     pub primary_monitor: bool,
     pub style: OsdStyle,
@@ -139,6 +141,22 @@ pub struct OsdConfig {
     pub edge: OsdEdge,
     /// Distance from that edge in percent of the screen, up to `OSD_MAX_OFFSET_PCT`.
     pub offset_pct: f32,
+}
+
+impl Default for OsdConfig {
+    fn default() -> Self {
+        Self {
+            look: OsdLook::Sketch,
+            primary_monitor: false,
+            style: OsdStyle::default(),
+            edge: OsdEdge::default(),
+            offset_pct: 0.0,
+        }
+    }
+}
+
+fn classic_look() -> OsdLook {
+    OsdLook::Classic
 }
 
 /// The farthest the popup moves from its edge toward the center.
@@ -501,6 +519,11 @@ mod tests {
             toml::from_str("[ui.osd]\nstyle = 'horizontal'\n[soundpad]\nshow_in_overlay = false\n")
                 .expect("old config");
         assert_eq!(config.ui.osd.look, OsdLook::Classic);
+        assert_eq!(Config::default().ui.osd.look, OsdLook::Sketch);
+        assert_eq!(
+            Config::default().ui.overlay.expand,
+            macafon_ipc::OverlayExpand::Right
+        );
         assert_eq!(config.ui.overlay, macafon_ipc::OverlayPrefs::default());
         let mut changed = config.clone();
         changed.ui.overlay.expand = macafon_ipc::OverlayExpand::Down;

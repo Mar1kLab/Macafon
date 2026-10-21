@@ -144,6 +144,12 @@ export class DaemonStore {
     return this.hello?.capabilities.soundpad ?? false;
   }
 
+  /** The look of the hotkey popup, overlay and tray panel (HK-006): Sketch unless Classic
+   * was picked, also before the preferences arrive. */
+  get sketch(): boolean {
+    return this.prefs?.osd.look !== 'classic';
+  }
+
   get displaysAvailable(): boolean {
     return this.hello?.capabilities.displays ?? false;
   }

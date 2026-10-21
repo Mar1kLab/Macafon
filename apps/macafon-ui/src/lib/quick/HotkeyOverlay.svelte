@@ -29,7 +29,7 @@
   const dictation = $derived(dictationTile(daemon.dictation, daemon.hotkeys));
   const playback = $derived(daemon.soundpadPlayback);
   /** The look picked for the hotkey popup: the overlay follows it (HK-006, HK-007). */
-  const sketch = $derived(daemon.prefs?.osd.look === 'sketch');
+  const sketch = $derived(daemon.sketch);
   /** What the overlay shows, where its side panels open and how it is placed (Settings). */
   const setup = $derived(daemon.prefs?.overlay ?? DEFAULT_OVERLAY);
   const expand = $derived(setup.expand);
@@ -275,7 +275,10 @@
 
 <style>
   :global(html), :global(body) { background: var(--bg-raised); background-image: none; overflow: hidden; }
-  .overlay { position: relative; width: max-content; min-height: 368px; padding: 28px 32px 24px; background: var(--bg-raised); }
+  .overlay { position: relative; isolation: isolate; width: max-content; min-height: 368px; padding: 28px 32px 24px; background: var(--bg-raised); }
+  /* Sketch: painted only inside its lines; outside them the window is transparent. */
+  .overlay.sketch { background: transparent; }
+  .overlay.sketch::before { content: ''; position: absolute; inset: 12px; z-index: -1; background: var(--bg-raised); }
   /* Lines 12 px inside the window edge, each running 8 px past the corners. */
   .frame { position: absolute; inset: 12px; pointer-events: none; }
   .frame i { position: absolute; background: var(--line-strong); }

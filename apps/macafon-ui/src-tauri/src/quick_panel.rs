@@ -5,7 +5,7 @@
 
 use std::sync::{
     Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU8, Ordering},
 };
 use std::time::{Duration, Instant};
 use tauri::{
@@ -58,6 +58,12 @@ static FOCUSED: AtomicBool = AtomicBool::new(false);
 /// asks for the panel: that click means "close", not "open again".
 static BLURRED_AT: Mutex<Option<(Mode, Instant)>> = Mutex::new(None);
 const BLUR_GRACE: Duration = Duration::from_millis(400);
+/// The frame the window has now: `FRAME_SYSTEM` (shadow, border, rounded corners) or
+/// `FRAME_NONE` (the Sketch look's lines over the desktop, §9.9.2); unset until the first fit.
+static FRAME: AtomicU8 = AtomicU8::new(FRAME_UNSET);
+const FRAME_UNSET: u8 = 0;
+const FRAME_SYSTEM: u8 = 1;
+const FRAME_NONE: u8 = 2;
 
 /// Create the hidden panel window if it is missing; the page loads and connects meanwhile.
 pub fn prewarm(app: &AppHandle) {
@@ -75,12 +81,15 @@ pub fn prewarm(app: &AppHandle) {
     .maximizable(false)
     .minimizable(false)
     .decorations(false)
-    // Windows 11 gives an undecorated window with a shadow its rounded corners and border.
+    // Windows 11 gives an undecorated window with a shadow its rounded corners and border;
+    // the Sketch look turns both off and paints only inside its lines (`set_frame`).
     .shadow(true)
+    .transparent(true)
     .always_on_top(true)
     .skip_taskbar(true)
     .visible(false)
-    .background_color(tauri::window::Color(0x10, 0x10, 0x14, 0xff)) // --bg-raised
+    // The page paints the panel; around the Sketch frame the desktop shows through.
+    .background_color(tauri::window::Color(0, 0, 0, 0))
     .build();
     match built {
         Ok(window) => {
@@ -306,7 +315,50 @@ fn place(
     Ok(())
 }
 
+/// The system frame (shadow, border, rounded corners on Windows 11) or none, only on change.
+fn set_frame(window: &WebviewWindow, frameless: bool) {
+    let wanted = if frameless { FRAME_NONE } else { FRAME_SYSTEM };
+    if FRAME.swap(wanted, Ordering::SeqCst) == wanted {
+        return;
+    }
+    if let Err(error) = window.set_shadow(!frameless) {
+        tracing::warn!(%error, "cannot change the quick panel shadow");
+    }
+    #[cfg(windows)]
+    {
+        use windows::Win32::{
+            Foundation::HWND,
+            Graphics::Dwm::{
+                DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DEFAULT, DWMWCP_DONOTROUND,
+                DwmSetWindowAttribute,
+            },
+        };
+        let Ok(hwnd) = window.hwnd() else {
+            return;
+        };
+        let preference = if frameless {
+            DWMWCP_DONOTROUND
+        } else {
+            DWMWCP_DEFAULT
+        };
+        // SAFETY: the handle belongs to this live window; the attribute value is a live
+        // DWM_WINDOW_CORNER_PREFERENCE read during the call.
+        let result = unsafe {
+            DwmSetWindowAttribute(
+                HWND(hwnd.0),
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                std::ptr::from_ref(&preference).cast(),
+                std::mem::size_of_val(&preference) as u32,
+            )
+        };
+        if let Err(error) = result {
+            tracing::debug!(%error, "cannot change the quick panel corners");
+        }
+    }
+}
+
 /// The page measured its layout: size and place the window, and show it if it was asked for.
+/// `frameless`: the Sketch look, its lines over the desktop with no system frame.
 #[tauri::command]
 pub fn quick_panel_fit(
     app: AppHandle,
@@ -314,6 +366,7 @@ pub fn quick_panel_fit(
     height: f64,
     anchor_left: Option<f64>,
     anchor_right: Option<f64>,
+    frameless: Option<bool>,
 ) {
     if !width.is_finite() || !height.is_finite() {
         return;
@@ -321,6 +374,7 @@ pub fn quick_panel_fit(
     let Some(window) = app.get_webview_window(LABEL) else {
         return;
     };
+    set_frame(&window, frameless.unwrap_or(false));
     let target = app.state::<PanelState>().with(|panel| {
         panel
             .as_ref()

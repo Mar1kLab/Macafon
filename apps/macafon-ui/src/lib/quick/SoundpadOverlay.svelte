@@ -61,7 +61,7 @@
   const soundpad = $derived(daemon.soundpad);
   /** SND-006: pads in a grid or rows in a list. */
   const view = $derived(soundpad?.prefs.overlay_view ?? 'grid');
-  const sketch = $derived(daemon.prefs?.osd.look === 'sketch');
+  const sketch = $derived(daemon.sketch);
   /** Row height and columns of the view, to load enough rows for a scroll position. */
   const metricsOf = (layout: SoundpadOverlayView) => (layout === 'list' ? { row: 32, columns: 1 } : { row: 60, columns: 3 });
   const metrics = $derived(metricsOf(view));

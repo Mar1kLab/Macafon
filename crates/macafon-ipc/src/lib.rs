@@ -7,6 +7,7 @@
 
 mod client;
 mod dictation;
+mod displays;
 mod doctor;
 mod framing;
 mod hotkeys;
@@ -28,6 +29,11 @@ pub use dictation::{
     DictationPopupPosition, DictationPrefs, DictationPrefsPatch, DictationResult, DictationState,
     DictationStorage, DictationTap, WHISPER_LANGUAGES, dictation_layout_language,
     installed_dictation_languages, supported_dictation_languages,
+};
+pub use displays::{
+    DISPLAY_PROFILE_ICONS, DisplayIdentity, DisplayLayout, DisplayMode, DisplayMonitor,
+    DisplayProfile, DisplayProfileInfo, DisplayRotation, DisplaysPending, DisplaysState,
+    ProfileMonitor,
 };
 pub use doctor::{DoctorCheck, DoctorCheckId, DoctorReport, DoctorStatus};
 pub use framing::{FrameError, read_protocol_line};

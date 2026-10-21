@@ -3,6 +3,7 @@
 
 mod capture;
 mod dictation;
+mod displays;
 mod hotkeys;
 mod microphone;
 mod mixer;

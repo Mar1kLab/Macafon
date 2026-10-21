@@ -67,6 +67,7 @@ impl DaemonHost {
     /// Every action available now: the global ones and three per channel.
     pub(super) fn hotkey_actions(&self) -> Vec<(HotkeyAction, String)> {
         let soundpad = self.soundpad.is_some();
+        let displays = self.displays_available();
         let mut actions: Vec<(HotkeyAction, String)> = HotkeyAction::GLOBAL
             .into_iter()
             .filter(|action| {
@@ -76,6 +77,15 @@ impl DaemonHost {
                         HotkeyAction::SoundpadStop
                             | HotkeyAction::SoundpadPauseToggle
                             | HotkeyAction::SoundpadRandom
+                    )
+            })
+            .filter(|action| {
+                displays
+                    || !matches!(
+                        action,
+                        HotkeyAction::DisplayProfileNext
+                            | HotkeyAction::DisplayRevert
+                            | HotkeyAction::DisplayAllOn
                     )
             })
             .map(|action| {
@@ -100,11 +110,15 @@ impl DaemonHost {
                     HotkeyAction::SoundpadPauseToggle => "SoundDeck: pause or resume",
                     HotkeyAction::SoundpadRandom => "SoundDeck: play a random sound",
                     HotkeyAction::PresetPrevious => "Previous microphone preset",
+                    HotkeyAction::DisplayProfileNext => "Displays: next profile",
+                    HotkeyAction::DisplayRevert => "Displays: previous layout",
+                    HotkeyAction::DisplayAllOn => "Displays: all monitors on",
                     // Not global: described with their channel or sound below.
                     HotkeyAction::ChannelVolumeUp(_)
                     | HotkeyAction::ChannelVolumeDown(_)
                     | HotkeyAction::ChannelMute(_)
-                    | HotkeyAction::SoundpadPlay(_) => "",
+                    | HotkeyAction::SoundpadPlay(_)
+                    | HotkeyAction::DisplayProfile(_) => "",
                 };
                 (action, description.to_owned())
             })
@@ -426,6 +440,13 @@ impl DaemonHost {
             HotkeyAction::SoundpadPauseToggle => Request::SoundpadSetPaused { paused: None },
             HotkeyAction::SoundpadRandom => Request::SoundpadPlayRandom { category: None },
             HotkeyAction::SoundpadPlay(id) => Request::SoundpadPlay { id: id.clone() },
+            HotkeyAction::DisplayProfile(id) => Request::DisplaysApply { id: id.clone() },
+            HotkeyAction::DisplayProfileNext => match self.next_display_profile() {
+                Some(id) => Request::DisplaysApply { id },
+                None => return,
+            },
+            HotkeyAction::DisplayRevert => Request::DisplaysRevert,
+            HotkeyAction::DisplayAllOn => Request::DisplaysAllOn,
         };
         if let Err(error) = self.respond(request) {
             tracing::warn!(?action, %error, "Hotkey action failed");
@@ -446,6 +467,10 @@ impl DaemonHost {
             | HotkeyAction::SoundpadPauseToggle
             | HotkeyAction::SoundpadRandom
             | HotkeyAction::SoundpadPlay(_) => return,
+            HotkeyAction::DisplayProfile(_)
+            | HotkeyAction::DisplayProfileNext
+            | HotkeyAction::DisplayRevert
+            | HotkeyAction::DisplayAllOn => return,
             HotkeyAction::MasterVolumeUp
             | HotkeyAction::MasterVolumeDown
             | HotkeyAction::MasterMute => Osd::Volume {

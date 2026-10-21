@@ -46,6 +46,8 @@ pub struct OverlayPrefs {
     pub processing_switch: bool,
     pub mixer_switch: bool,
     pub dictation_history: bool,
+    /// The display profiles list (§8.5), where `Capabilities::displays` is set.
+    pub display_profiles: bool,
     pub preset: bool,
     pub output_device: bool,
     pub mic_level: bool,
@@ -62,6 +64,7 @@ impl Default for OverlayPrefs {
             processing_switch: true,
             mixer_switch: true,
             dictation_history: true,
+            display_profiles: true,
             preset: true,
             output_device: false,
             mic_level: false,
@@ -82,13 +85,14 @@ pub enum OverlayItem {
     Dictation,
     DictationHistory,
     Sounds,
+    DisplayProfiles,
     OutputDevice,
     MicLevel,
     Preset,
 }
 
 impl OverlayItem {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Volumes,
         Self::MicSwitch,
         Self::ProcessingSwitch,
@@ -96,6 +100,7 @@ impl OverlayItem {
         Self::Dictation,
         Self::DictationHistory,
         Self::Sounds,
+        Self::DisplayProfiles,
         Self::OutputDevice,
         Self::MicLevel,
         Self::Preset,
@@ -209,6 +214,9 @@ pub struct Capabilities {
     /// Local speech to text (§8.4).
     #[serde(default)]
     pub dictation: bool,
+    /// Saved monitor layouts (§8.5).
+    #[serde(default)]
+    pub displays: bool,
 }
 
 impl Capabilities {
@@ -220,6 +228,7 @@ impl Capabilities {
         hotkey_popup: false,
         soundpad: false,
         dictation: false,
+        displays: false,
     };
     pub const WINDOWS: Self = Self {
         virtual_mic_device: false,
@@ -229,6 +238,7 @@ impl Capabilities {
         hotkey_popup: true,
         soundpad: true,
         dictation: true,
+        displays: true,
     };
 }
 

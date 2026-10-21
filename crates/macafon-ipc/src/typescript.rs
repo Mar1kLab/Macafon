@@ -42,6 +42,16 @@ fn protocol() -> String {
         NoiseLevel::decl(&cfg),
         CalibrationReport::decl(&cfg),
         // Protocol.
+        DisplayIdentity::decl(&cfg),
+        DisplayMode::decl(&cfg),
+        DisplayRotation::decl(&cfg),
+        DisplayLayout::decl(&cfg),
+        DisplayMonitor::decl(&cfg),
+        ProfileMonitor::decl(&cfg),
+        DisplayProfile::decl(&cfg),
+        DisplayProfileInfo::decl(&cfg),
+        DisplaysPending::decl(&cfg),
+        DisplaysState::decl(&cfg),
         Request::decl(&cfg),
         ErrorCode::decl(&cfg),
         ErrorBody::decl(&cfg),
@@ -125,7 +135,8 @@ fn protocol() -> String {
     out.push_str("// Protocol types of macafon-ipc (PRD §11.5).\n\n");
     out.push_str("type JsonValue = number | string | boolean | null | JsonValue[] | { [key: string]: JsonValue };\n\n");
     out.push_str(&format!(
-        "export const PROTOCOL_VERSION = {PROTOCOL_VERSION};\nexport const MAX_METER_HZ = {MAX_METER_HZ};\nexport const SOUNDPAD_UPLOAD_CHUNK_BYTES = {SOUNDPAD_UPLOAD_CHUNK_BYTES};\n\n"
+        "export const PROTOCOL_VERSION = {PROTOCOL_VERSION};\nexport const MAX_METER_HZ = {MAX_METER_HZ};\nexport const SOUNDPAD_UPLOAD_CHUNK_BYTES = {SOUNDPAD_UPLOAD_CHUNK_BYTES};\nexport const DISPLAY_PROFILE_ICONS = {} as const;\n\n",
+        json!(DISPLAY_PROFILE_ICONS)
     ));
     for decl in decls {
         // `Module<T>` is generic; ts-rs declares it with its placeholder parameter.

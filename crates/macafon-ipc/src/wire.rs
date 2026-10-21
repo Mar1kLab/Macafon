@@ -113,6 +113,9 @@ pub enum Event {
     /// it instead of starting a second UI process, which is what made panels slow to open.
     #[serde(rename = "ui.show")]
     UiShow { target: crate::UiTarget },
+    /// Monitors, profiles or the pending confirmation changed (§8.5).
+    #[serde(rename = "displays.changed")]
+    DisplaysChanged(crate::DisplaysState),
     /// Any change of dictation state, models, downloads or history (§8.4).
     #[serde(rename = "dictation.changed")]
     DictationChanged(crate::DictationState),

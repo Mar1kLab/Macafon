@@ -2817,6 +2817,7 @@ dependencies = [
  "macafon-backend",
  "macafon-dsp",
  "macafon-engine",
+ "macafon-ipc",
  "rtrb",
  "serde",
  "serde_json",

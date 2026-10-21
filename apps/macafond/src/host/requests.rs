@@ -201,6 +201,18 @@ impl DaemonHost {
             | Request::SoundpadRenameCategory { .. }
             | Request::SoundpadDeleteCategory { .. }
             | Request::SoundpadUpload { .. }) => return self.respond_soundpad(request),
+            request @ (Request::DisplaysGet
+            | Request::DisplaysSave { .. }
+            | Request::DisplaysCreate { .. }
+            | Request::DisplaysSuggestions
+            | Request::DisplaysUpdate { .. }
+            | Request::DisplaysRecapture { .. }
+            | Request::DisplaysDelete { .. }
+            | Request::DisplaysReorder { .. }
+            | Request::DisplaysApply { .. }
+            | Request::DisplaysConfirm { .. }
+            | Request::DisplaysRevert
+            | Request::DisplaysAllOn) => return self.respond_displays(request),
             Request::AppsIcon { icon } => return Ok(serde_json::json!(self.icons.data_url(&icon))),
             Request::DoctorRun => return reply(self.doctor()),
             Request::DoctorFix { check } => {

@@ -1,6 +1,7 @@
 //! Daemon configuration: `$XDG_CONFIG_HOME/macafon/config.toml` (PRD §13).
 
 pub mod dictation;
+pub mod displays;
 pub mod mixer;
 pub mod presets;
 pub mod soundpad;
@@ -9,6 +10,7 @@ mod storage;
 pub(crate) use storage::write_atomically;
 pub use storage::{Error, Loaded, Recovered, Store, config_dir, state_dir};
 
+pub use displays::DisplaysConfig;
 pub use mixer::{AppRule, AppsConfig, ChannelConfig, MixerConfig};
 pub use soundpad::{SoundConfig, SoundpadConfig};
 
@@ -32,6 +34,7 @@ pub struct Config {
     pub hotkeys: BTreeMap<String, String>,
     pub soundpad: SoundpadConfig,
     pub dictation: dictation::DictationConfig,
+    pub displays: DisplaysConfig,
 }
 
 /// UI facts the daemon remembers.
@@ -291,6 +294,7 @@ impl Default for Config {
             hotkeys: BTreeMap::new(),
             soundpad: SoundpadConfig::default(),
             dictation: dictation::DictationConfig::default(),
+            displays: DisplaysConfig::default(),
         }
     }
 }

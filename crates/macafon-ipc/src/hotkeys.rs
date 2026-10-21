@@ -34,11 +34,19 @@ pub enum HotkeyAction {
     SoundpadRandom,
     /// Play one sound by its library id: `soundpad_play.Memes/airhorn.mp3`.
     SoundpadPlay(String),
+    /// Apply a display profile by its id: `display_profile.work` (DISP-003).
+    DisplayProfile(String),
+    /// The next display profile after the active one.
+    DisplayProfileNext,
+    /// DISP-005: the layout before the last apply.
+    DisplayRevert,
+    /// DISP-005: every monitor on.
+    DisplayAllOn,
 }
 
 impl HotkeyAction {
     /// Actions that do not depend on the channels.
-    pub const GLOBAL: [Self; 20] = [
+    pub const GLOBAL: [Self; 23] = [
         Self::QuickPanel,
         Self::DictationHold,
         Self::DictationToggle,
@@ -59,6 +67,9 @@ impl HotkeyAction {
         Self::SoundpadStop,
         Self::SoundpadPauseToggle,
         Self::SoundpadRandom,
+        Self::DisplayProfileNext,
+        Self::DisplayRevert,
+        Self::DisplayAllOn,
     ];
 
     pub fn id(&self) -> String {
@@ -87,6 +98,10 @@ impl HotkeyAction {
             Self::SoundpadPauseToggle => "soundpad_pause".into(),
             Self::SoundpadRandom => "soundpad_random".into(),
             Self::SoundpadPlay(id) => format!("soundpad_play.{id}"),
+            Self::DisplayProfile(id) => format!("display_profile.{id}"),
+            Self::DisplayProfileNext => "display_profile_next".into(),
+            Self::DisplayRevert => "display_revert".into(),
+            Self::DisplayAllOn => "display_all_on".into(),
         }
     }
 
@@ -112,6 +127,9 @@ impl HotkeyAction {
             "soundpad_stop" => Self::SoundpadStop,
             "soundpad_pause" => Self::SoundpadPauseToggle,
             "soundpad_random" => Self::SoundpadRandom,
+            "display_profile_next" => Self::DisplayProfileNext,
+            "display_revert" => Self::DisplayRevert,
+            "display_all_on" => Self::DisplayAllOn,
             _ => {
                 let (kind, channel) = id.split_once('.')?;
                 let channel = channel.to_owned();
@@ -123,6 +141,7 @@ impl HotkeyAction {
                     "channel_volume_down" => Self::ChannelVolumeDown(channel),
                     "channel_mute" => Self::ChannelMute(channel),
                     "soundpad_play" => Self::SoundpadPlay(channel),
+                    "display_profile" => Self::DisplayProfile(channel),
                     _ => return None,
                 }
             }
@@ -157,6 +176,12 @@ impl HotkeyAction {
             Self::SoundpadPlay(id) => {
                 format!("macafon ctl soundpad play -- {}", quote_argument(id))
             }
+            Self::DisplayProfile(id) => {
+                format!("macafon ctl display apply -- {}", quote_argument(id))
+            }
+            Self::DisplayProfileNext => "macafon ctl display next".into(),
+            Self::DisplayRevert => "macafon ctl display revert".into(),
+            Self::DisplayAllOn => "macafon ctl display all-on".into(),
         }
     }
 

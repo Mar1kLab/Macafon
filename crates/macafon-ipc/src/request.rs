@@ -288,6 +288,42 @@ pub enum Request {
     /// decoded bytes:
     /// `offset` is the byte offset of `data`; `done` finishes the file and returns the
     /// state. A new upload starts with `offset` 0 under a client-chosen `upload_id`.
+    /// Monitors and saved display profiles (§8.5).
+    #[serde(rename = "displays.get")]
+    DisplaysGet,
+    /// DISP-001: save the current layout as a new profile.
+    #[serde(rename = "displays.save")]
+    DisplaysSave { name: String, icon: String },
+    /// Save a ready profile, such as one of `displays.suggestions`; its `id` is replaced.
+    #[serde(rename = "displays.create")]
+    DisplaysCreate { profile: crate::DisplayProfile },
+    /// Profiles made from the connected monitors for the first run: all of them on, then each
+    /// one alone. Not saved.
+    #[serde(rename = "displays.suggestions")]
+    DisplaysSuggestions,
+    /// Replace a profile's name, icon, monitors and output device (DISP-010).
+    #[serde(rename = "displays.update")]
+    DisplaysUpdate { profile: crate::DisplayProfile },
+    /// Take the current layout into an existing profile, keeping its name and icon.
+    #[serde(rename = "displays.recapture")]
+    DisplaysRecapture { id: String },
+    #[serde(rename = "displays.delete")]
+    DisplaysDelete { id: String },
+    #[serde(rename = "displays.reorder")]
+    DisplaysReorder { ids: Vec<String> },
+    /// DISP-002: apply a profile; on a set of monitors it was never kept on, it waits for
+    /// `displays.confirm` (DISP-004).
+    #[serde(rename = "displays.apply")]
+    DisplaysApply { id: String },
+    /// Keep the pending layout, or go back to the previous one now.
+    #[serde(rename = "displays.confirm")]
+    DisplaysConfirm { keep: bool },
+    /// DISP-005: go back to the layout before the last apply.
+    #[serde(rename = "displays.revert")]
+    DisplaysRevert,
+    /// DISP-005: every connected monitor on, extended, at its preferred mode.
+    #[serde(rename = "displays.all_on")]
+    DisplaysAllOn,
     #[serde(rename = "soundpad.upload")]
     SoundpadUpload {
         upload_id: String,

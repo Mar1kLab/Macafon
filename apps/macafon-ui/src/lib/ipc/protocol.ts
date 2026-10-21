@@ -6,6 +6,7 @@ type JsonValue = number | string | boolean | null | JsonValue[] | { [key: string
 export const PROTOCOL_VERSION = 1;
 export const MAX_METER_HZ = 60;
 export const SOUNDPAD_UPLOAD_CHUNK_BYTES = 524288;
+export const DISPLAY_PROFILE_ICONS = ["monitor","monitors","laptop","gamepad","tv","film","briefcase","moon"] as const;
 
 export type Module<T> = { enabled: boolean, } & T;
 
@@ -109,7 +110,112 @@ low_frequency_noise: boolean,
  */
 suggest_studio: boolean, gain_db: number, high_pass_freq_hz: number, noise_intensity_pct: number, expander_threshold_db: number, };
 
-export type Request = { "method": "output_controls.list" } | { "method": "output_controls.set", "params": { id: string, settings: MacaronSettings, } } | { "method": "hello", "params": { protocol: number, client: string, } } | { "method": "daemon.quit" } | { "method": "autostart.get" } | { "method": "autostart.set", "params": { enabled: boolean, } } | { "method": "mic.get" } | { "method": "mic.set", "params": { settings: ChainSettings, } } | { "method": "mic.set_preset", "params": { preset: string, } } | { "method": "mic.set_muted", "params": { muted: boolean, } } | { "method": "mic.toggle_mute" } | { "method": "mic.set_bypass", "params": { bypass: boolean, } } | { "method": "mic.set_device", "params": { device: string | null, } } | { "method": "mic.set_fallback_device", "params": { device: string | null, } } | { "method": "mic.set_input_channel", "params": { channel: InputChannel, } } | { "method": "mic.set_default_source", "params": { confirmed: boolean, } } | { "method": "mic.restore_default_source" } | { "method": "ab.export", "params": { side: AbSide, path: string, } } | { "method": "ab.outputs" } | { "method": "presets.list" } | { "method": "presets.save", "params": { name: string, } } | { "method": "presets.update", "params": { id: string, } } | { "method": "presets.rename", "params": { id: string, name: string, } } | { "method": "presets.duplicate", "params": { id: string, } } | { "method": "presets.delete", "params": { id: string, } } | { "method": "presets.export", "params": { id: string, } } | { "method": "presets.import", "params": { document: JsonValue, } } | { "method": "devices.list" } | { "method": "devices.subscribe" } | { "method": "devices.unsubscribe" } | { "method": "meters.subscribe", "params": { hz: number, } } | { "method": "meters.unsubscribe" } | { "method": "calibration.start" } | { "method": "calibration.cancel" } | { "method": "calibration.get" } | { "method": "ab.record", "params": { max_seconds: number | null, } } | { "method": "ab.stop_recording" } | { "method": "ab.play", "params": { device: string | null, } } | { "method": "ab.stop" } | { "method": "ab.select", "params": { side: AbSide, } } | { "method": "ab.toggle" } | { "method": "ab.seek", "params": { position_ms: number, } } | { "method": "ab.set_loudness_match", "params": { enabled: boolean, } } | { "method": "ab.get" } | { "method": "ab.waveform", "params": { points: number, } } | { "method": "mixer.get" } | { "method": "mixer.set_enabled", "params": { enabled: boolean, } } | { "method": "mixer.set_master", "params": { volume_pct: number | null, muted: boolean | null, } } | { "method": "mixer.set_output", "params": { device: string | null, } } | { "method": "mixer.set_output_priority", "params": { devices: Array<string>, } } | { "method": "mixer.set_auto_classify", "params": { enabled: boolean, } } | { "method": "channel.create", "params": { name: string, color: string, icon: string | null, } } | { "method": "channel.update", "params": { id: string, patch: ChannelPatch, } } | { "method": "channel.delete", "params": { id: string, } } | { "method": "channel.set", "params": { id: string, settings: ChannelSettings, } } | { "method": "channel.adjust_volume", "params": { id: string, delta_pct: number, } } | { "method": "channel.toggle_mute", "params": { id: string, } } | { "method": "channel.set_default", "params": { id: string, } } | { "method": "channel.reorder", "params": { ids: Array<string>, } } | { "method": "apps.move", "params": { app_key: string, channel: string, } } | { "method": "apps.set_managed", "params": { app_key: string, managed: boolean, } } | { "method": "apps.forget", "params": { app_key: string, } } | { "method": "apps.set_volume", "params": { app_key: string, volume_pct: number, } } | { "method": "apps.icon", "params": { icon: string, } } | { "method": "doctor.run" } | { "method": "doctor.fix", "params": { check: DoctorCheckId, } } | { "method": "mic.cycle_preset", "params": { step: number, } } | { "method": "hotkeys.get" } | { "method": "hotkeys.set", "params": { action: string, shortcut: string | null, secondary: boolean, } } | { "method": "ui.window_closed" } | { "method": "soundpad.get" } | { "method": "soundpad.rescan" } | { "method": "soundpad.open_folder" } | { "method": "soundpad.set_folder", "params": { folder: string | null, } } | { "method": "soundpad.play", "params": { id: string, } } | { "method": "soundpad.play_random", "params": { category: string | null, } } | { "method": "soundpad.stop" } | { "method": "soundpad.set_paused", "params": { paused: boolean | null, } } | { "method": "soundpad.seek", "params": { position_ms: number, } } | { "method": "soundpad.set_looping", "params": { looping: boolean, } } | { "method": "soundpad.set_prefs", "params": { patch: SoundpadPrefsPatch, } } | { "method": "soundpad.set_monitor_device", "params": { device: string | null, } } | { "method": "soundpad.set_sound", "params": { id: string, patch: SoundPatch, } } | { "method": "soundpad.rename", "params": { id: string, name: string, } } | { "method": "soundpad.move", "params": { id: string, category: string | null, } } | { "method": "soundpad.delete", "params": { id: string, } } | { "method": "soundpad.delete_problem_sounds" } | { "method": "soundpad.create_category", "params": { name: string, } } | { "method": "soundpad.rename_category", "params": { from: string, to: string, } } | { "method": "soundpad.delete_category", "params": { name: string, } } | { "method": "soundpad.upload", "params": { upload_id: string, file_name: string, category: string | null, offset: number, data: string, done: boolean, } } | { "method": "prefs.get" } | { "method": "prefs.set", "params": { volume_step_pct: number | null, quantum_frames: number | null, close_action: CloseAction | null,
+export type DisplayIdentity = {
+/**
+ * EDID manufacturer and product code, `GSM5B7F`.
+ */
+edid: string,
+/**
+ * The EDID serial number, when the monitor reports one.
+ */
+serial?: string | null,
+/**
+ * The monitor's device path (`monitorDevicePath`); it changes with the port.
+ */
+path: string, };
+
+export type DisplayMode = { width: number, height: number,
+/**
+ * Refresh rate in millihertz: 59940 for 59.94 Hz.
+ */
+refresh_mhz: number, };
+
+export type DisplayRotation = "none" | "rotate90" | "rotate180" | "rotate270";
+
+export type DisplayLayout = {
+/**
+ * Desktop position of the top-left corner; the primary monitor is at 0, 0.
+ */
+x: number, y: number, mode: DisplayMode, rotation: DisplayRotation, primary: boolean,
+/**
+ * Duplicates another monitor: the `DisplayIdentity::path` of the one it mirrors.
+ */
+mirror_of?: string | null,
+/**
+ * HDR (advanced color); `false` on monitors without it.
+ */
+hdr: boolean, };
+
+export type DisplayMonitor = { identity: DisplayIdentity,
+/**
+ * The monitor's own name (`LG ULTRAGEAR`), or its connector when the EDID has none.
+ */
+name: string,
+/**
+ * A laptop panel.
+ */
+built_in: boolean,
+/**
+ * `None` while the monitor is off.
+ */
+layout: DisplayLayout | null,
+/**
+ * Modes the monitor supports, largest and fastest first.
+ */
+modes: Array<DisplayMode>, hdr_supported: boolean, };
+
+export type ProfileMonitor = { identity: DisplayIdentity,
+/**
+ * The name when the profile was saved, shown while the monitor is not connected.
+ */
+name: string,
+/**
+ * `None` turns the monitor off.
+ */
+layout: DisplayLayout | null, };
+
+export type DisplayProfile = {
+/**
+ * Assigned by the daemon; ignored in `displays.create`.
+ */
+id: string, name: string,
+/**
+ * One of `DISPLAY_PROFILE_ICONS`.
+ */
+icon: string, monitors: Array<ProfileMonitor>,
+/**
+ * DISP-009: Macafon's output device while the profile is on (as `mixer.set_output`);
+ * `None` leaves the output alone.
+ */
+output_device?: string | null, };
+
+export type DisplayProfileInfo = { profile: DisplayProfile,
+/**
+ * Names of its monitors that are not connected now (DISP-007); they are skipped.
+ */
+missing: Array<string>, };
+
+export type DisplaysPending = {
+/**
+ * The profile id; `None` for "All monitors on".
+ */
+profile: string | null,
+/**
+ * The previous layout comes back at this moment unless kept.
+ */
+revert_at_unix_ms: bigint, };
+
+export type DisplaysState = { monitors: Array<DisplayMonitor>, profiles: Array<DisplayProfileInfo>,
+/**
+ * The profile the current layout matches.
+ */
+active: string | null, pending: DisplaysPending | null,
+/**
+ * `displays.revert` has a previous layout to go back to (DISP-005).
+ */
+can_revert: boolean, };
+
+export type Request = { "method": "output_controls.list" } | { "method": "output_controls.set", "params": { id: string, settings: MacaronSettings, } } | { "method": "hello", "params": { protocol: number, client: string, } } | { "method": "daemon.quit" } | { "method": "autostart.get" } | { "method": "autostart.set", "params": { enabled: boolean, } } | { "method": "mic.get" } | { "method": "mic.set", "params": { settings: ChainSettings, } } | { "method": "mic.set_preset", "params": { preset: string, } } | { "method": "mic.set_muted", "params": { muted: boolean, } } | { "method": "mic.toggle_mute" } | { "method": "mic.set_bypass", "params": { bypass: boolean, } } | { "method": "mic.set_device", "params": { device: string | null, } } | { "method": "mic.set_fallback_device", "params": { device: string | null, } } | { "method": "mic.set_input_channel", "params": { channel: InputChannel, } } | { "method": "mic.set_default_source", "params": { confirmed: boolean, } } | { "method": "mic.restore_default_source" } | { "method": "ab.export", "params": { side: AbSide, path: string, } } | { "method": "ab.outputs" } | { "method": "presets.list" } | { "method": "presets.save", "params": { name: string, } } | { "method": "presets.update", "params": { id: string, } } | { "method": "presets.rename", "params": { id: string, name: string, } } | { "method": "presets.duplicate", "params": { id: string, } } | { "method": "presets.delete", "params": { id: string, } } | { "method": "presets.export", "params": { id: string, } } | { "method": "presets.import", "params": { document: JsonValue, } } | { "method": "devices.list" } | { "method": "devices.subscribe" } | { "method": "devices.unsubscribe" } | { "method": "meters.subscribe", "params": { hz: number, } } | { "method": "meters.unsubscribe" } | { "method": "calibration.start" } | { "method": "calibration.cancel" } | { "method": "calibration.get" } | { "method": "ab.record", "params": { max_seconds: number | null, } } | { "method": "ab.stop_recording" } | { "method": "ab.play", "params": { device: string | null, } } | { "method": "ab.stop" } | { "method": "ab.select", "params": { side: AbSide, } } | { "method": "ab.toggle" } | { "method": "ab.seek", "params": { position_ms: number, } } | { "method": "ab.set_loudness_match", "params": { enabled: boolean, } } | { "method": "ab.get" } | { "method": "ab.waveform", "params": { points: number, } } | { "method": "mixer.get" } | { "method": "mixer.set_enabled", "params": { enabled: boolean, } } | { "method": "mixer.set_master", "params": { volume_pct: number | null, muted: boolean | null, } } | { "method": "mixer.set_output", "params": { device: string | null, } } | { "method": "mixer.set_output_priority", "params": { devices: Array<string>, } } | { "method": "mixer.set_auto_classify", "params": { enabled: boolean, } } | { "method": "channel.create", "params": { name: string, color: string, icon: string | null, } } | { "method": "channel.update", "params": { id: string, patch: ChannelPatch, } } | { "method": "channel.delete", "params": { id: string, } } | { "method": "channel.set", "params": { id: string, settings: ChannelSettings, } } | { "method": "channel.adjust_volume", "params": { id: string, delta_pct: number, } } | { "method": "channel.toggle_mute", "params": { id: string, } } | { "method": "channel.set_default", "params": { id: string, } } | { "method": "channel.reorder", "params": { ids: Array<string>, } } | { "method": "apps.move", "params": { app_key: string, channel: string, } } | { "method": "apps.set_managed", "params": { app_key: string, managed: boolean, } } | { "method": "apps.forget", "params": { app_key: string, } } | { "method": "apps.set_volume", "params": { app_key: string, volume_pct: number, } } | { "method": "apps.icon", "params": { icon: string, } } | { "method": "doctor.run" } | { "method": "doctor.fix", "params": { check: DoctorCheckId, } } | { "method": "mic.cycle_preset", "params": { step: number, } } | { "method": "hotkeys.get" } | { "method": "hotkeys.set", "params": { action: string, shortcut: string | null, secondary: boolean, } } | { "method": "ui.window_closed" } | { "method": "soundpad.get" } | { "method": "soundpad.rescan" } | { "method": "soundpad.open_folder" } | { "method": "soundpad.set_folder", "params": { folder: string | null, } } | { "method": "soundpad.play", "params": { id: string, } } | { "method": "soundpad.play_random", "params": { category: string | null, } } | { "method": "soundpad.stop" } | { "method": "soundpad.set_paused", "params": { paused: boolean | null, } } | { "method": "soundpad.seek", "params": { position_ms: number, } } | { "method": "soundpad.set_looping", "params": { looping: boolean, } } | { "method": "soundpad.set_prefs", "params": { patch: SoundpadPrefsPatch, } } | { "method": "soundpad.set_monitor_device", "params": { device: string | null, } } | { "method": "soundpad.set_sound", "params": { id: string, patch: SoundPatch, } } | { "method": "soundpad.rename", "params": { id: string, name: string, } } | { "method": "soundpad.move", "params": { id: string, category: string | null, } } | { "method": "soundpad.delete", "params": { id: string, } } | { "method": "soundpad.delete_problem_sounds" } | { "method": "soundpad.create_category", "params": { name: string, } } | { "method": "soundpad.rename_category", "params": { from: string, to: string, } } | { "method": "soundpad.delete_category", "params": { name: string, } } | { "method": "displays.get" } | { "method": "displays.save", "params": { name: string, icon: string, } } | { "method": "displays.create", "params": { profile: DisplayProfile, } } | { "method": "displays.suggestions" } | { "method": "displays.update", "params": { profile: DisplayProfile, } } | { "method": "displays.recapture", "params": { id: string, } } | { "method": "displays.delete", "params": { id: string, } } | { "method": "displays.reorder", "params": { ids: Array<string>, } } | { "method": "displays.apply", "params": { id: string, } } | { "method": "displays.confirm", "params": { keep: boolean, } } | { "method": "displays.revert" } | { "method": "displays.all_on" } | { "method": "soundpad.upload", "params": { upload_id: string, file_name: string, category: string | null, offset: number, data: string, done: boolean, } } | { "method": "prefs.get" } | { "method": "prefs.set", "params": { volume_step_pct: number | null, quantum_frames: number | null, close_action: CloseAction | null,
 /**
  * The whole popup setup; the daemon shows a sample popup with it.
  */
@@ -123,7 +229,7 @@ export type ErrorCode = "bad_request" | "protocol_mismatch" | "invalid_params" |
 
 export type ErrorBody = { code: ErrorCode, message: string, };
 
-export type Event = { "event": "output_controls.changed", "data": Array<OutputControl> } | { "event": "mic.noise_fallback", "data": { engine: NoiseEngine, } } | { "event": "devices.meter", "data": { name: string, peak_dbfs: number, } } | { "event": "meters", "data": Meters } | { "event": "mic.changed", "data": MicState } | { "event": "calibration.changed", "data": CalibrationState } | { "event": "ab.changed", "data": AbState } | { "event": "presets.changed", "data": Array<PresetInfo> } | { "event": "mixer.changed", "data": MixerState } | { "event": "mixer.meters", "data": MixerMeters } | { "event": "hotkeys.changed", "data": HotkeysState } | { "event": "devices.changed", "data": Array<Device> } | { "event": "prefs.changed", "data": Preferences } | { "event": "soundpad.changed", "data": SoundpadState } | { "event": "soundpad.playback", "data": SoundpadPlayback | null } | { "event": "ui.show", "data": { target: UiTarget, } } | { "event": "dictation.changed", "data": DictationState } | { "event": "dictation.level", "data": DictationLevel } | { "event": "dictation.result", "data": DictationResult };
+export type Event = { "event": "output_controls.changed", "data": Array<OutputControl> } | { "event": "mic.noise_fallback", "data": { engine: NoiseEngine, } } | { "event": "devices.meter", "data": { name: string, peak_dbfs: number, } } | { "event": "meters", "data": Meters } | { "event": "mic.changed", "data": MicState } | { "event": "calibration.changed", "data": CalibrationState } | { "event": "ab.changed", "data": AbState } | { "event": "presets.changed", "data": Array<PresetInfo> } | { "event": "mixer.changed", "data": MixerState } | { "event": "mixer.meters", "data": MixerMeters } | { "event": "hotkeys.changed", "data": HotkeysState } | { "event": "devices.changed", "data": Array<Device> } | { "event": "prefs.changed", "data": Preferences } | { "event": "soundpad.changed", "data": SoundpadState } | { "event": "soundpad.playback", "data": SoundpadPlayback | null } | { "event": "ui.show", "data": { target: UiTarget, } } | { "event": "displays.changed", "data": DisplaysState } | { "event": "dictation.changed", "data": DictationState } | { "event": "dictation.level", "data": DictationLevel } | { "event": "dictation.result", "data": DictationResult };
 
 export type Hello = { protocol: number, daemon_version: string, platform: Platform,
 /**
@@ -163,7 +269,11 @@ soundpad: boolean,
 /**
  * Local speech to text (§8.4).
  */
-dictation: boolean, };
+dictation: boolean,
+/**
+ * Saved monitor layouts (§8.5).
+ */
+displays: boolean, };
 
 export type MicState = {
 /**
@@ -420,11 +530,15 @@ enabled: boolean,
  * The order the overlay lays its parts out in (the layout editor in Settings); parts
  * missing here follow in the default order.
  */
-order: Array<OverlayItem>, volumes: boolean, mic_switch: boolean, processing_switch: boolean, mixer_switch: boolean, dictation_history: boolean, preset: boolean, output_device: boolean, mic_level: boolean, expand: OverlayExpand, placement: OverlayPlacement, };
+order: Array<OverlayItem>, volumes: boolean, mic_switch: boolean, processing_switch: boolean, mixer_switch: boolean, dictation_history: boolean,
+/**
+ * The display profiles list (§8.5), where `Capabilities::displays` is set.
+ */
+display_profiles: boolean, preset: boolean, output_device: boolean, mic_level: boolean, expand: OverlayExpand, placement: OverlayPlacement, };
 
 export type OverlayExpand = "right" | "left" | "down";
 
-export type OverlayItem = "volumes" | "mic_switch" | "processing_switch" | "mixer_switch" | "dictation" | "dictation_history" | "sounds" | "output_device" | "mic_level" | "preset";
+export type OverlayItem = "volumes" | "mic_switch" | "processing_switch" | "mixer_switch" | "dictation" | "dictation_history" | "sounds" | "display_profiles" | "output_device" | "mic_level" | "preset";
 
 export type OverlayPlacement = "anchored" | "centered";
 

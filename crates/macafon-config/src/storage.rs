@@ -277,6 +277,47 @@ volume_pct = 300.0
         let config = Config {
             schema_version: SCHEMA_VERSION,
             dictation: crate::dictation::DictationConfig::default(),
+            displays: crate::DisplaysConfig {
+                profiles: vec![macafon_ipc::DisplayProfile {
+                    id: "game".into(),
+                    name: "Game".into(),
+                    icon: "gamepad".into(),
+                    monitors: vec![
+                        macafon_ipc::ProfileMonitor {
+                            identity: macafon_ipc::DisplayIdentity {
+                                edid: "GSM5B7F".into(),
+                                serial: Some("123".into()),
+                                path: "path-1".into(),
+                            },
+                            name: "LG ULTRAGEAR".into(),
+                            layout: Some(macafon_ipc::DisplayLayout {
+                                x: 0,
+                                y: 0,
+                                mode: macafon_ipc::DisplayMode {
+                                    width: 2560,
+                                    height: 1440,
+                                    refresh_mhz: 165_000,
+                                },
+                                rotation: macafon_ipc::DisplayRotation::None,
+                                primary: true,
+                                mirror_of: None,
+                                hdr: true,
+                            }),
+                        },
+                        macafon_ipc::ProfileMonitor {
+                            identity: macafon_ipc::DisplayIdentity {
+                                edid: "DEL4123".into(),
+                                serial: None,
+                                path: "path-2".into(),
+                            },
+                            name: "DELL P2419H".into(),
+                            layout: None,
+                        },
+                    ],
+                    output_device: Some("Speakers".into()),
+                }],
+                confirmed: BTreeMap::from([("game".into(), vec!["DEL4123,GSM5B7F:123".into()])]),
+            },
             device_profiles: BTreeMap::new(),
             mixer: MixerConfig::default(),
             apps: AppsConfig::default(),

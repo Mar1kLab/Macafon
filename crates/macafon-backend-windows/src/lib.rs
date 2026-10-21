@@ -9,6 +9,7 @@ mod com;
 pub mod daemon;
 pub mod devices;
 pub mod diagnostics;
+pub mod displays;
 mod groups;
 pub mod input_level;
 pub mod journal;

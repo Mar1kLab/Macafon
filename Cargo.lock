@@ -2777,7 +2777,7 @@ dependencies = [
 
 [[package]]
 name = "macafon-apps"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "png 0.17.16",
  "windows",
@@ -2785,7 +2785,7 @@ dependencies = [
 
 [[package]]
 name = "macafon-backend"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "macafon-dsp",
  "macafon-engine",
@@ -2795,7 +2795,7 @@ dependencies = [
 
 [[package]]
 name = "macafon-backend-pipewire"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "assert_no_alloc",
  "macafon-backend",
@@ -2809,7 +2809,7 @@ dependencies = [
 
 [[package]]
 name = "macafon-backend-windows"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "assert_no_alloc",
@@ -2828,7 +2828,7 @@ dependencies = [
 
 [[package]]
 name = "macafon-cli"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2842,7 +2842,7 @@ dependencies = [
 
 [[package]]
 name = "macafon-config"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "macafon-dsp",
  "macafon-ipc",
@@ -2854,7 +2854,7 @@ dependencies = [
 
 [[package]]
 name = "macafon-dsp"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "assert_no_alloc",
  "criterion",
@@ -2868,7 +2868,7 @@ dependencies = [
 
 [[package]]
 name = "macafon-engine"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "assert_no_alloc",
  "macafon-dsp",
@@ -2879,7 +2879,7 @@ dependencies = [
 
 [[package]]
 name = "macafon-ipc"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "interprocess",
  "macafon-config",
@@ -2894,7 +2894,7 @@ dependencies = [
 
 [[package]]
 name = "macafon-soundpad"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "assert_no_alloc",
  "macafon-dsp",
@@ -2906,7 +2906,7 @@ dependencies = [
 
 [[package]]
 name = "macafon-stt"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "hound",
  "macafon-ipc",
@@ -2919,7 +2919,7 @@ dependencies = [
 
 [[package]]
 name = "macafon-stt-worker"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2933,7 +2933,7 @@ dependencies = [
 
 [[package]]
 name = "macafon-studio"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "criterion",
  "deep_filter",
@@ -2949,7 +2949,7 @@ dependencies = [
 
 [[package]]
 name = "macafon-ui"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "macafon-ipc",
  "serde",
@@ -2965,7 +2965,7 @@ dependencies = [
 
 [[package]]
 name = "macafond"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "assert_no_alloc",

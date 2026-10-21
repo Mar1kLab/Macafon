@@ -21,7 +21,7 @@
 5. [Release scope](#5-release-scope)
 6. [Functional requirements — microphone](#6-functional-requirements--microphone)
 7. [Functional requirements — output channels](#7-functional-requirements--output-channels)
-8. [Background operation, tray, autostart, hotkeys, dictation](#8-background-operation-tray-autostart-hotkeys-dictation)
+8. [Background operation, tray, autostart, hotkeys, dictation, displays](#8-background-operation-tray-autostart-hotkeys-dictation-displays)
 9. [UX and screens](#9-ux-and-screens)
 10. [Non-functional requirements](#10-non-functional-requirements)
 11. [Architecture](#11-architecture)
@@ -498,7 +498,7 @@ is excluded from categories and normal sounds, and exposed separately as `proble
 in-memory error. Individual deletion uses `soundpad.delete`; `soundpad.delete_problem_sounds` deletes
 all problem files. Category creation/renaming cannot use the reserved name (SND-001).
 
-## 8. Background operation, tray, autostart, hotkeys, dictation
+## 8. Background operation, tray, autostart, hotkeys, dictation, displays
 
 ### 8.1 Background and tray
 
@@ -705,6 +705,36 @@ Numbers are estimates for the NFR-R1 reference CPU and are replaced by measureme
 Linux reports `dictation = false` in 1.0. Later: the same worker, text insertion through the
 RemoteDesktop portal or `wtype`/`xdotool`, no per-window layout on Wayland (only Fixed and Auto).
 
+### 8.5 Display profiles
+
+Owner request, 2026-10-21: switch saved monitor setups quickly — by hotkey, from the tray, the
+overlay and the window — as a Windows feature outside the milestone order (`Capabilities::displays`;
+Linux reports it unavailable). Scenarios: "Work" with three monitors, "Game" with only the main
+monitor at 165 Hz with HDR, "Movie" with only the TV and the sound on HDMI, "Laptop" with the built-in
+panel alone. Architecture decision: [ADR-0006](adr/0006-display-profiles-ccd.md).
+
+A profile stores, per monitor: on/off, primary, position, resolution, refresh rate, rotation,
+duplicate (mirror) or extend, HDR. Out of scope: per-monitor scaling (DPI, owner decision), a drag
+editor for the arrangement (layouts are captured from Windows Settings), automatic switching by
+application, color profiles, window positions.
+
+| ID | Requirement | Priority |
+|---|---|---|
+| DISP-001 | Save the current layout as a profile in one action: name and icon (`DISPLAY_PROFILE_ICONS`); recapture an existing profile from the current layout; rename, delete, reorder | P0 |
+| DISP-002 | Apply a profile from the Displays screen, the tray (`Display profile ▸`, the active one checked), the overlay part (§9.9.2), a hotkey and the CLI `macafon ctl display apply <id>` (Stream Deck and the like) | P0 |
+| DISP-003 | A hotkey per profile (`display_profile.<id>`) and `Next display profile`, with the HK-009 rules | P0 |
+| DISP-004 | Safety: the layout is validated before it is applied. On a set of monitors the profile was never kept on, the daemon shows "Keep these display settings?" with a 15 s countdown on the primary monitor and in the UI; without an answer the previous layout returns. A profile kept once on a set of monitors applies on it without asking (owner decision, 2026-10-21) | P0 |
+| DISP-005 | Default hotkeys for a way back: `All monitors on` (`Ctrl+Alt+Shift+F12`, extended, preferred modes, never asks) and `Previous layout` (`Ctrl+Alt+Shift+F11`) | P0 |
+| DISP-006 | Monitors are identified by EDID and device path, not by adapter or target ids: a profile survives reboots, driver updates and port changes (ADR-0006) | P0 |
+| DISP-007 | Monitors of a profile that are not connected are skipped and named in a toast and on the profile card; a profile that would turn every monitor off is refused with a clear error | P0 |
+| DISP-008 | The HK-006 popup shows the profile name after a hotkey switch | P1 |
+| DISP-009 | Optionally a profile switches Macafon's output device (OUT-001), so "Movie" moves the sound to the TV too | P1 |
+| DISP-010 | Edit a profile without recapturing: monitor on/off, primary, mode from the supported list, rotation, HDR | P1 |
+| DISP-011 | Apply a profile automatically when its set of monitors connects (docking) — not now (owner decision, 2026-10-21) | P2 |
+
+Profiles change system settings on purpose and stay after Macafon quits; nothing is restored on
+quit or uninstall. No administrator rights are needed.
+
 ---
 
 ## 9. UX and screens
@@ -724,7 +754,8 @@ The visual language is the [design system](design/design-system.md). The window 
  64px sidebar: Microphone · Mixer · Settings ; at the bottom — daemon status (a dot) and CPU %
 ```
 
-On Windows the sidebar also has SoundDeck (§7.6) and Dictation (§9.9) when the daemon reports them.
+On Windows the sidebar also has SoundDeck (§7.6), Dictation (§9.9) and Displays (§9.10) when the daemon
+reports them.
 
 ### 9.2 Onboarding (first launch, M1)
 
@@ -967,6 +998,17 @@ meter default off. Side panels expand right (default), left or down. Placement i
 main controls stay put) or centered (the whole overlay stays centered). Sounds and Dictation retain
 their own `show_in_overlay` preferences. Updating overlay preferences never shows a sample popup.
 
+- **Displays** part (§8.5): a switch-sized button (Lucide `MonitorSmartphone`) showing the active
+  profile's name, with a flag like Sounds; it opens a panel with the profiles as rows (icon, name,
+  shortcut, active marker, missing monitors dimmed) that expands right, left or down like the other
+  side panels. A click applies the profile; while a confirmation is pending the panel shows Keep /
+  Revert with the countdown. Shown by default where `Capabilities::displays` is set and at least
+  one profile exists.
+- When Sounds opens to the right or left, its panel takes the full height of the overlay and the
+  transport and volumes stay under the main part only, so more pads fit (owner request,
+  2026-10-21); when it opens down they stay along the bottom. The transport's timeline and volume
+  bar are thin (owner request, 2026-10-21).
+
 #### 9.9.3 Dictation popup looks
 
 Both looks are drawn by the daemon with Direct2D in the HK-006 popup thread (layered, topmost,
@@ -1043,6 +1085,28 @@ for its calibration and states:
 - Hands-free: `■ STOP` and `✕` as HUD buttons in the shroud (`.btn` ghost style), clickable.
 - Reduced motion: no glow fade or slide; the needle still moves (it is the content), but without
   overshoot.
+
+### 9.10 Displays screen
+
+A sidebar item **Displays** (Lucide `MonitorSmartphone`) where `Capabilities::displays` is set.
+
+- **Profiles:** a grid of cards. Each card has a to-scale sketch of its monitors (off monitors
+  dashed, the primary marked, missing ones dimmed with a warning), the icon and name, its shortcut
+  and **Apply**; the active profile is highlighted. A card menu: Recapture from current layout,
+  Edit, Delete. Cards reorder by drag and with the keyboard.
+- **Current layout:** the same sketch of the monitors as they are now, with **Save as profile**
+  (name and icon in a dialog).
+- **Pending confirmation:** a banner with Keep / Revert and the countdown, also when the switch came
+  from a hotkey.
+- **Edit (DISP-010):** per monitor: on/off, primary, mode from the supported list, rotation, HDR;
+  the output device (DISP-009).
+- **First run:** an onboarding card instead of an empty grid: one line on what profiles do, the
+  suggested profiles from the connected monitors ("All monitors", then each monitor alone) with
+  check boxes and names, **Create**; then hotkeys for them (offered `Ctrl+Alt+1…`) and the way back
+  (`All monitors on`, `Previous layout`), and **Try it**: apply a suggestion, see the confirmation,
+  revert.
+- Keyboard and ARIA (§9.8): cards are a list; Apply, Keep and Revert are buttons; the countdown is
+  `aria-live`.
 
 ---
 
@@ -1610,6 +1674,7 @@ M4 on Windows is limited by the one free cable: several virtual microphones and 
 available there (ADR-0004).
 
 Dictation (§8.4) is an owner-requested Windows feature outside the milestone order, planned in §19.2.
+Display profiles (§8.5) are another one, planned in §19.3.
 
 ### 19.1 Windows port plan (M3)
 
@@ -1647,6 +1712,20 @@ built; there is no engine bake-off step. Checks follow AGENTS §3: targeted test
 | **D6 · Popups and quick access** | Flow and Analog looks in the HK-006 Direct2D popup thread with all §8.4.7 states, level bands and VU ballistics; the Dictation tile in the tray panel and overlay; the tray menu item | Both looks go through every state in a manual run; the VU ballistics test (300 ms to 99 %, overshoot ≤ 2 %); screenshots |
 | **D7 · Dictation screen** | §9.9.1 in full: header toggle and status, shortcut block, cards 01–07, picture buttons with Preview, TRY IT and history, i18n strings, keyboard and ARIA | Mock-mode screenshots at 1180×760 of the empty, downloading, ready, listening and error states; relevant Vitest files |
 | **D8 · Hardening and package** | Installer ships the worker and runtime DLLs; About licenses; 1 h soak with dictation every minute alongside the microphone chain; a full-screen game FPS comparison: feature off / on idle / dictating; release checklist items | No xruns attributable to dictation; no FPS change with the feature on and idle; checklist passes on Windows 11 |
+
+### 19.3 Display profiles plan
+
+Requirements: §8.5 and §9.10; decision: [ADR-0006](adr/0006-display-profiles-ccd.md). Every step ends
+in a working, committable state.
+
+| Step | Content | Done when |
+|---|---|---|
+| **DS0 · Contracts and mock** | IPC types, `displays.*` requests and event, `[displays]` config, hotkey actions, the overlay part, `Capabilities::displays`; mock daemon with three fake monitors | The UI in mock mode shows the screen; config round-trip test |
+| **DS1 · CCD backend** | `displays.rs`: monitors, capture, snapshot/restore, validate and apply, all-on, identity resolution, change watcher; `examples/displays.rs` | A profile survives a reboot and a port change on a real machine; table tests of identity resolution |
+| **DS2 · Daemon and safety** | Requests, persistence, the confirmation dialog and countdown, revert, default way-back hotkeys, partial apply, the output device | A rejected mode and an all-off profile never leave a black screen |
+| **DS3 · Quick access** | Per-profile hotkeys and Next, the tray submenu, the HK-006 card, the CLI | Switching by hotkey with the window closed |
+| **DS4 · Screen, onboarding, overlay** | §9.10 and the §9.9.2 Displays part | Mock-mode screenshots of the empty, onboarding, profiles, pending and edit states |
+| **DS5 · Hardware check** | Laptop + external monitor; 2–3 monitors on NVIDIA, AMD and Intel; an HDR monitor; a TV over HDMI; sleep and wake; a monitor switched off by its button | Checklist passes on Windows 11 |
 
 ## 20. Glossary
 

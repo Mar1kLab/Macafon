@@ -203,7 +203,7 @@ profile: string | null,
 /**
  * The previous layout comes back at this moment unless kept.
  */
-revert_at_unix_ms: bigint, };
+revert_at_unix_ms: number, };
 
 export type DisplaysState = { monitors: Array<DisplayMonitor>, profiles: Array<DisplayProfileInfo>,
 /**

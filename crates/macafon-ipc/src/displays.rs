@@ -129,6 +129,7 @@ pub struct DisplaysPending {
     /// The profile id; `None` for "All monitors on".
     pub profile: Option<String>,
     /// The previous layout comes back at this moment unless kept.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub revert_at_unix_ms: u64,
 }
 

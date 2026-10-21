@@ -417,7 +417,7 @@
   }
 
   .volume :global(.ruler.compact .track) {
-    height: 16px;
+    height: 11px;
   }
 
   .volume :global(.ruler.compact .value) {
@@ -607,8 +607,11 @@
     gap: 4px;
   }
 
-  /* The seek bar fills the space left by the transport and output volumes. */
+  /* The seek bar fills the space left by the transport and output volumes; a thin one. */
   .player > :global(.track) { flex: 1; min-width: 120px; }
+  .player > :global(.track.compact) { height: 12px; }
+  .player > :global(.track.compact .tick) { height: 3px; }
+  .player > :global(.track.compact .tick.major) { height: 5px; }
 
   .list .pad {
     height: 28px;

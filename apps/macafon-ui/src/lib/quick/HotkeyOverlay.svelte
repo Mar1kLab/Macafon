@@ -1,12 +1,13 @@
 <script lang="ts">
   import { prefersReducedMotion } from 'svelte/motion';
-  import { AudioLines, AudioWaveform, ChevronDown, ChevronLeft, ChevronRight, Headphones, History, Mic, MicOff, SlidersHorizontal, Speech, Volume2, VolumeX, X } from '@lucide/svelte';
+  import { AudioLines, AudioWaveform, ChevronDown, ChevronLeft, ChevronRight, Headphones, History, Mic, MicOff, MonitorSmartphone, SlidersHorizontal, Speech, Volume2, VolumeX, X } from '@lucide/svelte';
   import Logo from '../components/Logo.svelte';
   import LevelMeter from '../components/LevelMeter.svelte';
   import VerticalSlider from './VerticalSlider.svelte';
   import SoundpadOverlay from './SoundpadOverlay.svelte';
   import DictationOverlay from './DictationOverlay.svelte';
   import DictationHistoryOverlay from './DictationHistoryOverlay.svelte';
+  import DisplaysOverlay from './DisplaysOverlay.svelte';
   import { DEFAULT_OVERLAY, reveal } from './overlay';
   import { overlayOrder, overlayRows, volumesFirst } from './layout';
   import type { OverlayItem } from '../ipc/protocol';
@@ -35,6 +36,9 @@
   const Flag = $derived(expand === 'left' ? ChevronLeft : expand === 'down' ? ChevronDown : ChevronRight);
   const playing = $derived(playback && soundpad?.sounds.find((sound) => sound.id === playback.sound_id));
   const output = $derived(mixer?.outputs.find((item) => item.name === mixer.output) ?? null);
+  /** Display profiles (§8.5), where the platform has them and one is saved. */
+  const displays = $derived(daemon.displays && daemon.displays.profiles.length > 0 ? daemon.displays : null);
+  const activeDisplay = $derived(displays?.profiles.find((entry) => entry.profile.id === displays.active)?.profile.name ?? null);
   /** The parts in the order the layout editor saved, only those that show (§9.9). */
   const parts = $derived(
     overlayOrder(setup.order).filter((part: OverlayItem) => {
@@ -45,6 +49,8 @@
           return setup.dictation_history && !!daemon.dictation;
         case 'sounds':
           return !!soundpad;
+        case 'display_profiles':
+          return setup.display_profiles && !!displays;
         case 'output_device':
           return setup.output_device && !!mixer;
         default:
@@ -57,18 +63,26 @@
 
   /** SND-006, §9.9.2: one side panel at a time, the way the overlay was last closed, across
    * openings and UI restarts. */
-  type Side = 'sounds' | 'dictation' | 'history' | null;
+  type Side = 'sounds' | 'dictation' | 'history' | 'displays' | null;
   const PANEL_KEY = 'macafon.overlay.panel';
   function savedPanel(): Side {
     const saved = localStorage.getItem(PANEL_KEY);
-    if (saved === 'sounds' || saved === 'dictation' || saved === 'history') return saved;
+    if (saved === 'sounds' || saved === 'dictation' || saved === 'history' || saved === 'displays') return saved;
     // Before one key held both.
     if (localStorage.getItem('macafon.overlay.soundsOpen') === '1') return 'sounds';
     if (localStorage.getItem('macafon.overlay.dictationOpen') === '1') return 'dictation';
     return null;
   }
   let panel = $state<Side>(savedPanel());
-  const side = $derived(panel === 'sounds' && soundpad ? 'sounds' : panel === 'dictation' && dictation && !dictation.needsModel ? 'dictation' : panel === 'history' && daemon.dictation && setup.dictation_history ? 'history' : null);
+  const side = $derived(
+    panel === 'sounds' && soundpad ? 'sounds'
+      : panel === 'dictation' && dictation && !dictation.needsModel ? 'dictation'
+        : panel === 'history' && daemon.dictation && setup.dictation_history ? 'history'
+          : panel === 'displays' && displays && setup.display_profiles ? 'displays'
+            : null,
+  );
+  /** Sideways, Sounds takes the full height and its player stays under the main part. */
+  const playerUnderMain = $derived(side === 'sounds' && expand !== 'down');
 
   function toggle(next: Exclude<Side, null>) {
     panel = panel === next ? null : next;
@@ -136,6 +150,13 @@
       </button>
       {@render flag(side === 'sounds', side === 'sounds' ? t('quick.soundpadHide') : t('quick.soundpadShowHint'), () => toggle('sounds'), false, 'overlay-sounds')}
     </div>
+  {:else if part === 'display_profiles' && displays}
+    <div class="split {expand}" class:open={side === 'displays'}>
+      <button class="switch" aria-expanded={side === 'displays'} aria-controls="overlay-displays" title={side === 'displays' ? t('quick.displaysHide') : t('quick.displaysShow')} onclick={() => toggle('displays')}>
+        <MonitorSmartphone size={16} strokeWidth={1.5} /><span>{activeDisplay ?? t('quick.displays')}</span>
+      </button>
+      {@render flag(side === 'displays', side === 'displays' ? t('quick.displaysHide') : t('quick.displaysShow'), () => toggle('displays'), false, 'overlay-displays')}
+    </div>
   {:else if part === 'output_device' && mixer}
     <div class="picker">
       <span class="hud-label">{t('quick.output')}</span>
@@ -177,6 +198,7 @@
     <p class="status" role="status">{daemon.status.state === 'unavailable' ? t('daemon.unavailable') : t('daemon.loading')}</p>
   {:else}
     <div class="body" class:left={expand === 'left'} class:down={expand === 'down'}>
+      <div class="main-column">
       <!-- Anchored, the window keeps this part in place when a side panel opens (Panel.svelte). -->
       <div class="main" class:controls-only={!setup.volumes} class:volumes-right={!volumesLeft} data-overlay-main data-overlay-centered={setup.placement === 'centered' ? '' : undefined}>
         {#if setup.volumes}
@@ -221,6 +243,11 @@
           {/each}
         </section>
       </div>
+      {#if playerUnderMain}
+        <!-- Sideways, the sounds take the full height; the player stays under the main part. -->
+        <div class="dock" transition:reveal={{ expand: 'down', duration: prefersReducedMotion.current ? 0 : 200 }}><SoundpadOverlay part="player" /></div>
+      {/if}
+      </div>
 
       {#if side}
         <!-- Side content scrolls without contributing to the main height or down width. -->
@@ -230,6 +257,8 @@
               <SoundpadOverlay part="library" />
             {:else if side === 'dictation'}
               <DictationOverlay />
+            {:else if side === 'displays'}
+              <DisplaysOverlay />
             {:else}
               <DictationHistoryOverlay />
             {/if}
@@ -237,7 +266,7 @@
         </div>
       {/if}
     </div>
-    {#if side === 'sounds'}
+    {#if side === 'sounds' && !playerUnderMain}
       <!-- Keep the player row reserved until the side panel finishes closing. -->
       <div class="dock" transition:reveal={{ expand, duration: prefersReducedMotion.current ? 0 : 200 }}><SoundpadOverlay part="player" /></div>
     {/if}
@@ -274,6 +303,7 @@
   .body.down { flex-direction: column; }
   /* Side content never stretches the main part; the player docks under Sounds. */
   .body { align-items: stretch; }
+  .main-column { flex: none; display: flex; flex-direction: column; }
   .main { flex: none; }
   /* As wide as the overlay was before side panels, a little wider: the strips share it. */
   .main { display: flex; gap: 24px; min-width: 816px; }
@@ -337,7 +367,9 @@
   .body.left .side { margin: 0 24px 0 0; padding: 0 24px 0 0; border-left: 0; border-right: 1px solid var(--line); }
   .body.down .side-reveal { width: 0; min-width: 100%; height: 300px; }
   .body.down .side { margin: 16px 0 0; padding: 16px 0 0; border-left: 0; border-top: 1px solid var(--line); }
-  .dock { width: 0; min-width: 100%; height: 53px; box-sizing: border-box; padding-top: 12px; margin-top: 0; border-top: 1px solid var(--line); display: flex; align-items: center; }
+  .dock { width: 0; min-width: 100%; height: 47px; box-sizing: border-box; padding-top: 10px; margin-top: 0; border-top: 1px solid var(--line); display: flex; align-items: center; }
+  /* Under the main part the player follows the strips, a line above it. */
+  .main-column .dock { margin-top: 12px; }
   .dock :global(.dock) { flex: 1; overflow-x: auto; scrollbar-width: thin; }
   .status { flex: 1; align-self: center; padding: 24px; font-size: 13px; color: var(--muted); }
   /* Sketch: the app's own look — sharp corners, HUD labels, accent marks instead of fills. */

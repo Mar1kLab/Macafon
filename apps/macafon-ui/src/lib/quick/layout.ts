@@ -12,12 +12,13 @@ export const OVERLAY_PARTS: OverlayItem[] = [
   'dictation',
   'dictation_history',
   'sounds',
+  'display_profiles',
   'output_device',
   'mic_level',
   'preset',
 ];
 
-const SWITCHES = new Set<OverlayItem>(['mic_switch', 'processing_switch', 'mixer_switch', 'dictation', 'dictation_history', 'sounds']);
+const SWITCHES = new Set<OverlayItem>(['mic_switch', 'processing_switch', 'mixer_switch', 'dictation', 'dictation_history', 'sounds', 'display_profiles']);
 
 export const isSwitch = (part: OverlayItem) => SWITCHES.has(part);
 
@@ -31,8 +32,12 @@ export function overlayOrder(order: readonly OverlayItem[] | undefined): Overlay
 }
 
 /** Whether a part is on. Dictation and Sounds keep their own `show_in_overlay`; a part whose
- * feature is missing (no dictation, no SoundDeck) is never on. */
-export function partShown(setup: OverlayPrefs, part: OverlayItem, extra: { dictation: boolean | null; sounds: boolean | null }): boolean {
+ * feature is missing (no dictation, no SoundDeck, no display profiles) is never on. */
+export function partShown(
+  setup: OverlayPrefs,
+  part: OverlayItem,
+  extra: { dictation: boolean | null; sounds: boolean | null; displays?: boolean },
+): boolean {
   switch (part) {
     case 'dictation':
       return extra.dictation ?? false;
@@ -40,6 +45,8 @@ export function partShown(setup: OverlayPrefs, part: OverlayItem, extra: { dicta
       return setup.dictation_history && extra.dictation !== null;
     case 'sounds':
       return extra.sounds ?? false;
+    case 'display_profiles':
+      return setup.display_profiles && (extra.displays ?? false);
     default:
       return setup[part];
   }

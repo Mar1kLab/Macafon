@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { movePart, overlayOrder, overlayRows, partShown, volumesFirst } from './layout';
+import { OVERLAY_PARTS, movePart, overlayOrder, overlayRows, partShown, volumesFirst } from './layout';
 import { DEFAULT_OVERLAY } from './overlay';
 
 describe('overlay layout', () => {
   it('drops unknown and repeated parts and appends missing ones', () => {
     const order = overlayOrder(['preset', 'preset', 'bogus' as never, 'volumes']);
     expect(order.slice(0, 2)).toEqual(['preset', 'volumes']);
-    expect(order).toHaveLength(10);
+    expect(order).toHaveLength(OVERLAY_PARTS.length);
   });
 
   it('groups neighbouring switches into rows and gives other parts their own', () => {
@@ -20,6 +20,12 @@ describe('overlay layout', () => {
   it('puts volumes left only when it comes before every control', () => {
     expect(volumesFirst(['volumes', 'preset'])).toBe(true);
     expect(volumesFirst(['preset', 'volumes'])).toBe(false);
+  });
+
+  it('shows display profiles only where the platform has them', () => {
+    expect(partShown(DEFAULT_OVERLAY, 'display_profiles', { dictation: null, sounds: null, displays: true })).toBe(true);
+    expect(partShown(DEFAULT_OVERLAY, 'display_profiles', { dictation: null, sounds: null })).toBe(false);
+    expect(partShown({ ...DEFAULT_OVERLAY, display_profiles: false }, 'display_profiles', { dictation: null, sounds: null, displays: true })).toBe(false);
   });
 
   it('shows history independently of the dictation tile, only when the feature exists', () => {

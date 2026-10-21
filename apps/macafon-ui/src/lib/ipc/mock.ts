@@ -6,7 +6,8 @@
 // global shortcut service. `?platform=windows` acts like the Windows daemon (VB-CABLE, no
 // channel effects); add `&cable=missing` for a system without VB-CABLE. `?look=sketch` picks the
 // sketch look of the popup and overlay; `?sounds=list` and `?controls=bottom|hidden` lay out the
-// overlay's soundpad. `?dictation=ready|downloading|error` sets up dictation (mock/dictation.ts).
+// overlay's soundpad. `?dictation=ready|downloading|error` sets up dictation (mock/dictation.ts),
+// `?displays=empty|pending` the display profiles (mock/displays.ts).
 
 import { DaemonError, type DaemonStatus, type Transport } from './client';
 import { BUILTIN_PRESETS } from './dsp';
@@ -34,12 +35,14 @@ import { clone, latencySamples, sameChain, slugify } from './mock/helpers';
 import { MockMixer } from './mock/mixer';
 import { MockSoundpad } from './mock/soundpad';
 import { MockDictation } from './mock/dictation';
+import { MockDisplays } from './mock/displays';
 import { SILENT, random, voiceLevel } from './mock/signals';
 
 const VERSION = '0.1.0-mock';
 
 const GLOBAL_HOTKEYS = ['quick_panel', 'mic_mute_toggle', 'push_to_talk', 'push_to_mute', 'bypass_toggle', 'preset_next', 'preset_previous'];
 const SOUNDPAD_HOTKEYS = ['soundpad_stop', 'soundpad_pause', 'soundpad_random'];
+const DISPLAY_HOTKEYS = ['display_profile_next', 'display_revert', 'display_all_on'];
 const DICTATION_HOTKEYS = [
   'dictation_hold',
   'dictation_toggle',
@@ -84,7 +87,14 @@ function hotkeyCommand(action: string): string {
       return 'macafon ctl soundpad random';
     case 'dictation_enable_toggle':
       return 'macafon ctl dictation toggle';
+    case 'display_profile_next':
+      return 'macafon ctl display next';
+    case 'display_revert':
+      return 'macafon ctl display revert';
+    case 'display_all_on':
+      return 'macafon ctl display all-on';
     default:
+      if (action.startsWith('display_profile.')) return `macafon ctl display apply -- '${action.slice('display_profile.'.length)}'`;
       if (action.startsWith('soundpad_play.')) return `macafon ctl soundpad play ${JSON.stringify(action.slice('soundpad_play.'.length))}`;
       return '';
   }
@@ -116,12 +126,13 @@ export class MockTransport implements Transport {
     // `?expand=left|down`, `?placement=centered`, `?parts=all` for screenshots of the overlay setups.
     overlay: {
       enabled: true,
-      order: ['volumes', 'mic_switch', 'processing_switch', 'mixer_switch', 'dictation', 'dictation_history', 'sounds', 'output_device', 'mic_level', 'preset'],
+      order: ['volumes', 'mic_switch', 'processing_switch', 'mixer_switch', 'dictation', 'dictation_history', 'sounds', 'display_profiles', 'output_device', 'mic_level', 'preset'],
       volumes: true,
       mic_switch: true,
       processing_switch: true,
       mixer_switch: true,
       dictation_history: true,
+      display_profiles: true,
       preset: true,
       output_device: this.query.get('parts') === 'all',
       mic_level: this.query.get('parts') === 'all',
@@ -152,6 +163,12 @@ export class MockTransport implements Transport {
     ['dictation_paste_last', 'Shift+Alt+Z'],
     ['dictation_copy_last', 'Shift+Alt+X'],
     ['dictation_hold_copy', 'Ctrl+Win+Shift'],
+    // DISP-005: the way back, and the profiles of the mock.
+    ['display_all_on', 'Ctrl+Alt+Shift+F12'],
+    ['display_revert', 'Ctrl+Alt+Shift+F11'],
+    ['display_profile.work', 'Ctrl+Alt+Shift+1'],
+    ['display_profile.game', 'Ctrl+Alt+Shift+2'],
+    ['display_profile.movie', 'Ctrl+Alt+Shift+3'],
   ]);
 
   private meterTimer: number | undefined;
@@ -160,6 +177,7 @@ export class MockTransport implements Transport {
   private mixer = new MockMixer(this.query.get('mixer') !== 'off', this.started, (event) => this.emit(event));
   private soundpad = new MockSoundpad((event) => this.emit(event), this.windows);
   private dictation = new MockDictation((event) => this.emit(event), this.query.get('dictation'));
+  private displays = new MockDisplays((event) => this.emit(event), this.query.get('displays'));
   private outputControls: OutputControl[] = [];
   private hardwareVolume = 83;
   private hardwareBalance = 0;
@@ -331,6 +349,7 @@ export class MockTransport implements Transport {
       ...this.mixer.state.channels.flatMap((c) => [`channel_volume_up.${c.id}`, `channel_volume_down.${c.id}`, `channel_mute.${c.id}`]),
       ...(this.windows ? [...SOUNDPAD_HOTKEYS, ...this.soundpad.state.sounds.map((x) => `soundpad_play.${x.id}`)] : []),
       ...(this.windows ? DICTATION_HOTKEYS : []),
+      ...(this.windows ? [...DISPLAY_HOTKEYS, ...this.displays.ids.map((id) => `display_profile.${id}`)] : []),
     ];
     const portal = this.query.get('hotkeys') !== 'unavailable';
     return {
@@ -403,6 +422,19 @@ export class MockTransport implements Transport {
       }
       return result;
     }
+    if (method.startsWith('displays.')) {
+      if (!this.windows) throw new DaemonError('not_found', 'display profiles are not available on this platform');
+      const result = this.displays.call(method, p);
+      // Profiles come and go with their hotkeys, as in the daemon.
+      if (['displays.save', 'displays.create', 'displays.delete', 'displays.update'].includes(method)) {
+        const ids = new Set(this.displays.ids.map((id) => `display_profile.${id}`));
+        for (const action of [...this.shortcuts.keys()]) {
+          if (action.startsWith('display_profile.') && !ids.has(action.replace(/#secondary$/, ''))) this.shortcuts.delete(action);
+        }
+        this.emit({ event: 'hotkeys.changed', data: this.hotkeys() });
+      }
+      return result;
+    }
     if (method.startsWith('dictation.')) {
       if (!this.windows) throw new DaemonError('bad_request', 'dictation is not available on this platform');
       return this.dictation.call(method, p);
@@ -450,6 +482,7 @@ export class MockTransport implements Transport {
             hotkey_popup: this.windows,
             soundpad: this.windows,
             dictation: this.windows,
+            displays: this.windows,
           },
         };
       case 'daemon.quit':

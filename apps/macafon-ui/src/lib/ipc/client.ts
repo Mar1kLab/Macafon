@@ -7,6 +7,8 @@ import type {
   CalibrationState,
   Device,
   DictationState,
+  DisplayProfile,
+  DisplaysState,
   DoctorReport,
   HotkeysState,
   Preferences,
@@ -136,6 +138,18 @@ interface Results {
   'dictation.cancel': DictationState;
   'dictation.history_clear': DictationState;
   'dictation.reinsert': null;
+  'displays.get': DisplaysState;
+  'displays.save': DisplaysState;
+  'displays.create': DisplaysState;
+  'displays.suggestions': DisplayProfile[];
+  'displays.update': DisplaysState;
+  'displays.recapture': DisplaysState;
+  'displays.delete': DisplaysState;
+  'displays.reorder': DisplaysState;
+  'displays.apply': DisplaysState;
+  'displays.confirm': DisplaysState;
+  'displays.revert': DisplaysState;
+  'displays.all_on': DisplaysState;
 }
 
 type ResultOf<M extends Method> = M extends keyof Results ? Results[M] : never;

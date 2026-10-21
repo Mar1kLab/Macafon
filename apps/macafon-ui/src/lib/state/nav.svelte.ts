@@ -16,7 +16,7 @@ export type SettingsSection =
 
 const query = new URLSearchParams(location.search);
 const initial = query.get('screen');
-const SCREENS: Screen[] = ['microphone', 'mixer', 'soundpad', 'dictation', 'settings'];
+const SCREENS: Screen[] = ['microphone', 'mixer', 'soundpad', 'dictation', 'displays', 'settings'];
 
 class Nav {
   screen = $state<Screen>(SCREENS.includes(initial as Screen) ? (initial as Screen) : 'microphone');

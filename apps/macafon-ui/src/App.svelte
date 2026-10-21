@@ -10,6 +10,7 @@
   import Mixer from './screens/Mixer.svelte';
   import Soundpad from './screens/Soundpad.svelte';
   import Dictation from './screens/Dictation.svelte';
+  import Displays from './screens/Displays.svelte';
   import Onboarding from './lib/onboarding/Onboarding.svelte';
   import { daemon } from './lib/state';
   import { nav } from './lib/state/nav.svelte';
@@ -120,6 +121,8 @@
         <Soundpad />
       {:else if screen === 'dictation' && daemon.dictationAvailable}
         <Dictation />
+      {:else if screen === 'displays' && daemon.displaysAvailable}
+        <Displays />
       {:else}
         <Microphone />
       {/if}

@@ -22,11 +22,17 @@
   let problems = $state<Record<string, string>>({});
 
   function label(action: string): string {
+    if (action.startsWith('display_profile.')) {
+      const id = action.slice('display_profile.'.length);
+      const name = daemon.displays?.profiles.find((entry) => entry.profile.id === id)?.profile.name ?? id;
+      return t('settings.hotkeys.displayProfile', { name });
+    }
     const kind = action.split('.')[0]!;
     return t(`settings.hotkeys.actions.${kind}` as MessageKey);
   }
 
   function fullLabel(action: string): string {
+    if (action.startsWith('display_profile.')) return label(action);
     const channel = action.split('.')[1];
     if (!channel) return label(action);
     return `${channelName(channel)}: ${label(action)}`;
@@ -44,9 +50,10 @@
       if (binding.action.startsWith('soundpad_play.')) continue;
       const soundpad = binding.action.startsWith('soundpad_');
       const dictation = binding.action.startsWith('dictation_');
-      const channel = soundpad || dictation ? undefined : binding.action.split('.')[1];
+      const displays = binding.action.startsWith('display_');
+      const channel = soundpad || dictation || displays ? undefined : binding.action.split('.')[1];
       const general = binding.action === 'quick_panel' || binding.action.startsWith('master_');
-      const id = channel ?? (general ? 'general' : soundpad ? 'soundpad' : dictation ? 'dictation' : '');
+      const id = channel ?? (general ? 'general' : soundpad ? 'soundpad' : dictation ? 'dictation' : displays ? 'displays' : '');
       let group = result.find((g) => g.id === id);
       if (!group) {
         const title = channel
@@ -57,7 +64,9 @@
               ? t('settings.hotkeys.soundpad')
               : dictation
                 ? t('settings.hotkeys.dictation')
-                : t('settings.hotkeys.microphone');
+                : displays
+                  ? t('settings.hotkeys.displays')
+                  : t('settings.hotkeys.microphone');
         group = { id, title, bindings: [] };
         result.push(group);
       }

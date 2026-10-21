@@ -13,6 +13,7 @@ import type {
   DictationPrefsPatch,
   DictationResult,
   DictationState,
+  DisplaysState,
   Event,
   Hello,
   HotkeysState,
@@ -79,6 +80,8 @@ export class DaemonStore {
   soundpadPlayback = $state.raw<SoundpadPlayback | null>(null);
   /** Dictation (§8.4); `null` where the platform has none. */
   dictation = $state.raw<DictationState | null>(null);
+  /** Saved monitor layouts (§8.5); `null` where the platform has none. */
+  displays = $state.raw<DisplaysState | null>(null);
   /** The latest TRY IT result, shown in the panel and not kept in the history. */
   dictationTest = $state.raw<DictationResult | null>(null);
   /** Files being added to the library: name → 0…1. */
@@ -139,6 +142,10 @@ export class DaemonStore {
 
   get soundpadAvailable(): boolean {
     return this.hello?.capabilities.soundpad ?? false;
+  }
+
+  get displaysAvailable(): boolean {
+    return this.hello?.capabilities.displays ?? false;
   }
 
   get dictationAvailable(): boolean {
@@ -206,6 +213,7 @@ export class DaemonStore {
         this.soundpadPlayback = null;
       }
       this.dictation = hello.capabilities.dictation ? await this.client.call('dictation.get') : null;
+      this.displays = hello.capabilities.displays ? await this.client.call('displays.get') : null;
       this.syncMeters();
     } catch (error) {
       this.fail(error);
@@ -317,6 +325,9 @@ export class DaemonStore {
         break;
       case 'dictation.changed':
         this.applyDictation(event.data);
+        break;
+      case 'displays.changed':
+        this.displays = event.data;
         break;
       case 'dictation.level':
         dictationLevelBus.rms = event.data.rms_dbfs;
@@ -678,6 +689,22 @@ export class DaemonStore {
     } catch (error) {
       this.fail(error);
       return undefined;
+    }
+  }
+
+  /** A displays request; the reply is the new state. `false` when it failed (and was shown). */
+  async setDisplays(request: Promise<DisplaysState>): Promise<boolean> {
+    const state = await this.run(request);
+    if (state) this.displays = state;
+    return state !== undefined;
+  }
+
+  /** DISP-002: apply a profile; a missing monitor is named in a toast (DISP-007). */
+  async applyDisplayProfile(id: string): Promise<void> {
+    const ok = await this.setDisplays(this.client.call('displays.apply', { id }));
+    const info = this.displays?.profiles.find((entry) => entry.profile.id === id);
+    if (ok && info && info.missing.length > 0) {
+      this.toast(t('displays.toastMissing', { names: info.missing.join(', ') }));
     }
   }
 

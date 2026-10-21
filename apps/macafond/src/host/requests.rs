@@ -1,7 +1,11 @@
 //! Requests control on the daemon control loop.
 
-use super::{DaemonHost, backend_error};
-use macafon_ipc::{CalibrationState, ErrorBody, ErrorCode, Event, HotkeyBackend, Request};
+use super::microphone::replace_chain;
+use super::{DaemonHost, backend_error, reply};
+use macafon_ipc::{
+    CalibrationState, ErrorBody, ErrorCode, Event, HotkeyBackend, PlaybackDevice,
+    PlaybackDeviceKind, Preferences, Request,
+};
 use std::time::{Duration, Instant};
 
 impl DaemonHost {
@@ -38,44 +42,14 @@ impl DaemonHost {
                 overlay,
                 main_monitor,
             } => {
-                if let Some(step) = volume_step_pct {
-                    if !(1..=20).contains(&step) {
-                        return Err(ErrorBody::new(
-                            ErrorCode::InvalidParams,
-                            "volume step must be 1..20",
-                        ));
-                    }
-                    self.config.ui.volume_step_pct = step;
-                }
-                if let Some(frames) = quantum_frames {
-                    if !macafon_config::QUANTUM_CHOICES.contains(&frames) {
-                        return Err(ErrorBody::new(
-                            ErrorCode::InvalidParams,
-                            format!(
-                                "quantum must be one of {:?}",
-                                macafon_config::QUANTUM_CHOICES
-                            ),
-                        ));
-                    }
-                    self.config.audio.quantum_frames = frames;
-                }
-                if let Some(action) = close_action {
-                    self.config.ui.quit_on_close = action == macafon_ipc::CloseAction::Quit;
-                }
-                if let Some(overlay) = overlay {
-                    self.config.ui.overlay = overlay;
-                }
-                if let Some(monitor) = main_monitor {
-                    self.config.ui.main_monitor = monitor;
-                }
-                if let Some(osd) = osd {
-                    self.config.ui.osd = super::hotkeys::osd_config(osd);
-                    self.sample_osd();
-                }
-                self.changed_at = Some(Instant::now());
-                let prefs = self.prefs();
-                self.hub.broadcast(&Event::PrefsChanged(prefs.clone()));
-                return Ok(serde_json::json!(prefs));
+                return reply(self.set_prefs(PrefsPatch {
+                    quantum_frames,
+                    volume_step_pct,
+                    close_action,
+                    osd,
+                    overlay,
+                    main_monitor,
+                })?);
             }
             Request::HotkeysSet {
                 action,
@@ -91,26 +65,10 @@ impl DaemonHost {
                 return Ok(serde_json::json!(self.hotkeys_state()));
             }
             Request::MicGet => self.state(),
-            Request::MicSet { settings } => self.update(|config| {
-                let chain = &mut config.mic.chain;
-                let (muted, bypass) = (chain.muted, chain.bypass);
-                *chain = settings;
-                chain.muted = muted;
-                chain.bypass = bypass;
-            })?,
-            Request::MicSetPreset { preset } => {
-                let settings = self.preset_settings(&preset).ok_or_else(|| {
-                    ErrorBody::new(ErrorCode::NotFound, format!("unknown preset {preset:?}"))
-                })?;
-                self.update(|config| {
-                    let mic = &mut config.mic;
-                    let (muted, bypass) = (mic.chain.muted, mic.chain.bypass);
-                    mic.chain = settings;
-                    mic.chain.muted = muted;
-                    mic.chain.bypass = bypass;
-                    mic.preset = Some(preset);
-                })?
+            Request::MicSet { settings } => {
+                self.update(|config| replace_chain(&mut config.mic.chain, settings))?
             }
+            Request::MicSetPreset { preset } => self.load_preset(preset)?,
             Request::MicSetMuted { muted } => {
                 self.update(|config| config.mic.chain.muted = muted)?
             }
@@ -163,26 +121,7 @@ impl DaemonHost {
                     .export(&self.config.mic.chain, side, std::path::Path::new(&path))?;
                 return Ok(serde_json::Value::Null);
             }
-            Request::AbOutputs => {
-                let nodes = crate::platform::output_devices().map_err(backend_error)?;
-                let outputs: Vec<macafon_ipc::PlaybackDevice> = nodes
-                    .into_iter()
-                    .map(|node| {
-                        let kind = match node.form_factor.as_str() {
-                            "headset" | "headphone" => macafon_ipc::PlaybackDeviceKind::Headphones,
-                            "speaker" | "speakers" => macafon_ipc::PlaybackDeviceKind::Speakers,
-                            _ => macafon_ipc::PlaybackDeviceKind::Unknown,
-                        };
-                        macafon_ipc::PlaybackDevice {
-                            name: node.name,
-                            description: node.description,
-                            kind,
-                            speaker_warning: kind != macafon_ipc::PlaybackDeviceKind::Headphones,
-                        }
-                    })
-                    .collect();
-                return Ok(serde_json::json!(outputs));
-            }
+            Request::AbOutputs => return reply(ab_outputs()?),
             Request::CalibrationStart => {
                 self.start_calibration()?;
                 return self.calibration_value();
@@ -263,37 +202,7 @@ impl DaemonHost {
             | Request::SoundpadDeleteCategory { .. }
             | Request::SoundpadUpload { .. }) => return self.respond_soundpad(request),
             Request::AppsIcon { icon } => return Ok(serde_json::json!(self.icons.data_url(&icon))),
-            Request::DoctorRun => {
-                const WINDOW: Duration = Duration::from_secs(600);
-                while self
-                    .overloads
-                    .front()
-                    .is_some_and(|at| at.elapsed() > WINDOW)
-                {
-                    self.overloads.pop_front();
-                }
-                let (mic, mixer) = (self.state(), self.mixer_state());
-                let microphone = mic
-                    .input_connected
-                    .then_some(mic.active_device.as_deref())
-                    .flatten();
-                let platform = crate::platform::doctor_checks(microphone);
-                let report = crate::doctor::report(crate::doctor::Facts {
-                    inspection: crate::platform::inspect(),
-                    mic: &mic,
-                    mixer: &mixer,
-                    clock: self.clock,
-                    overloads: self.overloads.len(),
-                    inputs: &self.inputs,
-                    hotkeys: self
-                        .hotkey_status
-                        .as_ref()
-                        .map_or(HotkeyBackend::Unavailable, |status| status.backend),
-                    platform,
-                });
-                return serde_json::to_value(report)
-                    .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()));
-            }
+            Request::DoctorRun => return reply(self.doctor()),
             Request::DoctorFix { check } => {
                 return crate::platform::doctor_fix(check)
                     .map(|()| serde_json::Value::Null)
@@ -322,8 +231,83 @@ impl DaemonHost {
                 ));
             }
         };
-        serde_json::to_value(state)
-            .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))
+        reply(state)
+    }
+
+    fn set_prefs(&mut self, patch: PrefsPatch) -> Result<Preferences, ErrorBody> {
+        if let Some(step) = patch.volume_step_pct
+            && !(1..=20).contains(&step)
+        {
+            return Err(ErrorBody::new(
+                ErrorCode::InvalidParams,
+                "volume step must be 1..20",
+            ));
+        }
+        if let Some(frames) = patch.quantum_frames
+            && !macafon_config::QUANTUM_CHOICES.contains(&frames)
+        {
+            return Err(ErrorBody::new(
+                ErrorCode::InvalidParams,
+                format!(
+                    "quantum must be one of {:?}",
+                    macafon_config::QUANTUM_CHOICES
+                ),
+            ));
+        }
+        let ui = &mut self.config.ui;
+        if let Some(step) = patch.volume_step_pct {
+            ui.volume_step_pct = step;
+        }
+        if let Some(frames) = patch.quantum_frames {
+            self.config.audio.quantum_frames = frames;
+        }
+        if let Some(action) = patch.close_action {
+            ui.quit_on_close = action == macafon_ipc::CloseAction::Quit;
+        }
+        if let Some(overlay) = patch.overlay {
+            ui.overlay = overlay;
+        }
+        if let Some(monitor) = patch.main_monitor {
+            ui.main_monitor = monitor;
+        }
+        if let Some(osd) = patch.osd {
+            ui.osd = super::hotkeys::osd_config(osd);
+            self.sample_osd();
+        }
+        self.changed_at = Some(Instant::now());
+        let prefs = self.prefs();
+        self.hub.broadcast(&Event::PrefsChanged(prefs.clone()));
+        Ok(prefs)
+    }
+
+    fn doctor(&mut self) -> macafon_ipc::DoctorReport {
+        const WINDOW: Duration = Duration::from_secs(600);
+        while self
+            .overloads
+            .front()
+            .is_some_and(|at| at.elapsed() > WINDOW)
+        {
+            self.overloads.pop_front();
+        }
+        let (mic, mixer) = (self.state(), self.mixer_state());
+        let microphone = mic
+            .input_connected
+            .then_some(mic.active_device.as_deref())
+            .flatten();
+        let platform = crate::platform::doctor_checks(microphone);
+        crate::doctor::report(crate::doctor::Facts {
+            inspection: crate::platform::inspect(),
+            mic: &mic,
+            mixer: &mixer,
+            clock: self.clock,
+            overloads: self.overloads.len(),
+            inputs: &self.inputs,
+            hotkeys: self
+                .hotkey_status
+                .as_ref()
+                .map_or(HotkeyBackend::Unavailable, |status| status.backend),
+            platform,
+        })
     }
 
     /// The main window closed; the warm UI process keeps running without it.
@@ -346,4 +330,35 @@ impl DaemonHost {
             );
         }
     }
+}
+
+/// The optional fields of `Request::PrefsSet`.
+struct PrefsPatch {
+    quantum_frames: Option<u32>,
+    volume_step_pct: Option<u8>,
+    close_action: Option<macafon_ipc::CloseAction>,
+    osd: Option<macafon_ipc::OsdPrefs>,
+    overlay: Option<macafon_ipc::OverlayPrefs>,
+    main_monitor: Option<String>,
+}
+
+/// Playback devices for A/B listening; anything but headphones may feed back into the mic.
+fn ab_outputs() -> Result<Vec<PlaybackDevice>, ErrorBody> {
+    let nodes = crate::platform::output_devices().map_err(backend_error)?;
+    Ok(nodes
+        .into_iter()
+        .map(|node| {
+            let kind = match node.form_factor.as_str() {
+                "headset" | "headphone" => PlaybackDeviceKind::Headphones,
+                "speaker" | "speakers" => PlaybackDeviceKind::Speakers,
+                _ => PlaybackDeviceKind::Unknown,
+            };
+            PlaybackDevice {
+                name: node.name,
+                description: node.description,
+                kind,
+                speaker_warning: kind != PlaybackDeviceKind::Headphones,
+            }
+        })
+        .collect())
 }

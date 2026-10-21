@@ -1,6 +1,6 @@
 //! Capture control on the daemon control loop.
 
-use super::{DaemonHost, connected};
+use super::{DaemonHost, connected, reply};
 use crate::calibration::{Poll, Recording};
 use macafon_dsp::calibration::CalibrationError;
 use macafon_ipc::{CalibrationFailure, CalibrationState, ErrorBody, ErrorCode, Event, Request};
@@ -59,15 +59,13 @@ impl DaemonHost {
             Request::AbSetLoudnessMatch { enabled } => self.ab.set_loudness_match(enabled),
             Request::AbWaveform { points } => {
                 let waveform = self.ab.waveform(&self.config.mic.chain, points)?;
-                return serde_json::to_value(waveform)
-                    .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()));
+                return reply(waveform);
             }
             _ => {}
         }
         let state = self.ab.state();
         self.hub.broadcast(&Event::AbChanged(state.clone()));
-        serde_json::to_value(state)
-            .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))
+        reply(state)
     }
 
     pub(super) fn start_calibration(&mut self) -> Result<(), ErrorBody> {
@@ -90,8 +88,7 @@ impl DaemonHost {
     }
 
     pub(super) fn calibration_value(&self) -> Result<serde_json::Value, ErrorBody> {
-        serde_json::to_value(&self.calibration)
-            .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))
+        reply(&self.calibration)
     }
 
     pub(super) fn fail_calibration(

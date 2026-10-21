@@ -1,6 +1,6 @@
 //! Presets control on the daemon control loop.
 
-use super::{DaemonHost, preset_error};
+use super::{DaemonHost, preset_error, reply};
 use macafon_config::presets::{self, PresetError};
 use macafon_dsp::{ChainSettings, Preset};
 use macafon_ipc::{ErrorBody, ErrorCode, Event, PresetInfo, Request};
@@ -103,8 +103,7 @@ impl DaemonHost {
                         .map(|preset| presets::export(&preset.name, &preset.settings))
                         .ok_or_else(|| preset_error(PresetError::NotFound(id.clone())))?,
                 };
-                return serde_json::to_value(document)
-                    .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()));
+                return reply(document);
             }
             Request::PresetsImport { document } => {
                 let file = presets::parse(&document.to_string()).map_err(preset_error)?;

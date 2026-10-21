@@ -1,6 +1,6 @@
 //! Soundpad requests and housekeeping on the daemon control loop (PRD §7.6).
 
-use super::DaemonHost;
+use super::{DaemonHost, reply};
 use crate::soundpad::{Soundpad, library_error, open_folder};
 use macafon_config::soundpad::clamp_volume;
 use macafon_ipc::{
@@ -75,8 +75,7 @@ impl DaemonHost {
     }
 
     fn soundpad_value(&self) -> Result<serde_json::Value, ErrorBody> {
-        serde_json::to_value(self.soundpad_state())
-            .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))
+        reply(self.soundpad_state())
     }
 
     /// Sounds, categories or preferences changed: tell the clients, and register the hotkeys
@@ -203,8 +202,7 @@ impl DaemonHost {
                 soundpad.rescan();
             }
             Request::SoundpadOpenFolder => {
-                open_folder(&folder)
-                    .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))?;
+                open_folder(&folder).map_err(super::backend_error)?;
                 return null;
             }
             Request::SoundpadSetFolder { folder } => {

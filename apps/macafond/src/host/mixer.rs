@@ -1,6 +1,6 @@
 //! Mixer control on the daemon control loop.
 
-use super::{DaemonHost, engine_error};
+use super::{DaemonHost, engine_error, reply};
 use macafon_config::Config;
 use macafon_ipc::{ErrorBody, ErrorCode, Event, Request};
 use std::time::Instant;
@@ -76,8 +76,7 @@ impl DaemonHost {
             }
             self.hub.broadcast(&Event::MixerChanged(state.clone()));
         }
-        serde_json::to_value(state)
-            .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))
+        reply(state)
     }
 
     pub(super) fn respond_mixer(
@@ -86,8 +85,7 @@ impl DaemonHost {
     ) -> Result<serde_json::Value, ErrorBody> {
         let missing = |id: &str| ErrorBody::new(ErrorCode::NotFound, format!("no channel {id:?}"));
         match request {
-            Request::MixerGet => serde_json::to_value(self.mixer_state())
-                .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string())),
+            Request::MixerGet => reply(self.mixer_state()),
             Request::MixerSetEnabled { enabled } => {
                 tracing::info!(enabled, "Mixer switched");
                 self.update_mixer(|config| {

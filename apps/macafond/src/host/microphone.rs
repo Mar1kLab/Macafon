@@ -3,6 +3,7 @@
 use super::{DaemonHost, engine_error, select_input};
 use macafon_config::Config;
 use macafon_config::presets;
+use macafon_dsp::ChainSettings;
 use macafon_ipc::{CalibrationFailure, ErrorBody, ErrorCode, Event, MicState};
 use std::time::Instant;
 
@@ -181,17 +182,24 @@ impl DaemonHost {
             None if step >= 0 => 0,
             None => count - 1,
         };
-        let preset = presets[index as usize].id.clone();
-        let settings = self
-            .preset_settings(&preset)
-            .ok_or_else(|| ErrorBody::new(ErrorCode::NotFound, "preset vanished"))?;
+        self.load_preset(presets[index as usize].id.clone())
+    }
+
+    pub(super) fn load_preset(&mut self, preset: String) -> Result<MicState, ErrorBody> {
+        let settings = self.preset_settings(&preset).ok_or_else(|| {
+            ErrorBody::new(ErrorCode::NotFound, format!("unknown preset {preset:?}"))
+        })?;
         self.update(|config| {
-            let mic = &mut config.mic;
-            let (muted, bypass) = (mic.chain.muted, mic.chain.bypass);
-            mic.chain = settings;
-            mic.chain.muted = muted;
-            mic.chain.bypass = bypass;
-            mic.preset = Some(preset);
+            replace_chain(&mut config.mic.chain, settings);
+            config.mic.preset = Some(preset);
         })
     }
+}
+
+/// New chain settings never change the user's mute and bypass switches.
+pub(super) fn replace_chain(chain: &mut ChainSettings, settings: ChainSettings) {
+    let (muted, bypass) = (chain.muted, chain.bypass);
+    *chain = settings;
+    chain.muted = muted;
+    chain.bypass = bypass;
 }

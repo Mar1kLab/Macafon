@@ -241,6 +241,11 @@ fn backend_error(error: impl std::fmt::Display) -> ErrorBody {
     ErrorBody::new(ErrorCode::Internal, error.to_string())
 }
 
+/// A reply body; serializing protocol types fails only on a bug.
+fn reply(value: impl serde::Serialize) -> Result<serde_json::Value, ErrorBody> {
+    serde_json::to_value(value).map_err(backend_error)
+}
+
 fn preset_error(error: PresetError) -> ErrorBody {
     let code = match &error {
         PresetError::DuplicateName(_) => ErrorCode::AlreadyExists,

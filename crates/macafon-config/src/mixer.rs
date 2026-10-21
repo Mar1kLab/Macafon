@@ -137,15 +137,23 @@ impl AppsConfig {
         self.rules.iter().find(|rule| rule.key == key)
     }
 
-    pub fn set(&mut self, key: &str, channel: &str) {
-        match self.rules.iter_mut().find(|rule| rule.key == key) {
-            Some(rule) => channel.clone_into(&mut rule.channel),
-            None => self.rules.push(AppRule {
-                key: key.to_owned(),
-                channel: channel.to_owned(),
-                managed: true,
-                volume_pct: full_volume(),
-            }),
+    /// Move `key` to `channel`, remembering a new app (APP-004/005); returns its rule.
+    pub fn set(&mut self, key: &str, channel: &str) -> &mut AppRule {
+        match self.rules.iter().position(|rule| rule.key == key) {
+            Some(index) => {
+                let rule = &mut self.rules[index];
+                channel.clone_into(&mut rule.channel);
+                rule
+            }
+            None => {
+                self.rules.push(AppRule {
+                    key: key.to_owned(),
+                    channel: channel.to_owned(),
+                    managed: true,
+                    volume_pct: full_volume(),
+                });
+                self.rules.last_mut().expect("a rule was just pushed")
+            }
         }
     }
 }

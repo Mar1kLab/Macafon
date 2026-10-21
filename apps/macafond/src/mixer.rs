@@ -4,7 +4,7 @@
 
 use macafon_apps::{AppIdentity, Category, StreamProps};
 use macafon_backend::{AppMix, ChannelRequest, Node, PlaybackStream, Route};
-use macafon_config::{AppsConfig, ChannelConfig, Config, MixerConfig};
+use macafon_config::{ChannelConfig, Config, MixerConfig};
 use macafon_dsp::ChannelTelemetry;
 use macafon_engine::{ChannelControl, EngineError};
 use macafon_ipc::{
@@ -478,11 +478,6 @@ fn description(channel: &ChannelConfig) -> String {
     format!("Macafon {}", channel.name)
 }
 
-/// Move `app` and remember it (APP-004/005); apps are created on first move.
-pub fn assign(apps: &mut AppsConfig, key: &str, channel: &str) {
-    apps.set(key, channel);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -519,7 +514,7 @@ mod tests {
             mixer.route(&config, &mixer.streams[1]),
             Route::Channel("main".into())
         );
-        assign(&mut config.apps, "bin:firefox", "music");
+        config.apps.set("bin:firefox", "music");
         assert_eq!(
             mixer.route(&config, &mixer.streams[1]),
             Route::Channel("music".into())
@@ -563,7 +558,7 @@ mod tests {
         mixer.start_session(&config.mixer).expect("channels build");
         mixer.take_requests();
         mixer.streams_changed(&[stream(1, "Discord"), stream(2, "firefox")]);
-        assign(&mut config.apps, "bin:firefox", "voice");
+        config.apps.set("bin:firefox", "voice");
         let voice = Route::Channel("voice".into());
         assert_eq!(mixer.route(&config, &mixer.streams[0]), voice);
         config.mixer.channel_mut("voice").expect("voice").enabled = false;
@@ -606,7 +601,7 @@ mod tests {
         let voice = config.mixer.channel_mut("voice").expect("voice");
         voice.settings.volume_pct = 50.0;
         voice.settings.muted = true;
-        assign(&mut config.apps, "bin:discord", "voice");
+        config.apps.set("bin:discord", "voice");
         config.apps.rules[0].volume_pct = 40.0;
         assert_eq!(
             mixer.app_mix(&config, &mixer.streams[0]),

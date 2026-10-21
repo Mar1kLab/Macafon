@@ -362,16 +362,7 @@ impl MixerHost for DaemonHost {
         {
             return;
         }
-        crate::mixer::assign(&mut self.config.apps, &key, &channel);
-        if let Some(rule) = self
-            .config
-            .apps
-            .rules
-            .iter_mut()
-            .find(|rule| rule.key == key)
-        {
-            rule.volume_pct = volume_pct;
-        }
+        self.config.apps.set(&key, &channel).volume_pct = volume_pct;
         tracing::debug!(app = %key, volume_pct, "App volume changed outside Macafon");
         self.changed_at = Some(Instant::now());
         self.mixer_changed();

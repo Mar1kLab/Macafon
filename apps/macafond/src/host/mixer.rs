@@ -1,7 +1,7 @@
 //! Mixer control on the daemon control loop.
 
 use super::{DaemonHost, engine_error, reply};
-use macafon_config::Config;
+use macafon_config::{AppRule, ChannelConfig, Config};
 use macafon_ipc::{ErrorBody, ErrorCode, Event, Request};
 use std::time::Instant;
 
@@ -83,7 +83,6 @@ impl DaemonHost {
         &mut self,
         request: Request,
     ) -> Result<serde_json::Value, ErrorBody> {
-        let missing = |id: &str| ErrorBody::new(ErrorCode::NotFound, format!("no channel {id:?}"));
         match request {
             Request::MixerGet => reply(self.mixer_state()),
             Request::MixerSetEnabled { enabled } => {
@@ -123,10 +122,10 @@ impl DaemonHost {
             }),
             Request::ChannelCreate { name, color, icon } => self.update_mixer(|config| {
                 if config.mixer.channels.len() >= macafon_config::mixer::MAX_CHANNELS {
-                    return Err(ErrorBody::new(
-                        ErrorCode::InvalidParams,
-                        format!("at most {} channels", macafon_config::mixer::MAX_CHANNELS),
-                    ));
+                    return Err(invalid(format!(
+                        "at most {} channels",
+                        macafon_config::mixer::MAX_CHANNELS
+                    )));
                 }
                 let id = config.mixer.next_id();
                 let icon = icon.unwrap_or_else(|| macafon_config::mixer::CHANNEL_ICONS[0].into());
@@ -144,12 +143,9 @@ impl DaemonHost {
             }),
             Request::ChannelUpdate { id, patch } => self.update_mixer(|config| {
                 if patch.enabled == Some(false) && config.mixer.default_channel == id {
-                    return Err(ErrorBody::new(
-                        ErrorCode::InvalidParams,
-                        "the default channel cannot be switched off",
-                    ));
+                    return Err(invalid("the default channel cannot be switched off"));
                 }
-                let channel = config.mixer.channel_mut(&id).ok_or_else(|| missing(&id))?;
+                let channel = channel_mut(config, &id)?;
                 if let Some(name) = patch.name {
                     channel.name = name.trim().to_owned();
                 }
@@ -167,12 +163,9 @@ impl DaemonHost {
             }),
             Request::ChannelDelete { id } => self.update_mixer(|config| {
                 if config.mixer.default_channel == id {
-                    return Err(ErrorBody::new(
-                        ErrorCode::InvalidParams,
-                        "the default channel cannot be deleted",
-                    ));
+                    return Err(invalid("the default channel cannot be deleted"));
                 }
-                config.mixer.channel(&id).ok_or_else(|| missing(&id))?;
+                channel_mut(config, &id)?;
                 config.mixer.channels.retain(|channel| channel.id != id);
                 // CH-002: its apps move to the default channel.
                 let default = config.mixer.default_channel.clone();
@@ -184,40 +177,22 @@ impl DaemonHost {
                 Ok(())
             }),
             Request::ChannelSet { id, settings } => self.update_mixer(|config| {
-                config
-                    .mixer
-                    .channel_mut(&id)
-                    .ok_or_else(|| missing(&id))?
-                    .settings = settings;
+                channel_mut(config, &id)?.settings = settings;
                 Ok(())
             }),
             Request::ChannelAdjustVolume { id, delta_pct } => self.update_mixer(|config| {
-                let settings = &mut config
-                    .mixer
-                    .channel_mut(&id)
-                    .ok_or_else(|| missing(&id))?
-                    .settings;
+                let settings = &mut channel_mut(config, &id)?.settings;
                 settings.volume_pct = (settings.volume_pct + delta_pct).clamp(0.0, 100.0);
                 Ok(())
             }),
             Request::ChannelToggleMute { id } => self.update_mixer(|config| {
-                let settings = &mut config
-                    .mixer
-                    .channel_mut(&id)
-                    .ok_or_else(|| missing(&id))?
-                    .settings;
+                let settings = &mut channel_mut(config, &id)?.settings;
                 settings.muted = !settings.muted;
                 Ok(())
             }),
             Request::ChannelSetDefault { id } => self.update_mixer(|config| {
-                if !config
-                    .mixer
-                    .channel(&id)
-                    .ok_or_else(|| missing(&id))?
-                    .enabled
-                {
-                    return Err(ErrorBody::new(
-                        ErrorCode::InvalidParams,
+                if !channel_mut(config, &id)?.enabled {
+                    return Err(invalid(
                         "switch the channel on before making it the default",
                     ));
                 }
@@ -231,35 +206,16 @@ impl DaemonHost {
                 let mut current: Vec<String> = channels.iter().map(|c| c.id.clone()).collect();
                 current.sort();
                 if sorted != current {
-                    return Err(ErrorBody::new(
-                        ErrorCode::InvalidParams,
-                        "the new order must list every channel once",
-                    ));
+                    return Err(invalid("the new order must list every channel once"));
                 }
                 channels.sort_by_key(|channel| ids.iter().position(|id| id == &channel.id));
                 Ok(())
             }),
             Request::AppsMove { app_key, channel } => self.update_mixer(|config| {
-                if !config
-                    .mixer
-                    .channel(&channel)
-                    .ok_or_else(|| missing(&channel))?
-                    .enabled
-                {
-                    return Err(ErrorBody::new(
-                        ErrorCode::InvalidParams,
-                        format!("channel {channel:?} is off"),
-                    ));
+                if !channel_mut(config, &channel)?.enabled {
+                    return Err(invalid(format!("channel {channel:?} is off")));
                 }
-                crate::mixer::assign(&mut config.apps, &app_key, &channel);
-                if let Some(rule) = config
-                    .apps
-                    .rules
-                    .iter_mut()
-                    .find(|rule| rule.key == app_key)
-                {
-                    rule.managed = true;
-                }
+                config.apps.set(&app_key, &channel).managed = true;
                 Ok(())
             }),
             Request::AppsSetVolume {
@@ -267,42 +223,13 @@ impl DaemonHost {
                 volume_pct,
             } => self.update_mixer(|config| {
                 if !(0.0..=100.0).contains(&volume_pct) {
-                    return Err(ErrorBody::new(
-                        ErrorCode::InvalidParams,
-                        "volume_pct must be 0–100",
-                    ));
+                    return Err(invalid("volume_pct must be 0–100"));
                 }
-                let channel = config
-                    .apps
-                    .rule(&app_key)
-                    .map(|rule| rule.channel.clone())
-                    .unwrap_or_else(|| config.mixer.default_channel.clone());
-                crate::mixer::assign(&mut config.apps, &app_key, &channel);
-                if let Some(rule) = config
-                    .apps
-                    .rules
-                    .iter_mut()
-                    .find(|rule| rule.key == app_key)
-                {
-                    rule.volume_pct = volume_pct;
-                }
+                app_rule(config, &app_key).volume_pct = volume_pct;
                 Ok(())
             }),
             Request::AppsSetManaged { app_key, managed } => self.update_mixer(|config| {
-                let channel = config
-                    .apps
-                    .rule(&app_key)
-                    .map(|rule| rule.channel.clone())
-                    .unwrap_or_else(|| config.mixer.default_channel.clone());
-                crate::mixer::assign(&mut config.apps, &app_key, &channel);
-                if let Some(rule) = config
-                    .apps
-                    .rules
-                    .iter_mut()
-                    .find(|rule| rule.key == app_key)
-                {
-                    rule.managed = managed;
-                }
+                app_rule(config, &app_key).managed = managed;
                 Ok(())
             }),
             Request::AppsForget { app_key } => self.update_mixer(|config| {
@@ -312,4 +239,25 @@ impl DaemonHost {
             _ => Err(ErrorBody::new(ErrorCode::BadRequest, "not a mixer request")),
         }
     }
+}
+
+fn invalid(message: impl Into<String>) -> ErrorBody {
+    ErrorBody::new(ErrorCode::InvalidParams, message)
+}
+
+fn channel_mut<'a>(config: &'a mut Config, id: &str) -> Result<&'a mut ChannelConfig, ErrorBody> {
+    config
+        .mixer
+        .channel_mut(id)
+        .ok_or_else(|| ErrorBody::new(ErrorCode::NotFound, format!("no channel {id:?}")))
+}
+
+/// The rule of `key`; an app without one is remembered on the default channel.
+fn app_rule<'a>(config: &'a mut Config, key: &str) -> &'a mut AppRule {
+    let channel = config
+        .apps
+        .rule(key)
+        .map_or(&config.mixer.default_channel, |rule| &rule.channel)
+        .clone();
+    config.apps.set(key, &channel)
 }

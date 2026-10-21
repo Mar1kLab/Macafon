@@ -1108,6 +1108,63 @@ A sidebar item **Displays** (Lucide `MonitorSmartphone`) where `Capabilities::di
 - Keyboard and ARIA (§9.8): cards are a list; Apply, Keep and Revert are buttons; the countdown is
   `aria-live`.
 
+### 9.11 Visual polish
+
+Owner request, 2026-10-22: make every screen, overlay, tray panel and popup polished, consistent
+and in one style, with a recognizable character. Sketch is the main look: the default for the
+overlay, the tray panel and the popups on a new install (owner decision, 2026-10-22), its panels
+drawn without a system frame (§9.9.2). Side panels of the overlay open to the right by default.
+This is a pass over the existing UI, not new features; the design system
+([design-system.md](design/design-system.md)) stays the only source of styles and is extended first.
+
+#### 9.11.1 UI kit, icons and motion
+
+The shadcn/ui registry directory (≈ 350 registries, reviewed 2026-10-22) is almost entirely React;
+the stack stays Svelte 5 (AGENTS.md §8), so only Svelte libraries or ideas reimplemented in our own
+CSS qualify.
+
+| Choice | Use | License, footprint |
+|---|---|---|
+| **Bits UI** (`bits-ui`, headless primitives behind shadcn-svelte) | Behaviour and accessibility of Tooltip, Popover, Select/Combobox, Context Menu, Tabs and Dialog, styled only with our tokens | MIT, Svelte 5; `@floating-ui/dom`, `tabbable`, `runed` |
+| **Moving Icons** (`@jis3r/icons`, the Svelte port of lucide-animated) | Animated Lucide icons for state changes and hover: sidebar, mute, copy → check, refresh, settings | MIT, no dependencies; only the icons we use are vendored with attribution in About |
+| **Lucide** (`@lucide/svelte`, kept) | Every static icon, 1.5 px stroke | ISC |
+| **`svelte/motion`, `svelte/transition`** (kept) | All animation: springs, tweens, reveals, staggered lists, number ticks | Part of Svelte; no animation library is added |
+
+Taken as ideas only, rebuilt in our own CSS without dependencies: dot-matrix and pixel loaders
+(`@dotmatrix`, `@soonish`, `@d2`), terminal and HUD aesthetics (`@afterglow`, `@thegridcn`,
+`@sf-fleet-hud`), audio controls (`@audio-ui`, `@audiocn`).
+
+Rejected: React registries (Magic UI, Aceternity, animate-ui, lucide-animated for React) — a stack
+change; Svelte Bits — MIT + Commons Clause is incompatible with GPL-3.0, it needs Tailwind and
+brings heavy WebGL; the styled shadcn-svelte components — Tailwind and rounded corners contradict
+the design system.
+
+#### 9.11.2 Audit (2026-10-22)
+
+| Finding | Measured | Fix |
+|---|---|---|
+| Native `title` tooltips: grey system boxes with a delay, unlike the rest of the UI | 159 | One Sketch tooltip (Bits UI), the same delay and placement everywhere |
+| Font sizes without a scale | 20 distinct values, 8–40 px, including 8.5 and 12.5 px | A type scale of 6 steps as tokens |
+| Gaps without a scale | 12 distinct values, 2–24 px | A 4 px spacing scale as tokens |
+| Copies of the text input style | 8 components | One `Field`/`Input` component |
+| Screen headers built separately | Each screen its own `.top` | One `PageHeader`: title, actions, status |
+| Empty, loading and error states | Each screen its own text; no shared loader | `EmptyState` and a dot-matrix `Loader` |
+| Non-zero radius in the main window | 7 components (most are pictures of rounded popups, which is intended) | Keep only intended exceptions, documented |
+| Motion values | 2 duration tokens; the rest are literals | Motion tokens: durations, easing, spring presets |
+
+#### 9.11.3 Requirements
+
+| ID | Requirement | Priority |
+|---|---|---|
+| UIP-001 | Type, spacing and motion scales as tokens in `tokens.css` and the design system; components use only them | P0 |
+| UIP-002 | One Sketch tooltip for every hint now in `title`: HUD label style, shortcut shown when one is set, keyboard focus shows it too, `aria-describedby` | P0 |
+| UIP-003 | Shared components: `PageHeader`, `Field`/`Input`, `EmptyState`, `Loader`, `Menu` (Context Menu / Dropdown on Bits UI), used by every screen | P0 |
+| UIP-004 | Every screen (Microphone, Mixer, SoundDeck, Dictation, Displays, Settings, onboarding) follows the same header, padding, section headings, empty and loading states | P0 |
+| UIP-005 | Sketch details applied consistently: corner ticks on the focused or active card, HUD labels, 1 px lines, accent marks instead of fills | P1 |
+| UIP-006 | Animated icons on state changes (mute, copy, refresh, apply) and on sidebar hover; none with `prefers-reduced-motion` or Windows animations off | P1 |
+| UIP-007 | The overlay, tray panel, hotkey popup and dictation popup share the Sketch language of the main window | P1 |
+| UIP-008 | No regressions: keyboard and ARIA (§9.8), 960×640 minimum window, mock-mode screenshots before and after for every screen | P0 |
+
 ---
 
 ## 10. Non-functional requirements
@@ -1263,6 +1320,7 @@ Macafon/
 | Tray | Linux: `ksni`; Windows: `tray-icon` |
 | Hotkeys | `ashpd` (xdg-portal GlobalShortcuts), `global-hotkey` (X11/Windows) |
 | UI | Tauri v2, Svelte 5, TypeScript, Vite; Canvas 2D for EQ/meters |
+| UI primitives and icons (§9.11) | `bits-ui` (headless, styled with our tokens), `@lucide/svelte`, vendored `@jis3r/icons` animated icons; motion only through `svelte/motion` and `svelte/transition` |
 | Logging | `tracing` (outside the RT thread) |
 | RT checks | `assert_no_alloc` |
 | FFT (spectrum, calibration) | `realfft` |
@@ -1726,6 +1784,18 @@ in a working, committable state.
 | **DS3 · Quick access** | Per-profile hotkeys and Next, the tray submenu, the HK-006 card, the CLI | Switching by hotkey with the window closed |
 | **DS4 · Screen, onboarding, overlay** | §9.10 and the §9.9.2 Displays part | Mock-mode screenshots of the empty, onboarding, profiles, pending and edit states |
 | **DS5 · Hardware check** | Laptop + external monitor; 2–3 monitors on NVIDIA, AMD and Intel; an HDR monitor; a TV over HDMI; sleep and wake; a monitor switched off by its button | Checklist passes on Windows 11 |
+
+### 19.4 Visual polish plan
+
+Requirements: §9.11. Each step ends with mock-mode screenshots (AGENTS.md §6) and `pnpm check`.
+
+| Step | Content | Done when |
+|---|---|---|
+| **UP0 · Tokens** | Type, spacing and motion scales in `tokens.css` and the design system (UIP-001) | The design system documents them; no new literal sizes |
+| **UP1 · Shared components** | `Tooltip`, `Menu` on Bits UI; `PageHeader`, `Field`/`Input`, `EmptyState`, `Loader` (UIP-002, UIP-003) | Components with keyboard and ARIA checks; one screen uses them as a pilot |
+| **UP2 · Screens** | Microphone, Mixer, SoundDeck, Dictation, Displays, Settings, onboarding moved to the shared components and scales (UIP-004, UIP-005) | No `title` tooltips left; before/after screenshots of every screen |
+| **UP3 · Icons and motion** | Animated icons on state changes and in the sidebar; shared transitions (UIP-006) | Reduced motion verified; no animation on idle screens |
+| **UP4 · Overlay, tray, popups** | The Sketch language in the overlay, tray panel and popups (UIP-007) | Screenshots of the overlay in all three expand directions and of the tray panel |
 
 ## 20. Glossary
 

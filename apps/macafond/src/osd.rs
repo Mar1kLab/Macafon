@@ -42,6 +42,7 @@ pub enum StatusIcon {
     MicOff,
     Processing,
     Preset,
+    Monitor,
 }
 
 #[cfg(windows)]

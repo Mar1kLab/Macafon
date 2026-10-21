@@ -4,6 +4,10 @@
 /// `(id, SVG child elements)` on Lucide's 24×24 grid.
 pub const ICONS: &[(&str, &str)] = &[
     (
+        "monitor",
+        r#"<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>"#,
+    ),
+    (
         "speaker",
         r#"<rect width="16" height="20" x="4" y="2" rx="2"/><path d="M12 6h.01"/><circle cx="12" cy="14" r="4"/><path d="M12 14h.01"/>"#,
     ),

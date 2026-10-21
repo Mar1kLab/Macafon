@@ -546,6 +546,7 @@ impl Painter {
                         StatusIcon::MicOff => "mic-off",
                         StatusIcon::Processing => "processing",
                         StatusIcon::Preset => "preset",
+                        StatusIcon::Monitor => "monitor",
                     };
                     self.icon(id, WHITE, 1.0, x, y, 22.0)?;
                     self.hud_text(
@@ -1255,6 +1256,7 @@ impl Painter {
                 StatusIcon::MicOff => "mic-off",
                 StatusIcon::Processing => "processing",
                 StatusIcon::Preset => "preset",
+                StatusIcon::Monitor => "monitor",
             };
             self.icon(id, WHITE, 1.0, center.X, center.Y, 22.0)?;
             let left = bounds.left + STATUS_H;

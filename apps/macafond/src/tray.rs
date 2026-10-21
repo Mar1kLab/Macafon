@@ -15,6 +15,10 @@ use std::sync::mpsc;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TrayState {
+    #[cfg(windows)]
+    pub displays: Vec<(String, String)>,
+    #[cfg(windows)]
+    pub active_display: Option<String>,
     pub muted: bool,
     pub bypass: bool,
     pub dictation: bool,

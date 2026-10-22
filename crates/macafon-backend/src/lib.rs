@@ -30,7 +30,7 @@ pub enum Error {
 }
 
 /// A physical audio device as the backend reports it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Node {
     /// Backend-local object id; 0 where the platform has none.
     pub id: u32,

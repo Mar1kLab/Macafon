@@ -140,8 +140,9 @@ struct LoopState {
     inventoried_at: Option<Instant>,
     endpoints: Vec<Endpoint>,
     cable: Option<VirtualCable>,
-    inputs: Option<Vec<String>>,
-    outputs: Option<Vec<String>>,
+    /// Last published devices; a rename changes only the description, not the ID.
+    inputs: Option<Vec<Node>>,
+    outputs: Option<Vec<Node>>,
     default_capture: Option<Option<String>>,
     default_render: Option<Option<String>>,
     input: Option<String>,
@@ -385,14 +386,13 @@ impl LoopState {
                 .collect()
         };
         let (inputs, outputs) = (nodes(DataFlow::Capture), nodes(DataFlow::Render));
-        let names = |nodes: &[Node]| nodes.iter().map(|node| node.name.clone()).collect();
-        if self.inputs.as_ref() != Some(&names(&inputs)) {
-            self.inputs = Some(names(&inputs));
+        if self.inputs.as_ref() != Some(&inputs) {
             host.inputs_changed(&inputs);
+            self.inputs = Some(inputs);
         }
-        if self.outputs.as_ref() != Some(&names(&outputs)) {
-            self.outputs = Some(names(&outputs));
+        if self.outputs.as_ref() != Some(&outputs) {
             host.outputs_changed(&outputs);
+            self.outputs = Some(outputs);
         }
     }
 

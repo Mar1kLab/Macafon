@@ -2,6 +2,7 @@
   // TRY IT (PRD §9.9.1), pinned at the bottom like TEST on the Microphone screen: hold the
   // button or Space to dictate through the whole pipeline; the text shows here instead of being
   // inserted. History (STT-015) expands upward: the last results, in daemon memory only.
+  import { onDestroy } from 'svelte';
   import { reveal } from '../motion';
   import { slide } from 'svelte/transition';
   import { ChevronUp, CornerDownLeft, Mic, Trash2 } from '@lucide/svelte';
@@ -44,7 +45,13 @@
     void daemon.setDictation(daemon.client.call('dictation.test_stop'));
   }
 
+  // A release that never reaches the button (Tab while holding, another window, leaving the
+  // screen) still ends the test, or dictation would keep the microphone muted.
+  onDestroy(stop);
+
 </script>
+
+<svelte:window onblur={stop} />
 
 <div class="panel">
   {#if historyOpen}
@@ -88,6 +95,7 @@
       }}
       onpointerup={stop}
       onpointercancel={stop}
+      onblur={stop}
       onkeydown={(event) => {
         if (event.key !== ' ' || event.repeat) return;
         event.preventDefault();

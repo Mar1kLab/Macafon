@@ -382,9 +382,11 @@
     align-items: center;
     gap: var(--space-6);
     height: 59px;
-    padding: 0 24px;
+    padding: 0 var(--space-6);
     border-bottom: 1px solid var(--line);
+    container: onboarding-top / inline-size;
   }
+
 
   .brand {
     display: flex;
@@ -404,6 +406,7 @@
 
   .rail {
     flex: 1;
+    min-width: 0;
     display: flex;
     justify-content: center;
     gap: var(--space-1);
@@ -423,6 +426,14 @@
 
   .rail .hud-label {
     color: inherit;
+  }
+
+  /* A narrow window keeps the step numbers and only the current step's name, so Skip stays
+     on screen (960 px minimum). */
+  @container onboarding-top (max-width: 1120px) {
+    .rail li:not(.current) .hud-label {
+      display: none;
+    }
   }
 
   .rail .n {

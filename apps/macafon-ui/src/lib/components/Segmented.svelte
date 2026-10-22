@@ -85,7 +85,6 @@
 
   .wrap button.selected {
     border-color: var(--c);
-    background: color-mix(in srgb, var(--c) 30%, var(--bg-sunken));
   }
 
   .segmented.inline {
@@ -109,7 +108,7 @@
     text-transform: uppercase;
     color: var(--muted);
     transition:
-      background var(--dur) var(--ease),
+      box-shadow var(--dur) var(--ease),
       color var(--dur) var(--ease);
   }
 
@@ -117,9 +116,10 @@
     border-left: 1px solid var(--line);
   }
 
+  /* The chosen option: its colour and a rule under it, not a fill (UIP-005). */
   button.selected {
-    background: color-mix(in srgb, var(--c) 30%, transparent);
-    color: var(--ink-strong);
+    color: var(--c-ink);
+    box-shadow: inset 0 -2px 0 var(--c);
   }
 
   button:hover:not(.selected):not(:disabled) {

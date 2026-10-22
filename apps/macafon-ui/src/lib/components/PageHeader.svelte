@@ -36,7 +36,9 @@
     flex: 1;
   }
 
+  /* Pushed right on the first row and on its own row once the header wraps. */
   .actions {
+    margin-left: auto;
     display: flex;
     flex-wrap: wrap;
     align-items: center;

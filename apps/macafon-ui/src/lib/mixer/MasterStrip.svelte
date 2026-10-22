@@ -33,6 +33,7 @@
     class="btn small danger"
     class:on={mixer.master_muted}
     aria-pressed={mixer.master_muted}
+    aria-label={t('mixer.masterMute')}
     {@attach tip(t('mixer.masterMute'))}
     onclick={() => daemon.setMaster({ muted: !mixer.master_muted })}>M</button
   >

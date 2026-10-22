@@ -208,6 +208,7 @@
       class="btn small danger"
       class:on={s.muted}
       aria-pressed={s.muted}
+      aria-label={t('quick.mute', { name: channel.name })}
       {@attach tip(t('mixer.mute'))}
       onclick={() => daemon.editChannel(channel.id, (settings) => (settings.muted = !settings.muted))}>M</button
     >

@@ -455,7 +455,14 @@
                 </span>
               </li>
             {:else}
-              <li class="none" role="presentation">{query ? t('soundpad.noMatches', { query }) : t('soundpad.noneInCategory')}</li>
+              <li class="none" role="presentation">
+                <EmptyState compact role="status" label={query ? t('soundpad.noMatchesLabel') : t('soundpad.emptyCategoryLabel')}>
+                  <p>{query ? t('soundpad.noMatches', { query }) : t('soundpad.noneInCategory')}</p>
+                  {#snippet actions()}
+                    {#if query}<button class="btn small" onclick={() => (query = '')}>{t('soundpad.clearSearch')}</button>{/if}
+                  {/snippet}
+                </EmptyState>
+              </li>
             {/each}
           </ul>
         {/if}
@@ -973,9 +980,7 @@
   }
 
   .none {
-    padding: 24px 12px;
-    color: var(--muted);
-    font-size: var(--text-md);
+    padding: var(--space-3) 0;
   }
 
   .uploading {

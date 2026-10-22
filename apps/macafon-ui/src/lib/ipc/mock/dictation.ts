@@ -49,6 +49,7 @@ export class MockDictation {
   private listenStarted = 0;
   private nextId = 1;
   private sample = 0;
+  private lastResult: DictationResult | null = null;
 
   constructor(
     private readonly emit: (event: Event) => void,
@@ -246,6 +247,7 @@ export class MockDictation {
         return;
       }
       if (outcome !== 'test' && prefs.keep_history) this.state.history = [result, ...this.state.history].slice(0, 20);
+      this.lastResult = result;
       this.emit({ event: 'dictation.result', data: clone(result) });
       this.changed();
       this.scheduleUnload();
@@ -364,7 +366,8 @@ export class MockDictation {
         this.state.history = [];
         return this.changed();
       case 'dictation.reinsert':
-        if (!this.state.history.some((r) => r.id === Number(p.id))) throw new DaemonError('not_found', 'no such result');
+      case 'dictation.copy':
+        if (!this.state.history.some((r) => r.id === Number(p.id)) && this.lastResult?.id !== Number(p.id)) throw new DaemonError('not_found', 'no such result');
         return null;
       default:
         throw new DaemonError('bad_request', `unknown method ${method}`);

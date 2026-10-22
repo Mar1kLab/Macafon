@@ -23,7 +23,8 @@ export class Copier {
   id = $state<number | null>(null);
 
   async copy(entry: DictationResult) {
-    await navigator.clipboard.writeText(entry.text);
+    const copied = await daemon.run(daemon.client.call('dictation.copy', { id: entry.id }));
+    if (copied === undefined) return;
     this.id = entry.id;
     setTimeout(() => {
       if (this.id === entry.id) this.id = null;

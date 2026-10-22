@@ -348,6 +348,10 @@ impl DaemonHost {
                 .dictation
                 .reinsert(id, &self.config.dictation.prefs())
                 .map_err(invalid)?,
+            Request::DictationCopy { id } => {
+                self.dictation.copy_result(id).map_err(invalid)?;
+                return Ok(serde_json::Value::Null);
+            }
             _ => {
                 return Err(ErrorBody::new(
                     ErrorCode::BadRequest,

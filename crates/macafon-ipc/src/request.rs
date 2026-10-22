@@ -394,4 +394,10 @@ pub enum Request {
         #[cfg_attr(feature = "ts", ts(type = "number"))]
         id: u64,
     },
+    /// Copy a retained result through the daemon's private clipboard writer.
+    #[serde(rename = "dictation.copy")]
+    DictationCopy {
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        id: u64,
+    },
 }

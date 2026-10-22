@@ -498,6 +498,15 @@ impl Dictation {
         target::insert(&self.target, &entry.text, prefs, false, self.game)?;
         Ok(())
     }
+    pub fn copy_result(&self, id: u64) -> anyhow::Result<()> {
+        let entry = self
+            .history
+            .iter()
+            .chain(self.last.iter())
+            .find(|entry| entry.id == id)
+            .ok_or_else(|| anyhow::anyhow!("history entry not found"))?;
+        target::copy_text(&entry.text)
+    }
     pub fn last_action(&self, prefs: &DictationPrefs, copy: bool) -> anyhow::Result<()> {
         let entry = self
             .last

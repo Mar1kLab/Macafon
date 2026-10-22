@@ -138,6 +138,7 @@ interface Results {
   'dictation.cancel': DictationState;
   'dictation.history_clear': DictationState;
   'dictation.reinsert': null;
+  'dictation.copy': null;
   'displays.get': DisplaysState;
   'displays.save': DisplaysState;
   'displays.create': DisplaysState;

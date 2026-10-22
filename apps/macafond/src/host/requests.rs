@@ -24,7 +24,8 @@ impl DaemonHost {
             | Request::DictationTestStop
             | Request::DictationCancel
             | Request::DictationHistoryClear
-            | Request::DictationReinsert { .. }) => return self.respond_dictation(request),
+            | Request::DictationReinsert { .. }
+            | Request::DictationCopy { .. }) => return self.respond_dictation(request),
             Request::OutputControlsSet { .. } => {
                 return Err(ErrorBody::new(
                     ErrorCode::BadRequest,

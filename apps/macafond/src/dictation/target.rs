@@ -100,6 +100,19 @@ pub fn game_active() -> bool {
     false
 }
 
+pub fn copy_text(text: &str) -> Result<()> {
+    #[cfg(windows)]
+    {
+        clipboard::put(text, false)?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = text;
+        anyhow::bail!("dictation is available on Windows only")
+    }
+}
+
 #[cfg(windows)]
 pub fn insert(
     target: &Target,
@@ -135,7 +148,9 @@ pub fn insert(
             .name("dictation-clipboard-restore".into())
             .spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(300));
-                let _ = clipboard::restore(snapshot);
+                if clipboard::restore(snapshot).is_err() {
+                    tracing::warn!("Cannot restore clipboard after bounded retries");
+                }
             })?;
         track_restore(thread);
         Ok(DictationOutcome::Inserted)
@@ -214,6 +229,7 @@ mod clipboard {
     pub struct Snapshot {
         formats: Vec<Copy>,
         sequence: u32,
+        restoring: bool,
     }
     struct Copy {
         format: u32,
@@ -290,6 +306,40 @@ mod clipboard {
         }
         Ok(())
     }
+    /// Privacy markers go first, so the text is never on the clipboard without them.
+    ///
+    /// # Safety
+    /// The clipboard must be open and emptied by this thread.
+    unsafe fn publish(text: &[u8]) -> Result<()> {
+        // SAFETY: guaranteed by the caller.
+        unsafe {
+            let exclude = RegisterClipboardFormatW(windows::core::w!(
+                "ExcludeClipboardContentFromMonitorProcessing"
+            ));
+            let history =
+                RegisterClipboardFormatW(windows::core::w!("CanIncludeInClipboardHistory"));
+            let cloud = RegisterClipboardFormatW(windows::core::w!("CanUploadToCloudClipboard"));
+            set(exclude, &1u32.to_le_bytes())?;
+            set(history, &0u32.to_le_bytes())?;
+            set(cloud, &0u32.to_le_bytes())?;
+            set(13, text) // CF_UNICODETEXT
+        }
+    }
+    /// Transfers saved duplicates to Windows; transferred ones are not freed again.
+    ///
+    /// # Safety
+    /// The clipboard must be open by this thread.
+    unsafe fn put_formats(formats: &mut [Copy], mut transferred: impl FnMut()) -> Result<()> {
+        for copy in formats.iter_mut().filter(|copy| copy.handle != 0) {
+            // SAFETY: each duplicate is owned until successfully transferred to Windows.
+            unsafe {
+                SetClipboardData(copy.format, Some(HANDLE(copy.handle as *mut _)))?;
+            }
+            copy.handle = 0;
+            transferred();
+        }
+        Ok(())
+    }
     pub fn put(text: &str, save: bool) -> Result<Snapshot> {
         let _open = Open::new()?;
         let mut formats = Vec::new();
@@ -317,51 +367,94 @@ mod clipboard {
                     format = EnumClipboardFormats(format);
                 }
             }
-            EmptyClipboard()?;
             let bytes: Vec<_> = text
                 .encode_utf16()
                 .chain(Some(0))
                 .flat_map(u16::to_le_bytes)
                 .collect();
-            set(13, &bytes)?; // CF_UNICODETEXT
-            let exclude = RegisterClipboardFormatW(windows::core::w!(
-                "ExcludeClipboardContentFromMonitorProcessing"
-            ));
-            let history =
-                RegisterClipboardFormatW(windows::core::w!("CanIncludeInClipboardHistory"));
-            let cloud = RegisterClipboardFormatW(windows::core::w!("CanUploadToCloudClipboard"));
-            set(exclude, &1u32.to_le_bytes())?;
-            set(history, &0u32.to_le_bytes())?;
-            set(cloud, &0u32.to_le_bytes())?;
+            EmptyClipboard()?;
+            if let Err(error) = publish(&bytes) {
+                // Never leave the user's clipboard empty or with unprotected text.
+                let _ = EmptyClipboard();
+                let _ = put_formats(&mut formats, || {});
+                return Err(error);
+            }
             Ok(Snapshot {
                 formats,
                 sequence: GetClipboardSequenceNumber(),
+                restoring: false,
             })
         }
     }
-    pub fn restore(snapshot: Snapshot) -> Result<()> {
+    pub fn restore(mut snapshot: Snapshot) -> Result<()> {
+        super::retry_restore(
+            || restore_once(&mut snapshot),
+            || std::thread::sleep(std::time::Duration::from_millis(25)),
+        )
+    }
+    fn restore_once(snapshot: &mut Snapshot) -> Result<()> {
         let _open = Open::new()?;
         // SAFETY: clipboard is held exclusively; the sequence check protects new user content.
         unsafe {
             if GetClipboardSequenceNumber() != snapshot.sequence {
                 return Ok(());
             }
-            EmptyClipboard()?;
-        }
-        for mut copy in snapshot.formats {
-            // SAFETY: each duplicate is owned until successfully transferred to Windows.
-            unsafe {
-                SetClipboardData(copy.format, Some(HANDLE(copy.handle as *mut _)))?;
+            if !snapshot.restoring {
+                EmptyClipboard()?;
+                snapshot.restoring = true;
+                snapshot.sequence = GetClipboardSequenceNumber();
             }
-            copy.handle = 0;
+            // Track our own writes so a retry still recognises a partial restore.
+            let sequence = &mut snapshot.sequence;
+            put_formats(&mut snapshot.formats, || {
+                *sequence = GetClipboardSequenceNumber()
+            })
         }
-        Ok(())
     }
+}
+
+#[cfg(any(windows, test))]
+fn retry_restore<E>(
+    mut attempt: impl FnMut() -> Result<(), E>,
+    mut wait: impl FnMut(),
+) -> Result<(), E> {
+    for _ in 0..39 {
+        if attempt().is_ok() {
+            return Ok(());
+        }
+        wait();
+    }
+    attempt()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn restore_retries_transient_failures_but_stops_on_success_or_exhaustion() {
+        let mut attempts = 0;
+        retry_restore(
+            || {
+                attempts += 1;
+                if attempts == 2 { Ok(()) } else { Err(()) }
+            },
+            || {},
+        )
+        .expect("second open succeeds");
+        assert_eq!(attempts, 2);
+        attempts = 0;
+        assert!(
+            retry_restore(
+                || {
+                    attempts += 1;
+                    Err(())
+                },
+                || {}
+            )
+            .is_err()
+        );
+        assert_eq!(attempts, 40);
+    }
     #[test]
     fn primary_language_mapping_handles_sublanguages_and_unknown() {
         assert_eq!(

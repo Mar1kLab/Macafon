@@ -89,26 +89,7 @@
     label: t(`settings.closeActions.${value}`),
   }));
 
-  async function setPrefs(patch: {
-    volume_step_pct?: number;
-    quantum_frames?: number;
-    close_action?: CloseAction;
-    osd?: OsdPrefs;
-    overlay?: OverlayPrefs;
-    main_monitor?: string;
-  }) {
-    const next = await daemon.run(
-      daemon.client.call('prefs.set', {
-        volume_step_pct: patch.volume_step_pct ?? null,
-        quantum_frames: patch.quantum_frames ?? null,
-        close_action: patch.close_action ?? null,
-        osd: patch.osd ?? null,
-        overlay: patch.overlay ?? null,
-        ...(patch.main_monitor !== undefined ? { main_monitor: patch.main_monitor } : {}),
-      }),
-    );
-    if (next) daemon.prefs = next;
-  }
+  const setPrefs = (patch: Parameters<typeof daemon.setPrefs>[0]) => daemon.setPrefs(patch);
 
   // The monitor the main window opens on: the system's monitors, or two made-up ones in a
   // browser (mock daemon). A saved monitor that is unplugged stays listed until changed.

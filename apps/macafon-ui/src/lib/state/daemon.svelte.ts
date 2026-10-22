@@ -9,6 +9,7 @@ import type {
   CalibrationState,
   ChainSettings,
   ChannelSettings,
+  CloseAction,
   Device,
   DictationPrefsPatch,
   DictationResult,
@@ -19,6 +20,8 @@ import type {
   HotkeysState,
   MicState,
   MixerState,
+  OsdPrefs,
+  OverlayPrefs,
   Preferences,
   PresetInfo,
   OutputControl,
@@ -28,6 +31,15 @@ import type {
 } from '../ipc/protocol';
 import { PROTOCOL_VERSION, SOUNDPAD_UPLOAD_CHUNK_BYTES } from '../ipc/protocol';
 import { t } from '../i18n';
+
+type PrefsPatch = {
+  volume_step_pct?: number;
+  quantum_frames?: number;
+  close_action?: CloseAction;
+  osd?: OsdPrefs;
+  overlay?: OverlayPrefs;
+  main_monitor?: string;
+};
 import { deviceMeterBus, dictationLevelBus, meterBus, mixerMeterBus } from './meters';
 import { PrefsQueue, withPatch } from './prefsQueue';
 
@@ -315,7 +327,7 @@ export class DaemonStore {
         this.applyMixer(event.data);
         break;
       case 'prefs.changed':
-        this.prefs = event.data;
+        this.applyPrefs(event.data);
         break;
       case 'hotkeys.changed':
         this.hotkeys = event.data;
@@ -603,6 +615,37 @@ export class DaemonStore {
     const state = await this.run(request.then((value) => value ?? this.dictation));
     if (state) this.applyDictation(state);
     return state !== undefined;
+  }
+
+  // --- App preferences -------------------------------------------------------------------
+
+  private appPrefs = new PrefsQueue<PrefsPatch, Preferences>(
+    (patch) =>
+      this.client.call('prefs.set', {
+        volume_step_pct: patch.volume_step_pct ?? null,
+        quantum_frames: patch.quantum_frames ?? null,
+        close_action: patch.close_action ?? null,
+        osd: patch.osd ?? null,
+        overlay: patch.overlay ?? null,
+        ...(patch.main_monitor !== undefined ? { main_monitor: patch.main_monitor } : {}),
+      }),
+    () => this.run(this.client.call('prefs.get')),
+    (prefs) => this.applyPrefs(prefs),
+    (error) => this.fail(error),
+  );
+
+  /** Fields still being edited keep their local values over replies and events. */
+  private applyPrefs(prefs: Preferences) {
+    this.prefs = this.appPrefs.keepEditing(prefs, this.prefs ?? undefined);
+  }
+
+  /** Optimistic preference change. `osd` and `overlay` are whole objects, so each change
+   * builds on the previous one before any reply arrives instead of on stale state. */
+  setPrefs(patch: PrefsPatch): void {
+    const prefs = this.prefs;
+    if (!prefs) return;
+    this.prefs = withPatch(prefs, patch);
+    this.appPrefs.push(patch);
   }
 
   /** Optimistic preference change; rapid changes send only the latest values. */

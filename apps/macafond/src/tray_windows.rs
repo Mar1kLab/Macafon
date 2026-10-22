@@ -384,6 +384,9 @@ fn run(
                             tracing::warn!(%error, "Cannot open display profile menu");
                             crate::ui::quick_panel();
                         }
+                        // The menu's own message loop dispatched any WAKE posted meanwhile;
+                        // drain what it left in the queue.
+                        let _ = PostMessageW(Some(window), WAKE, WPARAM(0), LPARAM(0));
                     }
                     _ => {}
                 }

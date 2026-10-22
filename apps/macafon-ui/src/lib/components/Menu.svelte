@@ -16,6 +16,7 @@
   // 1 px frame, corner ticks, HUD headings.
   import { DropdownMenu } from 'bits-ui';
   import Ticks from './Ticks.svelte';
+  import { floatLayer } from './floating';
 
   interface Props {
     /** Open at this anchor; null closes. */
@@ -36,7 +37,7 @@
 
 <DropdownMenu.Root open={anchor !== null} onOpenChange={(open) => !open && onclose()}>
   {#if point}
-    <DropdownMenu.Portal>
+    <DropdownMenu.Portal to={floatLayer(anchor instanceof HTMLElement ? anchor : document.activeElement)}>
       <DropdownMenu.Content
         class="sketch-menu"
         aria-label={label}
@@ -95,6 +96,7 @@
     border: 1px solid var(--line-strong);
     background: var(--bg-sunken);
     outline: none;
+    zoom: var(--zoom, 1);
     animation: menu-in var(--dur-reveal) var(--ease-out);
   }
 

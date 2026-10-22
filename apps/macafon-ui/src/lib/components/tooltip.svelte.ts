@@ -16,21 +16,31 @@ class TooltipState {
   text = $state('');
   shortcut = $state<string | null>(null);
   open = $state(false);
+  /** The element the tooltip describes: the anchor, or its focused descendant (a slider). */
+  #described: Element | null = null;
 
-  show(node: Anchor, tip: Tip) {
-    if (this.anchor && this.anchor !== node) describe(this.anchor, false);
+  show(node: Anchor, tip: Tip, described: Element = node) {
+    if (this.#described && this.#described !== described) describe(this.#described, false);
     this.anchor = node;
     this.text = tip.text;
     this.shortcut = tip.shortcut;
     this.open = true;
-    describe(node, true);
+    this.#described = described;
+    describe(described, true);
+  }
+
+  /** New text for the tooltip that shows now, keeping what it describes. */
+  update(tip: Tip) {
+    this.text = tip.text;
+    this.shortcut = tip.shortcut;
   }
 
   hide() {
     if (!this.open) return;
     this.open = false;
     lastClosed = performance.now();
-    if (this.anchor) describe(this.anchor, false);
+    if (this.#described) describe(this.#described, false);
+    this.#described = null;
   }
 }
 
@@ -42,7 +52,7 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 let lastClosed = -Infinity;
 
 /** Points `aria-describedby` at the tooltip while it shows for `node`. */
-function describe(node: Anchor, on: boolean) {
+function describe(node: Element, on: boolean) {
   const ids = (node.getAttribute('aria-describedby') ?? '').split(/\s+/).filter((id) => id && id !== TOOLTIP_ID);
   if (on) ids.push(TOOLTIP_ID);
   if (ids.length) node.setAttribute('aria-describedby', ids.join(' '));
@@ -78,7 +88,7 @@ function wire(node: Anchor) {
     // Only keyboard focus: a click focuses too and must not pop a tooltip under the pointer.
     if (tip && event.target instanceof Element && event.target.matches(':focus-visible')) {
       cancel();
-      tooltip.show(node, tip);
+      tooltip.show(node, tip, event.target);
     }
   });
   node.addEventListener('focusout', () => hideFor(node));
@@ -95,7 +105,7 @@ export function tip(text: string | null | undefined, shortcut?: string | null): 
     }
     // A label that changes while it shows (a countdown, a new state) updates in place.
     if (tooltip.anchor === node && tooltip.open) {
-      if (value) tooltip.show(node, value);
+      if (value) tooltip.update(value);
       else hideFor(node);
     }
     return () => {

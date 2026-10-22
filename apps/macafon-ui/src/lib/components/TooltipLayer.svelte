@@ -4,12 +4,13 @@
   // inside the window.
   import { Tooltip } from 'bits-ui';
   import { TOOLTIP_ID, tooltip } from './tooltip.svelte';
+  import { floatLayer } from './floating';
 </script>
 
 <Tooltip.Provider delayDuration={0} disableHoverableContent>
   <Tooltip.Root open={tooltip.open} onOpenChange={(open) => !open && tooltip.hide()}>
     {#if tooltip.anchor}
-      <Tooltip.Portal>
+      <Tooltip.Portal to={floatLayer(tooltip.anchor)}>
         <Tooltip.Content
           id={TOOLTIP_ID}
           class="sketch-tooltip"
@@ -52,6 +53,7 @@
     line-height: 1.4;
     color: var(--ink);
     pointer-events: none;
+    zoom: var(--zoom, 1);
     animation: tooltip-in var(--dur-reveal) var(--ease-out);
   }
 

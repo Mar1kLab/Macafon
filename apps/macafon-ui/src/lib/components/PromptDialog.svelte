@@ -18,9 +18,18 @@
 
   let { open, title, label, initial = '', confirm, maxlength = 64, onsubmit, onclose }: Props = $props();
   let text = $state('');
+  let input: HTMLInputElement | undefined = $state();
 
+  // The dialog takes focus when it opens; once it has and the value is in, select the text so
+  // typing replaces it.
   $effect(() => {
-    if (open) text = initial;
+    if (!open) return;
+    text = initial;
+    const frame = requestAnimationFrame(() => {
+      input?.focus();
+      input?.select();
+    });
+    return () => cancelAnimationFrame(frame);
   });
 
   const valid = $derived(text.trim().length > 0 && text.trim().length <= maxlength);
@@ -29,18 +38,12 @@
     event.preventDefault();
     if (valid) onsubmit(text.trim());
   }
-
-  function focus(element: HTMLElement) {
-    if (!(element instanceof HTMLInputElement)) return;
-    element.focus();
-    element.select();
-  }
 </script>
 
 <Dialog {open} {title} {onclose}>
   <form id="prompt-form" onsubmit={submit}>
     <Field {label}>
-      <Input id="prompt-input" bind:value={text} {maxlength} {@attach focus} />
+      <Input id="prompt-input" bind:value={text} bind:element={input} {maxlength} />
     </Field>
   </form>
   {#snippet actions()}

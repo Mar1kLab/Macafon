@@ -35,6 +35,7 @@
 >
   {#if open}
     <Ticks />
+    <div class="float-layer"></div>
     <header>
       <h2 class="hud-label">{title}</h2>
       <button class="btn icon ghost" aria-label={t('common.close')} onclick={onclose}>

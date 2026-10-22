@@ -93,6 +93,18 @@ p {
   color: var(--ink-strong);
 }
 
+/* Tooltips and menus portal here (lib/components/floating.ts): the layer undoes the UI zoom so
+   Bits UI's offsets land where it measured; their content scales back with --zoom. */
+.float-layer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: 1000;
+  zoom: calc(1 / var(--zoom, 1));
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

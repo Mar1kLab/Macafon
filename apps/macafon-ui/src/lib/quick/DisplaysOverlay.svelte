@@ -79,6 +79,7 @@
   .pending .keep { background: var(--accent); border-color: var(--accent); color: var(--ink-strong); }
   .empty { margin: 0; font-size: var(--text-md); color: var(--muted); }
   /* Sketch: the app's own look, picked with the hotkey popup's (HK-006). */
+  :global(.sketch) .pending .keep { background: var(--bg-sunken); color: var(--accent-ink); }
   :global(.sketch) .row, :global(.sketch) .round, :global(.sketch) .pending, :global(.sketch) .pending button, :global(.sketch) kbd { border-radius: 0; }
   @media (prefers-reduced-motion: reduce) { .row { transition: none; } }
 </style>

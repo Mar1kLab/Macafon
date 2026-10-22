@@ -19,6 +19,8 @@
   import { dictationTile } from '../dictation/tile';
   import { t } from '../i18n';
   import { tip } from '../components/tooltip.svelte';
+  import { invoke } from '@tauri-apps/api/core';
+  import { isTauri } from '../ipc/tauri';
 
   let { onclose, opened = 0 }: { onclose: () => void; opened?: number } = $props();
   const mic = $derived(daemon.mic);
@@ -33,6 +35,21 @@
   const playback = $derived(daemon.soundpadPlayback);
   /** The look picked for the hotkey popup: the overlay follows it (HK-006, HK-007). */
   const sketch = $derived(daemon.sketch);
+
+  // Opened under the main part, the side panel gets what the screen has left (300 px at most),
+  // so a short display still shows the player below it.
+  let overlayHeight = $state(0);
+  let sideHeight = $state(0);
+  const downHeight = $derived(Math.max(160, Math.min(300, window.screen.availHeight - (overlayHeight - sideHeight) - 24)));
+
+  /** Without a model the Dictation tile opens its setup in the main window, as the tray's does. */
+  function dictationAction() {
+    if (dictation?.needsModel) {
+      if (isTauri()) void invoke('open_main');
+      return;
+    }
+    daemon.setDictationPrefs({ enabled: !dictation?.on });
+  }
   /** What the overlay shows, where its side panels open and how it is placed (Settings). */
   const setup = $derived(daemon.prefs?.overlay ?? DEFAULT_OVERLAY);
   const expand = $derived(setup.expand);
@@ -136,7 +153,7 @@
     </button>
   {:else if part === 'dictation' && dictation}
     <div class="split {expand}" class:open={side === 'dictation'}>
-      <button class="switch" class:on={dictation.on} role="switch" aria-checked={dictation.on} disabled={dictation.needsModel} {@attach tip(`${t('quick.dictationHint')} · ${dictation.state}`)} onclick={() => daemon.setDictationPrefs({ enabled: !dictation.on })}>
+      <button class="switch" class:on={dictation.on} role="switch" aria-checked={dictation.on} {@attach tip(dictation.needsModel ? t('quick.dictationGetModel') : `${t('quick.dictationHint')} · ${dictation.state}`)} onclick={dictationAction}>
         <Speech size={16} strokeWidth={1.5} /><span>{t('quick.dictation')}</span>
         {#if dictation.progress !== null}<i class="progress" style:width="{dictation.progress}%"></i>{/if}
       </button>
@@ -188,7 +205,7 @@
   {/if}
 {/snippet}
 
-<div class="overlay" class:sketch>
+<div class="overlay" class:sketch bind:offsetHeight={overlayHeight}>
   <!-- A sketch-like frame: straight lines along the edges that run past the corners. -->
   <span class="frame" aria-hidden="true"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></span>
   <header>
@@ -257,7 +274,7 @@
 
       {#if side}
         <!-- Side content scrolls without contributing to the main height or down width. -->
-        <div class="side-reveal" transition:reveal={{ expand, duration: motion(DURATION.reveal) }}>
+        <div class="side-reveal" bind:offsetHeight={sideHeight} style:--down-height="{downHeight}px" transition:reveal={{ expand, duration: motion(DURATION.reveal) }}>
           <aside class="side" class:sounds={side === 'sounds'}>
             {#if side === 'sounds'}
               <SoundpadOverlay part="library" />
@@ -335,7 +352,7 @@
   .switches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
   /* An odd last switch takes the whole row. */
   .switches > :last-child:nth-child(odd) { grid-column: span 2; }
-  .switch { position: relative; overflow: hidden; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-1); height: 54px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: transparent; color: var(--faint); font-size: var(--text-xs); transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease); }
+  .switch { position: relative; overflow: hidden; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-1); height: 54px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: transparent; color: var(--muted); font-size: var(--text-xs); transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease); }
   .switch span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .switch:hover:not(:disabled) { border-color: var(--line-strong); color: var(--ink); }
   .switch.on { background: var(--accent); border-color: var(--accent); color: var(--ink-strong); }
@@ -374,7 +391,7 @@
   .side-reveal { position: relative; flex: none; width: 464px; min-height: 0; }
   .side { position: absolute; inset: 0; margin-left: 24px; padding-left: 24px; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
   .body.left .side { margin: 0 24px 0 0; padding: 0 24px 0 0; border-left: 0; border-right: 1px solid var(--line); }
-  .body.down .side-reveal { width: 0; min-width: 100%; height: 300px; }
+  .body.down .side-reveal { width: 0; min-width: 100%; height: var(--down-height, 300px); }
   .body.down .side { margin: 16px 0 0; padding: 16px 0 0; border-left: 0; border-top: 1px solid var(--line); }
   .dock { width: 0; min-width: 100%; height: 47px; box-sizing: border-box; padding-top: 10px; margin-top: 0; border-top: 1px solid var(--line); display: flex; align-items: center; }
   /* Under the main part the player follows the strips, a line above it. */

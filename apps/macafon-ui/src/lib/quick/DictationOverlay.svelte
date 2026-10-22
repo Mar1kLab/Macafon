@@ -167,6 +167,12 @@
     border-radius: 0;
   }
 
+  /* Sketch marks the choice with its frame and accent ink, not a fill (UIP-005). */
+  :global(.sketch) .chip.active {
+    background: var(--bg-sunken);
+    color: var(--accent-ink);
+  }
+
   .dictation { overflow-y: auto; overscroll-behavior: contain; }
   .chip:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
   :global(.body.down) .settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -24,7 +24,9 @@
       <ul>
         {#each dictation.history as entry (entry.id)}
           <li>
-            <span class="text" {@attach tip(entry.text)}>{entry.text}</span>
+            <!-- Focusable so the keyboard can read a cut-off entry in its tooltip. -->
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+            <span class="text" tabindex="0" {@attach tip(entry.text)}>{entry.text}</span>
             <span class="meta">{formatClock(entry.at_unix_ms)} · {resultLanguage(dictation, entry)} · {formatSeconds(entry.elapsed_ms)}</span>
             <span class="actions">
               <button class="round" aria-label={t('dictation.test.copy')} {@attach tip(copier.id === entry.id ? t('dictation.test.copied') : t('dictation.test.copy'))} onclick={() => copier.copy(entry)}>{#if copier.id === entry.id}<Check size={13} animate />{:else}<Copy size={13} />{/if}</button>

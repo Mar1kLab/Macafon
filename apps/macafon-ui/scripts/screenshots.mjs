@@ -595,10 +595,11 @@ const scenarios = {
 };
 
 const browser = await chromium.launch({ executablePath: executable() });
-const context = await browser.newContext({ viewport: { width: 1180, height: 760 }, deviceScaleFactor: 1 });
 const date = new Date().toISOString().slice(0, 10);
 for (const [name, run] of Object.entries(scenarios)) {
   if (only.size && !only.has(name)) continue;
+  // A context per scenario: saved panel state (localStorage) never leaks into the next one.
+  const context = await browser.newContext({ viewport: { width: 1180, height: 760 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
   // The first-run flows (the app's and the Dictation screen's) cover the screen; only their own
   // scenarios show them.
@@ -616,6 +617,6 @@ for (const [name, run] of Object.entries(scenarios)) {
   await page.screenshot({ path: file, animations: 'disabled' });
   if (name === 'macaron-live') await page.locator('dialog[open]').screenshot({ path: join(out, `${date}-ui-macaron-detail.png`), animations: 'disabled' });
   console.log(file, errors.length ? `errors: ${errors.join(' | ')}` : '');
-  await page.close();
+  await context.close();
 }
 await browser.close();

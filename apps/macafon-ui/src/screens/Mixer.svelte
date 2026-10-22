@@ -287,7 +287,7 @@
     height: 100%;
     display: flex;
     gap: var(--space-3);
-    padding: 20px 24px;
+    padding: var(--space-6);
     overflow: auto;
     align-items: stretch;
   }

@@ -347,7 +347,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding: 8px 24px;
+    padding: var(--space-2) var(--space-6);
     border-bottom: 1px solid var(--line);
     font-size: var(--text-md);
   }
@@ -360,7 +360,7 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 24px;
+    padding: var(--space-6);
     container-type: inline-size;
   }
 

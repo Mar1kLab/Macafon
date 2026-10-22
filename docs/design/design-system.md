@@ -111,7 +111,9 @@ with their container (`cqw`) and are the only exception.
 - Screens share one header (`PageHeader`): 59 px tall, `--space-6` side padding, the HUD title, then
   controls, a spacer and the actions; content below is padded `--space-6`.
 - Minimum window size 960×640, default 1180×760. A 64px navigation sidebar (icons) with HUD captions on hover.
-- `border-radius: 0` on all elements except the round EQ points; application chips are rectangular too (also 0, with an icon).
+- `border-radius: 0` on all elements except the round EQ points; application chips and activity dots are
+  rectangular too. The only other rounded shapes are intended: Settings pictures of the Classic and Flow
+  popups (they show rounded surfaces), the Flow dictation pill and the Classic overlay look.
 - 1px `--line` borders; hover — `--line-strong`; focus-visible — 1px `--accent` + outline offset 2px.
 - **Ticks (crosshair):** 11×11px `--line-strong` crosshairs in the corners of the active card / selected area (like `.tick` on ArtCraft).
 - **Window background:** a barely visible 24px grid of `--scanline` — the feel of an instrument's graph paper.

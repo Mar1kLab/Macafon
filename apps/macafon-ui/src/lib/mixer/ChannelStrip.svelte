@@ -123,7 +123,7 @@
   }}
   {ondrop}
 >
-  {#if over && target}<span class="ticks"><Ticks color="var(--c-ink)" /></span>{/if}
+  <span class="ticks" class:target={over && target}><Ticks color={over && target ? 'var(--c-ink)' : undefined} /></span>
   <header>
     <button
       class="handle"
@@ -251,7 +251,14 @@
   .ticks {
     position: absolute;
     inset: -3px 0 0;
+    display: none;
     pointer-events: none;
+  }
+
+  /* Corner ticks on the drop target and on the strip being edited from the keyboard (UIP-005). */
+  .ticks.target,
+  .strip:focus-within > .ticks {
+    display: block;
   }
 
   header {
@@ -423,7 +430,6 @@
   .active-dot {
     width: 5px;
     height: 5px;
-    border-radius: 50%;
     background: var(--c-ink);
   }
 

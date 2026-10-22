@@ -9,6 +9,7 @@
   import { SILENCE_DB, dictationLevelBus } from '../state/meters';
   import { Needle, VU_MIN, dbfsToVu, vuToTravel } from './needle';
   import { t } from '../i18n';
+  import { DURATION } from '../motion';
 
   interface Props {
     look: DictationPopupLook;
@@ -124,7 +125,7 @@
     <rect class="pill" x="0.5" y="0.5" width="115" height="31" rx="15.5" />
     {#if transcribing}
       {#each [0, 1, 2] as dot (dot)}
-        <circle class="dot" cx={44 + dot * 14} cy="16" r="2.5" style:animation-delay="{dot * 150}ms" />
+        <circle class="dot" cx={44 + dot * 14} cy="16" r="2.5" style:animation-delay="{dot * DURATION.fast}ms" />
       {/each}
     {:else}
       {#each bars as height, i (i)}

@@ -565,7 +565,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding: 8px 24px;
+    padding: var(--space-2) var(--space-6);
     border-bottom: 1px solid var(--line);
     font-size: var(--text-md);
     color: var(--app-amber-ink);
@@ -937,7 +937,7 @@
     grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto;
     align-items: center;
     gap: var(--space-3);
-    padding: 8px 24px;
+    padding: var(--space-2) var(--space-6);
     border-bottom: 1px solid var(--line);
     color: var(--app-amber-ink);
   }

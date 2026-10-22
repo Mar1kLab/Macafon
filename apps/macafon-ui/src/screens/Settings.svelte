@@ -46,6 +46,7 @@
   import { OSD_MAX_OFFSET_PCT, QUANTUM_CHOICES, SAMPLE_RATE_HZ } from '../lib/ipc/dsp';
   import { tip } from '../lib/components/tooltip.svelte';
   import PageHeader from '../lib/components/PageHeader.svelte';
+  import Ticks from '../lib/components/Ticks.svelte';
 
   let { onnavigate }: { onnavigate: (screen: 'microphone' | 'mixer') => void } = $props();
   const mic = $derived(daemon.mic);
@@ -340,6 +341,7 @@
     </nav>
     <div class="scroll" bind:this={scroller} onscroll={spy}>
       <section id="settings-general">
+        <span class="ticks"><Ticks /></span>
         <h2 class="hud-label" tabindex="-1">{t('settings.general')}</h2>
         <div class="row">
           <p class="name">{t('settings.startWithSystem')}</p>
@@ -384,6 +386,7 @@
 
       {#if mic}
         <section id="settings-audio">
+          <span class="ticks"><Ticks /></span>
           <h2 class="hud-label" tabindex="-1">{t('settings.audio')}</h2>
           <div class="row">
             <p class="name">{t('settings.fallback')}</p>
@@ -430,6 +433,7 @@
 
       {#if daemon.outputControls.length}
         <section id="settings-outputs">
+          <span class="ticks"><Ticks /></span>
           <h2 class="hud-label" tabindex="-1">{t('settings.outputs')}</h2>
           {#each daemon.outputControls as device (device.id)}
             <div class="row">
@@ -442,6 +446,7 @@
 
       {#if mixer}
         <section id="settings-mixer">
+          <span class="ticks"><Ticks /></span>
           <h2 class="hud-label" tabindex="-1">{t('settings.mixer')}</h2>
           {#if daemon.windows}
             <div class="row">
@@ -491,6 +496,7 @@
 
       {#if daemon.soundpad}
         <section id="settings-soundpad">
+          <span class="ticks"><Ticks /></span>
           <h2 class="hud-label" tabindex="-1">{t('settings.soundpad')}</h2>
           <div class="row column">
             <div>
@@ -504,6 +510,7 @@
 
       {#if daemon.hotkeys}
         <section id="settings-hotkeys">
+          <span class="ticks"><Ticks /></span>
           <h2 class="hud-label" tabindex="-1">{t('settings.hotkeys.title')}</h2>
           {#if prefs}
             <div class="row">
@@ -519,6 +526,7 @@
 
       {#if prefs && daemon.hello?.capabilities.hotkey_popup}
         <section id="settings-popup">
+          <span class="ticks"><Ticks /></span>
           <h2 class="hud-label" tabindex="-1">{t('settings.osd.title')}</h2>
           <div class="row column">
             <div>
@@ -580,6 +588,7 @@
 
       {#if prefs}
         <section id="settings-overlay">
+          <span class="ticks"><Ticks /></span>
           <h2 class="hud-label" tabindex="-1">{t('settings.overlay.title')}</h2>
           <div class="row">
             <div>
@@ -634,6 +643,7 @@
       {#if daemon.dictation}
         {@const dictation = daemon.dictation.prefs}
         <section id="settings-dictation">
+          <span class="ticks"><Ticks /></span>
           <h2 class="hud-label" tabindex="-1">{t('settings.dictationPopup.title')}</h2>
           <div class="row column">
             <div>
@@ -679,11 +689,15 @@
       {/if}
 
       <section id="settings-doctor">
+
+        <span class="ticks"><Ticks /></span>
         <h2 class="hud-label" tabindex="-1">{t('settings.doctor')}</h2>
         <Doctor {onnavigate} onmakedefault={() => (confirmDefault = true)} />
       </section>
 
       <section id="settings-about">
+
+        <span class="ticks"><Ticks /></span>
         <h2 class="hud-label" tabindex="-1">{t('settings.about')}</h2>
         <div class="row">
           <p class="name">{t('settings.version')}</p>
@@ -798,7 +812,6 @@
   .sections button.active {
     color: var(--ink-strong);
     border-left-color: var(--accent);
-    background: var(--bg-raised);
   }
 
   .sections .n {
@@ -815,7 +828,7 @@
   .scroll {
     flex: 1;
     overflow-y: auto;
-    padding: 24px;
+    padding: var(--space-6);
     display: grid;
     align-content: start;
     gap: var(--space-6);
@@ -824,11 +837,26 @@
   }
 
   section {
+    position: relative;
     width: 100%;
     max-width: 880px;
     border: 1px solid var(--line);
     background: var(--bg-raised);
     scroll-margin-top: 24px;
+    transition: border-color var(--dur) var(--ease);
+  }
+
+  /* The section being edited gets the corner ticks (UIP-005). */
+  section > .ticks {
+    display: none;
+  }
+
+  section:focus-within {
+    border-color: var(--line-strong);
+  }
+
+  section:focus-within > .ticks {
+    display: block;
   }
 
   h2 {

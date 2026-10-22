@@ -72,7 +72,7 @@
     context.lineWidth = 1;
     context.strokeStyle = line;
     context.fillStyle = faint;
-    context.font = '10px "Geist Mono Variable", monospace';
+    context.font = `${cssVar(canvas, '--text-2xs')} ${cssVar(canvas, '--font-mono')}`;
     for (const freq of FREQ_LINES) {
       const x = Math.round(freqToX(freq) * w) + 0.5;
       context.beginPath();

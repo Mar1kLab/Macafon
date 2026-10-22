@@ -273,7 +273,6 @@
     flex: none;
     width: 6px;
     height: 6px;
-    border-radius: 50%;
     background: var(--c-ink);
     animation: pulse var(--dur-loop) ease-in-out infinite;
   }

@@ -162,7 +162,7 @@
     grid-template-columns: 1fr auto 1fr;
     gap: var(--space-8);
     align-items: center;
-    padding: 12px 24px;
+    padding: var(--space-3) var(--space-6);
     border-bottom: 1px solid var(--line);
   }
 
@@ -176,7 +176,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    padding: 8px 24px;
+    padding: var(--space-2) var(--space-6);
     font-size: var(--text-md);
     color: var(--ink);
     background: var(--bg-raised);
@@ -192,7 +192,7 @@
   .scroll {
     flex: 1;
     overflow-y: auto;
-    padding: 16px 24px 24px;
+    padding: var(--space-6);
   }
 
   .chain {

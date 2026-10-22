@@ -18,6 +18,7 @@
   import PageHeader from '../lib/components/PageHeader.svelte';
   import Loader from '../lib/components/Loader.svelte';
   import EmptyState from '../lib/components/EmptyState.svelte';
+  import Ticks from '../lib/components/Ticks.svelte';
 
   const ONBOARDING_KEY = 'macafon.displays.onboarding';
 
@@ -120,6 +121,7 @@
                     dragged = null;
                   }}
                 >
+                  <span class="ticks"><Ticks color={active ? 'var(--accent)' : undefined} /></span>
                   <div class="card-head">
                     <span class="icon"><ProfileIcon icon={profile.icon} size={16} /></span>
                     <h3 class="name" {@attach tip(profile.name)}>{profile.name}</h3>
@@ -184,7 +186,7 @@
 <style>
   .screen { display: flex; flex-direction: column; height: 100%; min-width: 0; }
   .spacer { flex: 1; }
-  .content { flex: 1; min-height: 0; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: var(--space-6); }
+  .content { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-6); }
   .section-head { display: flex; align-items: baseline; gap: var(--space-4); margin-bottom: 14px; flex-wrap: wrap; }
   .section-head .spacer { flex: 1; }
   .section-head h2 { color: var(--ink); }
@@ -197,10 +199,12 @@
   .count { font-family: var(--font-mono); color: var(--app-amber-ink); }
 
   .cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-3); }
-  .card { display: flex; flex-direction: column; gap: var(--space-3); padding: 14px 16px; border: 1px solid var(--line); background: var(--bg-raised); transition: border-color var(--dur) var(--ease); }
+  .card { position: relative; display: flex; flex-direction: column; gap: var(--space-3); padding: 14px 16px; border: 1px solid var(--line); background: var(--bg-raised); transition: border-color var(--dur) var(--ease); }
   .card:hover { border-color: var(--line-strong); }
   .card.active { border-color: var(--accent); }
   .card.dragging { opacity: 0.5; }
+  .card > .ticks { display: none; }
+  .card.active > .ticks, .card:focus-within > .ticks { display: block; }
   .card-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
   .icon { display: inline-flex; color: var(--muted); }
   .active .icon { color: var(--accent-ink); }

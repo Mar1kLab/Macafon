@@ -25,6 +25,8 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+# The WebView2 interfaces Tauri builds on (same version as wry's), for the memory target level.
+webview2-com = "0.39"
 windows = { version = "0.62", features = ["Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging"] }
 
 [lints]

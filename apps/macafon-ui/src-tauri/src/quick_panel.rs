@@ -76,6 +76,7 @@ pub fn prewarm(app: &AppHandle) {
         WebviewUrl::App("index.html?view=quick-panel".into()),
     )
     .title("Macafon quick panel")
+    .additional_browser_args(crate::BROWSER_ARGS)
     .inner_size(360.0, 420.0)
     .resizable(false)
     .maximizable(false)
@@ -95,6 +96,7 @@ pub fn prewarm(app: &AppHandle) {
         Ok(window) => {
             // A hidden window's WebView2 keeps rendering until its controller is hidden too.
             let _ = window.as_ref().hide();
+            memory_target(&window, true);
             let handle = window.clone();
             window.on_window_event(move |event| {
                 if let WindowEvent::Focused(focused) = event {
@@ -161,6 +163,7 @@ pub fn toggle(app: &AppHandle, mode: Mode) {
     // Rendering resumes while the window is still hidden: the page lays itself out for
     // `mode` and answers with `quick_panel_fit`, which shows the window.
     if let Some(window) = app.get_webview_window(LABEL) {
+        memory_target(&window, false);
         let _ = window.as_ref().show();
     }
     if let Err(error) = app.emit_to(LABEL, "panel://show", mode) {
@@ -179,7 +182,37 @@ pub fn hide(app: &AppHandle) {
         let _ = window.hide();
         // Stops rendering, timers and meters of the page while nobody sees it.
         let _ = window.as_ref().hide();
+        memory_target(&window, true);
     }
+}
+
+/// The warm panel spends most of its life hidden: at the low memory target WebView2 trims
+/// its working set (NFR-R5 deviation), and the normal target is back before it shows again.
+fn memory_target(window: &WebviewWindow, low: bool) {
+    #[cfg(windows)]
+    let _ = window.with_webview(move |webview| {
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
+            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL, ICoreWebView2_19,
+        };
+        use windows::core::Interface;
+        let level = if low {
+            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+        } else {
+            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL
+        };
+        // SAFETY: COM calls on the live controller of this webview, on its UI thread; older
+        // runtimes without ICoreWebView2_19 are skipped.
+        unsafe {
+            if let Ok(core) = webview.controller().CoreWebView2()
+                && let Ok(core) = core.cast::<ICoreWebView2_19>()
+            {
+                let _ = core.SetMemoryUsageTargetLevel(level);
+            }
+        }
+    });
+    #[cfg(not(windows))]
+    let _ = (window, low);
 }
 
 /// Capture the foreground monitor before the panel takes focus.

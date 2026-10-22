@@ -13,6 +13,11 @@ use bridge::{Bridge, BridgeError, Sink, Status};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
+/// WebView2 flags for every window; they share one profile, so they must be identical. On
+/// top of wry's defaults (no mini menu, no SmartScreen), the runtime downloads no components
+/// (DRM, ad filters, speech, ~60 MB) and makes no background requests: the UI is local only.
+pub const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-component-update --disable-background-networking --disable-domain-reliability";
+
 /// Windows that asked for live levels. The daemon streams them per connection and every
 /// window shares this one, so the stream stops only when the last window lets it go, and the
 /// 60 Hz events reach only the windows that show them (the warm quick panel stays out of that
@@ -176,9 +181,11 @@ fn show_main(app: &AppHandle) -> bool {
     let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main") else {
         return false;
     };
-    match tauri::WebviewWindowBuilder::from_config(app, config)
-        .and_then(|b| b.visible(false).build())
-    {
+    match tauri::WebviewWindowBuilder::from_config(app, config).and_then(|b| {
+        b.additional_browser_args(BROWSER_ARGS)
+            .visible(false)
+            .build()
+    }) {
         Ok(window) => {
             place_main(app, &window);
             foreground_main(&window);

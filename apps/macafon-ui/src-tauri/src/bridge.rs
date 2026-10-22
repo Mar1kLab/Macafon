@@ -60,8 +60,8 @@ pub trait Sink: Send + Sync + 'static {
 type Reply = mpsc::Sender<Result<Value, BridgeError>>;
 
 struct Connection {
-    writer: SendHalf,
-    pending: HashMap<u64, Reply>,
+    writer: mpsc::SyncSender<String>,
+    pending: HashMap<u64, (Reply, Instant)>,
     next_id: u64,
 }
 
@@ -151,6 +151,10 @@ impl Bridge {
             let _ = reply.send(Err(BridgeError::unavailable()));
             return receiver;
         };
+        if connection.pending.len() >= 64 {
+            let _ = reply.send(Err(BridgeError::new("busy", "too many pending requests")));
+            return receiver;
+        }
         let id = connection.next_id;
         connection.next_id += 1;
         let mut request = json!({ "id": id, "method": method });
@@ -159,9 +163,12 @@ impl Bridge {
         }
         let mut line = request.to_string();
         line.push('\n');
-        match connection.writer.write_all(line.as_bytes()) {
+        match connection.writer.try_send(line) {
             Ok(()) => {
-                connection.pending.insert(id, reply);
+                connection
+                    .pending
+                    .insert(id, (reply, Instant::now() + CALL_TIMEOUT));
+                self.shared.wake.notify_all();
             }
             Err(error) => {
                 let _ = reply.send(Err(BridgeError::new("unavailable", error.to_string())));
@@ -179,7 +186,7 @@ impl Bridge {
     }
 }
 
-fn connector(shared: &Shared) {
+fn connector(shared: &Arc<Shared>) {
     // Start the daemon at most once per attempt; a lost connection waits for systemd first.
     let mut may_launch = true;
     loop {
@@ -239,7 +246,7 @@ fn unavailable(shared: &Shared, reason: String) {
     state.retry = false;
 }
 
-fn read_line(reader: &mut BufReader<RecvHalf>) -> Result<Option<Value>, String> {
+fn read_line(reader: &mut impl std::io::BufRead) -> Result<Option<Value>, String> {
     let Some(line) = read_protocol_line(reader).map_err(|error| error.to_string())? else {
         return Ok(None);
     };
@@ -249,18 +256,107 @@ fn read_line(reader: &mut BufReader<RecvHalf>) -> Result<Option<Value>, String> 
 }
 
 /// Handshake, then dispatch replies and events until the daemon goes away.
-fn serve(shared: &Shared, reader: RecvHalf, mut writer: SendHalf) -> Result<(), String> {
-    let mut reader = BufReader::new(reader);
+fn serve(shared: &Arc<Shared>, reader: RecvHalf, writer: SendHalf) -> Result<(), String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let abort = transport::AbortHandle::new(&writer).map_err(|error| error.to_string())?;
+    let finished = Arc::new(AtomicBool::new(false));
+    let watchdog = spawn_watchdog(shared.clone(), abort.clone(), finished.clone());
+    let (out, lines) = mpsc::sync_channel::<String>(64);
+    let writer_thread = spawn_writer(shared.clone(), abort.clone(), writer, lines);
+    let mut reader = BufReader::new(transport::AbortableReader {
+        reader,
+        abort: abort.clone(),
+    });
+    let result = serve_connection(shared, &mut reader, out);
+    // The watchdog keeps cancelling until both halves have left I/O, including a racing one.
+    abort.cancel();
+    shared.wake.notify_all();
+    if let Some(connection) = shared.lock().connection.take() {
+        for (_, (reply, _)) in connection.pending {
+            let _ = reply.send(Err(BridgeError::unavailable()));
+        }
+    }
+    let _ = writer_thread.join();
+    {
+        let _state = shared.lock();
+        finished.store(true, Ordering::Release);
+        shared.wake.notify_all();
+    }
+    let _ = watchdog.join();
+    result
+}
+
+/// Writes queued lines, so a stalled daemon never blocks a caller holding the state lock.
+fn spawn_writer(
+    shared: Arc<Shared>,
+    abort: transport::AbortHandle,
+    mut writer: SendHalf,
+    lines: mpsc::Receiver<String>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        for line in lines {
+            if abort.is_cancelled() || writer.write_all(line.as_bytes()).is_err() {
+                abort.cancel();
+                shared.wake.notify_all();
+                break;
+            }
+        }
+    })
+}
+
+/// Aborts the connection when the handshake or the oldest pending call overruns its deadline;
+/// after an abort it repeats the cancellation until `finished`.
+fn spawn_watchdog(
+    shared: Arc<Shared>,
+    abort: transport::AbortHandle,
+    finished: Arc<std::sync::atomic::AtomicBool>,
+) -> std::thread::JoinHandle<()> {
+    use std::sync::atomic::Ordering;
+    std::thread::spawn(move || {
+        let handshake_deadline = Instant::now() + CALL_TIMEOUT;
+        loop {
+            let state = shared.lock();
+            if finished.load(Ordering::Acquire) {
+                break;
+            }
+            let deadline = match &state.connection {
+                None => Some(handshake_deadline),
+                Some(connection) => connection.pending.values().map(|(_, at)| *at).min(),
+            };
+            if abort.is_cancelled() || deadline.is_some_and(|at| Instant::now() >= at) {
+                drop(state);
+                abort.cancel();
+                std::thread::sleep(Duration::from_millis(10));
+            } else {
+                let wait = deadline.map_or(Duration::from_secs(60), |at| {
+                    at.saturating_duration_since(Instant::now())
+                });
+                drop(
+                    shared
+                        .wake
+                        .wait_timeout(state, wait)
+                        .unwrap_or_else(|error| error.into_inner()),
+                );
+            }
+        }
+    })
+}
+
+fn serve_connection(
+    shared: &Shared,
+    reader: &mut impl std::io::BufRead,
+    writer: mpsc::SyncSender<String>,
+) -> Result<(), String> {
     let hello = json!({
         "id": 0,
         "method": "hello",
         "params": { "protocol": PROTOCOL_VERSION, "client": "macafon-ui" },
     });
     writer
-        .write_all(format!("{hello}\n").as_bytes())
+        .send(format!("{hello}\n"))
         .map_err(|error| error.to_string())?;
     let version = loop {
-        let message = read_line(&mut reader)?.ok_or("macafond closed during the handshake")?;
+        let message = read_line(reader)?.ok_or("macafond closed during the handshake")?;
         if message.get("id") != Some(&json!(0)) {
             continue;
         }
@@ -278,17 +374,11 @@ fn serve(shared: &Shared, reader: RecvHalf, mut writer: SendHalf) -> Result<(), 
         next_id: 1,
     });
     shared.set_status(Status::Connected { version });
-    let result = dispatch(shared, &mut reader);
-    // Fail whatever was still waiting for this connection.
-    if let Some(connection) = shared.lock().connection.take() {
-        for (_, reply) in connection.pending {
-            let _ = reply.send(Err(BridgeError::unavailable()));
-        }
-    }
-    result
+    shared.wake.notify_all();
+    dispatch(shared, reader)
 }
 
-fn dispatch(shared: &Shared, reader: &mut BufReader<RecvHalf>) -> Result<(), String> {
+fn dispatch(shared: &Shared, reader: &mut impl std::io::BufRead) -> Result<(), String> {
     while let Some(mut message) = read_line(reader)? {
         if message.get("event").is_some() {
             shared.sink.event(message);
@@ -303,7 +393,7 @@ fn dispatch(shared: &Shared, reader: &mut BufReader<RecvHalf>) -> Result<(), Str
             .connection
             .as_mut()
             .and_then(|connection| connection.pending.remove(&id));
-        let Some(reply) = reply else { continue };
+        let Some((reply, _)) = reply else { continue };
         let outcome = match message.get_mut("error") {
             Some(error) => Err(BridgeError::new(
                 error["code"].as_str().unwrap_or("internal"),
@@ -389,6 +479,46 @@ mod tests {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         format!("macafon-bridge-{}-{n}", std::process::id())
+    }
+
+    #[test]
+    fn stalled_peer_does_not_lock_status_or_accumulate_unbounded_requests() {
+        let (listener, endpoint) = FakeDaemon::bind();
+        let (stop, stopped) = mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (reader, mut writer) = listener.accept();
+            let mut reader = BufReader::new(reader);
+            read_protocol_line(&mut reader).expect("hello");
+            writeln!(writer, r#"{{"id":0,"result":{{"daemon_version":"test"}}}}"#)
+                .expect("hello reply");
+            // Keep both halves open, but never read the following requests.
+            let _ = stopped.recv_timeout(Duration::from_secs(20));
+        });
+        let (events, sink) = mpsc::channel();
+        let bridge = Bridge::start(endpoint, Channel(Mutex::new(events)), || Ok(()));
+        wait_status(&sink, |state| matches!(state, Status::Connected { .. }));
+        let mut pending = Vec::new();
+        for _ in 0..64 {
+            pending.push(bridge.send("test", Some(json!({"padding": "x".repeat(64 * 1024)}))));
+        }
+        let start = Instant::now();
+        assert!(matches!(bridge.status(), Status::Connected { .. }));
+        let excess = bridge
+            .send("test", None)
+            .recv_timeout(Duration::from_secs(1))
+            .expect("bounded rejection");
+        assert!(excess.is_err());
+        assert!(start.elapsed() < Duration::from_secs(1));
+        assert!(
+            pending
+                .remove(0)
+                .recv_timeout(CALL_TIMEOUT + Duration::from_secs(2))
+                .expect("connection aborted")
+                .is_err()
+        );
+        bridge.retry();
+        let _ = stop.send(());
+        server.join().expect("fake daemon");
     }
 
     /// A fake daemon endpoint; `accept` returns the connection halves, and dropping the

@@ -2,7 +2,8 @@
 //!
 //! Only the control loop touches daemon state; client threads forward requests to it and wait
 //! for the reply. Outgoing lines go through bounded queues, so a stalled client never blocks
-//! the control loop or other clients — it just misses events.
+//! the control loop or other clients: it misses meters, and a full queue for a state event
+//! disconnects it, so it reconnects and reloads the state instead of showing a stale one.
 
 use crate::host::ControlMessage;
 use anyhow::{Context, Result};
@@ -25,7 +26,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, mpsc};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const OUTGOING_LINES: usize = 256;
 const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -37,6 +38,7 @@ struct Clients {
     device_meters: HashSet<u64>,
     /// Clients that said hello as the UI.
     ui: HashSet<u64>,
+    aborts: HashMap<u64, macafon_ipc::transport::AbortHandle>,
 }
 
 /// Channel names with their meters.
@@ -99,25 +101,36 @@ impl Hub {
         }
         // ServerMessage is untagged: borrowing the event produces the same wire frame
         // without cloning its entire state (including potentially large sound libraries).
-        let Ok(line) = encode(event) else {
-            return;
-        };
-        for (out, _) in self.clients().registered.values() {
-            let _ = out.try_send(line.clone());
+        if let Ok(line) = encode(event) {
+            self.deliver(&line, false);
         }
     }
 
     /// Transcription text is delivered only to the UI clients that own its display/history.
     pub fn broadcast_dictation(&self, event: &Event) {
-        let clients = self.clients();
-        let Ok(line) = encode(event) else {
-            return;
-        };
-        for id in &clients.ui {
-            if let Some((sender, _)) = clients.registered.get(id) {
-                let _ = sender.try_send(line.clone());
-            }
+        if let Ok(line) = encode(event) {
+            self.deliver(&line, true);
         }
+    }
+
+    /// Queue a state line for every (UI) client; one that cannot take it is disconnected.
+    fn deliver(&self, line: &str, ui_only: bool) {
+        let mut clients = self.clients();
+        let lagging: Vec<u64> = clients
+            .registered
+            .iter()
+            .filter(|(id, _)| !ui_only || clients.ui.contains(id))
+            .filter(|(_, (out, _))| out.try_send(line.to_owned()).is_err())
+            .map(|(id, _)| *id)
+            .collect();
+        if lagging.is_empty() {
+            return;
+        }
+        for id in lagging {
+            clients.disconnect(id);
+        }
+        drop(clients);
+        self.meters_wanted.notify_all();
     }
 
     pub fn has_clients(&self) -> bool {
@@ -189,9 +202,7 @@ impl Hub {
 
     fn remove(&self, client: u64) {
         let mut clients = self.clients();
-        clients.registered.remove(&client);
-        clients.device_meters.remove(&client);
-        clients.ui.remove(&client);
+        clients.disconnect(client);
         self.meters_wanted.notify_all();
     }
 
@@ -273,17 +284,55 @@ fn spawn_meters(hub: &Arc<Hub>) -> Result<()> {
 }
 
 fn spawn_client(
-    connection: (impl Read + Send + 'static, impl Outgoing),
+    connection: (
+        macafon_ipc::transport::RecvHalf,
+        macafon_ipc::transport::SendHalf,
+    ),
     hub: &Arc<Hub>,
     control: &ControlSender<ControlMessage>,
 ) {
+    let Ok(abort) = macafon_ipc::transport::AbortHandle::new(&connection.1) else {
+        return;
+    };
     let (hub, control) = (hub.clone(), control.clone());
     let spawned = std::thread::Builder::new()
         .name("macafon-client".into())
-        .spawn(move || serve(connection.0, connection.1, &hub, &control));
+        .spawn(move || {
+            let writing = Arc::new(Mutex::new(None::<Instant>));
+            let (done, finished) = mpsc::channel();
+            let watchdog = watch_writes(abort.clone(), writing.clone(), finished);
+            serve(connection.0, connection.1, &hub, &control, abort, writing);
+            let _ = done.send(());
+            if let Ok(watchdog) = watchdog {
+                let _ = watchdog.join();
+            }
+        });
     if let Err(error) = spawned {
         tracing::warn!(%error, "Cannot start client thread");
     }
+}
+
+/// Cancel the client's I/O once a write overruns its deadline, and keep cancelling after an
+/// abort until `finished`: an operation can start concurrently with a cancellation.
+fn watch_writes(
+    abort: macafon_ipc::transport::AbortHandle,
+    writing: Arc<Mutex<Option<Instant>>>,
+    finished: mpsc::Receiver<()>,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
+    std::thread::Builder::new()
+        .name("macafon-client-watchdog".into())
+        .spawn(move || {
+            while let Err(mpsc::RecvTimeoutError::Timeout) =
+                finished.recv_timeout(Duration::from_millis(100))
+            {
+                let deadline = *writing.lock().unwrap_or_else(|e| e.into_inner());
+                if abort.is_cancelled()
+                    || deadline.is_some_and(|deadline| Instant::now() >= deadline)
+                {
+                    abort.cancel();
+                }
+            }
+        })
 }
 
 /// Bind the per-user pipe (DACL: current user only, PRD §10.4, §12.2.3) and serve clients on
@@ -355,23 +404,36 @@ fn serve(
     mut writer: impl Outgoing,
     hub: &Hub,
     control: &ControlSender<ControlMessage>,
+    abort: macafon_ipc::transport::AbortHandle,
+    writing: Arc<Mutex<Option<Instant>>>,
 ) {
     let id = hub.next_id.fetch_add(1, Ordering::Relaxed);
     let (out, lines) = mpsc::sync_channel::<String>(OUTGOING_LINES);
+    let writer_abort = abort.clone();
     let spawned = std::thread::Builder::new()
         .name("macafon-client-out".into())
         .spawn(move || {
             for line in lines {
+                if writer_abort.is_cancelled() {
+                    break;
+                }
+                *writing.lock().unwrap_or_else(|e| e.into_inner()) =
+                    Some(Instant::now() + REPLY_TIMEOUT);
                 if writer.write_all(line.as_bytes()).is_err() {
                     break;
                 }
+                *writing.lock().unwrap_or_else(|e| e.into_inner()) = None;
             }
+            writer_abort.cancel();
             writer.close();
         });
-    if spawned.is_err() {
+    let Ok(writer_thread) = spawned else {
         return;
-    }
-    let mut reader = BufReader::new(reader);
+    };
+    let mut reader = BufReader::new(macafon_ipc::transport::AbortableReader {
+        reader,
+        abort: abort.clone(),
+    });
     let mut greeted = false;
     let mut ui = false;
     loop {
@@ -408,6 +470,7 @@ fn serve(
                         ui = client == "macafon-ui" || client.starts_with("macafon-ui-");
                         let mut clients = hub.clients();
                         clients.registered.insert(id, (out.clone(), None));
+                        clients.aborts.insert(id, abort.clone());
                         if ui {
                             clients.ui.insert(id);
                         }
@@ -445,8 +508,22 @@ fn serve(
         send(&out, Some(envelope.id), reply);
     }
     hub.remove(id);
+    abort.cancel();
+    drop(out);
+    let _ = writer_thread.join();
     if ui {
         let _ = control.send(ControlMessage::Disconnected);
+    }
+}
+
+impl Clients {
+    fn disconnect(&mut self, id: u64) {
+        if let Some(abort) = self.aborts.remove(&id) {
+            abort.cancel();
+        }
+        self.registered.remove(&id);
+        self.device_meters.remove(&id);
+        self.ui.remove(&id);
     }
 }
 
@@ -486,6 +563,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn full_client_queue_disconnects_instead_of_silently_losing_state() {
+        let hub = Hub::new();
+        let (out, incoming) = mpsc::sync_channel(1);
+        out.send("telemetry".into()).expect("fill queue");
+        hub.clients().registered.insert(1, (out, None));
+        hub.clients().ui.insert(1);
+        hub.broadcast_dictation(&Event::SoundpadPlayback(None));
+        assert!(!hub.has_clients());
+        assert!(!hub.ui_connected());
+        assert_eq!(incoming.recv().expect("old frame"), "telemetry");
+        assert!(
+            incoming.recv().is_err(),
+            "connection must end so clients reload state"
+        );
+    }
+
+    #[test]
     fn deferred_library_broadcast_preserves_the_full_event_shape() {
         let hub = Hub::new();
         let (out, incoming) = mpsc::sync_channel(1);
@@ -511,13 +605,25 @@ mod tests {
             microphone_ready: false,
         };
         let expected = encode(&Event::SoundpadChanged(state.clone())).expect("event");
-        assert!(hub.broadcast_soundpad(state));
+        assert!(hub.broadcast_soundpad(state.clone()));
         assert_eq!(
             incoming
                 .recv_timeout(Duration::from_secs(5))
                 .expect("deferred event"),
             expected
         );
+        let (out, incoming) = mpsc::sync_channel(1);
+        out.send("old event".into()).expect("fill queue");
+        hub.clients().registered.clear();
+        hub.clients().registered.insert(2, (out, None));
+        assert!(hub.broadcast_soundpad(state));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while hub.has_clients() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(!hub.has_clients());
+        assert_eq!(incoming.recv().expect("old event"), "old event");
+        assert!(incoming.recv().is_err());
     }
 
     #[test]

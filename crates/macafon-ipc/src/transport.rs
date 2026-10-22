@@ -9,6 +9,69 @@ pub use unix::*;
 #[cfg(windows)]
 pub use windows::*;
 
+/// A separately owned handle used to interrupt a connection without locking its writer.
+#[derive(Clone)]
+pub struct AbortHandle {
+    cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    #[cfg(unix)]
+    handle: std::sync::Arc<std::os::unix::net::UnixStream>,
+    #[cfg(windows)]
+    handle: std::sync::Arc<std::os::windows::io::OwnedHandle>,
+}
+
+impl AbortHandle {
+    pub fn new(writer: &SendHalf) -> std::io::Result<Self> {
+        #[cfg(unix)]
+        let handle = writer.try_clone()?;
+        #[cfg(windows)]
+        let handle = {
+            use std::os::windows::io::AsHandle;
+            let SendHalf::NamedPipe(pipe) = writer;
+            pipe.as_handle().try_clone_to_owned()?
+        };
+        Ok(Self {
+            cancelled: Default::default(),
+            handle: std::sync::Arc::new(handle),
+        })
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Repeat while joining I/O threads: an operation can start concurrently with cancellation.
+    pub fn cancel(&self) {
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::Release);
+        #[cfg(unix)]
+        let _ = self.handle.shutdown(std::net::Shutdown::Both);
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            // SAFETY: the duplicate owns the same pipe object and remains valid for this call.
+            unsafe {
+                let _ = ::windows::Win32::System::IO::CancelIoEx(
+                    ::windows::Win32::Foundation::HANDLE(self.handle.as_raw_handle()),
+                    None,
+                );
+            }
+        }
+    }
+}
+
+pub struct AbortableReader<R> {
+    pub reader: R,
+    pub abort: AbortHandle,
+}
+impl<R: std::io::Read> std::io::Read for AbortableReader<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        if self.abort.is_cancelled() {
+            return Ok(0);
+        }
+        self.reader.read(buffer)
+    }
+}
+
 #[cfg(unix)]
 mod unix {
     use std::os::unix::net::UnixStream;
@@ -175,6 +238,32 @@ mod tests {
     use std::io::{BufReader, Write};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn abort_interrupts_blocked_pipe_io_without_waiting_for_the_peer() {
+        use std::io::Read;
+        use std::time::{Duration, Instant};
+        let endpoint = Endpoint::pipe(format!("macafon-abort-test-{}", std::process::id()));
+        let listener = Listener::bind(&endpoint).expect("bind");
+        let client = std::thread::spawn(move || connect(&endpoint).expect("connect"));
+        let (_server_reader, _server_writer) = listener.accept().expect("accept");
+        let (mut reader, mut writer) = client.join().expect("client");
+        let abort = AbortHandle::new(&writer).expect("abort handle");
+        let reading = std::thread::spawn(move || reader.read(&mut [0; 1]));
+        let writing = std::thread::spawn(move || writer.write_all(&vec![0; 4 * 1024 * 1024]));
+        std::thread::sleep(Duration::from_millis(50));
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !reading.is_finished() || !writing.is_finished() {
+            abort.cancel();
+            assert!(
+                Instant::now() < deadline,
+                "pipe operations were not cancelled"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(reading.join().expect("reader").is_err());
+        assert!(writing.join().expect("writer").is_err());
+    }
 
     #[test]
     fn named_pipe_carries_requests_while_events_flow_concurrently() {

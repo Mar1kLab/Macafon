@@ -8,6 +8,7 @@
   import { daemon } from '../state';
   import { t } from '../i18n';
   import Logo from './Logo.svelte';
+  import { tip } from './tooltip.svelte';
 
   let { screen, onnavigate }: { screen: Screen; onnavigate: (screen: Screen) => void } = $props();
 
@@ -42,7 +43,7 @@
 </script>
 
 <nav aria-label="Macafon">
-  <div class="logo" title={logoLabel}>
+  <div class="logo" {@attach tip(logoLabel)}>
     <Logo inactive={muted || bypass || error} {bypass} {error} label={logoLabel} />
   </div>
   <ul>
@@ -63,7 +64,7 @@
   </ul>
   <div class="bottom">
     <button class:active={screen === 'settings'} aria-current={screen === 'settings' ? 'page' : undefined} aria-label={t('nav.settings')} onclick={() => onnavigate('settings')}><Settings size={20} strokeWidth={1.5} /><span class="tip hud-label">{t('nav.settings')}</span></button>
-  <div class="status" title={statusText} role="status" aria-label={statusText}>
+  <div class="status" {@attach tip(statusText)} role="status" aria-label={statusText}>
     {#if muted}<span class="badge muted">{t('mic.muted')}</span>{/if}
     <span class="dot {status.state}" class:mock={daemon.mock}></span>
     <span class="status-label">{status.state === 'connected' ? t('daemon.running') : status.state === 'connecting' ? t('daemon.loading') : t('daemon.stopped')}</span>

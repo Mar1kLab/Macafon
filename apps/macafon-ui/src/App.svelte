@@ -4,7 +4,9 @@
   import Sidebar from './lib/components/Sidebar.svelte';
   import TitleBar from './lib/components/TitleBar.svelte';
   import Toasts from './lib/components/Toasts.svelte';
+  import TooltipLayer from './lib/components/TooltipLayer.svelte';
   import Ticks from './lib/components/Ticks.svelte';
+  import EmptyState from './lib/components/EmptyState.svelte';
   import Microphone from './screens/Microphone.svelte';
   import Settings from './screens/Settings.svelte';
   import Mixer from './screens/Mixer.svelte';
@@ -101,17 +103,16 @@
     <Sidebar {screen} onnavigate={(next) => nav.go(next)} />
     <main>
       {#if daemon.status.state === 'unavailable'}
-        <div class="unavailable" role="alert">
-          <div class="panel">
-            <Ticks />
-            <span class="hud-label">{t('daemon.unavailable')}</span>
-            <h1>{t('daemon.unavailableTitle')} <em>{t('daemon.unavailableAccent')}</em>.</h1>
+        <div class="unavailable">
+          <EmptyState role="alert" tone="danger" label={t('daemon.unavailable')} title={t('daemon.unavailableTitle')} accent={t('daemon.unavailableAccent')} width="480px">
             <p>{t('daemon.unavailableBody')}</p>
             <p class="reason">{daemon.status.reason}</p>
-            <button class="btn invert" onclick={() => daemon.retry()}>
-              <RefreshCw size={13} strokeWidth={1.5} />{t('daemon.retry')}
-            </button>
-          </div>
+            {#snippet actions()}
+              <button class="btn invert" onclick={() => daemon.retry()}>
+                <RefreshCw size={13} strokeWidth={1.5} />{t('daemon.retry')}
+              </button>
+            {/snippet}
+          </EmptyState>
         </div>
       {:else if screen === 'settings'}
         <Settings onnavigate={(next) => nav.go(next)} />
@@ -138,6 +139,7 @@
 {/if}
 </div>
 <Toasts />
+<TooltipLayer />
 
 <style>
   .window {
@@ -193,36 +195,6 @@
     display: flex;
     align-items: center;
     justify-content: center;
-  }
-
-  .panel {
-    position: relative;
-    display: grid;
-    gap: var(--space-3);
-    justify-items: start;
-    max-width: 480px;
-    padding: 32px;
-    border: 1px solid var(--line);
-    background: var(--bg-raised);
-  }
-
-  h1 {
-    font-family: var(--font-display);
-    font-size: var(--text-display);
-    font-weight: 700;
-    letter-spacing: -0.03em;
-    color: var(--ink-strong);
-    line-height: 1.1;
-  }
-
-  em {
-    font-family: var(--font-serif);
-    font-weight: 400;
-    letter-spacing: 0;
-  }
-
-  p {
-    color: var(--muted);
   }
 
   .reason {

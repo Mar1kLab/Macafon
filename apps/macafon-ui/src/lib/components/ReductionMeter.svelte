@@ -5,6 +5,7 @@
   import { cssVar, drawEveryFrame } from '../state/frame';
   import { meterBus, type MeterKey } from '../state/meters';
   import { t } from '../i18n';
+  import { tip } from './tooltip.svelte';
 
   interface Props {
     /** Microphone meter to show; or `read` for any other source (channel reduction). */
@@ -63,7 +64,7 @@
   });
 </script>
 
-<div class="gr" class:inactive={!active} title={activity ? t('module.activityHint') : t('module.reductionHint')}>
+<div class="gr" class:inactive={!active} {@attach tip(activity ? t('module.activityHint') : t('module.reductionHint'))}>
   <span class="hud-label">{activity ? t('module.activity') : t('module.reduction')}</span>
   <canvas bind:this={canvas} aria-hidden="true"></canvas>
   <span class="value" bind:this={readout}></span>

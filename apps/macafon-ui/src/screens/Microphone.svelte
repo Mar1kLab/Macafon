@@ -23,6 +23,9 @@
   import { samplesToMs } from '../lib/dsp/format';
   import { t } from '../lib/i18n';
   import { openVbCablePage } from '../lib/ipc/tauri';
+  import { tip } from '../lib/components/tooltip.svelte';
+  import PageHeader from '../lib/components/PageHeader.svelte';
+  import Loader from '../lib/components/Loader.svelte';
 
   const mic = $derived(daemon.mic);
   let calibrating = $state(false);
@@ -52,48 +55,48 @@
 
 {#if mic}
   <div class="screen">
-    <header class="top">
-      <h1 class="hud-label">{t('mic.section')}</h1>
-      <DevicePicker {mic} />
-      <PresetPicker {mic} />
-      <span class="spacer"></span>
-      <div class="history">
-        <button class="btn icon ghost" aria-label={t('mic.undo')} title="{t('mic.undo')} (Ctrl+Z)" disabled={!daemon.canUndo} onclick={() => daemon.undo()}>
-          <Undo2 size={15} strokeWidth={1.5} />
+    <PageHeader title={t('mic.section')}>
+        <DevicePicker {mic} />
+        <PresetPicker {mic} />
+      {#snippet actions()}
+        <div class="history">
+          <button class="btn icon ghost" aria-label={t('mic.undo')} {@attach tip(t('mic.undo'), 'Ctrl+Z')} disabled={!daemon.canUndo} onclick={() => daemon.undo()}>
+            <Undo2 size={15} strokeWidth={1.5} />
+          </button>
+          <button class="btn icon ghost" aria-label={t('mic.redo')} {@attach tip(t('mic.redo'), 'Ctrl+Shift+Z')} disabled={!daemon.canRedo} onclick={() => daemon.redo()}>
+            <Redo2 size={15} strokeWidth={1.5} />
+          </button>
+        </div>
+        <!-- Until the first calibration it is the most useful next step: make it the CTA. -->
+        <button class="btn" class:invert={mic.noise_floor_dbfs === null} {@attach tip(t('mic.calibrateHint'))} onclick={() => (calibrating = true)}>
+          {t('mic.calibrate')}
         </button>
-        <button class="btn icon ghost" aria-label={t('mic.redo')} title="{t('mic.redo')} (Ctrl+Shift+Z)" disabled={!daemon.canRedo} onclick={() => daemon.redo()}>
-          <Redo2 size={15} strokeWidth={1.5} />
+        <button
+          class="btn"
+          class:on={mic.settings.bypass}
+          aria-pressed={mic.settings.bypass}
+          {@attach tip(t('mic.bypassHint'))}
+          onclick={() => setBypass(!mic.settings.bypass)}
+        >
+          {t('mic.bypass')}<HotkeyHint actions={['bypass_toggle']} />
         </button>
-      </div>
-      <!-- Until the first calibration it is the most useful next step: make it the CTA. -->
-      <button class="btn" class:invert={mic.noise_floor_dbfs === null} title={t('mic.calibrateHint')} onclick={() => (calibrating = true)}>
-        {t('mic.calibrate')}
-      </button>
-      <button
-        class="btn"
-        class:on={mic.settings.bypass}
-        aria-pressed={mic.settings.bypass}
-        title={t('mic.bypassHint')}
-        onclick={() => setBypass(!mic.settings.bypass)}
-      >
-        {t('mic.bypass')}<HotkeyHint actions={['bypass_toggle']} />
-      </button>
-      <button
-        class="btn danger"
-        class:on={mic.settings.muted}
-        aria-pressed={mic.settings.muted}
-        title={t('mic.muteHint')}
-        onclick={() => daemon.setMic(daemon.client.call('mic.set_muted', { muted: !mic.settings.muted }))}
-      >
-        {#if mic.settings.muted}<MicOff size={13} strokeWidth={1.5} />{t('mic.muted')}{:else}<Mic size={13} strokeWidth={1.5} />{t('mic.mute')}{/if}
-        <HotkeyHint actions={['mic_mute_toggle', 'push_to_talk', 'push_to_mute']} />
-      </button>
-      <SettingsLink section="audio" />
-    </header>
+        <button
+          class="btn danger"
+          class:on={mic.settings.muted}
+          aria-pressed={mic.settings.muted}
+          {@attach tip(t('mic.muteHint'))}
+          onclick={() => daemon.setMic(daemon.client.call('mic.set_muted', { muted: !mic.settings.muted }))}
+        >
+          {#if mic.settings.muted}<MicOff size={13} strokeWidth={1.5} />{t('mic.muted')}{:else}<Mic size={13} strokeWidth={1.5} />{t('mic.mute')}{/if}
+          <HotkeyHint actions={['mic_mute_toggle', 'push_to_talk', 'push_to_mute']} />
+        </button>
+        <SettingsLink section="audio" />
+      {/snippet}
+    </PageHeader>
 
     <div class="meters">
       <LevelMeter label={t('mic.input')} hint={t('mic.inputHint')} peakKey="input_peak_dbfs" rmsKey="input_rms_dbfs" clipKey="raw_peak_dbfs" onclip={(c) => (inputClipped = c)} />
-      <span class="latency" title={t('mic.latencyHint')}>
+      <span class="latency" {@attach tip(t('mic.latencyHint'))}>
         <span class="hud-label">{t('mic.latency')}</span>
         <span class="value">{samplesToMs(mic.latency_samples, SAMPLE_RATE_HZ).toFixed(1)} ms</span>
       </span>
@@ -139,9 +142,7 @@
   </div>
   <CalibrationDialog open={calibrating} onclose={() => (calibrating = false)} onlisten={listen} />
 {:else}
-  <div class="loading" role="status">
-    <span class="hud-label">{t('daemon.loading')}</span>
-  </div>
+  <Loader label={t('daemon.loading')} />
 {/if}
 
 <style>
@@ -150,24 +151,6 @@
     flex-direction: column;
     height: 100%;
     min-width: 0;
-  }
-
-  .top {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2) var(--space-2);
-    padding: 14px 24px;
-    border-bottom: 1px solid var(--line);
-  }
-
-  h1 {
-    color: var(--ink);
-    white-space: nowrap;
-  }
-
-  .spacer {
-    flex: 1;
   }
 
   .history {
@@ -204,13 +187,6 @@
   .banner.danger {
     color: var(--danger);
     border-left-color: var(--danger);
-  }
-
-  .loading {
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
   }
 
   .scroll {

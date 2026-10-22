@@ -16,6 +16,7 @@
   import { daemon } from '../state';
   import { dictationTile } from '../dictation/tile';
   import { t } from '../i18n';
+  import { tip } from '../components/tooltip.svelte';
 
   let { onclose, opened = 0 }: { onclose: () => void; opened?: number } = $props();
   const mic = $derived(daemon.mic);
@@ -110,18 +111,18 @@
 </script>
 
 {#snippet flag(open: boolean, label: string, onclick: () => void, disabled = false, controls?: string)}
-  <button class="flag" class:open aria-expanded={open} aria-controls={controls} aria-label={label} title={label} {disabled} {onclick}>
+  <button class="flag" class:open aria-expanded={open} aria-controls={controls} aria-label={label} {@attach tip(label)} {disabled} {onclick}>
     <Flag size={13} strokeWidth={1.5} />
   </button>
 {/snippet}
 
 {#snippet control(part: OverlayItem)}
   {#if part === 'mic_switch'}
-    <button class="switch" class:on={!muted} class:alert={muted} role="switch" aria-checked={!muted} title={muted ? t('quick.muted') : t('quick.on')} onclick={() => daemon.setMic(daemon.client.call('mic.set_muted', { muted: !muted }))}>
+    <button class="switch" class:on={!muted} class:alert={muted} role="switch" aria-checked={!muted} {@attach tip(muted ? t('quick.muted') : t('quick.on'))} onclick={() => daemon.setMic(daemon.client.call('mic.set_muted', { muted: !muted }))}>
       {#if muted}<MicOff size={16} strokeWidth={1.5} />{:else}<Mic size={16} strokeWidth={1.5} />{/if}<span>{t('quick.microphone')}</span>
     </button>
   {:else if part === 'processing_switch'}
-    <button class="switch" class:on={!bypass} role="switch" aria-checked={!bypass} title={bypass ? t('quick.bypassed') : t('quick.on')} onclick={() => daemon.setMic(daemon.client.call('mic.set_bypass', { bypass: !bypass }))}>
+    <button class="switch" class:on={!bypass} role="switch" aria-checked={!bypass} {@attach tip(bypass ? t('quick.bypassed') : t('quick.on'))} onclick={() => daemon.setMic(daemon.client.call('mic.set_bypass', { bypass: !bypass }))}>
       <AudioLines size={16} strokeWidth={1.5} /><span>{t('quick.processing')}</span>
     </button>
   {:else if part === 'mixer_switch'}
@@ -130,7 +131,7 @@
     </button>
   {:else if part === 'dictation' && dictation}
     <div class="split {expand}" class:open={side === 'dictation'}>
-      <button class="switch" class:on={dictation.on} role="switch" aria-checked={dictation.on} disabled={dictation.needsModel} title={`${t('quick.dictationHint')} · ${dictation.state}`} onclick={() => daemon.setDictationPrefs({ enabled: !dictation.on })}>
+      <button class="switch" class:on={dictation.on} role="switch" aria-checked={dictation.on} disabled={dictation.needsModel} {@attach tip(`${t('quick.dictationHint')} · ${dictation.state}`)} onclick={() => daemon.setDictationPrefs({ enabled: !dictation.on })}>
         <Speech size={16} strokeWidth={1.5} /><span>{t('quick.dictation')}</span>
         {#if dictation.progress !== null}<i class="progress" style:width="{dictation.progress}%"></i>{/if}
       </button>
@@ -138,21 +139,21 @@
     </div>
   {:else if part === 'dictation_history' && daemon.dictation}
     <div class="split {expand}" class:open={side === 'history'}>
-      <button class="switch" class:on={daemon.dictation.prefs.keep_history} title={t('settings.overlay.partHint.dictation_history')} role="switch" aria-checked={daemon.dictation.prefs.keep_history} onclick={() => daemon.setDictationPrefs({ keep_history: !daemon.dictation!.prefs.keep_history })}>
+      <button class="switch" class:on={daemon.dictation.prefs.keep_history} {@attach tip(t('settings.overlay.partHint.dictation_history'))} role="switch" aria-checked={daemon.dictation.prefs.keep_history} onclick={() => daemon.setDictationPrefs({ keep_history: !daemon.dictation!.prefs.keep_history })}>
         <History size={16} strokeWidth={1.5} /><span>{t('quick.history')}</span>
       </button>
       {@render flag(side === 'history', t('quick.dictationHistoryToggle'), () => toggle('history'), false, 'overlay-history')}
     </div>
   {:else if part === 'sounds' && soundpad}
     <div class="split {expand}" class:open={side === 'sounds'}>
-      <button class="switch" class:on={!!playback} aria-expanded={side === 'sounds'} aria-controls="overlay-sounds" title={playing ? playing.name : side === 'sounds' ? t('quick.soundpadHide') : t('quick.soundpadShowHint')} onclick={() => toggle('sounds')}>
+      <button class="switch" class:on={!!playback} aria-expanded={side === 'sounds'} aria-controls="overlay-sounds" {@attach tip(playing ? playing.name : side === 'sounds' ? t('quick.soundpadHide') : t('quick.soundpadShowHint'))} onclick={() => toggle('sounds')}>
         <AudioWaveform size={16} strokeWidth={1.5} /><span>{playing ? playing.name : t('quick.soundpadShow')}</span>
       </button>
       {@render flag(side === 'sounds', side === 'sounds' ? t('quick.soundpadHide') : t('quick.soundpadShowHint'), () => toggle('sounds'), false, 'overlay-sounds')}
     </div>
   {:else if part === 'display_profiles' && displays}
     <div class="split {expand}" class:open={side === 'displays'}>
-      <button class="switch" aria-expanded={side === 'displays'} aria-controls="overlay-displays" title={side === 'displays' ? t('quick.displaysHide') : t('quick.displaysShow')} onclick={() => toggle('displays')}>
+      <button class="switch" aria-expanded={side === 'displays'} aria-controls="overlay-displays" {@attach tip(side === 'displays' ? t('quick.displaysHide') : t('quick.displaysShow'))} onclick={() => toggle('displays')}>
         <MonitorSmartphone size={16} strokeWidth={1.5} /><span>{activeDisplay ?? t('quick.displays')}</span>
       </button>
       {@render flag(side === 'displays', side === 'displays' ? t('quick.displaysHide') : t('quick.displaysShow'), () => toggle('displays'), false, 'overlay-displays')}
@@ -161,9 +162,9 @@
     <div class="picker">
       <span class="hud-label">{t('quick.output')}</span>
       <div class="picker-nav">
-        <button class="round" aria-label={t('quick.previousOutput')} title={t('quick.previousOutput')} disabled={mixer.outputs.length < 2} onclick={() => cycleOutput(-1)}><ChevronLeft size={16} strokeWidth={1.5} /></button>
-        <span class="picker-name" title={output?.description ?? t('mixer.noOutput')} aria-live="polite"><Headphones size={13} strokeWidth={1.5} />{output?.description ?? t('mixer.noOutput')}</span>
-        <button class="round" aria-label={t('quick.nextOutput')} title={t('quick.nextOutput')} disabled={mixer.outputs.length < 2} onclick={() => cycleOutput(1)}><ChevronRight size={16} strokeWidth={1.5} /></button>
+        <button class="round" aria-label={t('quick.previousOutput')} {@attach tip(t('quick.previousOutput'))} disabled={mixer.outputs.length < 2} onclick={() => cycleOutput(-1)}><ChevronLeft size={16} strokeWidth={1.5} /></button>
+        <span class="picker-name" {@attach tip(output?.description ?? t('mixer.noOutput'))} aria-live="polite"><Headphones size={13} strokeWidth={1.5} />{output?.description ?? t('mixer.noOutput')}</span>
+        <button class="round" aria-label={t('quick.nextOutput')} {@attach tip(t('quick.nextOutput'))} disabled={mixer.outputs.length < 2} onclick={() => cycleOutput(1)}><ChevronRight size={16} strokeWidth={1.5} /></button>
       </div>
     </div>
   {:else if part === 'mic_level'}
@@ -175,7 +176,7 @@
       <span class="hud-label">{t('quick.preset')}</span>
       <div class="picker-nav">
         <button class="round" aria-label={t('quick.previousPreset')} onclick={() => daemon.setMic(daemon.client.call('mic.cycle_preset', { step: -1 }))}><ChevronLeft size={16} strokeWidth={1.5} /></button>
-        <span class="picker-name" title={preset} aria-live="polite">{preset}{#if mic.preset_modified}<small>{t('quick.modified')}</small>{/if}</span>
+        <span class="picker-name" {@attach tip(preset)} aria-live="polite">{preset}{#if mic.preset_modified}<small>{t('quick.modified')}</small>{/if}</span>
         <button class="round" aria-label={t('quick.nextPreset')} onclick={() => daemon.setMic(daemon.client.call('mic.cycle_preset', { step: 1 }))}><ChevronRight size={16} strokeWidth={1.5} /></button>
       </div>
     </div>
@@ -189,8 +190,8 @@
     <span class="brand"><span class="logo"><Logo label="" inactive={muted} {bypass} /></span><b>{t('app.name')}</b></span>
     <span class="hud-label">{t('quick.overlayTitle')}</span>
     <span class="header-end">
-      {#if shortcut}<kbd title={t('quick.hotkey')}>{displayShortcut(shortcut)}</kbd>{/if}
-      <button class="round close" aria-label={t('quick.closeOverlay')} title={t('quick.closeOverlay')} onclick={onclose}><X size={18} strokeWidth={1.5} /></button>
+      {#if shortcut}<kbd {@attach tip(t('quick.hotkey'))}>{displayShortcut(shortcut)}</kbd>{/if}
+      <button class="round close" aria-label={t('quick.closeOverlay')} {@attach tip(t('quick.closeOverlay'))} onclick={onclose}><X size={18} strokeWidth={1.5} /></button>
     </span>
   </header>
 
@@ -205,18 +206,18 @@
           <section class="volumes" aria-label={t('quick.mixer')}>
             {#if mixer?.enabled}
               <div class="strip master" style:--channel-ink="var(--app-teal-ink)">
-                <span class="strip-name" title={t('mixer.master')}>{t('mixer.master')}</span>
+                <span class="strip-name" {@attach tip(t('mixer.master'))}>{t('mixer.master')}</span>
                 <VerticalSlider {sketch} value={mixer.master_volume_pct} label={t('mixer.masterVolume')} color="teal" muted={mixer.master_muted} onchange={(volume_pct) => daemon.setMaster({ volume_pct })} />
-                <button class="round mute" class:alert={mixer.master_muted} aria-pressed={mixer.master_muted} aria-label={t('quick.mute', { name: t('mixer.master') })} title={t('quick.mute', { name: t('mixer.master') })} onclick={() => mixer && daemon.setMaster({ muted: !mixer.master_muted })}>
+                <button class="round mute" class:alert={mixer.master_muted} aria-pressed={mixer.master_muted} aria-label={t('quick.mute', { name: t('mixer.master') })} {@attach tip(t('quick.mute', { name: t('mixer.master') }))} onclick={() => mixer && daemon.setMaster({ muted: !mixer.master_muted })}>
                   {#if mixer.master_muted}<VolumeX size={18} strokeWidth={1.5} />{:else}<Volume2 size={18} strokeWidth={1.5} />{/if}
                 </button>
               </div>
               {#each channels as channel (channel.id)}
                 {@const Icon = channelIcon(channel.icon)}
                 <div class="strip" style:--channel-ink="var(--app-{channel.color}-ink)">
-                  <span class="strip-name" title={channel.name}>{channel.name}</span>
+                  <span class="strip-name" {@attach tip(channel.name)}>{channel.name}</span>
                   <VerticalSlider {sketch} value={channel.settings.volume_pct} label={t('mixer.volume', { name: channel.name })} color={channel.color} muted={channel.settings.muted} onchange={(value) => daemon.editChannel(channel.id, (settings) => (settings.volume_pct = value))} />
-                  <button class="round mute" class:alert={channel.settings.muted} aria-pressed={channel.settings.muted} aria-label={t('quick.mute', { name: channel.name })} title={t('quick.mute', { name: channel.name })} onclick={() => daemon.editChannel(channel.id, (settings) => (settings.muted = !settings.muted))}>
+                  <button class="round mute" class:alert={channel.settings.muted} aria-pressed={channel.settings.muted} aria-label={t('quick.mute', { name: channel.name })} {@attach tip(t('quick.mute', { name: channel.name }))} onclick={() => daemon.editChannel(channel.id, (settings) => (settings.muted = !settings.muted))}>
                     {#if channel.settings.muted}<VolumeX size={18} strokeWidth={1.5} />{:else}<Icon size={18} strokeWidth={1.5} />{/if}
                   </button>
                 </div>

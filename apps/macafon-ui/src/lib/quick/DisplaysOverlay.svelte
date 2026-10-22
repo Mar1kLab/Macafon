@@ -7,6 +7,7 @@
   import ProfileIcon from '../displays/ProfileIcon.svelte';
   import { useCountdown } from '../displays/countdown.svelte';
   import { t } from '../i18n';
+  import { tip } from '../components/tooltip.svelte';
 
   const displays = $derived(daemon.displays);
   const pending = $derived(displays?.pending ?? null);
@@ -20,7 +21,7 @@
       <span class="hud-label">{t('displays.title')}</span>
       <span class="spacer"></span>
       {#if displays.can_revert && !pending}
-        <button class="round" aria-label={t('displays.revert')} title={t('displays.revert')} onclick={() => daemon.setDisplays(daemon.client.call('displays.revert'))}><RotateCcw size={13} strokeWidth={1.5} /></button>
+        <button class="round" aria-label={t('displays.revert')} {@attach tip(t('displays.revert'))} onclick={() => daemon.setDisplays(daemon.client.call('displays.revert'))}><RotateCcw size={13} strokeWidth={1.5} /></button>
       {/if}
     </div>
     {#if pending}
@@ -39,7 +40,7 @@
           {@const active = displays.active === profile.id}
           {@const shortcut = shortcutOf(profile.id)}
           <li>
-            <button class="row" class:active aria-current={active ? 'true' : undefined} title={missing.length ? t('displays.missing', { names: missing.join(', ') }) : profile.name} onclick={() => daemon.applyDisplayProfile(profile.id)}>
+            <button class="row" class:active aria-current={active ? 'true' : undefined} {@attach tip(missing.length ? t('displays.missing', { names: missing.join(', ') }) : profile.name)} onclick={() => daemon.applyDisplayProfile(profile.id)}>
               <span class="icon"><ProfileIcon icon={profile.icon} size={15} /></span>
               <span class="name">{profile.name}</span>
               {#if missing.length}<span class="warn">{t('displays.missingShort', { count: missing.length })}</span>{/if}

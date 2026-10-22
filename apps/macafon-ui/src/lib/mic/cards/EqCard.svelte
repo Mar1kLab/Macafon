@@ -12,6 +12,7 @@
   import { eqCharacter, eqFromCharacter, type EqCharacterId } from '../../dsp/macros';
   import { EQ_CHARACTERS, SPECS } from '../../ipc/dsp';
   import type { ChainSettings, EqFilter } from '../../ipc/protocol';
+  import { tip } from '../../components/tooltip.svelte';
 
   let { settings, expanded, onexpand }: { settings: ChainSettings; expanded: boolean; onexpand: () => void } =
     $props();
@@ -41,7 +42,7 @@
   onreset={() => setCharacter('flat', SPECS.eq_amount_pct.default)}
 >
   {#snippet badges()}
-    <button class="btn icon ghost small expand" aria-label={expanded ? t('eq.collapse') : t('eq.expand')} title={expanded ? t('eq.collapse') : t('eq.expand')} onclick={onexpand}>
+    <button class="btn icon ghost small expand" aria-label={expanded ? t('eq.collapse') : t('eq.expand')} {@attach tip(expanded ? t('eq.collapse') : t('eq.expand'))} onclick={onexpand}>
       {#if expanded}<Minimize2 size={13} strokeWidth={1.5} />{:else}<Maximize2 size={13} strokeWidth={1.5} />{/if}
     </button>
   {/snippet}
@@ -97,7 +98,7 @@
             onchange={(filter) => daemon.edit((s) => (s.eq.bands[index]!.filter = filter))}
           />
         </div>
-        <button class="btn icon ghost small" aria-label={t('eq.deleteBand')} title={t('eq.deleteBand')} onclick={() => {
+        <button class="btn icon ghost small" aria-label={t('eq.deleteBand')} {@attach tip(t('eq.deleteBand'))} onclick={() => {
           daemon.edit((s) => s.eq.bands.splice(index, 1));
           selected = null;
         }}><Trash2 size={13} strokeWidth={1.5} /></button>

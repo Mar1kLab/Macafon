@@ -2,6 +2,7 @@
   import { daemon } from '../state';
   import { t, type MessageKey } from '../i18n';
   import { displayShortcut } from './shortcut';
+  import { tip } from '../components/tooltip.svelte';
   let { actions }: { actions: string[] } = $props();
   const bindings = $derived((daemon.hotkeys?.bindings ?? []).filter((binding) => actions.includes(binding.action)));
 </script>
@@ -10,7 +11,7 @@
   {#each bindings as binding (binding.action)}
     {@const label = t(`settings.hotkeys.actions.${binding.action.split('.')[0]}` as MessageKey)}
     {#each [binding.shortcut, binding.secondary_shortcut].filter(Boolean) as shortcut}
-      <kbd title={label} aria-label={`${label}: ${displayShortcut(shortcut!)}`}>{displayShortcut(shortcut!)}</kbd>
+      <kbd {@attach tip(label)} aria-label={`${label}: ${displayShortcut(shortcut!)}`}>{displayShortcut(shortcut!)}</kbd>
     {/each}
   {/each}
 </span>

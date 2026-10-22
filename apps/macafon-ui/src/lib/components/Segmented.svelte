@@ -1,6 +1,7 @@
 <script lang="ts" generics="T">
   // Radio group of square segments (slopes, engines, modes).
   import type { Snippet } from 'svelte';
+  import { tip } from './tooltip.svelte';
 
   interface Props {
     label: string;
@@ -29,7 +30,7 @@
   }
 </script>
 
-<div class="segmented {layout}" class:wrap title={hint} style:--c="var(--app-{color})" style:--c-ink="var(--app-{color}-ink)">
+<div class="segmented {layout}" class:wrap {@attach tip(hint)} style:--c="var(--app-{color})" style:--c-ink="var(--app-{color}-ink)">
   {#if layout === 'row'}<span class="hud-label">{label}</span>{/if}
   <div class="options" role="radiogroup" aria-label={label} tabindex="-1" {onkeydown}>
     {#each options as option (option.label)}

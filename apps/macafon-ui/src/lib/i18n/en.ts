@@ -224,6 +224,7 @@ export const en = {
     graphHelp: 'Drag a point to change frequency and gain, scroll for Q, double-click to add a band, right-click for options',
     band: 'Band {n}',
     deleteBand: 'Delete band',
+    bandMenu: 'Band options',
     expand: 'Expand graph',
     collapse: 'Collapse graph',
   },
@@ -508,6 +509,9 @@ export const en = {
     licenseList: 'RNNoise (nnnoiseless, BSD-3-Clause) · DeepFilterNet 3 (MIT OR Apache-2.0) · Archivo, Inter, Geist Mono, Instrument Serif (SIL OFL 1.1) · Lucide (ISC)',
   },
   displays: {
+    emptyLabel: 'No profiles yet',
+    emptyTitle: 'Save the setup you use most',
+    emptyBody: 'Arrange the monitors in Windows display settings, then save the layout as a profile below.',
     title: 'Display profiles',
     hint: 'Saved monitor setups: which screens are on, the main one, resolution and refresh rate. Switch with a click, a shortcut, the tray or the overlay.',
     profiles: 'Profiles',

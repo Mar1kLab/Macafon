@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tip } from './tooltip.svelte';
   // Ruler slider (design system §6): ticks every 10%, major every 50%, fill in the module
   // colour, mono value on the right. Double-click resets, wheel steps (Shift — fine), arrows
   // and PageUp/PageDown move it (PRD §9.8), clicking the value lets you type one.
@@ -167,7 +168,7 @@
   class:compact
   style:--c="var(--app-{color})"
   style:--c-ink="var(--app-{color}-ink)"
-  title={hint}
+  {@attach tip(hint)}
 >
   {#if !compact}<span class="hud-label name">{label}</span>{/if}
   <div

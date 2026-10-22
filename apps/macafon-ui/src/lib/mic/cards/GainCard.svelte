@@ -8,6 +8,7 @@
   import { daemon } from '../../state';
   import { t } from '../../i18n';
   import type { ChainSettings } from '../../ipc/protocol';
+  import { tip } from '../../components/tooltip.svelte';
 
   let { settings, oncalibrate }: { settings: ChainSettings; oncalibrate: () => void } = $props();
   const info = MODULES.gain;
@@ -28,7 +29,7 @@
     <div class="raw">
       <LevelMeter label={t('mic.mic')} hint={t('mic.micHint')} peakKey="raw_peak_dbfs" clipKey="raw_peak_dbfs" color={info.color} onclip={(c) => (clipped = c)} />
     </div>
-    <button class="btn small" onclick={oncalibrate} title={t('params.autoHint')}>
+    <button class="btn small" onclick={oncalibrate} {@attach tip(t('params.autoHint'))}>
       <Wand size={12} strokeWidth={1.5} />{t('params.auto')}
     </button>
   </div>

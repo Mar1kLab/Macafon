@@ -8,9 +8,11 @@
   import { uiZoom } from '../components/zoom';
   import { Lock } from '@lucide/svelte';
   import RulerSlider from '../components/RulerSlider.svelte';
+  import Menu, { type MenuAnchor, type MenuEntry } from '../components/Menu.svelte';
   import type { AppState, ChannelState } from '../ipc/protocol';
   import { t } from '../i18n';
   import { daemon } from '../state';
+  import { tip } from '../components/tooltip.svelte';
 
   interface Props {
     app: AppState;
@@ -25,10 +27,9 @@
   }
 
   let { app, channels, color, onmove, onvolume, onmanaged, onforget, ondragstart, ondragend }: Props = $props();
-  let menu = $state<{ x: number; y: number } | null>(null);
+  let menu = $state<MenuAnchor | null>(null);
   let volume = $state<{ x: number; y: number } | null>(null);
   let popover: HTMLDivElement | undefined = $state();
-  let list: HTMLUListElement | undefined = $state();
   const fixed = $derived(!app.movable || !app.managed);
   const initial = $derived(app.name.trim().charAt(0).toUpperCase() || '?');
   const icon = $derived(daemon.appIcon(app.icon));
@@ -48,32 +49,28 @@
     return { x: x / zoom, y: y / zoom };
   }
 
-  async function openMenu(x: number, y: number) {
-    menu = inside(undefined, { x, y }, 0);
-    await tick();
-    menu = inside(list, { x, y }, 0);
-    menuItems()[0]?.focus();
-  }
+  /** "Move to" the channels by number, (un)manage, forget a remembered app (APP-008). */
+  const entries = $derived<MenuEntry[]>([
+    { kind: 'heading', label: t('mixer.moveTo') },
+    ...channels.map((channel, index): MenuEntry => ({
+      kind: 'item',
+      label: channel.name,
+      swatch: `var(--app-${channel.color})`,
+      kbd: String(index + 1),
+      disabled: channel.id === app.channel || !app.movable || !channel.enabled,
+      onselect: () => onmove(channel.id),
+    })),
+    { kind: 'separator' },
+    { kind: 'check', label: t('mixer.dontManage'), checked: !app.managed, onselect: () => onmanaged(!app.managed) },
+    ...(app.streams === 0 ? [{ kind: 'item', label: t('mixer.forget'), onselect: onforget } as MenuEntry] : []),
+  ]);
 
-  const menuItems = () => [...(list?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])];
-
-  function closeMenu(refocus: boolean) {
+  function closeMenu() {
     menu = null;
-    if (refocus) chipButton?.focus();
-  }
-
-  /** Arrows, Home and End move through the enabled items; Escape and Tab close (§9.8). */
-  function onmenukey(event: KeyboardEvent) {
-    const items = menuItems();
-    const index = items.indexOf(document.activeElement as HTMLButtonElement);
-    const moves: Record<string, number> = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: items.length - 1 };
-    if (event.key in moves) {
-      event.preventDefault();
-      items[(moves[event.key]! + items.length) % items.length]?.focus();
-    } else if (event.key === 'Escape' || event.key === 'Tab') {
-      event.preventDefault();
-      closeMenu(true);
-    }
+    // Escape or a chosen item: keyboard focus goes back to the chip, not to the page.
+    queueMicrotask(() => {
+      if (document.activeElement === document.body) chipButton?.focus();
+    });
   }
 
   function onkeydown(event: KeyboardEvent) {
@@ -84,8 +81,7 @@
       if (target.id !== app.channel && target.enabled) onmove(target.id);
     } else if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
       event.preventDefault();
-      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-      void openMenu(rect.left, rect.bottom);
+      menu = event.currentTarget as HTMLElement;
     }
   }
 
@@ -116,15 +112,10 @@
 
   let chipButton: HTMLButtonElement | undefined = $state();
 
-  function choose(action: () => void) {
-    menu = null;
-    action();
-  }
 </script>
 
 <svelte:window
   onpointerdown={(event) => {
-    if (menu && !list?.contains(event.target as Node)) menu = null;
     if (volume && !popover?.contains(event.target as Node) && !chipButton?.contains(event.target as Node)) volume = null;
   }}
 />
@@ -137,13 +128,13 @@
   draggable={app.movable && app.managed}
   style:--c="var(--app-{color})"
   style:--c-ink="var(--app-{color}-ink)"
-  title={!app.movable ? t('mixer.cannotMove') : !app.managed ? t('mixer.unmanagedHint') : t('mixer.chipHint')}
+  {@attach tip(!app.movable ? t('mixer.cannotMove') : !app.managed ? t('mixer.unmanagedHint') : t('mixer.chipHint'))}
   aria-label="{app.name}{app.active ? ` · ${t('mixer.playing')}` : ''}"
   {onkeydown}
   onclick={(event) => (volume ? closeVolume(false) : void openVolume(event.currentTarget as HTMLElement))}
   oncontextmenu={(event) => {
     event.preventDefault();
-    void openMenu(event.clientX, event.clientY);
+    menu = { x: event.clientX, y: event.clientY };
   }}
   ondragstart={(event) => {
     const transfer = event.dataTransfer;
@@ -196,27 +187,7 @@
   </div>
 {/if}
 
-{#if menu}
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <ul class="menu" role="menu" aria-label={t('mixer.moveTo')} bind:this={list} style:left="{menu.x}px" style:top="{menu.y}px" onkeydown={onmenukey}>
-    <li class="hud-label" role="presentation">{t('mixer.moveTo')}</li>
-    {#each channels as channel, index (channel.id)}
-      <li role="none">
-        <button role="menuitem" disabled={channel.id === app.channel || !app.movable || !channel.enabled} onclick={() => choose(() => onmove(channel.id))}>
-          <span class="swatch" style:background="var(--app-{channel.color})"></span>{channel.name}<kbd>{index + 1}</kbd>
-        </button>
-      </li>
-    {/each}
-    <li role="none">
-      <button role="menuitemcheckbox" aria-checked={!app.managed} onclick={() => choose(() => onmanaged(!app.managed))}>
-        {app.managed ? t('mixer.dontManage') : t('mixer.manage')}
-      </button>
-    </li>
-    {#if app.streams === 0}
-      <li role="none"><button role="menuitem" onclick={() => choose(onforget)}>{t('mixer.forget')}</button></li>
-    {/if}
-  </ul>
-{/if}
+<Menu anchor={menu} label={t('mixer.moveTo')} {entries} onclose={closeMenu} />
 
 <style>
   .chip {
@@ -313,51 +284,12 @@
     }
   }
 
-  .menu {
-    position: fixed;
-    z-index: 40;
-    min-width: 180px;
-    margin: 0;
-    padding: 4px 0;
-    list-style: none;
-    background: var(--bg-raised);
-    border: 1px solid var(--line-strong);
-  }
 
-  .menu .hud-label {
-    padding: 6px 12px;
-  }
 
-  .menu button {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    width: 100%;
-    padding: 6px 12px;
-    text-align: left;
-    color: var(--ink);
-  }
 
-  .menu button:hover:not(:disabled),
-  .menu button:focus-visible {
-    background: var(--bg-sunken);
-  }
 
-  .menu button:disabled {
-    color: var(--faint);
-  }
 
-  .swatch {
-    width: 8px;
-    height: 8px;
-  }
 
-  kbd {
-    margin-left: auto;
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--faint);
-  }
 
   @media (prefers-reduced-motion: reduce) {
     .chip:hover {

@@ -16,6 +16,7 @@
   import { formatVolumeDb } from '../dsp/format';
   import { t } from '../i18n';
   import type { AppState, ChannelState } from '../ipc/protocol';
+  import { tip } from '../components/tooltip.svelte';
 
   interface Props {
     channel: ChannelState;
@@ -128,7 +129,7 @@
       class="handle"
       draggable="true"
       aria-label={t('mixer.reorder', { name: channel.name })}
-      title={t('mixer.reorder', { name: channel.name })}
+      {@attach tip(t('mixer.reorder', { name: channel.name }))}
       ondragstart={(event) => {
         const transfer = event.dataTransfer;
         if (!transfer) return;
@@ -157,7 +158,7 @@
       {#if !isDefault}
         <Toggle checked={channel.enabled} color={channel.color} label={t('mixer.channelOn', { name: channel.name })} onchange={setEnabled} />
       {/if}
-      <button class="btn icon ghost small" aria-label={t('mixer.channelSettings', { name: channel.name })} title={t('mixer.channelSettings', { name: channel.name })} onclick={() => onpanel('channel')}>
+      <button class="btn icon ghost small" aria-label={t('mixer.channelSettings', { name: channel.name })} {@attach tip(t('mixer.channelSettings', { name: channel.name }))} onclick={() => onpanel('channel')}>
         <Settings2 size={13} strokeWidth={1.5} />
       </button>
     </span>
@@ -207,19 +208,19 @@
       class="btn small danger"
       class:on={s.muted}
       aria-pressed={s.muted}
-      title={t('mixer.mute')}
+      {@attach tip(t('mixer.mute'))}
       onclick={() => daemon.editChannel(channel.id, (settings) => (settings.muted = !settings.muted))}>M</button
     >
     {#if daemon.channelFx}
-      <button class="btn small" title={t('mixer.eqHint')} onclick={() => onpanel('eq')}>
+      <button class="btn small" {@attach tip(t('mixer.eqHint'))} onclick={() => onpanel('eq')}>
         EQ{#if eqOn}<span class="active-dot" aria-label={t('mixer.active')}></span>{/if}
       </button>
-      <button class="btn small" title={t('mixer.fxHint')} onclick={() => onpanel('fx')}>
+      <button class="btn small" {@attach tip(t('mixer.fxHint'))} onclick={() => onpanel('fx')}>
         FX{#if fxOn}<span class="active-dot" aria-label={t('mixer.active')}></span>{/if}
       </button>
     {:else}
       <!-- WIN-CH-006: a channel is a volume group on Windows; only its own settings remain. -->
-      <button class="btn small" title={t('mixer.channelFxLinuxBody')} onclick={() => onpanel('channel')}>{t('mixer.panels.channel')}</button>
+      <button class="btn small" {@attach tip(t('mixer.channelFxLinuxBody'))} onclick={() => onpanel('channel')}>{t('mixer.panels.channel')}</button>
     {/if}
   </footer>
   <div class="shortcuts"><HotkeyHint actions={[`channel_volume_up.${channel.id}`, `channel_volume_down.${channel.id}`, `channel_mute.${channel.id}`]} /></div>

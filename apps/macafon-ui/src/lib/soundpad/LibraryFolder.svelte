@@ -7,6 +7,7 @@
   import { pickFolder } from '../ipc/tauri';
   import { daemon } from '../state';
   import { t } from '../i18n';
+  import { tip } from '../components/tooltip.svelte';
 
   /** `button`: only the change button, for the Soundpad screen's toolbar. */
   let { variant = 'full' }: { variant?: 'full' | 'button' } = $props();
@@ -27,10 +28,10 @@
 </script>
 
 {#if soundpad && variant === 'button'}
-  <button class="btn tool" title={t('soundpad.changeFolderHint')} aria-label={t('soundpad.changeFolder')} onclick={change}><FolderSearch size={13} strokeWidth={1.5} /><span class="label">{t('soundpad.changeFolder')}</span></button>
+  <button class="btn tool" {@attach tip(t('soundpad.changeFolderHint'))} aria-label={t('soundpad.changeFolder')} onclick={change}><FolderSearch size={13} strokeWidth={1.5} /><span class="label">{t('soundpad.changeFolder')}</span></button>
 {:else if soundpad}
   <div class="folder">
-    <code class="path" title={soundpad.folder}>{soundpad.folder}</code>
+    <code class="path" {@attach tip(soundpad.folder)}>{soundpad.folder}</code>
     {#if soundpad.default_folder}<span class="badge">{t('soundpad.folderDefault')}</span>{/if}
   </div>
   <div class="actions">

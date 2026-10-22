@@ -4,6 +4,7 @@
   import { Copier, clearHistory, reinsert, resultLanguage } from '../dictation/history.svelte';
   import { daemon } from '../state';
   import { t } from '../i18n';
+  import { tip } from '../components/tooltip.svelte';
   const dictation = $derived(daemon.dictation);
   const prefs = $derived(dictation?.prefs);
   const copier = new Copier();
@@ -13,7 +14,7 @@
     <div class="head">
       <span class="hud-label">{t('dictation.test.history')}</span>
       <span class="spacer"></span>
-      <button class="round" aria-label={t('dictation.test.clear')} title={t('dictation.test.clear')} disabled={dictation.history.length === 0} onclick={clearHistory}><Trash2 size={13} strokeWidth={1.5} /></button>
+      <button class="round" aria-label={t('dictation.test.clear')} {@attach tip(t('dictation.test.clear'))} disabled={dictation.history.length === 0} onclick={clearHistory}><Trash2 size={13} strokeWidth={1.5} /></button>
     </div>
     {#if dictation.history.length === 0}
       <p class="empty">{prefs.keep_history ? t('quick.dictationEmpty') : t('dictation.test.historyOff')}</p>
@@ -21,11 +22,11 @@
       <ul>
         {#each dictation.history as entry (entry.id)}
           <li>
-            <span class="text" title={entry.text}>{entry.text}</span>
+            <span class="text" {@attach tip(entry.text)}>{entry.text}</span>
             <span class="meta">{formatClock(entry.at_unix_ms)} · {resultLanguage(dictation, entry)} · {formatSeconds(entry.elapsed_ms)}</span>
             <span class="actions">
-              <button class="round" aria-label={t('dictation.test.copy')} title={copier.id === entry.id ? t('dictation.test.copied') : t('dictation.test.copy')} onclick={() => copier.copy(entry)}><Copy size={13} strokeWidth={1.5} /></button>
-              <button class="round" aria-label={t('dictation.test.reinsert')} title={t('dictation.test.reinsert')} onclick={() => reinsert(entry)}><CornerDownLeft size={13} strokeWidth={1.5} /></button>
+              <button class="round" aria-label={t('dictation.test.copy')} {@attach tip(copier.id === entry.id ? t('dictation.test.copied') : t('dictation.test.copy'))} onclick={() => copier.copy(entry)}><Copy size={13} strokeWidth={1.5} /></button>
+              <button class="round" aria-label={t('dictation.test.reinsert')} {@attach tip(t('dictation.test.reinsert'))} onclick={() => reinsert(entry)}><CornerDownLeft size={13} strokeWidth={1.5} /></button>
             </span>
           </li>
         {/each}

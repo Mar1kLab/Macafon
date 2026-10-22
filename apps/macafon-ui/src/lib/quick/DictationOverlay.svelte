@@ -6,6 +6,7 @@
   import type { DictationEngine, DictationLanguagePolicy } from '../ipc/protocol';
   import { daemon } from '../state';
   import { t } from '../i18n';
+  import { tip } from '../components/tooltip.svelte';
 
   const dictation = $derived(daemon.dictation);
   const prefs = $derived(dictation?.prefs);
@@ -50,7 +51,7 @@
     <header>
       <h2 class="hud-label">{t('quick.dictation')}</h2>
       <span class="badge">{model.toUpperCase()} · {prefs.gpu && !parakeet ? 'GPU' : 'CPU'}</span>
-      <span class="memory" class:loaded role="status" title={loaded ? t('quick.dictationLoadedHint') : t('quick.dictationUnloadedHint')}><i aria-hidden="true"></i>{memory}</span>
+      <span class="memory" class:loaded role="status" {@attach tip(loaded ? t('quick.dictationLoadedHint') : t('quick.dictationUnloadedHint'))}><i aria-hidden="true"></i>{memory}</span>
     </header>
 
     <div class="settings">

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tip } from './tooltip.svelte';
   // On/off switch: square track, the knob carries the module colour when on.
   interface Props {
     checked: boolean;
@@ -17,7 +18,7 @@
   role="switch"
   aria-checked={checked}
   aria-label={label}
-  title={label}
+  {@attach tip(label)}
   {disabled}
   style:--c="var(--app-{color})"
   onclick={() => onchange(!checked)}

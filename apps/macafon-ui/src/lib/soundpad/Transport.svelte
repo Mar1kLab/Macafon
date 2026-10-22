@@ -5,6 +5,7 @@
   import { t } from '../i18n';
   import { formatDuration } from './format';
   import SeekBar from './SeekBar.svelte';
+  import { tip } from '../components/tooltip.svelte';
 
   const playback = $derived(daemon.soundpadPlayback);
   const sound = $derived(playback && daemon.soundpad?.sounds.find((item) => item.id === playback.sound_id));
@@ -17,12 +18,12 @@
       class:on={playback && !playback.paused}
       disabled={!playback}
       aria-label={playback?.paused ? t('soundpad.resume') : t('soundpad.pause')}
-      title={playback?.paused ? t('soundpad.resume') : t('soundpad.pause')}
+      {@attach tip(playback?.paused ? t('soundpad.resume') : t('soundpad.pause'))}
       onclick={() => daemon.run(daemon.client.call('soundpad.set_paused', { paused: null }))}
     >
       {#if !playback || playback.paused}<Play size={14} strokeWidth={1.5} />{:else}<Pause size={14} strokeWidth={1.5} />{/if}
     </button>
-    <button class="btn icon" disabled={!playback} aria-label={t('soundpad.stop')} title={t('soundpad.stop')} onclick={() => daemon.stopSound()}>
+    <button class="btn icon" disabled={!playback} aria-label={t('soundpad.stop')} {@attach tip(t('soundpad.stop'))} onclick={() => daemon.stopSound()}>
       <Square size={13} strokeWidth={1.5} />
     </button>
     <button
@@ -31,7 +32,7 @@
       disabled={!playback}
       aria-pressed={playback?.looping ?? false}
       aria-label={t('soundpad.loop')}
-      title={t('soundpad.loop')}
+      {@attach tip(t('soundpad.loop'))}
       onclick={() => playback && daemon.run(daemon.client.call('soundpad.set_looping', { looping: !playback.looping }))}
     >
       <Repeat size={14} strokeWidth={1.5} />
@@ -41,7 +42,7 @@
   <div class="now" aria-live="polite">
     {#if playback}
       <span class="hud-label">{playback.loading ? t('soundpad.loading') : (sound?.category ?? t('soundpad.uncategorized'))}</span>
-      <b title={sound?.name}>{sound?.name ?? playback.sound_id}</b>
+      <b {@attach tip(sound?.name)}>{sound?.name ?? playback.sound_id}</b>
     {:else}
       <span class="hud-label">{t('soundpad.nothingPlaying')}</span>
     {/if}

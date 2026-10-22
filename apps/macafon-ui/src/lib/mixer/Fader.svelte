@@ -3,6 +3,7 @@
   // channel colour, cubic volume curve shown in % and dB. Arrows step 1%, PageUp/PageDown 10%,
   // Home/End to the ends, double-click resets, wheel steps (PRD §9.8).
   import { formatVolumeDb } from '../dsp/format';
+  import { tip } from '../components/tooltip.svelte';
 
   interface Props {
     value: number;
@@ -62,7 +63,7 @@
   aria-valuenow={Math.round(value)}
   aria-valuetext={text}
   aria-disabled={disabled}
-  title={text}
+  {@attach tip(text)}
   style:--c="var(--app-{color})"
   style:--c-ink="var(--app-{color}-ink)"
   {onkeydown}

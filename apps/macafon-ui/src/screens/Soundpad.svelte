@@ -47,6 +47,12 @@
   import { t } from '../lib/i18n';
   import type { SoundInfo } from '../lib/ipc/protocol';
   import SettingsLink from '../lib/components/SettingsLink.svelte';
+  import { tip } from '../lib/components/tooltip.svelte';
+  import Field from '../lib/components/Field.svelte';
+  import Input from '../lib/components/Input.svelte';
+  import PageHeader from '../lib/components/PageHeader.svelte';
+  import Loader from '../lib/components/Loader.svelte';
+  import EmptyState from '../lib/components/EmptyState.svelte';
 
   const SOUND_MIME = 'application/x-macafon-sound';
   const ACCEPT = '.mp3,.wav,.ogg,.flac,.m4a,.aac,audio/*';
@@ -229,42 +235,40 @@
     }}
     ondrop={(event) => ondrop(event, SCREEN_TARGET)}
   >
-    <header class="top">
-      <h1 class="hud-label">{t('soundpad.section')}</h1>
-      <label class="search">
-        <Search size={14} strokeWidth={1.5} />
-        <span class="visually-hidden">{t('soundpad.search')}</span>
-        <input type="search" bind:value={query} placeholder={t('soundpad.searchPlaceholder')} aria-label={t('soundpad.search')} />
-      </label>
-      <span class="hud-label">{t('soundpad.sort')}</span>
-      <Dropdown label={t('soundpad.sort')} options={sorts} value={sort} width="170px" onchange={(value) => {
-        sort = value;
-        saveSort(value);
-      }} />
-      <span class="spacer"></span>
-      <button class="btn tool" title={t('soundpad.randomHint')} aria-label={t('soundpad.random')} disabled={visible.every((sound) => sound.error)} onclick={() => {
-        const pool = visible.filter((sound) => !sound.error);
-        const pick = pool[Math.floor(Math.random() * pool.length)];
-        if (pick) daemon.playSound(pick.id);
-      }}><Shuffle size={13} strokeWidth={1.5} /><span class="label">{t('soundpad.random')}</span></button>
-      <button class="btn tool" title={soundpad.folder} aria-label={t('soundpad.openFolder')} onclick={() => daemon.run(daemon.client.call('soundpad.open_folder'))}><FolderOpen size={13} strokeWidth={1.5} /><span class="label">{t('soundpad.openFolder')}</span></button>
-      <LibraryFolder variant="button" />
-      <button class="btn invert" onclick={() => fileInput?.click()}><Plus size={13} strokeWidth={1.5} />{t('soundpad.addFiles')}</button>
-      <input
-        bind:this={fileInput}
-        class="visually-hidden"
-        type="file"
-        multiple
-        accept={ACCEPT}
-        tabindex="-1"
-        aria-hidden="true"
-        onchange={(event) => {
-          const input = event.currentTarget;
-          void upload(input.files, uploadCategory).then(() => (input.value = ''));
-        }}
-      />
-      <SettingsLink section="soundpad" />
-    </header>
+    <PageHeader title={t('soundpad.section')}>
+        <Input class="search" compact type="search" bind:value={query} placeholder={t('soundpad.searchPlaceholder')} aria-label={t('soundpad.search')}>
+          {#snippet icon()}<Search size={14} strokeWidth={1.5} />{/snippet}
+        </Input>
+        <span class="hud-label">{t('soundpad.sort')}</span>
+        <Dropdown label={t('soundpad.sort')} options={sorts} value={sort} width="170px" onchange={(value) => {
+          sort = value;
+          saveSort(value);
+        }} />
+      {#snippet actions()}
+        <button class="btn tool" {@attach tip(t('soundpad.randomHint'))} aria-label={t('soundpad.random')} disabled={visible.every((sound) => sound.error)} onclick={() => {
+          const pool = visible.filter((sound) => !sound.error);
+          const pick = pool[Math.floor(Math.random() * pool.length)];
+          if (pick) daemon.playSound(pick.id);
+        }}><Shuffle size={13} strokeWidth={1.5} /><span class="label">{t('soundpad.random')}</span></button>
+        <button class="btn tool" {@attach tip(soundpad.folder)} aria-label={t('soundpad.openFolder')} onclick={() => daemon.run(daemon.client.call('soundpad.open_folder'))}><FolderOpen size={13} strokeWidth={1.5} /><span class="label">{t('soundpad.openFolder')}</span></button>
+        <LibraryFolder variant="button" />
+        <button class="btn invert" onclick={() => fileInput?.click()}><Plus size={13} strokeWidth={1.5} />{t('soundpad.addFiles')}</button>
+        <input
+          bind:this={fileInput}
+          class="visually-hidden"
+          type="file"
+          multiple
+          accept={ACCEPT}
+          tabindex="-1"
+          aria-hidden="true"
+          onchange={(event) => {
+            const input = event.currentTarget;
+            void upload(input.files, uploadCategory).then(() => (input.value = ''));
+          }}
+        />
+        <SettingsLink section="soundpad" />
+      {/snippet}
+    </PageHeader>
 
     {#if !soundpad.microphone_ready}
       <p class="banner" role="status"><TriangleAlert size={14} strokeWidth={1.5} />{t('soundpad.cableMissing')}</p>
@@ -307,8 +311,8 @@
                   <span class="label">{category.name}</span><span class="count value">{category.count}</span>
                 </button>
                 <span class="tools">
-                  <button class="btn icon ghost small" aria-label={`${t('soundpad.renameCategory')}: ${category.name}`} title={t('soundpad.renameCategory')} onclick={() => (categoryDialog = { from: category.name, name: category.name })}><Pencil size={12} strokeWidth={1.5} /></button>
-                  <button class="btn icon ghost small" aria-label={`${t('soundpad.deleteCategory')}: ${category.name}`} title={t('soundpad.deleteCategory')} onclick={() => (deletingCategory = category.name)}><Trash2 size={12} strokeWidth={1.5} /></button>
+                  <button class="btn icon ghost small" aria-label={`${t('soundpad.renameCategory')}: ${category.name}`} {@attach tip(t('soundpad.renameCategory'))} onclick={() => (categoryDialog = { from: category.name, name: category.name })}><Pencil size={12} strokeWidth={1.5} /></button>
+                  <button class="btn icon ghost small" aria-label={`${t('soundpad.deleteCategory')}: ${category.name}`} {@attach tip(t('soundpad.deleteCategory'))} onclick={() => (deletingCategory = category.name)}><Trash2 size={12} strokeWidth={1.5} /></button>
                 </span>
               </li>
             {/each}
@@ -317,7 +321,7 @@
           {#if problems.length}
             <ul class="problems">
               <li>
-                <button class="scope problem" class:active={scope === PROBLEMS} aria-current={scope === PROBLEMS ? 'true' : undefined} title={t('soundpad.unplayableHint')} onclick={() => (scope = PROBLEMS)}>
+                <button class="scope problem" class:active={scope === PROBLEMS} aria-current={scope === PROBLEMS ? 'true' : undefined} {@attach tip(t('soundpad.unplayableHint'))} onclick={() => (scope = PROBLEMS)}>
                   <TriangleAlert size={13} strokeWidth={1.5} />
                   <span class="label">{t('soundpad.unplayable')}</span><span class="count value">{problems.length}</span>
                 </button>
@@ -330,18 +334,18 @@
           <h2 class="hud-label">{t('soundpad.output')}</h2>
           <div class="target">
             <Mic size={14} strokeWidth={1.5} />
-            <span class="name" title={t('soundpad.toMicrophoneHint')}>{t('soundpad.toMicrophone')}</span>
+            <span class="name" {@attach tip(t('soundpad.toMicrophoneHint'))}>{t('soundpad.toMicrophone')}</span>
             <Toggle checked={prefs.to_microphone} label={t('soundpad.toMicrophone')} color="violet" onchange={(to_microphone) => daemon.setSoundpadPrefs({ to_microphone })} />
           </div>
           <RulerSlider compact label={t('soundpad.microphoneVolume')} value={prefs.microphone_volume_pct} min={0} max={200} step={1} defaultValue={100} origin={100} color="violet" disabled={!prefs.to_microphone} format={(value) => `${value}%`} onchange={(microphone_volume_pct) => daemon.setSoundpadPrefs({ microphone_volume_pct })} />
           <div class="target">
             <Headphones size={14} strokeWidth={1.5} />
-            <span class="name" title={t('soundpad.toHeadphonesHint')}>{t('soundpad.toHeadphones')}</span>
+            <span class="name" {@attach tip(t('soundpad.toHeadphonesHint'))}>{t('soundpad.toHeadphones')}</span>
             <Toggle checked={prefs.to_headphones} label={t('soundpad.toHeadphones')} color="teal" onchange={(to_headphones) => daemon.setSoundpadPrefs({ to_headphones })} />
           </div>
           <RulerSlider compact label={t('soundpad.headphonesVolume')} value={prefs.headphones_volume_pct} min={0} max={200} step={1} defaultValue={70} origin={100} color="teal" disabled={!prefs.to_headphones} format={(value) => `${value}%`} onchange={(headphones_volume_pct) => daemon.setSoundpadPrefs({ headphones_volume_pct })} />
           <Dropdown label={t('soundpad.monitorDevice')} options={monitorOptions} value={prefs.monitor_device} disabled={!prefs.to_headphones} onchange={(device) => daemon.setSoundpad(daemon.client.call('soundpad.set_monitor_device', { device }))} />
-          <label class="target" title={t('soundpad.muteVoiceHint')}>
+          <label class="target" {@attach tip(t('soundpad.muteVoiceHint'))}>
             <span class="name">{t('soundpad.muteVoice')}</span>
             <Toggle checked={prefs.mute_voice_while_playing} label={t('soundpad.muteVoice')} color="orange" onchange={(mute_voice_while_playing) => daemon.setSoundpadPrefs({ mute_voice_while_playing })} />
           </label>
@@ -362,25 +366,22 @@
               <li class="problem-row">
                 <TriangleAlert size={13} strokeWidth={1.5} />
                 <span class="title"><b>{sound.name}</b><small>{sound.id.split('/').pop()}</small></span>
-                <span class="reason" title={sound.error ?? ''}>{sound.error ?? t('soundpad.unplayableReason')}</span>
-                <button class="btn icon ghost small" aria-label={t('soundpad.deleteSound', { name: sound.name })} title={t('soundpad.deleteSound', { name: sound.name })} onclick={() => daemon.setSoundpad(daemon.client.call('soundpad.delete', { id: sound.id }))}><Trash2 size={13} strokeWidth={1.5} /></button>
+                <span class="reason" {@attach tip(sound.error ?? '')}>{sound.error ?? t('soundpad.unplayableReason')}</span>
+                <button class="btn icon ghost small" aria-label={t('soundpad.deleteSound', { name: sound.name })} {@attach tip(t('soundpad.deleteSound', { name: sound.name }))} onclick={() => daemon.setSoundpad(daemon.client.call('soundpad.delete', { id: sound.id }))}><Trash2 size={13} strokeWidth={1.5} /></button>
               </li>
             {/each}
           </ul>
         {:else if sounds.length === 0}
           <div class="empty">
-            <div class="intro">
-              <Ticks />
-              <span class="hud-label">{t('soundpad.emptyLabel')}</span>
-              <h2>{t('soundpad.emptyTitle')} <em>{t('soundpad.emptyAccent')}</em>.</h2>
+            <EmptyState label={t('soundpad.emptyLabel')} title={t('soundpad.emptyTitle')} accent={t('soundpad.emptyAccent')}>
               <p>{t('soundpad.emptyBody')}</p>
               <p class="note">{t('soundpad.emptyNote', { folder: soundpad.folder })}</p>
-              <div class="actions">
+              {#snippet actions()}
                 <button class="btn invert" onclick={() => fileInput?.click()}><Plus size={13} strokeWidth={1.5} />{t('soundpad.addFiles')}</button>
                 <button class="btn" onclick={() => daemon.run(daemon.client.call('soundpad.open_folder'))}><FolderOpen size={13} strokeWidth={1.5} />{t('soundpad.openFolder')}</button>
                 <LibraryFolder variant="button" />
-              </div>
-            </div>
+              {/snippet}
+            </EmptyState>
           </div>
         {:else}
           <div class="head hud-label" aria-hidden="true">
@@ -406,7 +407,7 @@
                 tabindex="0"
                 draggable="true"
                 aria-label={sound.name}
-                title={sound.error ? t('soundpad.broken', { error: sound.error }) : undefined}
+                {@attach tip(sound.error ? t('soundpad.broken', { error: sound.error }) : undefined)}
                 style:--progress={playing && playback ? `${Math.min(playback.position_ms / Math.max(playback.duration_ms, 1), 1) * 100}%` : '0%'}
                 onclick={() => (selected = sound.id)}
                 ondblclick={() => toggle(sound)}
@@ -443,11 +444,11 @@
                   }}><Keyboard size={12} strokeWidth={1.5} /></button>{/if}
                 </span>
                 <span class="tools">
-                  <button class="btn icon ghost small fav" class:on={sound.favorite} tabindex="-1" aria-pressed={sound.favorite} aria-label={sound.favorite ? t('soundpad.unfavorite') : t('soundpad.favorite')} title={sound.favorite ? t('soundpad.unfavorite') : t('soundpad.favorite')} onclick={(event) => {
+                  <button class="btn icon ghost small fav" class:on={sound.favorite} tabindex="-1" aria-pressed={sound.favorite} aria-label={sound.favorite ? t('soundpad.unfavorite') : t('soundpad.favorite')} {@attach tip(sound.favorite ? t('soundpad.unfavorite') : t('soundpad.favorite'))} onclick={(event) => {
                     event.stopPropagation();
                     setFavorite(sound);
                   }}><Star size={13} strokeWidth={1.5} /></button>
-                  <button class="btn icon ghost small" tabindex="-1" aria-label={t('soundpad.edit', { name: sound.name })} title={t('soundpad.edit', { name: sound.name })} onclick={(event) => {
+                  <button class="btn icon ghost small" tabindex="-1" aria-label={t('soundpad.edit', { name: sound.name })} {@attach tip(t('soundpad.edit', { name: sound.name }))} onclick={(event) => {
                     event.stopPropagation();
                     editing = sound.id;
                   }}><Pencil size={13} strokeWidth={1.5} /></button>
@@ -486,7 +487,7 @@
     {/if}
   </div>
 {:else}
-  <div class="loading" role="status"><span class="hud-label">{t('daemon.loading')}</span></div>
+  <Loader label={t('daemon.loading')} />
 {/if}
 
 {#if editingSound}
@@ -506,15 +507,14 @@
 <Dialog open={categoryDialog !== null} title={categoryDialog?.from ? t('soundpad.renameCategory') : t('soundpad.newCategory')} onclose={() => (categoryDialog = null)}>
   {#if categoryDialog}
     <form
-      class="field"
       onsubmit={(event) => {
         event.preventDefault();
         void saveCategory();
       }}
     >
-      <span class="hud-label">{t('soundpad.categoryName')}</span>
-      <!-- svelte-ignore a11y_autofocus -->
-      <input class="input" bind:value={categoryDialog.name} maxlength={64} autofocus />
+      <Field label={t('soundpad.categoryName')}>
+        <Input bind:value={categoryDialog.name} maxlength={64} autofocus />
+      </Field>
     </form>
   {/if}
   {#snippet actions()}
@@ -549,62 +549,16 @@
     container: soundpad / inline-size;
   }
 
-  .top {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2) var(--space-3);
-    min-height: 59px;
-    padding: 14px 24px;
-    border-bottom: 1px solid var(--line);
-  }
-
-  h1 {
-    color: var(--ink);
-    white-space: nowrap;
-    margin-right: 8px;
-  }
-
   /* A narrow window keeps the toolbar on one line: its tools show only their icons. A container
      query, as media queries do not see the UI zoom. */
   @container soundpad (max-width: 1176px) {
-    .top :global(.tool .label) {
+    .tool .label {
       display: none;
     }
   }
 
-  .search {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
+  .screen :global(.search) {
     width: 240px;
-    height: 30px;
-    padding: 0 10px;
-    border: 1px solid var(--line);
-    background: var(--bg-sunken);
-    color: var(--muted);
-    transition: border-color var(--dur) var(--ease);
-  }
-
-  .search:focus-within {
-    border-color: var(--accent);
-  }
-
-  .search input {
-    flex: 1;
-    min-width: 0;
-    border: 0;
-    background: none;
-    color: var(--ink);
-    outline: none;
-    user-select: text;
-  }
-
-  .search input::placeholder {
-    color: var(--faint);
-  }
-
-  .spacer {
-    flex: 1;
   }
 
   .banner {
@@ -1056,43 +1010,6 @@
     padding: 24px;
   }
 
-  .intro {
-    position: relative;
-    display: grid;
-    gap: var(--space-4);
-    justify-items: start;
-    width: 560px;
-    padding: 32px;
-    border: 1px solid var(--line);
-    background: var(--bg-raised);
-  }
-
-  .intro h2 {
-    font-family: var(--font-display);
-    font-size: var(--text-display);
-    font-weight: 700;
-    letter-spacing: -0.03em;
-    line-height: 1.1;
-    color: var(--ink-strong);
-  }
-
-  .intro em {
-    font-family: var(--font-serif);
-    font-weight: 400;
-    letter-spacing: 0;
-  }
-
-  .intro .note {
-    font-size: var(--text-md);
-    color: var(--muted);
-    overflow-wrap: anywhere;
-  }
-
-  .actions {
-    display: flex;
-    gap: var(--space-2);
-  }
-
   .dropzone {
     position: absolute;
     inset: 72px 24px 80px 272px;
@@ -1109,27 +1026,5 @@
 
   .dropzone .hud-label {
     color: var(--accent-ink);
-  }
-
-  .loading {
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .field {
-    display: grid;
-    gap: var(--space-2);
-  }
-
-  .input {
-    height: 32px;
-    padding: 0 10px;
-    border: 1px solid var(--line);
-    background: var(--bg-sunken);
-    color: var(--ink);
-    font: inherit;
-    user-select: text;
   }
 </style>

@@ -9,6 +9,7 @@
   import Logo from './Logo.svelte';
   import { isTauri } from '../ipc/tauri';
   import { t } from '../i18n';
+  import { tip } from './tooltip.svelte';
 
   let { title }: { title: string } = $props();
   const tauri = isTauri();
@@ -34,11 +35,11 @@
     <span class="hud-label" data-tauri-drag-region>{title}</span>
   </span>
   <span class="controls">
-    <button aria-label={t('window.minimize')} title={t('window.minimize')} onclick={() => appWindow?.minimize()}><Minus size={14} strokeWidth={1.5} /></button>
-    <button aria-label={maximized ? t('window.restore') : t('window.maximize')} title={maximized ? t('window.restore') : t('window.maximize')} onclick={() => appWindow?.toggleMaximize()}>
+    <button aria-label={t('window.minimize')} {@attach tip(t('window.minimize'))} onclick={() => appWindow?.minimize()}><Minus size={14} strokeWidth={1.5} /></button>
+    <button aria-label={maximized ? t('window.restore') : t('window.maximize')} {@attach tip(maximized ? t('window.restore') : t('window.maximize'))} onclick={() => appWindow?.toggleMaximize()}>
       {#if maximized}<Copy size={12} strokeWidth={1.5} />{:else}<Square size={11} strokeWidth={1.5} />{/if}
     </button>
-    <button class="close" aria-label={t('window.close')} title={t('window.close')} onclick={() => appWindow?.close()}><X size={15} strokeWidth={1.5} /></button>
+    <button class="close" aria-label={t('window.close')} {@attach tip(t('window.close'))} onclick={() => appWindow?.close()}><X size={15} strokeWidth={1.5} /></button>
   </span>
 </header>
 

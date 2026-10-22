@@ -44,6 +44,8 @@
     SoundpadOverlayView,
   } from '../lib/ipc/protocol';
   import { OSD_MAX_OFFSET_PCT, QUANTUM_CHOICES, SAMPLE_RATE_HZ } from '../lib/ipc/dsp';
+  import { tip } from '../lib/components/tooltip.svelte';
+  import PageHeader from '../lib/components/PageHeader.svelte';
 
   let { onnavigate }: { onnavigate: (screen: 'microphone' | 'mixer') => void } = $props();
   const mic = $derived(daemon.mic);
@@ -317,12 +319,13 @@
 </script>
 
 <div class="screen">
-  <header class="top">
-    <button class="btn small back" title={t('nav.backTo', { screen: t(`nav.${nav.previous}`) })} onclick={() => nav.back()}>
-      <ArrowLeft size={13} strokeWidth={1.5} />{t('nav.back')}
-    </button>
-    <h1 class="hud-label">{t('settings.section')}</h1>
-  </header>
+  <PageHeader title={t('settings.section')}>
+    {#snippet lead()}
+      <button class="btn small back" {@attach tip(t('nav.backTo', { screen: t(`nav.${nav.previous}`) }))} onclick={() => nav.back()}>
+        <ArrowLeft size={13} strokeWidth={1.5} />{t('nav.back')}
+      </button>
+    {/snippet}
+  </PageHeader>
   <div class="body">
     <nav class="sections" aria-label={t('settings.sections')}>
       <ol>
@@ -739,24 +742,8 @@
     height: 100%;
   }
 
-  .top {
-    display: flex;
-    align-items: center;
-    min-height: 59px;
-    padding: 14px 24px;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .top {
-    gap: var(--space-4);
-  }
-
   .back {
     gap: var(--space-2);
-  }
-
-  h1 {
-    color: var(--ink);
   }
 
   .body {

@@ -3,6 +3,7 @@
   // number, HUD title, colour strip, ticks on focus — without an on/off switch.
   import type { Snippet } from 'svelte';
   import Ticks from '../components/Ticks.svelte';
+  import { tip } from '../components/tooltip.svelte';
 
   interface Props {
     number: string;
@@ -22,7 +23,7 @@
 
 <section class="card {className}" class:dimmed aria-label={title} style:--c="var(--app-{color})" style:--c-ink="var(--app-{color}-ink)">
   <span class="ticks"><Ticks /></span>
-  <header title={hint}>
+  <header {@attach tip(hint)}>
     <span class="number">{number}</span>
     <h3 class="hud-label">{title}</h3>
     {#if badge}<span class="badge">{badge}</span>{/if}

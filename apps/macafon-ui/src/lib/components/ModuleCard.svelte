@@ -11,6 +11,7 @@
   import { t } from '../i18n';
 
   import type { ModuleInfo } from '../mic/modules';
+  import { tip } from './tooltip.svelte';
 
   interface Props {
     info: ModuleInfo;
@@ -53,7 +54,7 @@
   style:--c-ink="var(--app-{info.color}-ink)"
 >
   <span class="ticks"><Ticks /></span>
-  <header title={t(info.hint)}>
+  <header {@attach tip(t(info.hint))}>
     <span class="number">{info.number}</span>
     <h3 class="hud-label">{title}</h3>
     {#if custom}

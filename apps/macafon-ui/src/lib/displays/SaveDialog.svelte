@@ -4,6 +4,8 @@
   import IconPicker from './IconPicker.svelte';
   import { daemon } from '../state';
   import { t } from '../i18n';
+  import Field from '../components/Field.svelte';
+  import Input from '../components/Input.svelte';
 
   let { open, onclose }: { open: boolean; onclose: () => void } = $props();
 
@@ -30,11 +32,9 @@
 
 <Dialog {open} title={t('displays.saveTitle')} {onclose}>
   <form id="display-save" class="form" onsubmit={save}>
-    <label class="field">
-      <span class="hud-label">{t('displays.name')}</span>
-      <!-- svelte-ignore a11y_autofocus -->
-      <input class="input" bind:value={name} maxlength="40" placeholder={t('displays.namePlaceholder')} autofocus />
-    </label>
+    <Field label={t('displays.name')}>
+      <Input bind:value={name} maxlength={40} placeholder={t('displays.namePlaceholder')} autofocus />
+    </Field>
     <div class="field">
       <span class="hud-label">{t('displays.icon')}</span>
       <IconPicker value={icon} onchange={(next) => (icon = next)} />
@@ -49,6 +49,4 @@
 <style>
   .form { display: flex; flex-direction: column; gap: var(--space-4); }
   .field { display: flex; flex-direction: column; gap: var(--space-2); }
-  .input { height: 34px; padding: 0 10px; border: 1px solid var(--line); background: var(--bg-sunken); color: var(--ink); font-size: var(--text-md); }
-  .input:focus { outline: none; border-color: var(--accent); }
 </style>

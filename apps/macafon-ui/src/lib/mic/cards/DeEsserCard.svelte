@@ -9,6 +9,7 @@
   import { t } from '../../i18n';
   import { deEsserFromIntensity, deEsserIntensity, nearestDeEsserIntensity } from '../../dsp/macros';
   import type { ChainSettings, DeEsserMode } from '../../ipc/protocol';
+  import { tip } from '../../components/tooltip.svelte';
 
   let { settings }: { settings: ChainSettings } = $props();
   const info = MODULES.de_esser;
@@ -49,7 +50,7 @@
     <Param spec="de_esser_threshold_db" label={t('params.threshold')} hint={t('hints.threshold')} color={info.color} value={d.threshold_db} onchange={(v) => daemon.edit((s) => (s.de_esser.threshold_db = v))} />
     <Param spec="de_esser_max_reduction_db" label={t('params.maxReduction')} hint={t('hints.maxReduction')} color={info.color} value={d.max_reduction_db} onchange={(v) => daemon.edit((s) => (s.de_esser.max_reduction_db = v))} />
     <Segmented label={t('params.mode')} hint={t('hints.mode')} color={info.color} value={d.mode} options={modes} onchange={(v) => daemon.edit((s) => (s.de_esser.mode = v))} />
-    <div class="switch-row" title={t('hints.listen')}>
+    <div class="switch-row" {@attach tip(t('hints.listen'))}>
       <span class="hud-label">{t('params.listen')}</span>
       <Toggle checked={d.listen} label={t('params.listen')} color={info.color} onchange={(on) => daemon.edit((s) => (s.de_esser.listen = on))} />
     </div>

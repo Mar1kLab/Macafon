@@ -11,6 +11,7 @@
   import { tick, type Snippet } from 'svelte';
   import { ChevronDown } from '@lucide/svelte';
   import { uiZoom } from './zoom';
+  import { tip } from './tooltip.svelte';
 
   interface Option {
     value: T;
@@ -201,7 +202,7 @@
             onclick={() => choose(index)}
             onkeydown={() => {}}
           >
-            {#if option}{@render option(item, item.value === value)}{:else}<span class="label" title={item.label}>{item.label}</span>{/if}
+            {#if option}{@render option(item, item.value === value)}{:else}<span class="label" {@attach tip(item.label)}>{item.label}</span>{/if}
           </li>
         {/each}
       </ul>

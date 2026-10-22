@@ -3,6 +3,7 @@
   import { DISPLAY_PROFILE_ICONS } from '../ipc/protocol';
   import { t, type MessageKey } from '../i18n';
   import ProfileIcon from './ProfileIcon.svelte';
+  import { tip } from '../components/tooltip.svelte';
 
   let { value, onchange }: { value: string; onchange: (icon: string) => void } = $props();
 
@@ -27,7 +28,7 @@
       role="radio"
       aria-checked={value === icon}
       aria-label={label}
-      title={label}
+      {@attach tip(label)}
       tabindex={value === icon ? 0 : -1}
       data-icon={icon}
       onclick={() => onchange(icon)}

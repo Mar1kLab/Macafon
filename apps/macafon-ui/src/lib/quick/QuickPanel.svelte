@@ -26,6 +26,7 @@
   import { daemon } from '../state';
   import { dictationTile } from '../dictation/tile';
   import { t } from '../i18n';
+  import { tip } from '../components/tooltip.svelte';
 
   let { onclose }: { onclose: () => void } = $props();
   const tauri = isTauri();
@@ -74,10 +75,10 @@
   {/if}
   <header>
     <span class="brand"><span class="logo"><Logo label="" inactive={muted} bypass={bypass} /></span><b>Macafon</b></span>
-    <button class="round" aria-label={t('quick.openApp')} title={t('quick.openApp')} onclick={openMain}>
+    <button class="round" aria-label={t('quick.openApp')} {@attach tip(t('quick.openApp'))} onclick={openMain}>
       <SquareArrowOutUpRight size={15} strokeWidth={1.5} />
     </button>
-    <button class="round" aria-label={t('quick.trayClose')} title={t('quick.trayClose')} onclick={onclose}>
+    <button class="round" aria-label={t('quick.trayClose')} {@attach tip(t('quick.trayClose'))} onclick={onclose}>
       <X size={15} strokeWidth={1.5} />
     </button>
   </header>
@@ -130,7 +131,7 @@
           class:dim={dictation.needsModel}
           role="switch"
           aria-checked={dictation.on}
-          title={t('quick.dictationHint')}
+          {@attach tip(t('quick.dictationHint'))}
           onclick={toggleDictation}
           oncontextmenu={(event) => {
             event.preventDefault();
@@ -147,11 +148,11 @@
 
     <div class="preset">
       <span class="hud-label">{t('quick.preset')}</span>
-      <button class="round" aria-label={t('quick.previousPreset')} title={t('quick.previousPreset')} onclick={() => daemon.setMic(daemon.client.call('mic.cycle_preset', { step: -1 }))}>
+      <button class="round" aria-label={t('quick.previousPreset')} {@attach tip(t('quick.previousPreset'))} onclick={() => daemon.setMic(daemon.client.call('mic.cycle_preset', { step: -1 }))}>
         <ChevronLeft size={15} strokeWidth={1.5} />
       </button>
       <span class="name" aria-live="polite">{preset}{#if mic.preset_modified}<small>{t('quick.modified')}</small>{/if}</span>
-      <button class="round" aria-label={t('quick.nextPreset')} title={t('quick.nextPreset')} onclick={() => daemon.setMic(daemon.client.call('mic.cycle_preset', { step: 1 }))}>
+      <button class="round" aria-label={t('quick.nextPreset')} {@attach tip(t('quick.nextPreset'))} onclick={() => daemon.setMic(daemon.client.call('mic.cycle_preset', { step: 1 }))}>
         <ChevronRight size={15} strokeWidth={1.5} />
       </button>
     </div>
@@ -165,7 +166,7 @@
             class:alert={mixer.master_muted}
             aria-pressed={mixer.master_muted}
             aria-label={t('quick.mute', { name: t('mixer.master') })}
-            title={t('quick.mute', { name: t('mixer.master') })}
+            {@attach tip(t('quick.mute', { name: t('mixer.master') }))}
             onclick={() => daemon.setMaster({ muted: !mixer.master_muted })}
           >
             {#if mixer.master_muted}<VolumeX size={16} strokeWidth={1.5} />{:else}<Volume2 size={16} strokeWidth={1.5} />{/if}
@@ -190,7 +191,7 @@
               class:alert={channel.settings.muted}
               aria-pressed={channel.settings.muted}
               aria-label={t('quick.mute', { name: channel.name })}
-              title={t('quick.mute', { name: channel.name })}
+              {@attach tip(t('quick.mute', { name: channel.name }))}
               onclick={() => daemon.editChannel(channel.id, (s) => (s.muted = !s.muted))}
             >
               {#if channel.settings.muted}<VolumeX size={16} strokeWidth={1.5} />{:else}<Icon size={16} strokeWidth={1.5} />{/if}
@@ -220,8 +221,8 @@
   {#if quitError}<p class="status" role="alert">{quitError}</p>{/if}
 
   <footer>
-    <span class="output" title={output ?? ''}>{output ?? ''}</span>
-    {#if shortcut}<kbd title={t('quick.hotkey')}>{displayShortcut(shortcut)}</kbd>{/if}
+    <span class="output" {@attach tip(output ?? '')}>{output ?? ''}</span>
+    {#if shortcut}<kbd {@attach tip(t('quick.hotkey'))}>{displayShortcut(shortcut)}</kbd>{/if}
   </footer>
 </div>
 

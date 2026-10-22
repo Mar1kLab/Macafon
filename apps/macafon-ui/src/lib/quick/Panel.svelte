@@ -8,6 +8,7 @@
   import { listen } from '@tauri-apps/api/event';
   import QuickPanel from './QuickPanel.svelte';
   import HotkeyOverlay from './HotkeyOverlay.svelte';
+  import TooltipLayer from '../components/TooltipLayer.svelte';
   import { isTauri } from '../ipc/tauri';
   import { daemon } from '../state';
 
@@ -112,6 +113,7 @@
     <QuickPanel onclose={close} />
   {/if}
 </div>
+<TooltipLayer />
 
 <style>
   /* Sketch: no system frame; the desktop shows around the panel's lines (§9.9.2). */

@@ -14,6 +14,10 @@
   import { displayShortcut } from '../lib/settings/shortcut';
   import { daemon } from '../lib/state';
   import { t } from '../lib/i18n';
+  import { tip } from '../lib/components/tooltip.svelte';
+  import PageHeader from '../lib/components/PageHeader.svelte';
+  import Loader from '../lib/components/Loader.svelte';
+  import EmptyState from '../lib/components/EmptyState.svelte';
 
   const ONBOARDING_KEY = 'macafon.displays.onboarding';
 
@@ -64,14 +68,14 @@
 
 {#if displays}
   <div class="screen">
-    <header class="top">
-      <h1 class="hud-label">{t('displays.title')}</h1>
-      <span class="spacer"></span>
-      {#if displays.can_revert && !pending}
-        <button class="btn" onclick={() => daemon.setDisplays(daemon.client.call('displays.revert'))}><RotateCcw size={13} strokeWidth={1.5} />{t('displays.revert')}</button>
-      {/if}
-      <button class="btn" disabled={pending !== null} onclick={() => daemon.setDisplays(daemon.client.call('displays.all_on'))}><MonitorCheck size={13} strokeWidth={1.5} />{t('displays.allOn')}</button>
-    </header>
+    <PageHeader title={t('displays.title')}>
+      {#snippet actions()}
+        {#if displays.can_revert && !pending}
+          <button class="btn" onclick={() => daemon.setDisplays(daemon.client.call('displays.revert'))}><RotateCcw size={13} strokeWidth={1.5} />{t('displays.revert')}</button>
+        {/if}
+        <button class="btn" disabled={pending !== null} onclick={() => daemon.setDisplays(daemon.client.call('displays.all_on'))}><MonitorCheck size={13} strokeWidth={1.5} />{t('displays.allOn')}</button>
+      {/snippet}
+    </PageHeader>
 
     <div class="content">
       {#if pending}
@@ -118,23 +122,30 @@
                 >
                   <div class="card-head">
                     <span class="icon"><ProfileIcon icon={profile.icon} size={16} /></span>
-                    <h3 class="name" title={profile.name}>{profile.name}</h3>
+                    <h3 class="name" {@attach tip(profile.name)}>{profile.name}</h3>
                     {#if active}<span class="badge">{t('displays.active')}</span>{/if}
-                    <button class="btn icon ghost grip" aria-label={t('displays.reorder', { name: profile.name })} title={t('displays.reorderHint')} onkeydown={(event) => onkeydown(event, profile.id, index)}><GripVertical size={13} strokeWidth={1.5} /></button>
+                    <button class="btn icon ghost grip" aria-label={t('displays.reorder', { name: profile.name })} {@attach tip(t('displays.reorderHint'))} onkeydown={(event) => onkeydown(event, profile.id, index)}><GripVertical size={13} strokeWidth={1.5} /></button>
                   </div>
                   <LayoutSketch monitors={profileSketch(profile, displays.monitors)} height={84} />
                   {#if missing.length}<p class="warn">{t('displays.missing', { names: missing.join(', ') })}</p>{/if}
                   <div class="card-foot">
-                    {#if shortcut}<kbd>{displayShortcut(shortcut)}</kbd>{:else}<span class="faint" title={t('displays.setShortcut')}>{t('displays.noShortcut')}</span>{/if}
+                    {#if shortcut}<kbd>{displayShortcut(shortcut)}</kbd>{:else}<span class="faint" {@attach tip(t('displays.setShortcut'))}>{t('displays.noShortcut')}</span>{/if}
                     <span class="spacer"></span>
-                    <button class="btn icon ghost" aria-label={`${t('displays.edit')}: ${profile.name}`} title={t('displays.edit')} onclick={() => (editing = profile)}><Pencil size={13} strokeWidth={1.5} /></button>
-                    <button class="btn icon ghost" aria-label={`${t('displays.recapture')}: ${profile.name}`} title={t('displays.recapture')} onclick={() => recapture(profile)}><RefreshCw size={13} strokeWidth={1.5} /></button>
-                    <button class="btn icon ghost" aria-label={`${t('displays.delete')}: ${profile.name}`} title={t('displays.delete')} onclick={() => (deleting = profile)}><Trash2 size={13} strokeWidth={1.5} /></button>
+                    <button class="btn icon ghost" aria-label={`${t('displays.edit')}: ${profile.name}`} {@attach tip(t('displays.edit'))} onclick={() => (editing = profile)}><Pencil size={13} strokeWidth={1.5} /></button>
+                    <button class="btn icon ghost" aria-label={`${t('displays.recapture')}: ${profile.name}`} {@attach tip(t('displays.recapture'))} onclick={() => recapture(profile)}><RefreshCw size={13} strokeWidth={1.5} /></button>
+                    <button class="btn icon ghost" aria-label={`${t('displays.delete')}: ${profile.name}`} {@attach tip(t('displays.delete'))} onclick={() => (deleting = profile)}><Trash2 size={13} strokeWidth={1.5} /></button>
                     <button class="btn" class:invert={!active} disabled={active || pending !== null} onclick={() => daemon.applyDisplayProfile(profile.id)}>{active ? t('displays.active') : t('displays.apply')}</button>
                   </div>
                 </li>
               {/each}
             </ul>
+          {:else}
+            <EmptyState compact label={t('displays.emptyLabel')} title={t('displays.emptyTitle')}>
+              <p>{t('displays.emptyBody')}</p>
+              {#snippet actions()}
+                <button class="btn invert" onclick={() => (saving = true)}>{t('displays.save')}</button>
+              {/snippet}
+            </EmptyState>
           {/if}
         </section>
       {/if}
@@ -166,12 +177,12 @@
       >{t('displays.delete')}</button>
     {/snippet}
   </Dialog>
+{:else}
+  <Loader label={t('daemon.loading')} />
 {/if}
 
 <style>
   .screen { display: flex; flex-direction: column; height: 100%; min-width: 0; }
-  .top { display: flex; align-items: center; gap: var(--space-3); min-height: 59px; padding: 14px 24px; border-bottom: 1px solid var(--line); }
-  h1 { color: var(--ink); white-space: nowrap; }
   .spacer { flex: 1; }
   .content { flex: 1; min-height: 0; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: var(--space-6); }
   .section-head { display: flex; align-items: baseline; gap: var(--space-4); margin-bottom: 14px; flex-wrap: wrap; }

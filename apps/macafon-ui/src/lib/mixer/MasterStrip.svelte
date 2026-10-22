@@ -7,6 +7,7 @@
   import { formatVolumeDb } from '../dsp/format';
   import { t } from '../i18n';
   import type { MixerState } from '../ipc/protocol';
+  import { tip } from '../components/tooltip.svelte';
 
   let { mixer }: { mixer: MixerState } = $props();
 </script>
@@ -32,7 +33,7 @@
     class="btn small danger"
     class:on={mixer.master_muted}
     aria-pressed={mixer.master_muted}
-    title={t('mixer.masterMute')}
+    {@attach tip(t('mixer.masterMute'))}
     onclick={() => daemon.setMaster({ muted: !mixer.master_muted })}>M</button
   >
   <div class="shortcuts"><HotkeyHint actions={['master_volume_up', 'master_volume_down', 'master_mute']} /></div>

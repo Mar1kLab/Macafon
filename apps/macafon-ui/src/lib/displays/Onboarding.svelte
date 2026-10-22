@@ -10,6 +10,7 @@
   import { displayShortcut } from '../settings/shortcut';
   import { daemon } from '../state';
   import { t } from '../i18n';
+  import Input from '../components/Input.svelte';
 
   let { onstep, onfinish, onskip }: { onstep: () => void; onfinish: () => void; onskip: () => void } = $props();
 
@@ -78,7 +79,7 @@
               <span class="box" aria-hidden="true">{#if choice.checked}<Check size={12} strokeWidth={2} />{/if}</span>
             </label>
             <span class="icon"><ProfileIcon icon={choice.profile.icon} size={16} /></span>
-            <input class="input" bind:value={choice.name} maxlength="40" aria-label={t('displays.name')} disabled={!choice.checked} />
+            <Input compact bind:value={choice.name} maxlength={40} aria-label={t('displays.name')} disabled={!choice.checked} />
             <div class="sketch"><LayoutSketch monitors={profileSketch(choice.profile, monitors)} height={56} /></div>
           </li>
         {/each}
@@ -128,9 +129,6 @@
   .choices li.off .sketch, .choices li.off .icon { opacity: 0.4; }
   .icon { display: inline-flex; color: var(--muted); }
   .sketch { min-width: 0; }
-  .input { height: 30px; padding: 0 8px; border: 1px solid var(--line); background: var(--bg-sunken); color: var(--ink); font-size: var(--text-md); user-select: text; min-width: 0; }
-  .input:focus { outline: none; border-color: var(--accent); }
-  .input:disabled { color: var(--faint); }
   .check, .assign { display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; position: relative; font-size: var(--text-md); color: var(--ink); }
   .check input, .assign input { position: absolute; opacity: 0; width: 1px; height: 1px; }
   .box { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line-strong); color: var(--ink-strong); background: var(--bg-sunken); }

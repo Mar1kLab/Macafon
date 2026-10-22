@@ -8,6 +8,7 @@
   import { DaemonError } from '../ipc/client';
   import type { HotkeyBinding } from '../ipc/protocol';
   import { displayShortcut, modifierChord, recordShortcut } from './shortcut';
+  import { tip } from '../components/tooltip.svelte';
 
   const hotkeys = $derived(daemon.hotkeys);
   const unavailable = $derived(hotkeys?.backend === 'unavailable');
@@ -182,7 +183,7 @@
               {#if unavailable}
                 {#if binding.command}
                   <code>{binding.command}</code>
-                  <button class="btn icon ghost small" aria-label={t('settings.hotkeys.copy')} title={t('settings.hotkeys.copy')} onclick={() => copy(binding.command)}>
+                  <button class="btn icon ghost small" aria-label={t('settings.hotkeys.copy')} {@attach tip(t('settings.hotkeys.copy'))} onclick={() => copy(binding.command)}>
                     <Copy size={13} strokeWidth={1.5} />
                   </button>
                 {:else}

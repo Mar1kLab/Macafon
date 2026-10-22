@@ -10,6 +10,7 @@
   import { toCss } from '../components/zoom';
   import { OVERLAY_PARTS, isSwitch, movePart, overlayOrder, overlayRows, partShown, volumesFirst } from '../quick/layout';
   import { t } from '../i18n';
+  import { tip } from '../components/tooltip.svelte';
 
   let { setup, onchange }: { setup: OverlayPrefs; onchange: (patch: Partial<OverlayPrefs>) => void } = $props();
 
@@ -222,7 +223,7 @@
     data-control={from === 'canvas' && part !== 'volumes' ? part : undefined}
     data-builder-part={part}
     aria-label={from === 'canvas' ? t('settings.overlay.builder.shownPart', { name: partLabel(part) }) : t('settings.overlay.builder.hiddenPart', { name: partLabel(part) })}
-    title={t(`settings.overlay.partHint.${part}`)}
+    {@attach tip(t(`settings.overlay.partHint.${part}`))}
     onpointerdown={(event) => onpointerdown(event, part, from)}
     {onpointermove}
     {onpointerup}

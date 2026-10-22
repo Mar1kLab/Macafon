@@ -9,6 +9,8 @@
   import { EQ_MAX_BANDS, SPECS } from '../ipc/dsp';
   import type { EqBand, EqFilter } from '../ipc/protocol';
   import { t } from '../i18n';
+  import { tip } from './tooltip.svelte';
+  import Menu, { type MenuAnchor, type MenuEntry } from './Menu.svelte';
 
   interface Props {
     bands: EqBand[];
@@ -44,7 +46,7 @@
   let canvas: HTMLCanvasElement | undefined = $state();
   let box: HTMLDivElement | undefined = $state();
   let width = $state(0);
-  let menu = $state<{ index: number; x: number; y: number } | null>(null);
+  let menu = $state<{ index: number; anchor: MenuAnchor; point: HTMLElement } | null>(null);
   let drag: { index: number; pointer: number; startY: number; startQ: number; q: boolean } | null = null;
 
   const hasGain = (filter: EqFilter) => filter === 'bell' || filter === 'low_shelf' || filter === 'high_shelf';
@@ -208,11 +210,30 @@
     }
   }
 
-  function openMenu(index: number, anchor: HTMLElement, at?: { x: number; y: number }) {
-    const rect = box!.getBoundingClientRect();
-    const point = anchor.getBoundingClientRect();
-    menu = { index, x: (at?.x ?? point.right) - rect.left, y: (at?.y ?? point.bottom) - rect.top };
+  function openMenu(index: number, point: HTMLElement, at?: { x: number; y: number }) {
+    menu = { index, anchor: at ?? point, point };
     onselect(index);
+  }
+
+  /** The band's filter type and Delete (EQ-006). */
+  const menuEntries = $derived.by((): MenuEntry[] => {
+    const band = menu ? bands[menu.index] : undefined;
+    if (!menu || !band) return [];
+    const index = menu.index;
+    return [
+      { kind: 'heading', label: t('eq.band', { n: index + 1 }) },
+      { kind: 'radio', value: band.filter, options: FILTERS.map((filter) => ({ value: filter, label: t(`eq.filters.${filter}`) })), onselect: (filter) => onchange(index, { ...band, filter: filter as EqFilter }) },
+      { kind: 'separator' },
+      { kind: 'item', label: t('eq.deleteBand'), danger: true, onselect: () => ondelete(index) },
+    ];
+  });
+
+  function closeMenu() {
+    const point = menu?.point;
+    menu = null;
+    queueMicrotask(() => {
+      if (document.activeElement === document.body && point?.isConnected) point.focus();
+    });
   }
 
   function ondblclick(event: MouseEvent) {
@@ -236,20 +257,6 @@
       },
     };
   }
-
-  $effect(() => {
-    if (!menu) return;
-    const close = (event: PointerEvent) => {
-      if (!(event.target as HTMLElement).closest('.menu')) menu = null;
-    };
-    const escape = (event: KeyboardEvent) => event.key === 'Escape' && (menu = null);
-    window.addEventListener('pointerdown', close, true);
-    window.addEventListener('keydown', escape);
-    return () => {
-      window.removeEventListener('pointerdown', close, true);
-      window.removeEventListener('keydown', escape);
-    };
-  });
 </script>
 
 <div
@@ -259,7 +266,7 @@
   style:height="{height}px"
   style:--c="var(--app-{color})"
   style:--c-ink="var(--app-{color}-ink)"
-  title={t('eq.graphHelp')}
+  {@attach tip(t('eq.graphHelp'))}
   role="group"
   aria-label={t('eq.graphLabel')}
 >
@@ -288,33 +295,8 @@
       <span class="label">{index + 1}</span>
     </button>
   {/each}
-  {#if menu}
-    {@const band = bands[menu.index]}
-    {#if band}
-      <div class="menu" role="menu" style:left="{Math.min(menu.x, width - 150)}px" style:top="{menu.y}px">
-        {#each FILTERS as filter (filter)}
-          <button
-            role="menuitemradio"
-            aria-checked={band.filter === filter}
-            class:checked={band.filter === filter}
-            onclick={() => {
-              onchange(menu!.index, { ...band, filter });
-              menu = null;
-            }}>{t(`eq.filters.${filter}`)}</button
-          >
-        {/each}
-        <button
-          role="menuitem"
-          class="delete"
-          onclick={() => {
-            ondelete(menu!.index);
-            menu = null;
-          }}>{t('eq.deleteBand')}</button
-        >
-      </div>
-    {/if}
-  {/if}
 </div>
+<Menu anchor={menu?.anchor ?? null} label={t('eq.bandMenu')} entries={menuEntries} onclose={closeMenu} />
 
 <style>
   .graph {
@@ -373,32 +355,8 @@
     cursor: default;
   }
 
-  .menu {
-    position: absolute;
-    z-index: 20;
-    display: grid;
-    min-width: 140px;
-    padding: 4px 0;
-    background: var(--bg-raised);
-    border: 1px solid var(--line-strong);
-  }
 
-  .menu button {
-    text-align: left;
-    padding: 5px 12px;
-    font-size: var(--text-md);
-  }
 
-  .menu button:hover {
-    background: var(--bg-sunken);
-  }
 
-  .menu .checked {
-    color: var(--c-ink);
-  }
 
-  .menu .delete {
-    border-top: 1px solid var(--line);
-    color: var(--danger);
-  }
 </style>

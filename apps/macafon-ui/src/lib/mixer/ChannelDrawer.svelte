@@ -18,6 +18,8 @@
   import { CHANNEL_COLORS, CHANNEL_EQ_PRESETS, CHANNEL_ICONS } from '../ipc/dsp';
   import { t } from '../i18n';
   import type { ChannelEqPreset, ChannelSettings, ChannelState } from '../ipc/protocol';
+  import Field from '../components/Field.svelte';
+  import Input from '../components/Input.svelte';
 
   export type Panel = 'eq' | 'fx' | 'channel';
 
@@ -172,10 +174,9 @@
         />
       </section>
     {:else}
-      <label class="field">
-        <span class="hud-label">{t('mixer.name')}</span>
-        <input class="input" value={channel.name} maxlength={32} onchange={rename} onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()} />
-      </label>
+      <Field label={t('mixer.name')}>
+        <Input value={channel.name} maxlength={32} onchange={rename} onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()} />
+      </Field>
       <div class="field">
         <span class="hud-label">{t('mixer.color')}</span>
         <div class="swatches" role="radiogroup" aria-label={t('mixer.color')} use:radioKeys>
@@ -370,19 +371,7 @@
     gap: var(--space-2);
   }
 
-  .input {
-    height: 32px;
-    padding: 0 10px;
-    border: 1px solid var(--line);
-    background: var(--bg-sunken);
-    color: var(--ink);
-    font: inherit;
-  }
 
-  .input:focus-visible {
-    outline: 1px solid var(--accent);
-    outline-offset: 2px;
-  }
 
   .swatches,
   .icons {

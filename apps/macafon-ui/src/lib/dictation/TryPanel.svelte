@@ -11,6 +11,7 @@
   import { t } from '../i18n';
   import { formatClock, formatSeconds } from './format';
   import { Copier, clearHistory, reinsert, resultLanguage } from './history.svelte';
+  import { tip } from '../components/tooltip.svelte';
 
   let { dictation }: { dictation: DictationState } = $props();
 
@@ -59,11 +60,11 @@
           {#each dictation.history as entry (entry.id)}
             <li>
               <span class="time">{formatClock(entry.at_unix_ms)}</span>
-              <span class="text" title={entry.text}>{entry.text}</span>
+              <span class="text" {@attach tip(entry.text)}>{entry.text}</span>
               <span class="badge">{resultLanguage(dictation, entry)}</span>
               <span class="time">{formatSeconds(entry.elapsed_ms)}</span>
-              <button class="btn icon ghost" aria-label={t('dictation.test.copy')} title={copier.id === entry.id ? t('dictation.test.copied') : t('dictation.test.copy')} onclick={() => copier.copy(entry)}><Copy size={13} strokeWidth={1.5} /></button>
-              <button class="btn icon ghost" aria-label={t('dictation.test.reinsert')} title={t('dictation.test.reinsert')} onclick={() => reinsert(entry)}><CornerDownLeft size={13} strokeWidth={1.5} /></button>
+              <button class="btn icon ghost" aria-label={t('dictation.test.copy')} {@attach tip(copier.id === entry.id ? t('dictation.test.copied') : t('dictation.test.copy'))} onclick={() => copier.copy(entry)}><Copy size={13} strokeWidth={1.5} /></button>
+              <button class="btn icon ghost" aria-label={t('dictation.test.reinsert')} {@attach tip(t('dictation.test.reinsert'))} onclick={() => reinsert(entry)}><CornerDownLeft size={13} strokeWidth={1.5} /></button>
             </li>
           {/each}
         </ul>
@@ -78,7 +79,7 @@
       class:on={holding || listening}
       disabled={!usable || (busy && !holding)}
       aria-pressed={holding}
-      title={usable ? t('dictation.test.holdHint') : t('dictation.test.unavailable')}
+      {@attach tip(usable ? t('dictation.test.holdHint') : t('dictation.test.unavailable'))}
       onpointerdown={(event) => {
         event.currentTarget.setPointerCapture(event.pointerId);
         void start();
@@ -108,7 +109,7 @@
         </span>
         <span class="muted">{listening ? t('dictation.test.listening') : t('dictation.test.transcribing')}</span>
       {:else if result}
-        <span class="text" title={result.text}>“{result.text}”</span>
+        <span class="text" {@attach tip(result.text)}>“{result.text}”</span>
         <span class="meta">{formatSeconds(result.elapsed_ms)} · {modelName(result.model)} · {resultLanguage(dictation, result)}</span>
         <button class="btn small" onclick={() => copier.copy(result)}><Copy size={12} strokeWidth={1.5} />{copier.id === result.id ? t('dictation.test.copied') : t('dictation.test.copy')}</button>
       {:else}
@@ -116,7 +117,7 @@
       {/if}
     </div>
 
-    <button class="btn ghost history-toggle" aria-expanded={historyOpen} title={t('dictation.test.historyHint')} onclick={() => (historyOpen = !historyOpen)}>
+    <button class="btn ghost history-toggle" aria-expanded={historyOpen} {@attach tip(t('dictation.test.historyHint'))} onclick={() => (historyOpen = !historyOpen)}>
       {t('dictation.test.history')}
       {#if dictation.history.length}<span class="count">{dictation.history.length}</span>{/if}
       <span class="chevron" class:open={historyOpen}><ChevronUp size={13} strokeWidth={1.5} /></span>

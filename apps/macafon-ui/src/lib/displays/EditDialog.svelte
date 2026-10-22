@@ -11,6 +11,8 @@
   import { daemon } from '../state';
   import { t, type MessageKey } from '../i18n';
   import { ROTATIONS, connectedOf, makePrimary, modeLabel, profileSketch, sameMode, setLayout, turnOff, turnOn } from './profiles';
+  import Field from '../components/Field.svelte';
+  import Input from '../components/Input.svelte';
 
   let { profile, onclose }: { profile: DisplayProfile | null; onclose: () => void } = $props();
 
@@ -50,10 +52,9 @@
   {#if draft}
     <form id="display-edit" class="form" onsubmit={save}>
       <div class="row">
-        <label class="field grow">
-          <span class="hud-label">{t('displays.name')}</span>
-          <input class="input" bind:value={draft.name} maxlength="40" />
-        </label>
+        <Field label={t('displays.name')} grow>
+          <Input bind:value={draft.name} maxlength={40} />
+        </Field>
         <div class="field">
           <span class="hud-label">{t('displays.icon')}</span>
           <IconPicker value={draft.icon} onchange={(icon) => draft && (draft.icon = icon)} />
@@ -142,9 +143,7 @@
   .form { display: flex; flex-direction: column; gap: var(--space-4); }
   .row { display: flex; gap: var(--space-4); align-items: flex-end; flex-wrap: wrap; }
   .field { display: flex; flex-direction: column; gap: var(--space-2); }
-  .grow { flex: 1; min-width: 200px; }
-  .input { height: 34px; padding: 0 10px; border: 1px solid var(--line); background: var(--bg-sunken); color: var(--ink); font-size: var(--text-md); user-select: text; }
-  .input:focus { outline: none; border-color: var(--accent); }
+  .row > :global(.grow) { min-width: 200px; }
   .monitors { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
   li { display: flex; flex-direction: column; gap: var(--space-2); padding: 12px 0; border-bottom: 1px solid var(--line); }
   .head { display: flex; align-items: center; gap: var(--space-3); }

@@ -6,6 +6,7 @@
   import { Ballistics, meterBus, type MeterKey } from '../state/meters';
   import { formatLevel } from '../dsp/format';
   import { t } from '../i18n';
+  import { tip } from './tooltip.svelte';
 
   interface Props {
     label: string;
@@ -87,7 +88,7 @@
   });
 </script>
 
-<div class="meter" title={hint}>
+<div class="meter" {@attach tip(hint)}>
   <span class="hud-label">{label}</span>
   <canvas bind:this={canvas} aria-hidden="true"></canvas>
   <!-- Hidden unless clipping, but keeps its width so the readout does not jump. -->

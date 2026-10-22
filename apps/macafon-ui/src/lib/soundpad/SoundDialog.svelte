@@ -11,6 +11,8 @@
   import { t } from '../i18n';
   import { formatDuration } from './format';
   import type { SoundInfo, SoundpadState } from '../ipc/protocol';
+  import Field from '../components/Field.svelte';
+  import Input from '../components/Input.svelte';
 
   interface Props {
     sound: SoundInfo;
@@ -83,10 +85,8 @@
 
 <Dialog open={!confirmDelete} title={t('soundpad.soundTitle')} {onclose} width="520px">
   <div class="form">
-    <label class="field">
-      <span class="hud-label">{t('soundpad.name')}</span>
-      <input
-        class="input"
+    <Field label={t('soundpad.name')}>
+      <Input
         bind:value={name}
         maxlength={120}
         onblur={rename}
@@ -97,7 +97,7 @@
           }
         }}
       />
-    </label>
+    </Field>
     <div class="field">
       <span class="hud-label">{t('soundpad.category')}</span>
       <Dropdown label={t('soundpad.category')} options={categories} value={sound.category} onchange={move} />
@@ -170,15 +170,6 @@
     align-items: start;
   }
 
-  .input {
-    height: 32px;
-    padding: 0 10px;
-    border: 1px solid var(--line);
-    background: var(--bg-sunken);
-    color: var(--ink);
-    font: inherit;
-    user-select: text;
-  }
 
   .meta {
     color: var(--muted);

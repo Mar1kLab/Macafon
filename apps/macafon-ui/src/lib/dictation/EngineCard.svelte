@@ -11,6 +11,7 @@
   import { daemon } from '../state';
   import { t } from '../i18n';
   import { formatBytes, percent } from './format';
+  import { tip } from '../components/tooltip.svelte';
 
   let { dictation }: { dictation: DictationState } = $props();
 
@@ -51,7 +52,7 @@
 </script>
 
 {#snippet rating(label: string, value: number)}
-  <span class="rating" title={t('dictation.engine.ratingValue', { label, value })}>
+  <span class="rating" {@attach tip(t('dictation.engine.ratingValue', { label, value }))}>
     <span class="hud-label">{label}</span>
     <span class="steps" aria-hidden="true">
       {#each [1, 2, 3, 4, 5] as step (step)}<i class:lit={step <= value}></i>{/each}
@@ -98,12 +99,12 @@
             </span>
             <span class="value">{t('dictation.engine.progress', { percent: done })}</span>
             {#if model.bytes_per_sec}<span class="speed">{t('dictation.engine.speedValue', { speed: formatBytes(model.bytes_per_sec) })}</span>{/if}
-            <button class="btn icon ghost" aria-label={t('dictation.engine.cancel', { name: model.name })} title={t('dictation.engine.cancel', { name: model.name })} onclick={() => call(daemon.client.call('dictation.cancel_download', { model: model.id }))}><X size={14} strokeWidth={1.5} /></button>
+            <button class="btn icon ghost" aria-label={t('dictation.engine.cancel', { name: model.name })} {@attach tip(t('dictation.engine.cancel', { name: model.name }))} onclick={() => call(daemon.client.call('dictation.cancel_download', { model: model.id }))}><X size={14} strokeWidth={1.5} /></button>
           {:else if model.status === 'ready'}
             <span class="badge" class:active={loaded}>{loaded ? t('dictation.engine.active') : t('dictation.engine.ready')}</span>
-            <button class="btn icon ghost" aria-label="{t('dictation.engine.delete')} {model.name}" title={t('dictation.engine.delete')} onclick={() => (deleting = model)}><Trash2 size={14} strokeWidth={1.5} /></button>
+            <button class="btn icon ghost" aria-label="{t('dictation.engine.delete')} {model.name}" {@attach tip(t('dictation.engine.delete'))} onclick={() => (deleting = model)}><Trash2 size={14} strokeWidth={1.5} /></button>
           {:else if model.status === 'error'}
-            <span class="error" title={model.error ?? ''}>{model.error}</span>
+            <span class="error" {@attach tip(model.error ?? '')}>{model.error}</span>
             <button class="btn small" onclick={() => download(model)}>{t('dictation.engine.retry')}</button>
           {:else}
             <button class="btn small" onclick={() => download(model)}><Download size={12} strokeWidth={1.5} />{t('dictation.engine.get')}</button>
@@ -119,9 +120,9 @@
       {@const done = percent(storage.moving.done_bytes, storage.moving.total_bytes)}
       <span class="progress wide" role="progressbar" aria-label={t('dictation.storage.moving', { percent: done })} aria-valuemin={0} aria-valuemax={100} aria-valuenow={done}><span class="fill" style:width="{done}%"></span></span>
       <span class="value">{t('dictation.storage.moving', { percent: done })}</span>
-      <button class="btn icon ghost" aria-label={t('dictation.storage.cancelMove')} title={t('dictation.storage.cancelMove')} onclick={() => call(daemon.client.call('dictation.cancel_move'))}><X size={14} strokeWidth={1.5} /></button>
+      <button class="btn icon ghost" aria-label={t('dictation.storage.cancelMove')} {@attach tip(t('dictation.storage.cancelMove'))} onclick={() => call(daemon.client.call('dictation.cancel_move'))}><X size={14} strokeWidth={1.5} /></button>
     {:else}
-      <code class="path" title={storage.folder}>{storage.folder}</code>
+      <code class="path" {@attach tip(storage.folder)}>{storage.folder}</code>
       {#if storage.free_bytes !== null}<span class="free">{t('dictation.storage.free', { size: formatBytes(storage.free_bytes) })}</span>{/if}
       <button class="btn small" onclick={changeFolder}><FolderSearch size={12} strokeWidth={1.5} />{t('dictation.storage.change')}</button>
       {#if !storage.default_folder}
@@ -134,7 +135,7 @@
   {#snippet footer()}
     <span class="foot">
       <span>{t('dictation.engine.source')} · {t('dictation.engine.used', { size: formatBytes(storage.used_bytes) })}</span>
-      <button class="link" title={t('dictation.engine.importHint')} onclick={() => (importing = true)}><FileInput size={12} strokeWidth={1.5} />{t('dictation.engine.import')}</button>
+      <button class="link" {@attach tip(t('dictation.engine.importHint'))} onclick={() => (importing = true)}><FileInput size={12} strokeWidth={1.5} />{t('dictation.engine.import')}</button>
     </span>
   {/snippet}
 </Card>

@@ -50,6 +50,7 @@
   import type { SoundInfo, SoundpadOverlayView } from '../ipc/protocol';
   import { daemon } from '../state';
   import { t } from '../i18n';
+  import { tip } from '../components/tooltip.svelte';
 
   /** `library`: the sounds, in the overlay's side panel; `player`: the transport and the output
    * volumes, docked along the bottom of the overlay. */
@@ -168,25 +169,25 @@
       class:on={playback && !playback.paused}
       disabled={!playback}
       aria-label={playback?.paused ? t('soundpad.resume') : t('soundpad.pause')}
-      title={playback?.paused ? t('soundpad.resume') : t('soundpad.pause')}
+      {@attach tip(playback?.paused ? t('soundpad.resume') : t('soundpad.pause'))}
       onclick={() => daemon.run(daemon.client.call('soundpad.set_paused', { paused: null }))}
     >
       {#if !playback || playback.paused}<Play size={13} strokeWidth={1.5} />{:else}<Pause size={13} strokeWidth={1.5} />{/if}
     </button>
-    <button class="round" disabled={!playback} aria-label={t('quick.soundpadStop')} title={t('quick.soundpadStop')} onclick={() => daemon.stopSound()}>
+    <button class="round" disabled={!playback} aria-label={t('quick.soundpadStop')} {@attach tip(t('quick.soundpadStop'))} onclick={() => daemon.stopSound()}>
       <Square size={12} strokeWidth={1.5} />
     </button>
-    <span class="now" aria-live="polite" title={playing?.name}>
+    <span class="now" aria-live="polite" {@attach tip(playing?.name)}>
       {#if playback}{playback.loading ? t('soundpad.loading') : (playing?.name ?? playback.sound_id)}{:else}<span class="idle">{t('soundpad.nothingPlaying')}</span>{/if}
     </span>
     <SeekBar compact />
     <span class="time">{formatDuration(playback?.position_ms ?? 0)}<span class="total">&nbsp;/ {formatDuration(playback?.duration_ms ?? null)}</span></span>
     {#if soundpad}
-      <span class="volume" class:off={!soundpad.prefs.to_microphone} title={t('soundpad.microphoneVolume')}>
+      <span class="volume" class:off={!soundpad.prefs.to_microphone} {@attach tip(t('soundpad.microphoneVolume'))}>
         <Mic size={13} strokeWidth={1.5} />
         <RulerSlider compact label={t('soundpad.microphoneVolume')} value={soundpad.prefs.microphone_volume_pct} min={0} max={200} step={1} defaultValue={100} origin={100} color="violet" disabled={!soundpad.prefs.to_microphone} format={(value) => `${value}%`} onchange={(microphone_volume_pct) => daemon.setSoundpadPrefs({ microphone_volume_pct })} />
       </span>
-      <span class="volume" class:off={!soundpad.prefs.to_headphones} title={t('soundpad.headphonesVolume')}>
+      <span class="volume" class:off={!soundpad.prefs.to_headphones} {@attach tip(t('soundpad.headphonesVolume'))}>
         <Headphones size={13} strokeWidth={1.5} />
         <RulerSlider compact label={t('soundpad.headphonesVolume')} value={soundpad.prefs.headphones_volume_pct} min={0} max={200} step={1} defaultValue={70} origin={100} color="teal" disabled={!soundpad.prefs.to_headphones} format={(value) => `${value}%`} onchange={(headphones_volume_pct) => daemon.setSoundpadPrefs({ headphones_volume_pct })} />
       </span>
@@ -217,7 +218,7 @@
       />
     </label>
     <div class="filters">
-      <button class="chip favorites" class:active={favorites} aria-pressed={favorites} title={t('quick.soundpadFavoritesHint')} onclick={() => setFavorites(!favorites)}>
+      <button class="chip favorites" class:active={favorites} aria-pressed={favorites} {@attach tip(t('quick.soundpadFavoritesHint'))} onclick={() => setFavorites(!favorites)}>
         <Star size={11} strokeWidth={1.5} />{t('soundpad.favorites')}<small>{favoriteCount}</small>
       </button>
       <div class="scope"><Dropdown label={t('soundpad.categories')} options={scopes} value={activeScope} width="138px" onchange={setScope} /></div>
@@ -235,7 +236,7 @@
         {@const active = playingId === sound.id}
         {@const shortcut = shortcuts.get(`soundpad_play.${sound.id}`) ?? null}
         <div class="pad" class:active class:favorite={sound.favorite} style:--progress={active && playback ? `${Math.min(playback.position_ms / Math.max(playback.duration_ms, 1), 1) * 100}%` : '0%'}>
-          <button class="play" aria-label={t('quick.soundpadPlay', { name: sound.name })} title={describe(sound)} onclick={() => (active ? daemon.stopSound() : daemon.playSound(sound.id))}>
+          <button class="play" aria-label={t('quick.soundpadPlay', { name: sound.name })} {@attach tip(describe(sound))} onclick={() => (active ? daemon.stopSound() : daemon.playSound(sound.id))}>
             <span class="name">{sound.name}</span>
             <span class="meta">
               <span class="length">{active && playback ? `${formatDuration(playback.position_ms)} / ` : ''}{formatDuration(sound.duration_ms, true)}</span>
@@ -243,7 +244,7 @@
               {#if shortcut}<kbd>{shortcut}</kbd>{/if}
             </span>
           </button>
-          <button class="star" aria-pressed={sound.favorite} aria-label={sound.favorite ? t('soundpad.unfavorite') : t('soundpad.favorite')} title={sound.favorite ? t('soundpad.unfavorite') : t('soundpad.favorite')} onclick={() => star(sound)}>
+          <button class="star" aria-pressed={sound.favorite} aria-label={sound.favorite ? t('soundpad.unfavorite') : t('soundpad.favorite')} {@attach tip(sound.favorite ? t('soundpad.unfavorite') : t('soundpad.favorite'))} onclick={() => star(sound)}>
             <Star size={12} strokeWidth={1.5} />
           </button>
         </div>

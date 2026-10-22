@@ -10,6 +10,7 @@
   import { formatMs } from '../dsp/format';
   import { t } from '../i18n';
   import type { AbWaveform } from '../ipc/protocol';
+  import { tip } from '../components/tooltip.svelte';
 
   const RECORD_SECONDS = 10;
   const ab = $derived(daemon.ab);
@@ -189,7 +190,7 @@
   <button class="btn" class:on={ab?.playing} onclick={loop} disabled={!hasClip || recording !== null}>
     {#if ab?.playing}<Square size={10} fill="currentColor" strokeWidth={0} />{t('test.stop')}{:else}<Play size={11} fill="currentColor" strokeWidth={0} />{t('test.loop')}{/if}
   </button>
-  <div class="ab" role="radiogroup" aria-label={t('test.abLabel')} title={t('test.switchHint')}>
+  <div class="ab" role="radiogroup" aria-label={t('test.abLabel')} {@attach tip(t('test.switchHint'))}>
     <button role="radio" aria-checked={side === 'a'} class:selected={side === 'a'} disabled={!hasClip} onclick={() => daemon.run(daemon.client.call('ab.select', { side: 'a' }))}>
       <b>A</b> {t('test.a')}
     </button>
@@ -208,7 +209,7 @@
       <span class="overlay hint">{t('test.switchHint')}</span>
     {/if}
   </div>
-  <label class="match" title={t('test.loudnessMatchHint')}>
+  <label class="match" {@attach tip(t('test.loudnessMatchHint'))}>
     <span class="hud-label">{t('test.loudnessMatch')}</span>
     <Toggle
       checked={ab?.loudness_match ?? true}
@@ -217,7 +218,7 @@
       onchange={(enabled) => daemon.run(daemon.client.call('ab.set_loudness_match', { enabled }))}
     />
   </label>
-  <span class="headphones" title={t('test.headphones')}><Headphones size={14} strokeWidth={1.5} /></span>
+  <span class="headphones" {@attach tip(t('test.headphones'))}><Headphones size={14} strokeWidth={1.5} /></span>
 </section>
 
 <style>

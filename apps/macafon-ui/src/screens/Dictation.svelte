@@ -26,9 +26,12 @@
   import { t } from '../lib/i18n';
   import SettingsLink from '../lib/components/SettingsLink.svelte';
   import { nav } from '../lib/state/nav.svelte';
+  import { tip } from '../lib/components/tooltip.svelte';
+  import Input from '../lib/components/Input.svelte';
+  import PageHeader from '../lib/components/PageHeader.svelte';
+  import Loader from '../lib/components/Loader.svelte';
 
   const MAX_WORDS = 50;
-
 
   const dictation = $derived(daemon.dictation);
   const prefs = $derived(dictation?.prefs);
@@ -130,26 +133,26 @@
 
 {#if dictation && prefs}
   <div class="screen">
-    <header class="top">
-      <h1 class="hud-label">{t('dictation.section')}</h1>
-      <span class="status" class:live={dictation.phase === 'listening' || dictation.phase === 'transcribing'} class:error={dictation.phase === 'error'} role="status">
-        <span class="dot" aria-hidden="true"></span>{phaseLabel}
-      </span>
-      <span class="spacer"></span>
-      {#each shortcutRows.slice(0, 2) as row (row.action)}
-        <span class="key" title={t('dictation.escCancels')}>
-          <span class="hud-label">{row.label}</span>
-          <kbd class:empty={!row.shortcut}>{row.shortcut ? displayShortcut(row.shortcut) : t('settings.hotkeys.notSet')}</kbd>
+    <PageHeader title={t('dictation.section')}>
+        <span class="status" class:live={dictation.phase === 'listening' || dictation.phase === 'transcribing'} class:error={dictation.phase === 'error'} role="status">
+          <span class="dot" aria-hidden="true"></span>{phaseLabel}
         </span>
-      {/each}
-      <button class="btn icon ghost" aria-label={t('dictation.onboarding.open')} title={t('dictation.onboarding.open')} onclick={() => (guide = true)}><CircleHelp size={15} strokeWidth={1.5} /></button>
-      <button class="btn icon ghost" aria-label={t('dictation.changeShortcuts')} title={t('dictation.changeShortcuts')} onclick={() => openSettings('hotkeys')}><Keyboard size={15} strokeWidth={1.5} /></button>
-      <span class="master" title={hasModel ? t('dictation.toggleHint') : t('dictation.test.unavailable')}>
-        <span class="hud-label">{t('dictation.toggle')}</span>
-        <Toggle checked={prefs.enabled} label={t('dictation.toggle')} disabled={!hasModel} onchange={(enabled) => daemon.setDictationPrefs({ enabled })} />
-      </span>
-      <SettingsLink section="dictation" />
-    </header>
+      {#snippet actions()}
+        {#each shortcutRows.slice(0, 2) as row (row.action)}
+          <span class="key" {@attach tip(t('dictation.escCancels'))}>
+            <span class="hud-label">{row.label}</span>
+            <kbd class:empty={!row.shortcut}>{row.shortcut ? displayShortcut(row.shortcut) : t('settings.hotkeys.notSet')}</kbd>
+          </span>
+        {/each}
+        <button class="btn icon ghost" aria-label={t('dictation.onboarding.open')} {@attach tip(t('dictation.onboarding.open'))} onclick={() => (guide = true)}><CircleHelp size={15} strokeWidth={1.5} /></button>
+        <button class="btn icon ghost" aria-label={t('dictation.changeShortcuts')} {@attach tip(t('dictation.changeShortcuts'))} onclick={() => openSettings('hotkeys')}><Keyboard size={15} strokeWidth={1.5} /></button>
+        <span class="master" {@attach tip(hasModel ? t('dictation.toggleHint') : t('dictation.test.unavailable'))}>
+          <span class="hud-label">{t('dictation.toggle')}</span>
+          <Toggle checked={prefs.enabled} label={t('dictation.toggle')} disabled={!hasModel} onchange={(enabled) => daemon.setDictationPrefs({ enabled })} />
+        </span>
+        <SettingsLink section="dictation" />
+      {/snippet}
+    </PageHeader>
 
     {#if dictation.phase === 'error' && dictation.error}
       <p class="banner danger" role="alert"><TriangleAlert size={14} strokeWidth={1.5} />{t('dictation.errorBanner', { error: dictation.error })}</p>
@@ -186,17 +189,17 @@
                 {#each prefs.vocabulary as entry (entry)}
                   <li>
                     <span>{entry}</span>
-                    <button aria-label={t('dictation.vocabulary.remove', { word: entry })} title={t('dictation.vocabulary.remove', { word: entry })} disabled={parakeet} onclick={() => daemon.setDictationPrefs({ vocabulary: prefs.vocabulary.filter((w) => w !== entry) })}><X size={12} strokeWidth={1.5} /></button>
+                    <button aria-label={t('dictation.vocabulary.remove', { word: entry })} {@attach tip(t('dictation.vocabulary.remove', { word: entry }))} disabled={parakeet} onclick={() => daemon.setDictationPrefs({ vocabulary: prefs.vocabulary.filter((w) => w !== entry) })}><X size={12} strokeWidth={1.5} /></button>
                   </li>
                 {/each}
               </ul>
             {/if}
-            <input
-              class="word"
+            <Input
+              compact
               bind:value={word}
               placeholder={prefs.vocabulary.length >= MAX_WORDS ? t('dictation.vocabulary.full', { max: MAX_WORDS }) : t('dictation.vocabulary.placeholder')}
               aria-label={t('dictation.vocabulary.add')}
-              title={parakeet ? t('dictation.vocabulary.parakeet') : t('dictation.vocabulary.hint')}
+              {@attach tip(parakeet ? t('dictation.vocabulary.parakeet') : t('dictation.vocabulary.hint'))}
               maxlength={48}
               disabled={parakeet || prefs.vocabulary.length >= MAX_WORDS}
               onkeydown={(event) => {
@@ -216,11 +219,11 @@
           {:else}
             <LevelMeter label={t('dictation.input.level')} peakKey="input_peak_dbfs" rmsKey="input_rms_dbfs" color="lime" />
           {/if}
-          <label class="row" title={t('dictation.input.muteHint')}>
+          <label class="row" {@attach tip(t('dictation.input.muteHint'))}>
             <span>{t('dictation.input.mute')}</span>
             <Toggle checked={prefs.mute_mic_while_dictating} label={t('dictation.input.mute')} color="lime" onchange={(mute_mic_while_dictating) => daemon.setDictationPrefs({ mute_mic_while_dictating })} />
           </label>
-          <label class="row" title={t('dictation.performance.preRollHint')}>
+          <label class="row" {@attach tip(t('dictation.performance.preRollHint'))}>
             <span>{t('dictation.performance.preRoll')}</span>
             <Toggle checked={prefs.pre_roll} label={t('dictation.performance.preRoll')} color="lime" onchange={(pre_roll) => daemon.setDictationPrefs({ pre_roll })} />
           </label>
@@ -250,7 +253,7 @@
           <div class="perf">
             <Segmented label={t('dictation.performance.device')} options={devices} value={parakeet ? 'cpu' : prefs.gpu ? 'gpu' : 'cpu'} color="amber" disabled={parakeet} hint={parakeet ? t('dictation.performance.deviceParakeet') : t('dictation.performance.deviceHint')} onchange={(device) => daemon.setDictationPrefs({ gpu: device === 'gpu' })} />
             <Segmented label={t('dictation.performance.unload')} options={unloads} value={prefs.unload_after_s} color="amber" hint={t('dictation.performance.unloadHint')} onchange={(unload_after_s) => daemon.setDictationPrefs({ unload_after_s })} />
-            <label class="row" title={t('dictation.performance.gameModeHint')}>
+            <label class="row" {@attach tip(t('dictation.performance.gameModeHint'))}>
               <span>{t('dictation.performance.gameMode')}</span>
               <Toggle checked={prefs.game_mode} label={t('dictation.performance.gameMode')} color="amber" onchange={(game_mode) => daemon.setDictationPrefs({ game_mode })} />
             </label>
@@ -281,7 +284,7 @@
   </div>
   <Onboarding open={guide} onclose={() => (guide = false)} />
 {:else}
-  <div class="loading" role="status">{t('daemon.loading')}</div>
+  <Loader label={t('daemon.loading')} />
 {/if}
 
 <style>
@@ -290,21 +293,6 @@
     flex-direction: column;
     height: 100%;
     min-width: 0;
-  }
-
-  .top {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    min-height: 59px;
-    padding: 14px 24px;
-    border-bottom: 1px solid var(--line);
-  }
-
-  h1 {
-    color: var(--ink);
-    white-space: nowrap;
-    margin-right: 8px;
   }
 
   .status {
@@ -343,10 +331,6 @@
 
   .status.error .dot {
     background: var(--danger);
-  }
-
-  .spacer {
-    flex: 1;
   }
 
   .master {
@@ -511,10 +495,6 @@
     color: var(--ink);
   }
 
-
-
-
-
   .words {
     list-style: none;
     margin: 0;
@@ -546,32 +526,6 @@
 
   .words button:hover:not(:disabled) {
     color: var(--ink);
-  }
-
-  .word {
-    height: 30px;
-    padding: 0 10px;
-    border: 1px solid var(--line);
-    background: var(--bg-sunken);
-    color: var(--ink);
-    font: inherit;
-    font-size: var(--text-md);
-  }
-
-  .word:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-
-  .word::placeholder {
-    color: var(--faint);
-  }
-
-  .loading {
-    display: grid;
-    place-items: center;
-    height: 100%;
-    color: var(--muted);
   }
 
   @keyframes blink {

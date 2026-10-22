@@ -18,6 +18,12 @@
   import { CHANNEL_COLORS, MAX_CHANNELS } from '../lib/ipc/dsp';
   import { t, type MessageKey } from '../lib/i18n';
   import SettingsLink from '../lib/components/SettingsLink.svelte';
+  import { tip } from '../lib/components/tooltip.svelte';
+  import Field from '../lib/components/Field.svelte';
+  import Input from '../lib/components/Input.svelte';
+  import PageHeader from '../lib/components/PageHeader.svelte';
+  import Loader from '../lib/components/Loader.svelte';
+  import EmptyState from '../lib/components/EmptyState.svelte';
 
   const PREVIEWS: Record<string, MessageKey> = {
     main: 'mixer.previews.main',
@@ -122,45 +128,42 @@
 
 {#if mixer}
   <div class="screen">
-    <header class="top">
-      <h1 class="hud-label">{t('mixer.section')}</h1>
-      <label class="switch">
-        <span class="hud-label">{t('mixer.enabled')}</span>
-        <Toggle checked={mixer.enabled} label={t('mixer.enabled')} onchange={(enabled) => daemon.setMixer(daemon.client.call('mixer.set_enabled', { enabled }))} />
-      </label>
-      <span class="spacer"></span>
-      {#if mixer.enabled}
-        <label class="switch" title={t('mixer.showInactiveHint')}>
-          <span class="hud-label">{t('mixer.showInactive')}</span>
-          <Toggle checked={showInactive} label={t('mixer.showInactive')} onchange={(on) => (showInactive = on)} />
+    <PageHeader title={t('mixer.section')}>
+        <label class="switch">
+          <span class="hud-label">{t('mixer.enabled')}</span>
+          <Toggle checked={mixer.enabled} label={t('mixer.enabled')} onchange={(enabled) => daemon.setMixer(daemon.client.call('mixer.set_enabled', { enabled }))} />
         </label>
-      {/if}
-      {#if mixer.enabled}
-      <span class="hud-label">{t('mixer.output')}</span>
-      <Dropdown
-        label={t('mixer.output')}
-        options={outputOptions}
-        value={outputValue}
-        width="260px"
-        onchange={(device) => daemon.setMixer(daemon.client.call('mixer.set_output', { device }))}
-      >
-        {#snippet button()}
-          <span>{current?.description ?? t('mixer.noOutput')}</span>
-        {/snippet}
-      </Dropdown>
-      {#if outputControl}
-        <button class="btn small" onclick={() => (outputPanel = outputControl!.id)}>{t('outputDevice.open')}</button>
-      {/if}
-      {/if}
-      <SettingsLink section="mixer" />
-    </header>
+      {#snippet actions()}
+        {#if mixer.enabled}
+          <label class="switch" {@attach tip(t('mixer.showInactiveHint'))}>
+            <span class="hud-label">{t('mixer.showInactive')}</span>
+            <Toggle checked={showInactive} label={t('mixer.showInactive')} onchange={(on) => (showInactive = on)} />
+          </label>
+        {/if}
+        {#if mixer.enabled}
+        <span class="hud-label">{t('mixer.output')}</span>
+        <Dropdown
+          label={t('mixer.output')}
+          options={outputOptions}
+          value={outputValue}
+          width="260px"
+          onchange={(device) => daemon.setMixer(daemon.client.call('mixer.set_output', { device }))}
+        >
+          {#snippet button()}
+            <span>{current?.description ?? t('mixer.noOutput')}</span>
+          {/snippet}
+        </Dropdown>
+        {#if outputControl}
+          <button class="btn small" onclick={() => (outputPanel = outputControl!.id)}>{t('outputDevice.open')}</button>
+        {/if}
+        {/if}
+        <SettingsLink section="mixer" />
+      {/snippet}
+    </PageHeader>
 
     {#if !mixer.enabled}
       <div class="off">
-        <section class="intro">
-          <Ticks />
-          <span class="hud-label">{t('mixer.offLabel')}</span>
-          <h2>{t('mixer.offTitle')} <em>{t('mixer.offAccent')}</em>?</h2>
+        <EmptyState label={t('mixer.offLabel')} title={t('mixer.offTitle')} accent={t('mixer.offAccent')} end="?" width="640px">
           <p>{t('mixer.offBody')}</p>
           <ul class="preview" aria-hidden="true">
             {#each mixer.channels as channel (channel.id)}
@@ -172,8 +175,10 @@
             {/each}
           </ul>
           <p class="note">{daemon.windows ? t('mixer.offNoteWindows') : t('mixer.offNote')}</p>
-          <button class="btn invert" onclick={() => daemon.setMixer(daemon.client.call('mixer.set_enabled', { enabled: true }))}>{t('mixer.enable')}</button>
-        </section>
+          {#snippet actions()}
+            <button class="btn invert" onclick={() => daemon.setMixer(daemon.client.call('mixer.set_enabled', { enabled: true }))}>{t('mixer.enable')}</button>
+          {/snippet}
+        </EmptyState>
       </div>
     {:else}
       <div class="board">
@@ -220,7 +225,7 @@
     {/if}
   </div>
 {:else}
-  <div class="loading" role="status"><span class="hud-label">{t('daemon.loading')}</span></div>
+  <Loader label={t('daemon.loading')} />
 {/if}
 
 <Dialog open={creating} title={t('mixer.newChannel')} onclose={() => (creating = false)}>
@@ -231,11 +236,9 @@
       void create();
     }}
   >
-    <label class="field">
-      <span class="hud-label">{t('mixer.name')}</span>
-      <!-- svelte-ignore a11y_autofocus -->
-      <input class="input" bind:value={newName} maxlength={32} placeholder={t('mixer.namePlaceholder')} autofocus />
-    </label>
+    <Field label={t('mixer.name')}>
+      <Input bind:value={newName} maxlength={32} placeholder={t('mixer.namePlaceholder')} autofocus />
+    </Field>
     <div class="field">
       <span class="hud-label">{t('mixer.color')}</span>
       <div class="swatches" role="radiogroup" aria-label={t('mixer.color')}>
@@ -261,20 +264,6 @@
     flex-direction: column;
     height: 100%;
     min-width: 0;
-  }
-
-  .top {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2) var(--space-3);
-    min-height: 59px;
-    padding: 14px 24px;
-    border-bottom: 1px solid var(--line);
-  }
-
-  h1 {
-    color: var(--ink);
-    white-space: nowrap;
   }
 
   .switch {
@@ -332,41 +321,6 @@
     padding: 24px;
   }
 
-  .intro {
-    position: relative;
-    display: grid;
-    gap: var(--space-4);
-    justify-items: start;
-    width: 640px;
-    padding: 32px;
-    border: 1px solid var(--line);
-    background: var(--bg-raised);
-  }
-
-  h2 {
-    font-family: var(--font-display);
-    font-size: var(--text-display);
-    font-weight: 700;
-    letter-spacing: -0.03em;
-    line-height: 1.1;
-    color: var(--ink-strong);
-  }
-
-  em {
-    font-family: var(--font-serif);
-    font-weight: 400;
-    letter-spacing: 0;
-  }
-
-  .intro p {
-    color: var(--ink);
-  }
-
-  .intro .note {
-    font-size: var(--text-md);
-    color: var(--muted);
-  }
-
   .preview {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -398,13 +352,6 @@
     color: var(--muted);
   }
 
-  .loading {
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
   .create {
     display: grid;
     gap: var(--space-4);
@@ -413,20 +360,6 @@
   .field {
     display: grid;
     gap: var(--space-2);
-  }
-
-  .input {
-    height: 32px;
-    padding: 0 10px;
-    border: 1px solid var(--line);
-    background: var(--bg-sunken);
-    color: var(--ink);
-    font: inherit;
-  }
-
-  .input:focus-visible {
-    outline: 1px solid var(--accent);
-    outline-offset: 2px;
   }
 
   .swatches {

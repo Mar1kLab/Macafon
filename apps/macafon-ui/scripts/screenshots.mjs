@@ -115,7 +115,7 @@ const scenarios = {
   },
   'mixer-off': async (page) => {
     await page.goto(`${base}?screen=mixer&mixer=off`);
-    await page.waitForSelector('.intro');
+    await page.waitForSelector('.empty-state');
     await page.waitForTimeout(500);
   },
   'mixer-eq': async (page) => {
@@ -525,23 +525,43 @@ const scenarios = {
   },
   soundpad: async (page) => {
     await page.goto(`${base}?platform=windows&screen=soundpad`);
-    await page.waitForSelector('.screen .top');
+    await page.waitForSelector('.page-header');
     await page.waitForTimeout(400);
   },
   displays: async (page) => {
     await page.goto(`${base}?platform=windows&screen=displays`);
-    await page.waitForSelector('.screen .top');
+    await page.waitForSelector('.page-header');
     await page.waitForTimeout(400);
   },
   'displays-empty': async (page) => {
     await page.goto(`${base}?platform=windows&screen=displays&displays=empty`);
-    await page.waitForSelector('.screen .top');
+    await page.waitForSelector('.page-header');
     await page.waitForTimeout(400);
   },
   'displays-pending': async (page) => {
     await page.goto(`${base}?platform=windows&screen=displays&displays=pending`);
-    await page.waitForSelector('.screen .top');
+    await page.waitForSelector('.page-header');
     await page.waitForTimeout(400);
+  },
+  'tooltip-hover': async (page) => {
+    await page.goto(`${base}?platform=windows`);
+    await page.waitForSelector('.chain');
+    await page.getByRole('button', { name: 'Calibrate', exact: true }).hover();
+    await page.getByRole('tooltip').waitFor();
+  },
+  'tooltip-shortcut': async (page) => {
+    await page.goto(`${base}?platform=windows`);
+    await page.waitForSelector('.chain');
+    // Undo is disabled here: the tooltip shows on a disabled control too.
+    await page.getByRole('button', { name: 'Undo', exact: true }).hover();
+    await page.getByRole('tooltip').filter({ hasText: 'Ctrl+Z' }).waitFor();
+  },
+  'eq-menu': async (page) => {
+    await page.goto(`${base}?platform=windows`);
+    await page.waitForSelector('.chain');
+    await page.locator('.point').nth(2).click({ button: 'right' });
+    await page.getByRole('menu').waitFor();
+    await page.keyboard.press('ArrowDown');
   },
   unavailable: async (page) => {
     await page.goto(`${base}?daemon=down`);

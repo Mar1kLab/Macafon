@@ -1,6 +1,8 @@
 <script lang="ts">
   // Single text field dialog (preset names, a typed folder path).
   import Dialog from './Dialog.svelte';
+  import Field from './Field.svelte';
+  import Input from './Input.svelte';
   import { t } from '../i18n';
 
   interface Props {
@@ -28,7 +30,8 @@
     if (valid) onsubmit(text.trim());
   }
 
-  function focus(element: HTMLInputElement) {
+  function focus(element: HTMLElement) {
+    if (!(element instanceof HTMLInputElement)) return;
     element.focus();
     element.select();
   }
@@ -36,8 +39,9 @@
 
 <Dialog {open} {title} {onclose}>
   <form id="prompt-form" onsubmit={submit}>
-    <label class="hud-label" for="prompt-input">{label}</label>
-    <input id="prompt-input" bind:value={text} {maxlength} autocomplete="off" use:focus />
+    <Field {label}>
+      <Input id="prompt-input" bind:value={text} {maxlength} {@attach focus} />
+    </Field>
   </form>
   {#snippet actions()}
     <button class="btn" type="button" onclick={onclose}>{t('common.cancel')}</button>
@@ -49,18 +53,5 @@
   form {
     display: grid;
     gap: var(--space-2);
-  }
-
-  input {
-    height: 34px;
-    padding: 0 10px;
-    background: var(--bg-sunken);
-    border: 1px solid var(--line);
-    user-select: text;
-  }
-
-  input:focus {
-    border-color: var(--accent);
-    outline: none;
   }
 </style>

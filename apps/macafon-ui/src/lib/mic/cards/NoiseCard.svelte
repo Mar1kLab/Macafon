@@ -12,6 +12,7 @@
   import { LITE_LATENCY_SAMPLES, SAMPLE_RATE_HZ, STUDIO_LATENCY_SAMPLES } from '../../ipc/dsp';
   import { samplesToMs } from '../../dsp/format';
   import type { ChainSettings, NoiseEngine } from '../../ipc/protocol';
+  import { tip } from '../../components/tooltip.svelte';
 
   let { settings }: { settings: ChainSettings } = $props();
   const info = MODULES.noise_suppression;
@@ -56,7 +57,7 @@
       disabled={ns.engine !== 'lite'}
       onchange={(v) => daemon.edit((s) => (s.noise_suppression.voice_threshold_pct = v))}
     />
-    <div class="switch-row" title={t('hints.postFilter')}>
+    <div class="switch-row" {@attach tip(t('hints.postFilter'))}>
       <span class="hud-label">{t('params.postFilter')}</span>
       <Toggle
         checked={ns.post_filter}

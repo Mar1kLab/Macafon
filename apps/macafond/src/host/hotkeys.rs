@@ -163,7 +163,11 @@ impl DaemonHost {
         let Some(service) = &self.hotkeys else { return };
         let mut bindings = Vec::new();
         for (action, description) in self.hotkey_actions() {
-            if action.id().starts_with("dictation_") && !self.config.dictation.enabled {
+            // Off, dictation keeps only the shortcut that turns it back on.
+            if action.id().starts_with("dictation_")
+                && action != HotkeyAction::DictationEnableToggle
+                && !self.config.dictation.enabled
+            {
                 continue;
             }
             let id = action.id();

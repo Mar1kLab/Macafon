@@ -970,6 +970,38 @@ mod tests {
     }
 
     #[test]
+    fn disabled_dictation_keeps_only_its_enable_shortcut() {
+        let (sender, _receiver) = crate::platform::control_channel();
+        let mut config = Config::default();
+        config.dictation.enabled = false;
+        for (action, key) in [
+            ("dictation_enable_toggle", "Ctrl+Alt+F10"),
+            ("dictation_toggle", "Ctrl+Alt+F11"),
+        ] {
+            config.hotkeys.insert(action.into(), key.into());
+        }
+        let mut host = DaemonHost::new(
+            config,
+            None,
+            PresetStore::in_memory(),
+            unused_endpoint(),
+            sender,
+            false,
+        );
+        let (service, bound) = crate::hotkeys::Hotkeys::fake();
+        host.hotkeys = Some(service);
+        host.rebind_hotkeys();
+        let actions: Vec<String> = bound
+            .try_iter()
+            .last()
+            .expect("bound")
+            .into_iter()
+            .map(|binding| binding.action)
+            .collect();
+        assert_eq!(actions, ["dictation_enable_toggle"]);
+    }
+
+    #[test]
     fn mixer_changes_do_not_rebind_hotkeys_and_release_push_to_talk() {
         let (sender, _receiver) = crate::platform::control_channel();
         let mut config = Config::default();

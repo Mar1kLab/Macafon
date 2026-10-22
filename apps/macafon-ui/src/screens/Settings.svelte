@@ -379,16 +379,19 @@
               onchange={(device) => daemon.setMic(daemon.client.call('mic.set_fallback_device', { device }))}
             />
           </div>
-          <div class="row">
-            <p class="name">{t('settings.inputChannel')}</p>
-            <Dropdown
-              label={t('settings.inputChannel')}
-              options={channelOptions}
-              value={mic.input_channel ?? 'Auto'}
-              width="280px"
-              onchange={(channel) => daemon.setMic(daemon.client.call('mic.set_input_channel', { channel }))}
-            />
-          </div>
+          <!-- MIC-004: hidden where the backend cannot pick a channel (Windows captures mono). -->
+          {#if daemon.hello?.capabilities.input_channel ?? true}
+            <div class="row">
+              <p class="name">{t('settings.inputChannel')}</p>
+              <Dropdown
+                label={t('settings.inputChannel')}
+                options={channelOptions}
+                value={mic.input_channel ?? 'Auto'}
+                width="280px"
+                onchange={(channel) => daemon.setMic(daemon.client.call('mic.set_input_channel', { channel }))}
+              />
+            </div>
+          {/if}
           <div class="row">
             <p class="name">{t('settings.systemDefault')}</p>
             <Toggle checked={mic.is_default_source} disabled={daemon.cableMissing} label={t('settings.systemDefault')} onchange={setDefault} />

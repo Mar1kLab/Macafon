@@ -217,6 +217,9 @@ pub struct Capabilities {
     /// Saved monitor layouts (§8.5).
     #[serde(default)]
     pub displays: bool,
+    /// The physical input channel can be chosen (MIC-004); the Windows capture is mono.
+    #[serde(default)]
+    pub input_channel: bool,
 }
 
 impl Capabilities {
@@ -229,6 +232,7 @@ impl Capabilities {
         soundpad: false,
         dictation: false,
         displays: false,
+        input_channel: true,
     };
     pub const WINDOWS: Self = Self {
         virtual_mic_device: false,
@@ -239,6 +243,7 @@ impl Capabilities {
         soundpad: true,
         dictation: true,
         displays: true,
+        input_channel: false,
     };
 }
 

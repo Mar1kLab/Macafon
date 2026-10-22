@@ -273,7 +273,11 @@ dictation: boolean,
 /**
  * Saved monitor layouts (§8.5).
  */
-displays: boolean, };
+displays: boolean,
+/**
+ * The physical input channel can be chosen (MIC-004); the Windows capture is mono.
+ */
+input_channel: boolean, };
 
 export type MicState = {
 /**

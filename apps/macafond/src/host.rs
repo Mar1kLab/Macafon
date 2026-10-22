@@ -970,6 +970,32 @@ mod tests {
     }
 
     #[test]
+    fn input_channel_is_refused_where_the_capture_cannot_pick_one() {
+        let (sender, _receiver) = crate::platform::control_channel();
+        let mut host = DaemonHost::new(
+            Config::default(),
+            None,
+            PresetStore::in_memory(),
+            unused_endpoint(),
+            sender,
+            false,
+        );
+        let result = host.respond(Request::MicSetInputChannel {
+            channel: macafon_dsp::InputChannel::Left,
+        });
+        let supported = macafon_ipc::Platform::current()
+            .capabilities()
+            .input_channel;
+        assert_eq!(result.is_ok(), supported);
+        let expected = if supported {
+            macafon_dsp::InputChannel::Left
+        } else {
+            macafon_dsp::InputChannel::Auto
+        };
+        assert_eq!(host.config.mic.input_channel, expected);
+    }
+
+    #[test]
     fn disabled_dictation_keeps_only_its_enable_shortcut() {
         let (sender, _receiver) = crate::platform::control_channel();
         let mut config = Config::default();

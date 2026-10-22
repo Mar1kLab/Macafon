@@ -483,6 +483,7 @@ export class MockTransport implements Transport {
             soundpad: this.windows,
             dictation: this.windows,
             displays: this.windows,
+            input_channel: !this.windows,
           },
         };
       case 'daemon.quit':

@@ -3,7 +3,7 @@
 use super::microphone::replace_chain;
 use super::{DaemonHost, backend_error, reply};
 use macafon_ipc::{
-    CalibrationState, ErrorBody, ErrorCode, Event, HotkeyBackend, PlaybackDevice,
+    CalibrationState, ErrorBody, ErrorCode, Event, HotkeyBackend, Platform, PlaybackDevice,
     PlaybackDeviceKind, Preferences, Request,
 };
 use std::time::{Duration, Instant};
@@ -86,6 +86,12 @@ impl DaemonHost {
                 self.state()
             }
             Request::MicSetInputChannel { channel } => {
+                if !Platform::current().capabilities().input_channel {
+                    return Err(ErrorBody::new(
+                        ErrorCode::InvalidParams,
+                        "input channel selection is not available on this platform yet",
+                    ));
+                }
                 self.update(|config| config.mic.input_channel = channel)?
             }
             Request::MicSetFallbackDevice { device } => {

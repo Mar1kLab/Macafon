@@ -39,7 +39,7 @@
     width="260px"
     onopen={opened}
     onclose={closed}
-    onchange={(device) => daemon.setMic(daemon.client.call('mic.set_device', { device }))}
+    onchange={(device) => daemon.setMic(daemon.client.call('mic.set_device', { device }), true)}
   >
     {#snippet button()}
       {@const Icon = deviceIcon(current ?? (mic.device ? { name: mic.device } : undefined))}

@@ -376,7 +376,7 @@
               options={fallbackOptions}
               value={mic.fallback_device}
               width="280px"
-              onchange={(device) => daemon.setMic(daemon.client.call('mic.set_fallback_device', { device }))}
+              onchange={(device) => daemon.setMic(daemon.client.call('mic.set_fallback_device', { device }), true)}
             />
           </div>
           <!-- MIC-004: hidden where the backend cannot pick a channel (Windows captures mono). -->

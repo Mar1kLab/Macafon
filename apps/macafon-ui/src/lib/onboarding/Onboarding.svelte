@@ -164,7 +164,7 @@
 
   async function forward(apply = true) {
     if (apply && step === 'mic' && picked && picked !== mic?.device) {
-      await daemon.setMic(daemon.client.call('mic.set_device', { device: picked }));
+      await daemon.setMic(daemon.client.call('mic.set_device', { device: picked }), true);
     }
     // Without a calibration there is no result to show.
     if (step === 'calibrate' && !calibrated) return go('use');

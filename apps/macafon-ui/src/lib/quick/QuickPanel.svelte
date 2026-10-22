@@ -140,11 +140,11 @@
 
     <div class="preset">
       <span class="hud-label">{t('quick.preset')}</span>
-      <button class="round" aria-label={t('quick.previousPreset')} {@attach tip(t('quick.previousPreset'))} onclick={() => daemon.setMic(daemon.client.call('mic.cycle_preset', { step: -1 }))}>
+      <button class="round" aria-label={t('quick.previousPreset')} {@attach tip(t('quick.previousPreset'))} onclick={() => daemon.setMic(daemon.client.call('mic.cycle_preset', { step: -1 }), true)}>
         <ChevronLeft size={15} strokeWidth={1.5} />
       </button>
       <span class="name" aria-live="polite">{preset}{#if mic.preset_modified}<small>{t('quick.modified')}</small>{/if}</span>
-      <button class="round" aria-label={t('quick.nextPreset')} {@attach tip(t('quick.nextPreset'))} onclick={() => daemon.setMic(daemon.client.call('mic.cycle_preset', { step: 1 }))}>
+      <button class="round" aria-label={t('quick.nextPreset')} {@attach tip(t('quick.nextPreset'))} onclick={() => daemon.setMic(daemon.client.call('mic.cycle_preset', { step: 1 }), true)}>
         <ChevronRight size={15} strokeWidth={1.5} />
       </button>
     </div>

@@ -110,6 +110,13 @@ export class DaemonStore {
   /** Settings waiting to be sent while a `mic.set` is in flight; the latest wins. */
   private queued: ChainSettings | null = null;
   private inFlight = false;
+  private micGeneration = 0;
+  private micAction: Promise<void> | null = null;
+  /** Counts device/preset selections and disconnects; an edit deferred behind one is
+   * replayed only if no newer selection superseded it. */
+  private selections = 0;
+  /** Events seen while `load` runs: each carries a full state newer than the snapshot. */
+  private loadEvents: Set<Event['event']> | null = null;
   private undoStack: ChainSettings[] = [];
   private redoStack: ChainSettings[] = [];
   private lastEditAt = 0;
@@ -190,6 +197,14 @@ export class DaemonStore {
       void this.load();
     }
     if (status.state !== 'connected') {
+      this.micGeneration++;
+      this.selections++;
+      this.queued = null;
+      this.micAction = null;
+      this.undoStack = [];
+      this.redoStack = [];
+      this.lastEditAt = -Infinity;
+      this.syncHistory();
       this.metersOn = false;
       this.deviceMetersOn = false;
       meterBus.reset();
@@ -199,6 +214,10 @@ export class DaemonStore {
   }
 
   private async load() {
+    const events = new Set<Event['event']>();
+    this.loadEvents = events;
+    // An event that arrived during loading is newer than the snapshot; keep it.
+    const fresh = (event: Event['event']) => !events.has(event);
     try {
       const [hello, mic, presets, devices, ab, calibration, autostart, mixer, hotkeys, prefs] = await Promise.all([
         this.client.call('hello', { protocol: PROTOCOL_VERSION, client: 'macafon-ui' }),
@@ -213,28 +232,34 @@ export class DaemonStore {
         this.client.call('prefs.get'),
       ]);
       this.hello = hello;
-      this.prefs = prefs;
-      this.mixer = mixer;
-      this.hotkeys = hotkeys;
-      this.applyMic(mic);
-      this.presets = presets;
-      this.devices = devices;
-      this.ab = ab;
-      this.calibration = calibration;
+      if (fresh('prefs.changed')) this.prefs = prefs;
+      if (fresh('mixer.changed')) this.mixer = mixer;
+      if (fresh('hotkeys.changed')) this.hotkeys = hotkeys;
+      if (fresh('mic.changed')) this.applyMic(mic);
+      if (fresh('presets.changed')) this.presets = presets;
+      if (fresh('devices.changed')) this.devices = devices;
+      if (fresh('ab.changed')) this.ab = ab;
+      if (fresh('calibration.changed')) this.calibration = calibration;
       this.autostart = autostart;
-      this.outputControls = await this.client.call('output_controls.list');
+      const outputControls = await this.client.call('output_controls.list');
+      if (fresh('output_controls.changed')) this.outputControls = outputControls;
       if (hello.capabilities.soundpad) {
-        this.soundpad = await this.client.call('soundpad.get');
-        this.soundpadPlayback = this.soundpad.playback;
+        const soundpad = await this.client.call('soundpad.get');
+        if (fresh('soundpad.changed')) this.soundpad = soundpad;
+        if (fresh('soundpad.playback')) this.soundpadPlayback = soundpad.playback;
       } else {
         this.soundpad = null;
         this.soundpadPlayback = null;
       }
-      this.dictation = hello.capabilities.dictation ? await this.client.call('dictation.get') : null;
-      this.displays = hello.capabilities.displays ? await this.client.call('displays.get') : null;
+      const dictation = hello.capabilities.dictation ? await this.client.call('dictation.get') : null;
+      if (fresh('dictation.changed')) this.dictation = dictation;
+      const displays = hello.capabilities.displays ? await this.client.call('displays.get') : null;
+      if (fresh('displays.changed')) this.displays = displays;
       this.syncMeters();
     } catch (error) {
       this.fail(error);
+    } finally {
+      if (this.loadEvents === events) this.loadEvents = null;
     }
   }
 
@@ -297,6 +322,7 @@ export class DaemonStore {
   }
 
   private onEvent(event: Event) {
+    this.loadEvents?.add(event.event);
     switch (event.event) {
       case 'output_controls.changed':
         this.outputControls = event.data;
@@ -363,9 +389,20 @@ export class DaemonStore {
 
   /** While our own edits are pending, their settings are newer than any echo; mute and
    * bypass are the daemon's (hotkeys change them, `mic.set` never does). */
-  private applyMic(state: MicState) {
+  private applyMic(state: MicState, authoritative = false) {
     const previous = this.mic;
-    if (this.inFlight || this.queued) {
+    const profileChanged = previous && (previous.device !== state.device || previous.active_device !== state.active_device);
+    if (previous && (profileChanged || previous.preset !== state.preset)) {
+      this.micGeneration++;
+      this.queued = null;
+      if (profileChanged) {
+        this.undoStack = [];
+        this.redoStack = [];
+        this.lastEditAt = -Infinity;
+        this.syncHistory();
+      }
+      this.mic = state;
+    } else if (!authoritative && (this.inFlight || this.queued)) {
       if (previous) {
         const { muted, bypass } = state.settings;
         this.mic = { ...state, settings: { ...previous.settings, muted, bypass } };
@@ -660,6 +697,15 @@ export class DaemonStore {
 
   /** Optimistically change the chain and send it; rapid changes coalesce into one request. */
   edit(change: (settings: ChainSettings) => void): void {
+    if (this.micAction) {
+      // Applying the pending selection itself bumps `micGeneration`; only a newer selection
+      // or a disconnect discards the edit.
+      const selection = this.selections;
+      void this.micAction.then(() => {
+        if (selection === this.selections) this.edit(change);
+      });
+      return;
+    }
     const mic = this.mic;
     if (!mic) return;
     const draft = structuredClone(mic.settings);
@@ -695,6 +741,7 @@ export class DaemonStore {
   }
 
   private travel(from: ChainSettings[], to: ChainSettings[]) {
+    if (this.micAction) return;
     const mic = this.mic;
     const target = from.pop();
     if (!mic || !target) return;
@@ -712,15 +759,20 @@ export class DaemonStore {
       return;
     }
     this.inFlight = true;
+    const generation = this.micGeneration;
     this.client
       .call('mic.set', { settings })
       .then((state) => {
-        if (!this.queued) this.mic = state;
+        if (generation === this.micGeneration && !this.queued) this.applyMic(state, true);
       })
       .catch((error) => {
         this.fail(error);
         // Resynchronise with the daemon after a rejected change.
-        void this.client.call('mic.get').then((state) => (this.mic = state));
+        if (generation === this.micGeneration) {
+          void this.run(this.client.call('mic.get')).then((state) => {
+            if (state && generation === this.micGeneration && !this.queued) this.applyMic(state, true);
+          });
+        }
       })
       .finally(() => {
         this.inFlight = false;
@@ -757,15 +809,31 @@ export class DaemonStore {
     }
   }
 
-  async setMic(request: Promise<MicState>): Promise<void> {
-    const state = await this.run(request);
-    if (state) this.mic = state;
+  async setMic(request: Promise<MicState>, supersedeEdits = false): Promise<void> {
+    if (!supersedeEdits) {
+      const generation = this.micGeneration;
+      const state = await this.run(request);
+      if (state && generation === this.micGeneration) this.applyMic(state);
+      return;
+    }
+    const generation = ++this.micGeneration;
+    this.selections++;
+    this.queued = null;
+    const action = this.run(request).then((state) => {
+      if (state && generation === this.micGeneration) this.applyMic(state, true);
+    });
+    this.micAction = action;
+    try {
+      await action;
+    } finally {
+      if (this.micAction === action) this.micAction = null;
+    }
   }
 
   async selectPreset(id: string): Promise<void> {
     if (this.mic) this.recordUndo(this.mic.settings);
     this.lastEditAt = 0;
-    await this.setMic(this.client.call('mic.set_preset', { preset: id }));
+    await this.setMic(this.client.call('mic.set_preset', { preset: id }), true);
   }
 
   // --- Onboarding ---------------------------------------------------------------------------

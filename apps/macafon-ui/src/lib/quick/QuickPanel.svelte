@@ -4,20 +4,9 @@
   // sliders. The Windows tray opens it on right-click; Esc, the trigger again or a click elsewhere
   // closes it. It only talks to the daemon, like the main window.
   import { invoke } from '@tauri-apps/api/core';
-  import {
-    AudioLines,
-    ChevronLeft,
-    ChevronRight,
-    Mic,
-    MicOff,
-    SlidersHorizontal,
-    Speech,
-    SquareArrowOutUpRight,
-    Volume2,
-    VolumeX,
-    X,
-    Power,
-  } from '@lucide/svelte';
+  import { AudioLines, ChevronLeft, ChevronRight, Mic, SlidersHorizontal, Speech, SquareArrowOutUpRight, Volume2, VolumeX, X, Power } from '@lucide/svelte';
+  import MicOff from '../icons/animated/MicOff.svelte';
+  import { flashOnChange } from '../icons/animated/flash.svelte';
   import PillSlider from './PillSlider.svelte';
   import Logo from '../components/Logo.svelte';
   import { channelIcon } from '../mixer/icons';
@@ -66,6 +55,9 @@
     if (tauri) void invoke('open_main').catch((error) => (quitError = String(error)));
   }
 
+
+  // The crossed-out microphone shakes once when the microphone gets muted (UIP-006).
+  const muteFlash = flashOnChange(() => muted);
 </script>
 
 <div class="panel" class:sketch>
@@ -97,7 +89,7 @@
         aria-checked={!muted}
         onclick={() => daemon.setMic(daemon.client.call('mic.set_muted', { muted: !muted }))}
       >
-        {#if muted}<MicOff size={15} strokeWidth={1.5} />{:else}<Mic size={15} strokeWidth={1.5} />{/if}
+        {#if muted}<MicOff size={15} animate={muteFlash.on} />{:else}<Mic size={15} strokeWidth={1.5} />{/if}
         <span class="title">{t('quick.microphone')}</span>
         <span class="state">{muted ? t('quick.muted') : t('quick.on')}</span>
       </button>

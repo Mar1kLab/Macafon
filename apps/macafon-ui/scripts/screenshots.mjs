@@ -563,6 +563,12 @@ const scenarios = {
     await page.getByRole('menu').waitFor();
     await page.keyboard.press('ArrowDown');
   },
+  'sidebar-hover': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=mixer`);
+    await page.waitForSelector('.strip');
+    await page.getByRole('button', { name: 'Mixer', exact: true }).hover();
+    await page.waitForTimeout(700);
+  },
   unavailable: async (page) => {
     await page.goto(`${base}?daemon=down`);
     await page.waitForSelector('.unavailable');

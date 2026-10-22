@@ -4,7 +4,12 @@
 
 <script lang="ts">
   // 64px icon sidebar (PRD §9.1) with HUD labels on hover; daemon status at the bottom.
-  import { AudioWaveform, Mic, MonitorSmartphone, Settings, SlidersVertical, Speech } from '@lucide/svelte';
+  import AudioWaveform from '../icons/animated/AudioWaveform.svelte';
+  import Mic from '../icons/animated/Mic.svelte';
+  import MonitorSmartphone from '../icons/animated/MonitorSmartphone.svelte';
+  import Settings from '../icons/animated/Settings.svelte';
+  import SlidersVertical from '../icons/animated/SlidersVertical.svelte';
+  import Speech from '../icons/animated/Speech.svelte';
   import { daemon } from '../state';
   import { t } from '../i18n';
   import Logo from './Logo.svelte';
@@ -19,6 +24,15 @@
     ...(daemon.dictationAvailable ? [{ id: 'dictation' as const, icon: Speech, label: t('nav.dictation') }] : []),
     ...(daemon.displaysAvailable ? [{ id: 'displays' as const, icon: MonitorSmartphone, label: t('nav.displays') }] : []),
   ]);
+
+  /** The item under the pointer or keyboard focus: its icon moves (UIP-006). */
+  let hovered = $state<Screen | null>(null);
+  const hover = (id: Screen) => ({
+    onpointerenter: () => (hovered = id),
+    onpointerleave: () => (hovered = null),
+    onfocus: (event: FocusEvent) => (event.currentTarget as HTMLElement).matches(':focus-visible') && (hovered = id),
+    onblur: () => (hovered = null),
+  });
 
   const status = $derived(daemon.status);
   const statusText = $derived(
@@ -55,15 +69,16 @@
           aria-current={screen === item.id ? 'page' : undefined}
           aria-label={item.label}
           onclick={() => onnavigate(item.id)}
+          {...hover(item.id)}
         >
-          <Icon size={20} strokeWidth={1.5} />
+          <Icon size={20} strokeWidth={1.5} animate={hovered === item.id} />
           <span class="tip hud-label">{item.label}</span>
         </button>
       </li>
     {/each}
   </ul>
   <div class="bottom">
-    <button class:active={screen === 'settings'} aria-current={screen === 'settings' ? 'page' : undefined} aria-label={t('nav.settings')} onclick={() => onnavigate('settings')}><Settings size={20} strokeWidth={1.5} /><span class="tip hud-label">{t('nav.settings')}</span></button>
+    <button class:active={screen === 'settings'} aria-current={screen === 'settings' ? 'page' : undefined} aria-label={t('nav.settings')} onclick={() => onnavigate('settings')} {...hover('settings')}><Settings size={20} strokeWidth={1.5} animate={hovered === 'settings'} /><span class="tip hud-label">{t('nav.settings')}</span></button>
   <div class="status" {@attach tip(statusText)} role="status" aria-label={statusText}>
     {#if muted}<span class="badge muted">{t('mic.muted')}</span>{/if}
     <span class="dot {status.state}" class:mock={daemon.mock}></span>
@@ -124,10 +139,20 @@
     border-color: var(--line);
   }
 
+  /* The current screen: a frame and an accent rule on the sidebar edge, not a fill (UIP-005). */
   button.active {
     color: var(--ink-strong);
     border-color: var(--line-strong);
-    background: var(--bg-sunken);
+  }
+
+  button.active::before {
+    content: '';
+    position: absolute;
+    top: 8px;
+    bottom: 8px;
+    left: -11px;
+    width: 2px;
+    background: var(--accent);
   }
 
   .tip {

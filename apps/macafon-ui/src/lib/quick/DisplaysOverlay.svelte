@@ -1,7 +1,8 @@
 <script lang="ts">
   // The overlay's display profiles (§9.9.2, DISP-002): one row per profile, a click applies it;
   // while a switch waits for Keep, Keep and Revert with the countdown replace the hint.
-  import { Check, RotateCcw } from '@lucide/svelte';
+  import { Check } from '@lucide/svelte';
+  import RotateCcw from '../icons/animated/RotateCcw.svelte';
   import { daemon } from '../state';
   import { displayShortcut } from '../settings/shortcut';
   import ProfileIcon from '../displays/ProfileIcon.svelte';

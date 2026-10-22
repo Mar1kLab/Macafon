@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { Copy, CornerDownLeft, Trash2 } from '@lucide/svelte';
+  import { CornerDownLeft, Trash2 } from '@lucide/svelte';
+  import Check from '../icons/animated/Check.svelte';
+  import Copy from '../icons/animated/Copy.svelte';
   import { formatClock, formatSeconds } from '../dictation/format';
   import { Copier, clearHistory, reinsert, resultLanguage } from '../dictation/history.svelte';
   import { daemon } from '../state';
@@ -25,7 +27,7 @@
             <span class="text" {@attach tip(entry.text)}>{entry.text}</span>
             <span class="meta">{formatClock(entry.at_unix_ms)} · {resultLanguage(dictation, entry)} · {formatSeconds(entry.elapsed_ms)}</span>
             <span class="actions">
-              <button class="round" aria-label={t('dictation.test.copy')} {@attach tip(copier.id === entry.id ? t('dictation.test.copied') : t('dictation.test.copy'))} onclick={() => copier.copy(entry)}><Copy size={13} strokeWidth={1.5} /></button>
+              <button class="round" aria-label={t('dictation.test.copy')} {@attach tip(copier.id === entry.id ? t('dictation.test.copied') : t('dictation.test.copy'))} onclick={() => copier.copy(entry)}>{#if copier.id === entry.id}<Check size={13} animate />{:else}<Copy size={13} />{/if}</button>
               <button class="round" aria-label={t('dictation.test.reinsert')} {@attach tip(t('dictation.test.reinsert'))} onclick={() => reinsert(entry)}><CornerDownLeft size={13} strokeWidth={1.5} /></button>
             </span>
           </li>

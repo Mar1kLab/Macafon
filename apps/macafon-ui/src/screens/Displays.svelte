@@ -1,7 +1,9 @@
 <script lang="ts">
   // Displays (PRD §9.10): saved monitor layouts as cards with a to-scale sketch, the current
   // layout with "Save as profile", the DISP-004 confirmation and a first-run card.
-  import { GripVertical, Pencil, RefreshCw, RotateCcw, Trash2, MonitorCheck } from '@lucide/svelte';
+  import { GripVertical, Pencil, Trash2, MonitorCheck } from '@lucide/svelte';
+  import RefreshCw from '../lib/icons/animated/RefreshCw.svelte';
+  import RotateCcw from '../lib/icons/animated/RotateCcw.svelte';
   import Dialog from '../lib/components/Dialog.svelte';
   import LayoutSketch from '../lib/displays/LayoutSketch.svelte';
   import ProfileIcon from '../lib/displays/ProfileIcon.svelte';

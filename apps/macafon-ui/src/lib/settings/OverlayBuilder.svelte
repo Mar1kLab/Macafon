@@ -3,7 +3,8 @@
   // will be, and a tray of hidden ones. Drag a part to move it, into the tray to hide it, out of
   // the tray to show it; a click shows or hides it too. Volumes goes left or right of the
   // controls. Keyboard: arrows move the focused part, Enter or Space shows or hides it.
-  import { AudioLines, AudioWaveform, ChevronLeft, ChevronRight, Gauge, History, GripVertical, Headphones, Layers, Mic, MonitorSmartphone, SlidersHorizontal, SlidersVertical, Speech, RotateCcw } from '@lucide/svelte';
+  import { AudioLines, AudioWaveform, ChevronLeft, ChevronRight, Gauge, History, GripVertical, Headphones, Layers, Mic, MonitorSmartphone, SlidersHorizontal, SlidersVertical, Speech } from '@lucide/svelte';
+  import RotateCcw from '../icons/animated/RotateCcw.svelte';
   import type { Component } from 'svelte';
   import type { OverlayItem, OverlayPrefs } from '../ipc/protocol';
   import { daemon } from '../state';

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { DURATION, motion } from '../motion';
-  import { AudioLines, AudioWaveform, ChevronDown, ChevronLeft, ChevronRight, Headphones, History, Mic, MicOff, MonitorSmartphone, SlidersHorizontal, Speech, Volume2, VolumeX, X } from '@lucide/svelte';
+  import { AudioLines, AudioWaveform, ChevronDown, ChevronLeft, ChevronRight, Headphones, History, Mic, MonitorSmartphone, SlidersHorizontal, Speech, Volume2, VolumeX, X } from '@lucide/svelte';
+  import MicOff from '../icons/animated/MicOff.svelte';
+  import { flashOnChange } from '../icons/animated/flash.svelte';
   import Logo from '../components/Logo.svelte';
   import LevelMeter from '../components/LevelMeter.svelte';
   import VerticalSlider from './VerticalSlider.svelte';
@@ -108,6 +110,9 @@
   $effect(() => {
     if (setup.mic_level) return daemon.watchMeters();
   });
+
+  // The crossed-out microphone shakes once when the microphone gets muted (UIP-006).
+  const muteFlash = flashOnChange(() => muted);
 </script>
 
 {#snippet flag(open: boolean, label: string, onclick: () => void, disabled = false, controls?: string)}
@@ -119,7 +124,7 @@
 {#snippet control(part: OverlayItem)}
   {#if part === 'mic_switch'}
     <button class="switch" class:on={!muted} class:alert={muted} role="switch" aria-checked={!muted} {@attach tip(muted ? t('quick.muted') : t('quick.on'))} onclick={() => daemon.setMic(daemon.client.call('mic.set_muted', { muted: !muted }))}>
-      {#if muted}<MicOff size={16} strokeWidth={1.5} />{:else}<Mic size={16} strokeWidth={1.5} />{/if}<span>{t('quick.microphone')}</span>
+      {#if muted}<MicOff size={16} animate={muteFlash.on} />{:else}<Mic size={16} strokeWidth={1.5} />{/if}<span>{t('quick.microphone')}</span>
     </button>
   {:else if part === 'processing_switch'}
     <button class="switch" class:on={!bypass} role="switch" aria-checked={!bypass} {@attach tip(bypass ? t('quick.bypassed') : t('quick.on'))} onclick={() => daemon.setMic(daemon.client.call('mic.set_bypass', { bypass: !bypass }))}>

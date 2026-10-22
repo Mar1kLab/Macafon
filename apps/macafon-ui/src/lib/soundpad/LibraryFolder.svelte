@@ -2,7 +2,8 @@
   // The soundpad library folder (SND-001): any folder on any drive, picked with the system
   // dialog (a typed path in the browser mock), opened in the file manager or reset to the
   // default `Music\Macafon Sounds`.
-  import { FolderOpen, FolderSearch, RotateCcw } from '@lucide/svelte';
+  import { FolderOpen, FolderSearch } from '@lucide/svelte';
+  import RotateCcw from '../icons/animated/RotateCcw.svelte';
   import PromptDialog from '../components/PromptDialog.svelte';
   import { pickFolder } from '../ipc/tauri';
   import { daemon } from '../state';

@@ -2,7 +2,9 @@
   import HotkeyHint from '../lib/settings/HotkeyHint.svelte';
   // 01 / MICROPHONE (PRD §9.3): device, preset, calibration, bypass and mute in the header;
   // IN/OUT meters; the eight module cards in signal order; the TEST panel pinned below.
-  import { MicOff, Mic, Redo2, Undo2 } from '@lucide/svelte';
+  import { Mic, Redo2, Undo2 } from '@lucide/svelte';
+  import MicOff from '../lib/icons/animated/MicOff.svelte';
+  import { flashOnChange } from '../lib/icons/animated/flash.svelte';
   import DevicePicker from '../lib/mic/DevicePicker.svelte';
   import PresetPicker from '../lib/mic/PresetPicker.svelte';
   import LevelMeter from '../lib/components/LevelMeter.svelte';
@@ -49,6 +51,9 @@
       else daemon.undo();
     }
   }
+
+  // The crossed-out microphone shakes once when the microphone gets muted (UIP-006).
+  const muteFlash = flashOnChange(() => mic?.settings.muted);
 </script>
 
 <svelte:window {onkeydown} />
@@ -87,7 +92,7 @@
           {@attach tip(t('mic.muteHint'))}
           onclick={() => daemon.setMic(daemon.client.call('mic.set_muted', { muted: !mic.settings.muted }))}
         >
-          {#if mic.settings.muted}<MicOff size={13} strokeWidth={1.5} />{t('mic.muted')}{:else}<Mic size={13} strokeWidth={1.5} />{t('mic.mute')}{/if}
+          {#if mic.settings.muted}<MicOff size={13} animate={muteFlash.on} />{t('mic.muted')}{:else}<Mic size={13} strokeWidth={1.5} />{t('mic.mute')}{/if}
           <HotkeyHint actions={['mic_mute_toggle', 'push_to_talk', 'push_to_mute']} />
         </button>
         <SettingsLink section="audio" />

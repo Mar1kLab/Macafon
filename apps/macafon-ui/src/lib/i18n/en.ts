@@ -505,8 +505,8 @@ export const en = {
       conflict: '{shortcut} is already used by {action}',
       recordHint: 'Esc cancels',
     },
-    licenses:'Third-party components',
-    licenseList: 'RNNoise (nnnoiseless, BSD-3-Clause) · DeepFilterNet 3 (MIT OR Apache-2.0) · Archivo, Inter, Geist Mono, Instrument Serif (SIL OFL 1.1) · Lucide (ISC)',
+    licenses: 'Third-party components',
+    licenseList: 'RNNoise (nnnoiseless, BSD-3-Clause) · DeepFilterNet 3 (MIT OR Apache-2.0) · Archivo, Inter, Geist Mono, Instrument Serif (SIL OFL 1.1) · Lucide (ISC) · Moving Icons by jis3r, adapted (MIT) · Bits UI (MIT)',
   },
   displays: {
     emptyLabel: 'No profiles yet',

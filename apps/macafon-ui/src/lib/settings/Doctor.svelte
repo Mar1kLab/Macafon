@@ -1,7 +1,8 @@
 <script lang="ts">
   // Doctor (PRD §9.6): self-checks in plain words, one-click fixes where Macafon can fix
   // something itself, and a copyable report without device or app names.
-  import { CircleAlert, CircleCheck, CircleX, Info, RefreshCw } from '@lucide/svelte';
+  import { CircleAlert, CircleCheck, CircleX, Info } from '@lucide/svelte';
+  import RefreshCw from '../icons/animated/RefreshCw.svelte';
   import { daemon } from '../state';
   import { t, type MessageKey } from '../i18n';
   import type { DoctorCheck, DoctorCheckId, DoctorReport } from '../ipc/protocol';

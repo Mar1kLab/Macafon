@@ -2,7 +2,8 @@
   // The Displays first run (§9.10): profiles suggested from the connected monitors, created in
   // one click; then shortcuts for them, the way back, and a safe try.
   import { onMount } from 'svelte';
-  import { Check, MonitorSmartphone } from '@lucide/svelte';
+  import { MonitorSmartphone } from '@lucide/svelte';
+  import Check from '../icons/animated/Check.svelte';
   import LayoutSketch from './LayoutSketch.svelte';
   import ProfileIcon from './ProfileIcon.svelte';
   import { profileSketch } from './profiles';

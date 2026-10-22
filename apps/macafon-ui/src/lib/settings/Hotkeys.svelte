@@ -2,7 +2,8 @@
   // Settings → Hotkeys (HK-002, HK-004): every action with its shortcut, recorded by pressing
   // the keys; conflicts inside Macafon are caught before the daemon is asked. Without a global
   // shortcut service the CLI commands are shown for the desktop keyboard settings instead.
-  import { Copy, X } from '@lucide/svelte';
+  import { X } from '@lucide/svelte';
+  import Copy from '../icons/animated/Copy.svelte';
   import { daemon } from '../state';
   import { t, type MessageKey } from '../i18n';
   import { DaemonError } from '../ipc/client';

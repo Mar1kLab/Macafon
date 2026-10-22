@@ -122,6 +122,13 @@ p {
     transition-duration: 0ms !important;
     animation-duration: 0ms !important;
   }
+
+  /* Animated icons stay still: no end state, not just no movement (UIP-006). */
+  .moving-icon,
+  .moving-icon * {
+    transform: none !important;
+    animation: none !important;
+  }
 }
 
 /* Buttons: HUD text, 1px frame; `invert` is the primary CTA, `on` an engaged toggle. */

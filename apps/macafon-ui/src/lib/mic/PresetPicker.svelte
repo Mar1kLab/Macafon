@@ -2,7 +2,8 @@
   import HotkeyHint from '../settings/HotkeyHint.svelte';
   // Presets (§6.3.10): built-in are read-only (Save → "Save as new"), user presets can be
   // updated, renamed, duplicated and deleted. Import/export need file dialogs (next round).
-  import { Copy, Pencil, Trash2 } from '@lucide/svelte';
+  import { Pencil, Trash2 } from '@lucide/svelte';
+  import Copy from '../icons/animated/Copy.svelte';
   import Dropdown from '../components/Dropdown.svelte';
   import PromptDialog from '../components/PromptDialog.svelte';
   import { daemon } from '../state';

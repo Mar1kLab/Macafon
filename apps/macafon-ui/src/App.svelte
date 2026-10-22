@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { RefreshCw, Upload } from '@lucide/svelte';
+  import { Upload } from '@lucide/svelte';
+  import RefreshCw from './lib/icons/animated/RefreshCw.svelte';
   import Sidebar from './lib/components/Sidebar.svelte';
   import TitleBar from './lib/components/TitleBar.svelte';
   import Toasts from './lib/components/Toasts.svelte';

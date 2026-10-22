@@ -1,7 +1,8 @@
 <script lang="ts">
   // 01 ENGINE (PRD §9.9.1): the engine, one row per manifest model with its download state, and
   // the models folder (STT-013, STT-022). Downloads start only from these buttons.
-  import { Download, FileInput, FolderSearch, RotateCcw, Trash2, X } from '@lucide/svelte';
+  import { Download, FileInput, FolderSearch, Trash2, X } from '@lucide/svelte';
+  import RotateCcw from '../icons/animated/RotateCcw.svelte';
   import Dialog from '../components/Dialog.svelte';
   import PromptDialog from '../components/PromptDialog.svelte';
   import Segmented from '../components/Segmented.svelte';

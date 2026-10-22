@@ -4,7 +4,9 @@
   // inserted. History (STT-015) expands upward: the last results, in daemon memory only.
   import { reveal } from '../motion';
   import { slide } from 'svelte/transition';
-  import { ChevronUp, Copy, CornerDownLeft, Mic, Trash2 } from '@lucide/svelte';
+  import { ChevronUp, CornerDownLeft, Mic, Trash2 } from '@lucide/svelte';
+  import Check from '../icons/animated/Check.svelte';
+  import Copy from '../icons/animated/Copy.svelte';
   import PopupLook from './PopupLook.svelte';
   import type { DictationState } from '../ipc/protocol';
   import { daemon } from '../state';
@@ -63,7 +65,7 @@
               <span class="text" {@attach tip(entry.text)}>{entry.text}</span>
               <span class="badge">{resultLanguage(dictation, entry)}</span>
               <span class="time">{formatSeconds(entry.elapsed_ms)}</span>
-              <button class="btn icon ghost" aria-label={t('dictation.test.copy')} {@attach tip(copier.id === entry.id ? t('dictation.test.copied') : t('dictation.test.copy'))} onclick={() => copier.copy(entry)}><Copy size={13} strokeWidth={1.5} /></button>
+              <button class="btn icon ghost" aria-label={t('dictation.test.copy')} {@attach tip(copier.id === entry.id ? t('dictation.test.copied') : t('dictation.test.copy'))} onclick={() => copier.copy(entry)}>{#if copier.id === entry.id}<Check size={13} animate />{:else}<Copy size={13} />{/if}</button>
               <button class="btn icon ghost" aria-label={t('dictation.test.reinsert')} {@attach tip(t('dictation.test.reinsert'))} onclick={() => reinsert(entry)}><CornerDownLeft size={13} strokeWidth={1.5} /></button>
             </li>
           {/each}
@@ -111,7 +113,7 @@
       {:else if result}
         <span class="text" {@attach tip(result.text)}>“{result.text}”</span>
         <span class="meta">{formatSeconds(result.elapsed_ms)} · {modelName(result.model)} · {resultLanguage(dictation, result)}</span>
-        <button class="btn small" onclick={() => copier.copy(result)}><Copy size={12} strokeWidth={1.5} />{copier.id === result.id ? t('dictation.test.copied') : t('dictation.test.copy')}</button>
+        <button class="btn small" onclick={() => copier.copy(result)}>{#if copier.id === result.id}<Check size={12} animate />{:else}<Copy size={12} />{/if}{copier.id === result.id ? t('dictation.test.copied') : t('dictation.test.copy')}</button>
       {:else}
         <span class="muted">{usable ? t('dictation.test.empty') : t('dictation.test.unavailable')}</span>
       {/if}

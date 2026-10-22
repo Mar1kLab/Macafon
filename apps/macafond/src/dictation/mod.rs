@@ -519,14 +519,16 @@ pub fn audio(
             let mut sent = 0usize;
             let mut worker: Option<mpsc::SyncSender<worker::Input>> = None;
             let mut pending_finish = None;
+            // A command that ended an idle wait, handled before the queued ones.
+            let mut woken_by = None;
             while !stopping.load(Ordering::Acquire) {
-                reader
-                    .set_monitoring(hub.metering() && worker.is_none() && pending_finish.is_none());
+                let monitoring = hub.metering() && worker.is_none() && pending_finish.is_none();
+                reader.set_monitoring(monitoring);
                 if reader.take_overrun() {
                     failure.store(true, Ordering::Release);
                     reader.set_recording(false);
                 }
-                while let Ok(command) = receiver.try_recv() {
+                for command in woken_by.take().into_iter().chain(receiver.try_iter()) {
                     match command {
                         AudioCommand::Begin(sender) => {
                             while reader.pop().is_some() {}
@@ -626,7 +628,16 @@ pub fn audio(
                     }
                     worker = None;
                 }
-                std::thread::sleep(std::time::Duration::from_millis(5));
+                // Nothing to read while neither recording nor metering: sleep until a command
+                // instead of polling (the level display may start within the idle wait).
+                let idle = !monitoring && worker.is_none() && pending_finish.is_none();
+                match idle.then(|| receiver.recv_timeout(std::time::Duration::from_millis(100))) {
+                    Some(Ok(command)) => woken_by = Some(command),
+                    Some(Err(mpsc::RecvTimeoutError::Timeout)) => {}
+                    Some(Err(mpsc::RecvTimeoutError::Disconnected)) | None => {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                }
             }
             reader.set_recording(false);
         })?;
@@ -656,14 +667,21 @@ fn resampled(
 
 /// Fifteen logarithmic Goertzel bands for the native Flow display, measured off the RT path.
 fn band_energies(samples: &[f32]) -> [f32; 15] {
+    // Hann-windowed once, not once per band.
+    let windowed: Vec<f32> = samples
+        .iter()
+        .enumerate()
+        .map(|(i, &sample)| {
+            let phase = std::f32::consts::TAU * i as f32 / samples.len() as f32;
+            sample * (0.5 - 0.5 * phase.cos())
+        })
+        .collect();
     std::array::from_fn(|n| {
         let freq_hz = 100.0 * 80.0f32.powf(n as f32 / 14.0);
         let coefficient = 2.0 * (std::f32::consts::TAU * freq_hz / 16_000.0).cos();
         let (mut a, mut b) = (0.0, 0.0);
-        for (i, &sample) in samples.iter().enumerate() {
-            let window =
-                0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / samples.len() as f32).cos();
-            let next = sample * window + coefficient * a - b;
+        for &sample in &windowed {
+            let next = sample + coefficient * a - b;
             b = a;
             a = next;
         }

@@ -13,7 +13,35 @@ use windows::core::w;
 const CALLBACK: u32 = WM_APP + 1;
 /// `CALLBACK` re-posted for the loop under its own id, so a posted copy is never re-posted.
 const QUEUED: u32 = WM_APP + 2;
-static NOTIFICATIONS: OnceLock<mpsc::Sender<Update>> = OnceLock::new();
+/// Posted after every queued update: the loop sleeps until something arrives.
+const WAKE: u32 = WM_APP + 3;
+/// Icon animation frames; the timer runs only while the icon moves.
+const FRAME_TIMER: usize = 1;
+static NOTIFICATIONS: OnceLock<Updates> = OnceLock::new();
+
+/// Queue for the tray thread that also wakes its message loop.
+#[derive(Clone)]
+struct Updates {
+    sender: mpsc::Sender<Update>,
+    window: usize,
+}
+impl Updates {
+    fn send(&self, update: Update) -> bool {
+        if self.sender.send(update).is_err() {
+            return false;
+        }
+        // SAFETY: posts to the worker's window without borrowing its memory.
+        let _ = unsafe {
+            PostMessageW(
+                Some(HWND(self.window as *mut _)),
+                WAKE,
+                WPARAM(0),
+                LPARAM(0),
+            )
+        };
+        true
+    }
+}
 enum Update {
     State(TrayState),
     Balloon {
@@ -23,20 +51,17 @@ enum Update {
     },
 }
 pub fn notify(title: String, body: String, replace: bool) -> bool {
-    NOTIFICATIONS.get().is_some_and(|sender| {
-        sender
-            .send(Update::Balloon {
-                title,
-                body,
-                replace,
-            })
-            .is_ok()
+    NOTIFICATIONS.get().is_some_and(|updates| {
+        updates.send(Update::Balloon {
+            title,
+            body,
+            replace,
+        })
     })
 }
 
 pub struct Tray {
-    updates: mpsc::Sender<Update>,
-    window: usize,
+    updates: Updates,
     thread: Option<std::thread::JoinHandle<()>>,
     shown: TrayState,
 }
@@ -54,10 +79,13 @@ impl Tray {
             })
             .ok()?;
         let window = started.recv().ok()?;
+        let updates = Updates {
+            sender: updates,
+            window,
+        };
         let _ = NOTIFICATIONS.set(updates.clone());
         Some(Self {
             updates,
-            window,
             thread: Some(thread),
             shown: state,
         })
@@ -65,7 +93,7 @@ impl Tray {
     pub fn update(&mut self, state: TrayState) {
         if state != self.shown {
             self.shown = state.clone();
-            let _ = self.updates.send(Update::State(state));
+            self.updates.send(Update::State(state));
         }
     }
 }
@@ -74,7 +102,7 @@ impl Drop for Tray {
         // SAFETY: posts to the worker's window without borrowing its memory.
         let _ = unsafe {
             PostMessageW(
-                Some(HWND(self.window as *mut _)),
+                Some(HWND(self.updates.window as *mut _)),
                 WM_CLOSE,
                 WPARAM(0),
                 LPARAM(0),
@@ -286,9 +314,6 @@ fn run(
         let mut bend = icon::target(&state);
         owner.refresh(&state, bend, true)?;
         let taskbar_created = RegisterWindowMessageW(w!("TaskbarCreated"));
-        if SetTimer(Some(window), 1, 25, None) == 0 {
-            return Err(windows::core::Error::from_thread());
-        }
         tracing::info!("Windows tray icon ready");
         let _ = ready.send(window.0 as usize);
         let mut from = bend;
@@ -299,7 +324,7 @@ fn run(
             if GetMessageW(&mut message, None, 0, 0).0 <= 0 {
                 break;
             }
-            if message.message == WM_TIMER {
+            if message.message == WAKE || message.message == WM_TIMER {
                 let mut changed = false;
                 let mut osd = None;
                 while let Ok(update) = updates.try_recv() {
@@ -327,6 +352,9 @@ fn run(
                     from = bend;
                     target = icon::target(&state);
                     started = Instant::now();
+                    if bend != target && SetTimer(Some(window), FRAME_TIMER, 25, None) == 0 {
+                        bend = target; // No frames: jump to the end.
+                    }
                 }
                 let animating = bend != target;
                 if animating {
@@ -340,6 +368,9 @@ fn run(
                 }
                 if changed || animating {
                     let _ = owner.refresh(&state, bend, false);
+                }
+                if bend == target {
+                    let _ = KillTimer(Some(window), FRAME_TIMER);
                 }
             } else if message.message == taskbar_created {
                 let _ = owner.refresh(&state, bend, true);

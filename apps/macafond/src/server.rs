@@ -39,12 +39,16 @@ struct Clients {
     ui: HashSet<u64>,
 }
 
+/// Channel names with their meters.
+type MixerChannels = Arc<[(String, Arc<ChannelTelemetry>)]>;
+
 pub struct Hub {
     clients: Mutex<Clients>,
     meters_wanted: Condvar,
     telemetry: Arc<Telemetry>,
     /// Live channels in display order; empty while the mixer is off.
-    mixer_telemetry: Mutex<Vec<(String, Arc<ChannelTelemetry>)>>,
+    /// Shared, so the meter pump takes it every tick without copying.
+    mixer_telemetry: Mutex<MixerChannels>,
     next_id: AtomicU64,
     soundpad_updates: mpsc::SyncSender<SoundpadState>,
 }
@@ -134,10 +138,10 @@ impl Hub {
         *self
             .mixer_telemetry
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = channels;
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = channels.into();
     }
 
-    fn mixer_channels(&self) -> Vec<(String, Arc<ChannelTelemetry>)> {
+    fn mixer_channels(&self) -> MixerChannels {
         self.mixer_telemetry
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())

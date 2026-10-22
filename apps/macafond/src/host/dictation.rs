@@ -271,6 +271,7 @@ impl DaemonHost {
                     || !prefs.enabled
                 {
                     self.dictation.cancel(prefs.enabled);
+                    self.release_dictation_input();
                 }
                 if !prefs.keep_history {
                     self.dictation.history.clear();
@@ -286,6 +287,7 @@ impl DaemonHost {
                 self.config.dictation.set_prefs(prefs);
                 if rebuild_tap {
                     self.dictation.cancel(self.config.dictation.enabled);
+                    self.release_dictation_input();
                     self.stop_dictation_audio();
                 }
                 self.changed_at = Some(Instant::now());
@@ -429,11 +431,15 @@ impl DaemonHost {
     }
     pub(super) fn cancel_dictation(&mut self) {
         self.dictation.cancel(self.config.dictation.enabled);
+        self.release_dictation_input();
+        self.dictation_changed();
+    }
+    /// After any cancel: the microphone is heard again and the hotkeys leave recording mode.
+    fn release_dictation_input(&self) {
         if let Some(control) = &self.control {
             control.mute_for_dictation(false);
         }
         crate::hotkeys::dictation_recording(false);
-        self.dictation_changed();
     }
     pub(super) fn tick_dictation(&mut self) {
         self.ensure_dictation_audio();

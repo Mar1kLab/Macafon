@@ -5,13 +5,18 @@ import { DURATION } from '../../motion';
 export function flashOnChange(read: () => unknown, ms: number = DURATION.card * 2) {
   let on = $state(false);
   let first = true;
+  let previous: unknown;
   let timer: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
-    read();
-    if (first) {
+    // The effect also reruns when an object read() goes through is replaced (any settings
+    // edit); only a different value counts.
+    const value = read();
+    if (first || Object.is(value, previous)) {
       first = false;
+      previous = value;
       return;
     }
+    previous = value;
     on = false;
     clearTimeout(timer);
     // A frame off first, so a keyframe animation restarts on a quick second change.

@@ -21,7 +21,7 @@
 </script>
 
 <svg class="moving-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width={strokeWidth} stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-  {#each [4, 12, 20] as x, index (x)}
+  {#each [5, 12, 19] as x, index (x)}
     {@const y = knobs[index]!}
     {@const above = index === 1 ? 0 : 4}
     <line x1={x} x2={x} y1="3" y2={y - above} />

@@ -14,7 +14,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{PROPERTYKEY, S_OK};
-use windows::Win32::Media::Audio::Endpoints::IAudioMeterInformation;
+use windows::Win32::Media::Audio::Endpoints::{IAudioEndpointVolume, IAudioMeterInformation};
 use windows::Win32::Media::Audio::*;
 use windows::Win32::System::Com::{CLSCTX_ALL, CoTaskMemFree};
 use windows::core::{BOOL, GUID, Interface, PCWSTR, Ref, implement};
@@ -131,7 +131,28 @@ enum Command {
     NewApp(Option<MixSettings>, Sender<Result<(), Error>>),
     RestoreApp(String, Sender<Result<(), Error>>),
     Restore(Sender<Result<(), Error>>),
+    /// A callback published a change; the loop picks it up from `Signal`.
+    Wake,
     Stop,
+}
+
+/// What COM callbacks share with the worker: flags, and a wake-up so the loop sleeps until
+/// something happens instead of polling them. One queued wake-up at a time.
+struct Signal {
+    dirty: AtomicBool,
+    queued: AtomicBool,
+    commands: Sender<Command>,
+}
+impl Signal {
+    fn changed(&self) {
+        self.dirty.store(true, Ordering::Release);
+        self.wake();
+    }
+    fn wake(&self) {
+        if !self.queued.swap(true, Ordering::AcqRel) {
+            let _ = self.commands.send(Command::Wake);
+        }
+    }
 }
 
 /// Owns a dedicated worker and its subscriptions. Drop joins the worker and attempts
@@ -150,12 +171,13 @@ impl SessionWatcher {
         let (commands, receiver) = mpsc::channel();
         let (events_tx, events) = mpsc::channel();
         let (ready_tx, ready) = mpsc::channel();
+        let wake = commands.clone();
         let worker = std::thread::Builder::new()
             .name("macafon-mixer".into())
             .spawn(move || {
                 let result = (|| {
                     let _com = ComGuard::new()?;
-                    let mut state = Worker::new(events_tx.clone())?;
+                    let mut state = Worker::new(events_tx.clone(), wake)?;
                     let mut journal = Journal::open(&state_dir)?;
                     state.refresh()?;
                     journal.restore(&mut state)?;
@@ -276,7 +298,7 @@ impl Drop for Endpoint {
 struct Worker {
     enumerator: IMMDeviceEnumerator,
     devices_callback: IMMNotificationClient,
-    dirty: Arc<AtomicBool>,
+    signal: Arc<Signal>,
     created: Arc<CreatedQueue>,
     endpoints: Vec<Endpoint>,
     sessions: Vec<LiveSession>,
@@ -287,14 +309,21 @@ struct Worker {
     released: std::collections::HashSet<String>,
     /// New sessions whose settings are not applied yet; kept until a write succeeds.
     unapplied: Vec<String>,
+    /// Volume control of the default output, read every daemon tick; reactivated only
+    /// when the default endpoint changes.
+    master: Option<(String, IAudioEndpointVolume)>,
     events: Sender<MixerEvent>,
 }
 impl Worker {
-    fn new(events: Sender<MixerEvent>) -> Result<Self, Error> {
+    fn new(events: Sender<MixerEvent>, commands: Sender<Command>) -> Result<Self, Error> {
         let enumerator = enumerator()?;
-        let dirty = Arc::new(AtomicBool::new(false));
+        let signal = Arc::new(Signal {
+            dirty: AtomicBool::new(false),
+            queued: AtomicBool::new(false),
+            commands,
+        });
         let devices_callback = DeviceEvents {
-            dirty: dirty.clone(),
+            signal: signal.clone(),
         }
         .into();
         // SAFETY: enumerator and callback are owned until explicit unregistration.
@@ -304,7 +333,7 @@ impl Worker {
         Ok(Self {
             enumerator,
             devices_callback,
-            dirty,
+            signal,
             created: Arc::new(CreatedQueue::default()),
             endpoints: Vec::new(),
             sessions: Vec::new(),
@@ -312,6 +341,7 @@ impl Worker {
             new_app: None,
             released: std::collections::HashSet::new(),
             unapplied: Vec::new(),
+            master: None,
             events,
         })
     }
@@ -332,7 +362,7 @@ impl Worker {
                 if !self.endpoints.iter().any(|e| e.id == id) {
                     let manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None)?;
                     let callback = SessionCreated {
-                        dirty: self.dirty.clone(),
+                        signal: self.signal.clone(),
                         created: self.created.clone(),
                         endpoint: Arc::from(id.as_str()),
                     }
@@ -395,7 +425,7 @@ impl Worker {
                 };
                 let foreign = Arc::new(AtomicU64::new(0));
                 let callback = SessionEvents {
-                    dirty: self.dirty.clone(),
+                    signal: self.signal.clone(),
                     foreign: foreign.clone(),
                 }
                 .into();
@@ -641,14 +671,47 @@ impl Worker {
         Ok(apps)
     }
 
+    /// Explicit user changes to system volume persist; unlike managed session gains they are
+    /// not an application takeover and must not be restored on Quit.
+    fn endpoint_master(
+        &mut self,
+        value: Option<(f32, bool)>,
+    ) -> Result<(String, f32, bool), Error> {
+        // SAFETY: called on the COM worker; the endpoint and interface stay on this thread.
+        unsafe {
+            let device = self
+                .enumerator
+                .GetDefaultAudioEndpoint(eRender, eMultimedia)?;
+            let id = device_id(&device)?;
+            let volume = match &self.master {
+                Some((known, volume)) if *known == id => volume,
+                _ => {
+                    let volume: IAudioEndpointVolume = device.Activate(CLSCTX_ALL, None)?;
+                    &self.master.insert((id.clone(), volume)).1
+                }
+            };
+            if let Some((percent, muted)) = value {
+                volume.SetMasterVolumeLevelScalar(pct(percent) / 100.0, &CONTEXT)?;
+                volume.SetMute(muted, &CONTEXT)?;
+            }
+            Ok((
+                id,
+                volume.GetMasterVolumeLevelScalar()? * 100.0,
+                volume.GetMute()?.as_bool(),
+            ))
+        }
+    }
+
     fn run(&mut self, commands: Receiver<Command>, journal: &mut Journal) {
         let mut refresh_after = Instant::now();
         loop {
+            // Cleared before reading the flags: a later callback queues a new wake-up.
+            self.signal.queued.store(false, Ordering::Release);
             self.external_changes(journal);
-            if Instant::now() >= refresh_after && self.dirty.swap(false, Ordering::AcqRel) {
+            if Instant::now() >= refresh_after && self.signal.dirty.swap(false, Ordering::AcqRel) {
                 let result = self.refresh().and_then(|()| self.apply_new(journal));
                 if let Err(e) = result {
-                    self.dirty.store(true, Ordering::Release);
+                    self.signal.dirty.store(true, Ordering::Release);
                     refresh_after = Instant::now() + Duration::from_millis(500);
                     let _ = self.events.send(MixerEvent::Error(e.to_string()));
                 }
@@ -656,7 +719,13 @@ impl Worker {
             }
             // Queued faders: a held key sends one per frame and app; only the latest per app
             // is written, in one journal write, before whatever command came after them.
-            let mut received = commands.recv_timeout(Duration::from_millis(20));
+            // Callbacks wake the loop; the timeout only paces a refresh retry after an error.
+            let wait = if self.signal.dirty.load(Ordering::Acquire) {
+                refresh_after.saturating_duration_since(Instant::now())
+            } else {
+                Duration::from_secs(1)
+            };
+            let mut received = commands.recv_timeout(wait.max(Duration::from_millis(1)));
             let mut sets: Vec<(String, MixSettings)> = Vec::new();
             while let Ok(Command::Set(exe, settings)) = received {
                 match sets.iter_mut().find(|(known, _)| *known == exe) {
@@ -673,7 +742,11 @@ impl Worker {
             }
             match received {
                 Ok(Command::Master(value, reply)) => {
-                    let _ = reply.send(endpoint_master(value));
+                    let result = self.endpoint_master(value);
+                    if result.is_err() {
+                        self.master = None;
+                    }
+                    let _ = reply.send(result);
                 }
                 Ok(Command::Apps(reply)) => {
                     self.external_changes(journal);
@@ -721,7 +794,7 @@ impl Worker {
                     break;
                 }
                 // Sets were drained above.
-                Ok(Command::Set(..)) | Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Ok(Command::Set(..) | Command::Wake) | Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
         }
     }
@@ -865,7 +938,7 @@ impl Drop for CreatedQueue {
 // Volume/state/device callbacks only publish atomics: no waits or disk I/O.
 #[implement(IAudioSessionNotification)]
 struct SessionCreated {
-    dirty: Arc<AtomicBool>,
+    signal: Arc<Signal>,
     created: Arc<CreatedQueue>,
     endpoint: Arc<str>,
 }
@@ -874,19 +947,19 @@ impl IAudioSessionNotification_Impl for SessionCreated_Impl {
         if let Some(control) = session.cloned() {
             self.created.push(self.endpoint.clone(), control);
         }
-        self.dirty.store(true, Ordering::Release);
+        self.signal.changed();
         Ok(())
     }
 }
 
 #[implement(IAudioSessionEvents)]
 struct SessionEvents {
-    dirty: Arc<AtomicBool>,
+    signal: Arc<Signal>,
     foreign: Arc<AtomicU64>,
 }
 impl IAudioSessionEvents_Impl for SessionEvents_Impl {
     fn OnDisplayNameChanged(&self, _: &PCWSTR, _: *const GUID) -> windows::core::Result<()> {
-        self.dirty.store(true, Ordering::Release);
+        self.signal.changed();
         Ok(())
     }
     fn OnIconPathChanged(&self, _: &PCWSTR, _: *const GUID) -> windows::core::Result<()> {
@@ -905,6 +978,7 @@ impl IAudioSessionEvents_Impl for SessionEvents_Impl {
                 u64::from(volume.to_bits()) | (u64::from(muted.as_bool()) << 32) | VOLUME_PENDING,
                 Ordering::Release,
             );
+            self.signal.wake();
         }
         Ok(())
     }
@@ -921,30 +995,30 @@ impl IAudioSessionEvents_Impl for SessionEvents_Impl {
         Ok(())
     }
     fn OnStateChanged(&self, _: AudioSessionState) -> windows::core::Result<()> {
-        self.dirty.store(true, Ordering::Release);
+        self.signal.changed();
         Ok(())
     }
     fn OnSessionDisconnected(&self, _: AudioSessionDisconnectReason) -> windows::core::Result<()> {
-        self.dirty.store(true, Ordering::Release);
+        self.signal.changed();
         Ok(())
     }
 }
 
 #[implement(IMMNotificationClient)]
 struct DeviceEvents {
-    dirty: Arc<AtomicBool>,
+    signal: Arc<Signal>,
 }
 impl IMMNotificationClient_Impl for DeviceEvents_Impl {
     fn OnDeviceStateChanged(&self, _: &PCWSTR, _: DEVICE_STATE) -> windows::core::Result<()> {
-        self.dirty.store(true, Ordering::Release);
+        self.signal.changed();
         Ok(())
     }
     fn OnDeviceAdded(&self, _: &PCWSTR) -> windows::core::Result<()> {
-        self.dirty.store(true, Ordering::Release);
+        self.signal.changed();
         Ok(())
     }
     fn OnDeviceRemoved(&self, _: &PCWSTR) -> windows::core::Result<()> {
-        self.dirty.store(true, Ordering::Release);
+        self.signal.changed();
         Ok(())
     }
     fn OnDefaultDeviceChanged(
@@ -953,33 +1027,12 @@ impl IMMNotificationClient_Impl for DeviceEvents_Impl {
         _: ERole,
         _: &PCWSTR,
     ) -> windows::core::Result<()> {
-        self.dirty.store(true, Ordering::Release);
+        self.signal.changed();
         Ok(())
     }
     fn OnPropertyValueChanged(&self, _: &PCWSTR, _: &PROPERTYKEY) -> windows::core::Result<()> {
-        self.dirty.store(true, Ordering::Release);
+        self.signal.changed();
         Ok(())
-    }
-}
-
-/// Explicit user changes to system volume persist; unlike managed session gains they are
-/// not an application takeover and must not be restored on Quit.
-fn endpoint_master(value: Option<(f32, bool)>) -> Result<(String, f32, bool), Error> {
-    // SAFETY: called on the COM worker; the endpoint and interface stay on this thread.
-    unsafe {
-        let device = enumerator()?.GetDefaultAudioEndpoint(eRender, eMultimedia)?;
-        let id = device_id(&device)?;
-        let volume: windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume =
-            device.Activate(CLSCTX_ALL, None)?;
-        if let Some((percent, muted)) = value {
-            volume.SetMasterVolumeLevelScalar(pct(percent) / 100.0, &CONTEXT)?;
-            volume.SetMute(muted, &CONTEXT)?;
-        }
-        Ok((
-            id,
-            volume.GetMasterVolumeLevelScalar()? * 100.0,
-            volume.GetMute()?.as_bool(),
-        ))
     }
 }
 

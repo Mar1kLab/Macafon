@@ -153,6 +153,7 @@ pub fn microphone(
             tap_garbage,
             retired_tap: None,
             dictation_mute,
+            dictation_gain: macafon_dsp::Ramp::new([1.0]),
         },
     ))
 }
@@ -331,6 +332,7 @@ pub struct MicRt {
     tap_garbage: rtrb::Producer<Box<dictation::DictationTap>>,
     retired_tap: Option<Box<dictation::DictationTap>>,
     dictation_mute: Arc<AtomicBool>,
+    dictation_gain: macafon_dsp::Ramp<1>,
     capture_flags: Arc<CaptureFlags>,
 }
 
@@ -355,9 +357,7 @@ impl MicRt {
             } else {
                 self.current.process(io);
             }
-            if self.dictation_mute.load(Ordering::Acquire) {
-                io.fill(0.0);
-            }
+            self.apply_dictation_gate(io);
             return;
         }
         for chunk in io.chunks_mut(SCRATCH_SAMPLES) {
@@ -400,8 +400,24 @@ impl MicRt {
                 self.release_retired();
             }
         }
-        if self.dictation_mute.load(Ordering::Acquire) {
-            io.fill(0.0);
+        self.apply_dictation_gate(io);
+    }
+
+    fn apply_dictation_gate(&mut self, io: &mut [f32]) {
+        let target = if self.dictation_mute.load(Ordering::Acquire) {
+            0.0
+        } else {
+            1.0
+        };
+        self.dictation_gain.set_target([target]);
+        if !self.dictation_gain.is_ramping() {
+            if target == 0.0 {
+                io.fill(0.0);
+            }
+            return;
+        }
+        for sample in io {
+            *sample *= self.dictation_gain.next()[0];
         }
     }
 

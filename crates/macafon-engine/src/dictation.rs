@@ -109,6 +109,28 @@ mod tests {
     use super::*;
     use assert_no_alloc::assert_no_alloc;
     #[test]
+    fn dictation_gate_fades_without_allocating_or_muting_the_tap() {
+        let (mut control, mut rt) =
+            crate::microphone(&macafon_dsp::ChainSettings::raw(), Arc::default()).expect("engine");
+        let mut reader = control
+            .enable_dictation(false, macafon_dsp::TapPoint::Clean)
+            .expect("tap");
+        reader.set_recording(true);
+        let mut previous = 0.25;
+        for mute in [true, false] {
+            control.mute_for_dictation(mute);
+            let mut samples = [0.25; 960];
+            assert_no_alloc(|| rt.process(&mut samples));
+            for sample in samples {
+                assert!((sample - previous).abs() <= 0.25 / 480.0 + 1e-6);
+                previous = sample;
+                assert_eq!(reader.pop(), Some(0.25));
+            }
+            assert_eq!(previous, if mute { 0.0 } else { 0.25 });
+        }
+        assert!(!control.settings().muted);
+    }
+    #[test]
     fn tap_pre_roll_record_overflow_and_stop_allocate_nothing() {
         let (mut reader, mut tap) = tap(true, macafon_dsp::TapPoint::Clean);
         assert_no_alloc(|| tap.process(&[0.25; PRE_ROLL_SAMPLES + 128]));

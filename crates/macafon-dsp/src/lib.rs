@@ -29,6 +29,7 @@ pub use noise::{STUDIO_LATENCY_SAMPLES, StudioProcessor};
 pub use params::{INTENSITY, ParameterError, ParameterSpec, VOICE_THRESHOLD};
 pub use presets::Preset;
 pub use settings::{ChainSettings, InputChannel};
+pub use util::Ramp;
 
 pub const SAMPLE_RATE_HZ: u32 = 48_000;
 

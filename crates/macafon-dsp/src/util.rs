@@ -108,6 +108,8 @@ impl<const N: usize> Ramp<N> {
     }
 
     #[inline]
+    // A ramp always yields a value, including after it reaches its target; it never ends.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> [f32; N] {
         if self.remaining > 0 {
             self.remaining -= 1;

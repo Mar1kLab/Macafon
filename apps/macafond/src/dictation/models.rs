@@ -200,13 +200,11 @@ impl Manager {
                         continue;
                     }
                     reject_links(&from)?;
+                    let to = manifest::model_dir(&target, model).join(entry.file_name);
+                    // Never delete the only copy, whatever path spelling led here.
+                    ensure!(!same_path(&from, &to), "models folder is unchanged");
                     verify(&from, entry.size_bytes, entry.sha256, &cancel)?;
-                    verify(
-                        &manifest::model_dir(&target, model).join(entry.file_name),
-                        entry.size_bytes,
-                        entry.sha256,
-                        &cancel,
-                    )?;
+                    verify(&to, entry.size_bytes, entry.sha256, &cancel)?;
                     fs::remove_file(from)?;
                 }
             }
@@ -419,6 +417,9 @@ impl Manager {
             validate_drive(&target)?;
             reject_links(&target)?;
             fs::create_dir_all(&target)?;
+            // `..`, letter case or another spelling of the same folder: copying would replace
+            // each model with itself and the cleanup would then delete it.
+            ensure!(!same_path(&source, &target), "models folder is unchanged");
             let mut files = Vec::new();
             for model in manifest::models() {
                 for entry in model.files {
@@ -785,6 +786,11 @@ fn background_priority() {
     }
 }
 
+/// Both paths exist and resolve to the same file or folder.
+fn same_path(a: &Path, b: &Path) -> bool {
+    matches!((fs::canonicalize(a), fs::canonicalize(b)), (Ok(a), Ok(b)) if a == b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -863,6 +869,19 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn another_spelling_of_the_models_folder_is_the_same_folder() {
+        let root = std::env::temp_dir().join(format!("macafon-same-path-{}", std::process::id()));
+        let folder = root.join("Models");
+        fs::create_dir_all(&folder).expect("folder");
+        assert!(same_path(&folder, &folder.join("..").join("Models")));
+        #[cfg(windows)]
+        assert!(same_path(&folder, &root.join("MODELS")));
+        assert!(!same_path(&folder, &root));
+        assert!(!same_path(&folder, &root.join("missing")));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
     #[test]
     fn model_redirect_hosts_are_limited_to_hugging_face_domains() {
         for host in [

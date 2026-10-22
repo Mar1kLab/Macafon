@@ -4,6 +4,8 @@
 //! the endpoint name: names are localised and users rename them.
 
 use crate::Error;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
     CM_Get_DevNode_PropertyW, CM_Get_Device_IDW, CM_Get_Parent, CM_LOCATE_DEVNODE_PHANTOM,
     CM_Locate_DevNodeW, CR_SUCCESS,
@@ -12,15 +14,15 @@ use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Devices::Properties::{
     DEVPKEY_Device_HardwareIds, DEVPKEY_Device_Service, DEVPROPTYPE,
 };
-use windows::Win32::Foundation::DEVPROPKEY;
-use windows::Win32::Foundation::ERROR_NOT_FOUND;
+use windows::Win32::Foundation::{DEVPROPKEY, ERROR_NOT_FOUND, PROPERTYKEY};
 use windows::Win32::Media::Audio::{
     DEVICE_STATE, DEVICE_STATE_ACTIVE, DEVICE_STATEMASK_ALL, EDataFlow, ERole, IMMDevice,
-    IMMDeviceEnumerator, IMMEndpoint, MMDeviceEnumerator, PKEY_AudioEndpoint_FormFactor, Speakers,
-    eAll, eCapture, eCommunications, eConsole, eMultimedia, eRender,
+    IMMDeviceEnumerator, IMMEndpoint, IMMNotificationClient, IMMNotificationClient_Impl,
+    MMDeviceEnumerator, PKEY_AudioEndpoint_FormFactor, Speakers, eAll, eCapture, eCommunications,
+    eConsole, eMultimedia, eRender,
 };
 use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance, CoTaskMemFree, STGM_READ};
-use windows::core::{HRESULT, HSTRING, Interface, PCWSTR};
+use windows::core::{HRESULT, HSTRING, Interface, PCWSTR, implement};
 
 /// Hardware ID of the free single VB-CABLE (WIN-MIC-001). Other VB-Audio devices (A+B, C+D,
 /// Voicemeeter) report different IDs and are never used. To be confirmed on a test machine.
@@ -127,6 +129,89 @@ fn enumerate(states: DEVICE_STATE) -> Result<Vec<Endpoint>, Error> {
         result.push(describe(&device)?);
     }
     Ok(result)
+}
+
+/// Raised by Windows when an endpoint appears, goes away, is renamed or becomes a default,
+/// so callers rescan on change instead of enumerating on a timer. Unregisters on drop; the
+/// thread's COM apartment must outlive it.
+pub struct EndpointWatch {
+    enumerator: IMMDeviceEnumerator,
+    callback: IMMNotificationClient,
+    changed: Arc<AtomicBool>,
+}
+
+impl EndpointWatch {
+    pub fn new() -> Result<Self, Error> {
+        let enumerator = enumerator()?;
+        // The first check reports a change: the initial inventory.
+        let changed = Arc::new(AtomicBool::new(true));
+        let callback: IMMNotificationClient = EndpointEvents {
+            changed: changed.clone(),
+        }
+        .into();
+        // SAFETY: the enumerator and callback are kept until unregistration in Drop.
+        unsafe { enumerator.RegisterEndpointNotificationCallback(&callback) }?;
+        Ok(Self {
+            enumerator,
+            callback,
+            changed,
+        })
+    }
+
+    /// Something changed since the last call.
+    pub fn take_changed(&self) -> bool {
+        self.changed.swap(false, Ordering::AcqRel)
+    }
+}
+
+impl Drop for EndpointWatch {
+    fn drop(&mut self) {
+        // SAFETY: the callback registered in new() stays live until this call returns.
+        unsafe {
+            let _ = self
+                .enumerator
+                .UnregisterEndpointNotificationCallback(&self.callback);
+        }
+    }
+}
+
+#[implement(IMMNotificationClient)]
+struct EndpointEvents {
+    changed: Arc<AtomicBool>,
+}
+
+impl EndpointEvents {
+    fn mark(&self) -> windows::core::Result<()> {
+        self.changed.store(true, Ordering::Release);
+        Ok(())
+    }
+}
+
+impl IMMNotificationClient_Impl for EndpointEvents_Impl {
+    fn OnDeviceStateChanged(&self, _: &PCWSTR, _: DEVICE_STATE) -> windows::core::Result<()> {
+        self.mark()
+    }
+    fn OnDeviceAdded(&self, _: &PCWSTR) -> windows::core::Result<()> {
+        self.mark()
+    }
+    fn OnDeviceRemoved(&self, _: &PCWSTR) -> windows::core::Result<()> {
+        self.mark()
+    }
+    fn OnDefaultDeviceChanged(
+        &self,
+        _: EDataFlow,
+        _: ERole,
+        _: &PCWSTR,
+    ) -> windows::core::Result<()> {
+        self.mark()
+    }
+    fn OnPropertyValueChanged(&self, _: &PCWSTR, key: &PROPERTYKEY) -> windows::core::Result<()> {
+        // Some drivers report other properties many times a second; only these are described.
+        if *key == PKEY_Device_FriendlyName || *key == PKEY_AudioEndpoint_FormFactor {
+            self.mark()?;
+        }
+        Ok(())
+    }
 }
 
 /// The base VB-CABLE, if installed. Needs both of its endpoints active. Of several cable

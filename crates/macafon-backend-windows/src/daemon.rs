@@ -1,12 +1,14 @@
 //! The daemon's control loop on Windows (PRD §12.2.1, M3.1): drives a [`MicrophoneHost`] like
 //! the PipeWire backend does on Linux, with the microphone path of [`MicrophonePipeline`].
 //!
-//! There is no graph here: the loop polls the host every 100 ms, rescans endpoints every
-//! second, keeps the pipeline pointed at the selected microphone and the VB-CABLE, and starts
+//! There is no graph here: the loop polls the host every 100 ms, rescans endpoints when
+//! Windows reports a change (and rarely as a fallback), keeps the pipeline pointed at the selected microphone and the VB-CABLE, and starts
 //! the A/B player. Channel-node and stream-routing methods of the host are not used (§12.2.2).
 
 use crate::com::ComGuard;
-use crate::devices::{DataFlow, Endpoint, EndpointRole, VirtualCable, endpoints, find_vb_cable};
+use crate::devices::{
+    DataFlow, Endpoint, EndpointRole, EndpointWatch, VirtualCable, endpoints, find_vb_cable,
+};
 use crate::groups::VolumeGroups;
 use crate::journal::{self, SystemDefaults};
 use crate::microphone::{MicrophoneConfig, MicrophonePipeline};
@@ -28,6 +30,9 @@ use windows::core::BOOL;
 
 const TICK: Duration = Duration::from_millis(100);
 const SCAN_INTERVAL: Duration = Duration::from_secs(1);
+/// Full endpoint inventory without a change notification: a safety net only. Describing
+/// every endpoint costs COM and Configuration Manager calls per device.
+const INVENTORY_REFRESH: Duration = Duration::from_secs(30);
 const RESTART_DELAY: Duration = Duration::from_millis(500);
 /// Kept above the minimum safe drift level (render buffer + one capture period); see
 /// `docs/development/windows-m3.md`.
@@ -83,8 +88,12 @@ pub fn run_microphone<H: MicrophoneHost>(
         FINISHED.store(true, Ordering::Release);
         return Err(error);
     }
+    let watch = EndpointWatch::new()
+        .inspect_err(|error| tracing::warn!(%error, "Cannot watch audio endpoints; polling"))
+        .ok();
     let mut state = LoopState {
         groups: Some(VolumeGroups::start(state_dir)),
+        watch,
         ..LoopState::default()
     };
     let result = state.run(&host, &control);
@@ -126,6 +135,9 @@ struct LoopState {
     player: Option<Player>,
     restart_at: Option<Instant>,
     scanned_at: Option<Instant>,
+    /// Endpoint change notifications; without them the inventory is polled every second.
+    watch: Option<EndpointWatch>,
+    inventoried_at: Option<Instant>,
     endpoints: Vec<Endpoint>,
     cable: Option<VirtualCable>,
     inputs: Option<Vec<String>>,
@@ -173,15 +185,21 @@ impl LoopState {
     }
 
     fn tick<H: MicrophoneHost>(&mut self, host: &mut H) -> Result<(), Error> {
-        if self
-            .scanned_at
-            .is_none_or(|at| at.elapsed() >= SCAN_INTERVAL)
-        {
-            self.scanned_at = Some(Instant::now());
+        let due = |at: Option<Instant>, every| at.is_none_or(|at| at.elapsed() >= every);
+        let inventory = match &self.watch {
+            Some(watch) => watch.take_changed() || due(self.inventoried_at, INVENTORY_REFRESH),
+            None => due(self.inventoried_at, SCAN_INTERVAL),
+        };
+        if inventory {
+            self.inventoried_at = Some(Instant::now());
             match endpoints() {
                 Ok(endpoints) => self.scan(host, endpoints),
                 Err(error) => tracing::debug!(%error, "Cannot list audio endpoints"),
             }
+        }
+        if inventory || due(self.scanned_at, SCAN_INTERVAL) {
+            self.scanned_at = Some(Instant::now());
+            self.scan_defaults(host);
         }
         if self
             .pipeline
@@ -376,6 +394,11 @@ impl LoopState {
             self.outputs = Some(names(&outputs));
             host.outputs_changed(&outputs);
         }
+    }
+
+    /// Default endpoints and the output priority, which the user changes without any
+    /// endpoint event.
+    fn scan_defaults<H: MicrophoneHost>(&mut self, host: &mut H) {
         let capture = crate::devices::default_device(DataFlow::Capture, EndpointRole::Console)
             .ok()
             .flatten()

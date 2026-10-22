@@ -38,8 +38,13 @@ pub fn ab_player(
     side_b: bool,
     loudness_match: bool,
 ) -> Result<(AbControl, AbRt), crate::EngineError> {
+    // As in `AbControl::apply`: the live mute does not apply to the test.
+    let settings = ChainSettings {
+        muted: false,
+        ..*settings
+    };
     // B keeps its own meters: the A/B copy must not move the live microphone's meters.
-    let (chain, rt) = microphone(settings, Arc::new(Telemetry::default()))?;
+    let (chain, rt) = microphone(&settings, Arc::new(Telemetry::default()))?;
     let shared = Arc::new(Shared {
         position: AtomicU32::new(0),
         side_b: AtomicBool::new(side_b),
@@ -235,6 +240,16 @@ mod tests {
                 .windows(2)
                 .all(|pair| (pair[1] - pair[0]).abs() < 0.002)
         );
+    }
+
+    #[test]
+    fn side_b_ignores_the_live_mute_from_the_start() {
+        let mut muted = ChainSettings::raw();
+        muted.muted = true;
+        let (_control, mut rt) =
+            ab_player(tone(48_000, 0.5), &muted, true, false).expect("valid settings");
+        let b = play(&mut rt, 9600);
+        assert!(peak(&b[4800..]) > 0.4, "B was muted by the live mute");
     }
 
     #[test]

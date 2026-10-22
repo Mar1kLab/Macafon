@@ -2,7 +2,7 @@
   // TEST panel (§6.4, design system "Transport"): REC with a 3-2-1 countdown (AB-001), LOOP
   // (AB-002), the A ⇄ B switch (AB-004, Space or B), loudness match (AB-005) and the A/B
   // waveforms with click-to-seek (AB-006).
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { Circle, Headphones, Play, Square } from '@lucide/svelte';
   import Toggle from '../components/Toggle.svelte';
   import { daemon } from '../state';
@@ -18,6 +18,9 @@
   let waveform = $state.raw<AbWaveform | null>(null);
   let canvas: HTMLCanvasElement | undefined = $state();
   let lastClip: number | null = null;
+  let wasRecording = false;
+  /** Bumped to abandon a running countdown. */
+  let countdownRun = 0;
   let settingsKey = '';
 
   const recording = $derived(ab?.recording ?? null);
@@ -29,13 +32,18 @@
       await daemon.run(daemon.client.call('ab.stop_recording'));
       return;
     }
+    const run = ++countdownRun;
     for (let n = 3; n > 0; n--) {
       countdown = n;
       await new Promise((resolve) => setTimeout(resolve, 700));
+      if (run !== countdownRun) return;
     }
     countdown = null;
     await daemon.run(daemon.client.call('ab.record', { max_seconds: RECORD_SECONDS }));
   }
+
+  // Leaving the screen during 3-2-1 must not start a recording nobody sees.
+  onDestroy(() => countdownRun++);
 
   function loop() {
     if (!ab) return;
@@ -61,10 +69,14 @@
     }
   });
 
-  // New clip → new waveform; chain changes reshape B (debounced).
+  // New clip → new waveform; chain changes reshape B (debounced). A new recording of the
+  // same length keeps `clip_ms`, so the end of a recording reloads too.
   $effect(() => {
     const clip = ab?.clip_ms ?? null;
-    if (clip !== lastClip) {
+    const isRecording = recording !== null;
+    const finished = wasRecording && !isRecording;
+    wasRecording = isRecording;
+    if (clip !== lastClip || finished) {
       lastClip = clip;
       if (clip !== null) void loadWaveform();
       else waveform = null;

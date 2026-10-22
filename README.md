@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <b>Microphone processing, per-app mixer, SoundDeck and local dictation for Windows 11.</b>
+  <b>Microphone processing, per-app mixer, SoundDeck, local dictation and display profiles for Windows 11.</b>
 </p>
 
 <p align="center">
@@ -18,8 +18,6 @@
   <img alt="Windows 11: working" src="https://img.shields.io/badge/Windows_11-working-success">
   <img alt="Linux: experimental" src="https://img.shields.io/badge/Linux-experimental-orange">
 </p>
-
-![Microphone screen](docs/images/microphone.png)
 
 ## Features
 
@@ -30,6 +28,8 @@ Compressor → De-esser → Limiter and comes out as a virtual microphone for Di
 - Record a clip and switch **Before ⇄ After** to hear every change.
 - AI noise suppression runs locally: *Lite* (RNNoise) or *Studio* (DeepFilterNet 3).
 - Built-in and custom presets, a fallback microphone, per-microphone settings.
+
+![Microphone screen](docs/images/microphone.png)
 
 **Mixer.** Apps appear automatically; drag them between channels (Main, Voice, Music, up to eight) to
 control their volume with one fader. Pick the output device or a priority list for automatic switching.
@@ -73,11 +73,29 @@ downloaded, and your voice and text never leave it. A short guide walks you thro
 
 ![Dictation screen](docs/images/dictation.png)
 
+**Displays.** Save your monitor setups as profiles — "Work" with every screen, "Game" with only the
+main monitor at 165 Hz with HDR, "Movie" with only the TV — and switch between them with one click,
+a hotkey, the tray, the overlay or `macafon ctl display`.
+
+- A profile keeps which monitors are on, the main one, position, resolution, refresh rate, rotation,
+  duplicate or extend, and HDR. Save the current layout in one click, then fine-tune any monitor
+  without recapturing.
+- Monitors are recognized by their EDID, not by port or driver ids, so profiles survive reboots,
+  driver updates and plugging a cable into another port. Missing monitors are skipped and named.
+- Never stuck with a black screen: every layout is validated first, and on a new set of monitors
+  **Keep these display settings?** brings the old layout back after 15 s unless you keep it.
+  `Ctrl+Alt+Shift+F12` turns every monitor on, `Ctrl+Alt+Shift+F11` returns the previous layout.
+- Optionally a profile moves Macafon's sound too — "Movie" plays through the TV.
+- No administrator rights. Profiles change Windows display settings on purpose and stay after
+  Macafon quits.
+
+![Displays screen](docs/images/displays.png)
+
 **Always at hand.** Global hotkeys (push-to-talk, mute, volume, sounds; left and right Ctrl/Alt are
 told apart) work with the window closed and show a small on-screen popup. The tray icon opens a quick
 panel; `LCtrl+LAlt+Z` opens the **quick controls overlay** with volumes, switches, SoundDeck and
-dictation. Choose in Settings what it shows — including an output device switcher and a live
-microphone meter — whether side panels open to the right, left or below, and whether the overlay
+dictation and display profiles. Choose in Settings what it shows — including an output device
+switcher and a live microphone meter — whether side panels open to the right, left or below, and whether the overlay
 stays in place or keeps itself centered. **Doctor** checks your audio setup.
 
 <details>
@@ -86,12 +104,17 @@ stays in place or keeps itself centered. **Doctor** checks your audio setup.
 
 <p align="center">
   <img alt="Quick controls overlay" src="docs/images/hotkey-overlay.png" width="720"><br>
-  <sub><b>Quick controls overlay</b> (<code>LCtrl+LAlt+Z</code>): channel volumes, switches and preset over any app. The flags on Dictation and Sounds open their panels.</sub>
+  <sub><b>Quick controls overlay</b> (<code>LCtrl+LAlt+Z</code>): channel volumes, switches, display profile and preset over any app. The arrows on Dictation, History and Sounds open their panels.</sub>
 </p>
 
 <p align="center">
   <img alt="Overlay with SoundDeck" src="docs/images/hotkey-overlay-sounds.png" width="860"><br>
   <sub><b>Overlay with SoundDeck</b>: search, favorites, categories, a star on every pad and one click to play.</sub>
+</p>
+
+<p align="center">
+  <img alt="Displays: keep these display settings?" src="docs/images/displays-pending.png" width="720"><br>
+  <sub><b>Displays → Keep these display settings?</b>: a new layout reverts by itself unless you keep it.</sub>
 </p>
 
 <p align="center">
@@ -101,7 +124,7 @@ stays in place or keeps itself centered. **Doctor** checks your audio setup.
 
 <p align="center">
   <img alt="Settings: quick controls overlay" src="docs/images/settings.png" width="720"><br>
-  <sub><b>Settings → Quick controls overlay</b>: pick what the overlay shows and where its panels open.</sub>
+  <sub><b>Settings → Quick controls overlay</b>: drag parts to arrange the overlay, or into Hidden to remove them.</sub>
 </p>
 
 <p align="center">
@@ -146,6 +169,8 @@ macafon ctl soundpad list               # SoundDeck
 macafon ctl soundpad play "Memes/airhorn.mp3"
 macafon ctl soundpad stop
 macafon ctl dictation toggle            # on, off, toggle
+macafon ctl display                     # display profiles
+macafon ctl display apply <id>          # also next, revert, all-on, save "Work"
 macafon ctl doctor
 ```
 
@@ -181,7 +206,7 @@ visual language in the [design system](docs/design/design-system.md), architectu
 | `crates/macafon-dsp`, `macafon-studio`, `macafon-engine` | DSP chain, noise suppression, audio engine |
 | `crates/macafon-soundpad` | Sound library, decoding, playback |
 | `crates/macafon-stt`, `apps/macafon-stt` | Dictation engines and the on-demand speech worker |
-| `crates/macafon-backend*` | Windows (WASAPI) and Linux (PipeWire) backends |
+| `crates/macafon-backend*` | Windows (WASAPI, display profiles) and Linux (PipeWire) backends |
 | `crates/macafon-ipc`, `macafon-config`, `macafon-apps` | Protocol, settings, app rules |
 
 ## Privacy and license

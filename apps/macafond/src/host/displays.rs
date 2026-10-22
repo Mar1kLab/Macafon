@@ -121,6 +121,23 @@ fn needs_confirmation(config: &macafon_config::DisplaysConfig, id: &str, set_key
     !config.is_confirmed(id, set_key)
 }
 
+#[cfg(any(windows, test))]
+fn apply_with_rollback<S, E>(
+    previous: &mut Option<S>,
+    apply: impl FnOnce() -> Result<(), E>,
+    restore: impl FnOnce(&S) -> Result<(), E>,
+) -> Result<(), E> {
+    if let Err(error) = apply() {
+        if let Some(snapshot) = previous.as_ref()
+            && restore(snapshot).is_ok()
+        {
+            *previous = None;
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
 #[cfg(windows)]
 mod native;
 #[cfg(windows)]
@@ -315,15 +332,26 @@ mod windows {
                 .cloned()
                 .ok_or_else(not_found)?;
             let snapshot = backend::snapshot().map_err(display_error)?;
-            if let Err(error) = backend::apply(&profile.monitors) {
-                self.refresh_displays();
-                return Err(display_error(error));
-            }
             // Replacing a pending apply retains the layout before the first apply.
             if self.displays.pending.is_none() {
                 self.displays.previous = Some(snapshot);
             }
             self.displays.pending = None;
+            let result = apply_with_rollback(
+                &mut self.displays.previous,
+                || backend::apply(&profile.monitors).map(|_| ()),
+                |snapshot| {
+                    let result = backend::restore(snapshot);
+                    if let Err(error) = &result {
+                        tracing::warn!(%error, "Cannot restore partially applied display profile");
+                    }
+                    result
+                },
+            );
+            if let Err(error) = result {
+                self.refresh_displays();
+                return Err(display_error(error));
+            }
             match backend::monitors() {
                 Ok(monitors) => self.displays.monitors = monitors,
                 Err(error) => {
@@ -524,6 +552,27 @@ pub(crate) use windows::Runtime;
 mod tests {
     use super::*;
     use macafon_ipc::DisplayIdentity;
+
+    #[test]
+    fn partial_apply_restores_or_retains_the_recovery_snapshot() {
+        for restore_fails in [false, true] {
+            let mut previous = Some("original layout");
+            let result = apply_with_rollback(
+                &mut previous,
+                || Err("HDR failed after topology changed"),
+                |snapshot| {
+                    assert_eq!(*snapshot, "original layout");
+                    if restore_fails {
+                        Err("restore failed")
+                    } else {
+                        Ok(())
+                    }
+                },
+            );
+            assert_eq!(result, Err("HDR failed after topology changed"));
+            assert_eq!(previous.is_some(), restore_fails);
+        }
+    }
 
     fn profile(id: &str) -> DisplayProfile {
         DisplayProfile {

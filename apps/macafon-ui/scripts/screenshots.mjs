@@ -569,6 +569,24 @@ const scenarios = {
     await page.getByRole('button', { name: 'Mixer', exact: true }).hover();
     await page.waitForTimeout(700);
   },
+  'overlay-expand-right': async (page) => {
+    await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay&dictation=ready&expand=right`);
+    await page.locator('.switch[aria-controls="overlay-sounds"]').click();
+    await page.waitForSelector('#overlay-sounds');
+    await page.waitForTimeout(600);
+  },
+  'overlay-expand-left': async (page) => {
+    await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay&dictation=ready&expand=left`);
+    await page.locator('.switch[aria-controls="overlay-sounds"]').click();
+    await page.waitForSelector('#overlay-sounds');
+    await page.waitForTimeout(600);
+  },
+  'overlay-expand-down': async (page) => {
+    await page.goto(`${base}?platform=windows&view=quick-panel&mode=overlay&dictation=ready&expand=down`);
+    await page.locator('.switch[aria-controls="overlay-sounds"]').click();
+    await page.waitForSelector('#overlay-sounds');
+    await page.waitForTimeout(600);
+  },
   unavailable: async (page) => {
     await page.goto(`${base}?daemon=down`);
     await page.waitForSelector('.unavailable');

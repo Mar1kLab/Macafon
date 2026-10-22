@@ -510,8 +510,10 @@
     height: 100%;
     display: grid;
     align-content: space-between;
-    gap: var(--space-2);
-    padding: 8px 10px;
+    gap: var(--space-1);
+    /* Name and meta fit the 52 px pad without clipping the name. */
+    line-height: 1.25;
+    padding: var(--space-2) var(--space-3);
     border: 0;
     background: none;
     text-align: left;

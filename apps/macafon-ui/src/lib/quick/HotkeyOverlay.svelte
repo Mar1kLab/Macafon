@@ -385,5 +385,13 @@
   .sketch .round, .sketch .switch, .sketch .flag, .sketch .split .switch, .sketch .split .flag, .sketch kbd { border-radius: 0; }
   .sketch .switch span { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.1em; text-transform: uppercase; }
   .sketch .strip-name { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
+  /* On is a sunken tile with an accent rule on its edge, as in the tray panel; off stays faint. */
+  .sketch .switch:hover:not(:disabled) { background: var(--bg); }
+  .sketch .switch.on { background: var(--bg-sunken); border-color: var(--line); color: var(--ink-strong); }
+  .sketch .switch.on :global(svg) { color: var(--accent-ink); }
+  .sketch .switch.on::before, .sketch .switch.alert::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--accent); }
+  .sketch .switch.alert { border-color: var(--line); }
+  .sketch .switch.alert::before { background: var(--danger); }
+  .sketch .split.open .flag { background: var(--bg-sunken); border-color: var(--line-strong); color: var(--accent-ink); }
   @media (prefers-reduced-motion: reduce) { .round, .switch, .flag, .flag :global(svg) { transition: none; } }
 </style>

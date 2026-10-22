@@ -25,8 +25,13 @@
     const delta = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0;
     if (!delta || disabled) return;
     event.preventDefault();
-    const next = options[(index + delta + options.length) % options.length];
-    if (next) onchange(next.value);
+    const nextIndex = (index + delta + options.length) % options.length;
+    const next = options[nextIndex];
+    if (!next) return;
+    onchange(next.value);
+    // Focus follows the selection, or Space would activate the previously focused option.
+    const group = event.currentTarget as HTMLElement;
+    group.querySelectorAll<HTMLElement>('[role="radio"]')[nextIndex]?.focus();
   }
 </script>
 

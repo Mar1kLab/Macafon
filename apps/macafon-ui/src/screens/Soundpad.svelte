@@ -107,7 +107,8 @@
   }
   const editingSound = $derived(editing ? sounds.find((sound) => sound.id === editing) : undefined);
   /** Uploads land in the category on screen; favorites and "all" add to the folder itself. */
-  const uploadCategory = $derived(scope && scope !== FAVORITES ? scope : null);
+  // Favorites and Unplayable are views, not folders: files added there go to Uncategorized.
+  const uploadCategory = $derived(scope && scope !== FAVORITES && scope !== PROBLEMS ? scope : null);
 
   const scopes = $derived([
     { value: null as SoundScope, label: t('soundpad.all'), count: sounds.length },

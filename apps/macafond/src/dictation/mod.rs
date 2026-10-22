@@ -91,31 +91,66 @@ fn load_history() -> Vec<DictationResult> {
         .unwrap_or_default()
 }
 
-/// Written off the control loop: temp file + rename, so a crash never leaves half a file.
-pub fn save_history(history: &[DictationResult]) {
+/// Saves and deletions of the history file, applied in order on one writer thread: a
+/// deletion can never be undone by an older save that was still queued.
+enum HistoryWrite {
+    Save(Vec<u8>),
+    Delete,
+}
+
+fn write_history(op: HistoryWrite) {
+    use std::sync::{OnceLock, mpsc};
+    static WRITER: OnceLock<mpsc::Sender<HistoryWrite>> = OnceLock::new();
     let Some(path) = history_file() else {
         return;
     };
-    let Ok(bytes) = serde_json::to_vec(history) else {
-        return;
-    };
-    std::thread::spawn(move || {
-        let temp = path.with_extension("json.tmp");
-        let result = path
-            .parent()
-            .map_or(Ok(()), std::fs::create_dir_all)
-            .and_then(|()| std::fs::write(&temp, bytes))
-            .and_then(|()| std::fs::rename(&temp, &path));
-        if let Err(error) = result {
-            tracing::warn!(%error, "Cannot save the dictation history");
+    let writer = WRITER.get_or_init(|| {
+        let (sender, receiver) = mpsc::channel::<HistoryWrite>();
+        let spawned = std::thread::Builder::new()
+            .name("dictation-history".into())
+            .spawn(move || {
+                while let Ok(mut op) = receiver.recv() {
+                    // Only the latest state matters.
+                    while let Ok(next) = receiver.try_recv() {
+                        op = next;
+                    }
+                    let result = match op {
+                        HistoryWrite::Save(bytes) => {
+                            let temp = path.with_extension("json.tmp");
+                            path.parent()
+                                .map_or(Ok(()), std::fs::create_dir_all)
+                                .and_then(|()| std::fs::write(&temp, bytes))
+                                .and_then(|()| std::fs::rename(&temp, &path))
+                        }
+                        HistoryWrite::Delete => match std::fs::remove_file(&path) {
+                            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                                Err(error)
+                            }
+                            _ => Ok(()),
+                        },
+                    };
+                    if let Err(error) = result {
+                        tracing::warn!(%error, "Cannot write the dictation history");
+                    }
+                }
+            });
+        if let Err(error) = spawned {
+            tracing::warn!(%error, "Cannot start the dictation history writer");
         }
+        sender
     });
+    let _ = writer.send(op);
+}
+
+/// Written off the control loop: temp file + rename, so a crash never leaves half a file.
+pub fn save_history(history: &[DictationResult]) {
+    if let Ok(bytes) = serde_json::to_vec(history) {
+        write_history(HistoryWrite::Save(bytes));
+    }
 }
 
 pub fn delete_saved_history() {
-    if let Some(path) = history_file() {
-        let _ = std::fs::remove_file(path);
-    }
+    write_history(HistoryWrite::Delete);
 }
 
 impl Dictation {

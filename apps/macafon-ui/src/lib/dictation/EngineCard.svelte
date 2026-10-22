@@ -179,7 +179,7 @@
   .empty {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: var(--space-4);
     padding: 12px 14px;
     border: 1px solid var(--accent);
     background: color-mix(in srgb, var(--accent) 8%, var(--bg-sunken));
@@ -192,13 +192,13 @@
   .name {
     font-family: var(--font-display);
     font-weight: 600;
-    font-size: 15px;
+    font-size: var(--text-lg);
     color: var(--ink-strong);
   }
 
   .hint,
   .note {
-    font-size: 12.5px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 
@@ -211,14 +211,14 @@
     margin: 0;
     padding: 0;
     display: grid;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .model {
     display: grid;
     grid-template-columns: 22px minmax(64px, 1fr) 64px auto auto minmax(190px, 1.4fr);
     align-items: center;
-    gap: 14px;
+    gap: var(--space-3);
     min-height: 40px;
     padding: 0 8px 0 10px;
     border: 1px solid var(--line);
@@ -255,7 +255,7 @@
 
   .title {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-sm);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--ink);
@@ -267,7 +267,7 @@
   .speed,
   .free {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
     color: var(--muted);
     white-space: nowrap;
@@ -276,17 +276,17 @@
   .rating {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .rating .hud-label {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--faint);
   }
 
   .steps {
     display: flex;
-    gap: 2px;
+    gap: var(--space-half);
   }
 
   .steps i {
@@ -303,7 +303,7 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 8px;
+    gap: var(--space-2);
     min-width: 0;
   }
 
@@ -317,7 +317,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--danger);
   }
 
@@ -336,13 +336,13 @@
     position: absolute;
     inset: 0 auto 0 0;
     background: var(--accent);
-    transition: width 250ms linear;
+    transition: width var(--dur-reveal) linear;
   }
 
   .storage {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
     min-width: 0;
   }
 
@@ -353,14 +353,14 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--ink);
   }
 
   .foot {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .foot > span {
@@ -370,7 +370,7 @@
   .link {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-2);
     font: inherit;
     color: var(--muted);
     text-transform: uppercase;

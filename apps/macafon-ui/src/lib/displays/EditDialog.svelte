@@ -139,21 +139,21 @@
 </Dialog>
 
 <style>
-  .form { display: flex; flex-direction: column; gap: 18px; }
-  .row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
-  .field { display: flex; flex-direction: column; gap: 8px; }
+  .form { display: flex; flex-direction: column; gap: var(--space-4); }
+  .row { display: flex; gap: var(--space-4); align-items: flex-end; flex-wrap: wrap; }
+  .field { display: flex; flex-direction: column; gap: var(--space-2); }
   .grow { flex: 1; min-width: 200px; }
-  .input { height: 34px; padding: 0 10px; border: 1px solid var(--line); background: var(--bg-sunken); color: var(--ink); font-size: 13px; user-select: text; }
+  .input { height: 34px; padding: 0 10px; border: 1px solid var(--line); background: var(--bg-sunken); color: var(--ink); font-size: var(--text-md); user-select: text; }
   .input:focus { outline: none; border-color: var(--accent); }
   .monitors { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
-  li { display: flex; flex-direction: column; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
-  .head { display: flex; align-items: center; gap: 12px; }
-  .name { font-size: 13px; color: var(--ink-strong); }
+  li { display: flex; flex-direction: column; gap: var(--space-2); padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .head { display: flex; align-items: center; gap: var(--space-3); }
+  .name { font-size: var(--text-md); color: var(--ink-strong); }
   li.off .name { color: var(--muted); }
-  .missing { font-family: var(--font-mono); font-size: 10px; color: var(--app-amber-ink); }
-  .primary { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+  .missing { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--app-amber-ink); }
+  .primary { margin-left: auto; display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
   .primary input { accent-color: var(--accent); }
-  .settings { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding-left: 52px; }
-  .hdr { display: inline-flex; align-items: center; gap: 8px; }
-  .hint { font-size: 12px; color: var(--muted); }
+  .settings { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); align-items: center; padding-left: 52px; }
+  .hdr { display: inline-flex; align-items: center; gap: var(--space-2); }
+  .hint { font-size: var(--text-sm); color: var(--muted); }
 </style>

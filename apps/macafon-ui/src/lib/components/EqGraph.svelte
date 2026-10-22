@@ -363,7 +363,7 @@
     top: -15px;
     transform: translateX(-50%);
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     color: var(--muted);
     pointer-events: none;
   }
@@ -386,7 +386,7 @@
   .menu button {
     text-align: left;
     padding: 5px 12px;
-    font-size: 13px;
+    font-size: var(--text-md);
   }
 
   .menu button:hover {

@@ -131,7 +131,7 @@
 <style>
   .slot {
     display: grid;
-    gap: 4px;
+    gap: var(--space-1);
     min-width: 0;
   }
 
@@ -149,7 +149,7 @@
     white-space: nowrap;
     padding: 5px 10px;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--ink);
     text-align: center;
     background: var(--bg-sunken);
@@ -172,7 +172,7 @@
 
   .problem,
   .note {
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
 
   .problem {

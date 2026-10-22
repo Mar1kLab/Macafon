@@ -71,14 +71,14 @@
 <style>
   .note {
     margin-top: 12px;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 
   .measuring {
     display: grid;
     grid-template-columns: 128px 1fr;
-    gap: 24px;
+    gap: var(--space-6);
     align-items: center;
   }
 
@@ -98,7 +98,7 @@
     fill: none;
     stroke: var(--accent);
     stroke-width: 4;
-    transition: stroke-dashoffset 120ms linear;
+    transition: stroke-dashoffset var(--dur) linear;
   }
 
   .count {
@@ -106,14 +106,14 @@
     transform-origin: 64px 64px;
     fill: var(--ink-strong);
     font-family: var(--font-display);
-    font-size: 28px;
+    font-size: var(--text-xl);
     font-weight: 600;
   }
 
   h3 {
     margin-top: 4px;
     font-family: var(--font-display);
-    font-size: 24px;
+    font-size: var(--text-xl);
     font-weight: 600;
     letter-spacing: -0.03em;
     color: var(--ink-strong);
@@ -123,7 +123,7 @@
     margin-top: 8px;
     font-family: var(--font-serif);
     font-style: italic;
-    font-size: 20px;
+    font-size: var(--text-xl);
     line-height: 1.3;
     color: var(--ink);
   }

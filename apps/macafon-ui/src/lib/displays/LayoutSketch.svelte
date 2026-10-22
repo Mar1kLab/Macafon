@@ -91,7 +91,7 @@
 </div>
 
 <style>
-  .sketch { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .sketch { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
   .area { height: var(--h); display: flex; align-items: center; justify-content: center; min-width: 0; }
   /* As large as fits the area, keeping the desktop's proportions. */
   .desk { position: relative; width: min(100%, calc(var(--h) * var(--ratio))); aspect-ratio: var(--ratio); }
@@ -107,7 +107,7 @@
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    gap: 2px;
+    gap: var(--space-half);
     padding: 2px 4px;
     overflow: hidden;
     min-width: 0;
@@ -115,9 +115,9 @@
   .monitor.primary { border-color: var(--accent); }
   .monitor.primary::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--accent); }
   .monitor.missing { opacity: 0.4; border-style: dashed; }
-  .name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--ink); }
-  .mode { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 9px; color: var(--muted); }
-  .off { display: flex; flex-wrap: wrap; gap: 4px; }
-  .chip { border: 1px dashed var(--line-strong); padding: 2px 6px; font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+  .name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); color: var(--ink); }
+  .mode { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--muted); }
+  .off { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+  .chip { border: 1px dashed var(--line-strong); padding: 2px 6px; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--muted); }
   .chip.missing { opacity: 0.5; }
 </style>

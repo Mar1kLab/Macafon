@@ -80,7 +80,7 @@
   .makeup {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px 10px;
+    gap: var(--space-2) var(--space-2);
     align-items: center;
   }
 
@@ -93,6 +93,6 @@
   .auto {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-2);
   }
 </style>

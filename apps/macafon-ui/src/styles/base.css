@@ -12,7 +12,7 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: var(--text-md);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   user-select: none;
@@ -67,7 +67,7 @@ p {
 
 .hud-label {
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: var(--text-xs);
   font-weight: 500;
   letter-spacing: 0.15em;
   text-transform: uppercase;
@@ -76,7 +76,7 @@ p {
 
 .badge {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   padding: 1px 6px;
@@ -88,7 +88,7 @@ p {
 
 .value {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
   color: var(--ink-strong);
 }
@@ -129,13 +129,13 @@ p {
   display: inline-flex;
   justify-content: center;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   height: 30px;
   padding: 0 12px;
   border: 1px solid var(--line);
   background: var(--bg-raised);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -186,5 +186,5 @@ p {
 .btn.small {
   height: 24px;
   padding: 0 8px;
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }

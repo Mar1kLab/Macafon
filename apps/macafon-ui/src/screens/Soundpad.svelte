@@ -552,7 +552,7 @@
   .top {
     display: flex;
     align-items: center;
-    gap: 10px 12px;
+    gap: var(--space-2) var(--space-3);
     min-height: 59px;
     padding: 14px 24px;
     border-bottom: 1px solid var(--line);
@@ -575,7 +575,7 @@
   .search {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     width: 240px;
     height: 30px;
     padding: 0 10px;
@@ -610,10 +610,10 @@
   .banner {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     padding: 8px 24px;
     border-bottom: 1px solid var(--line);
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--app-amber-ink);
   }
 
@@ -641,7 +641,7 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     align-content: start;
-    gap: 4px;
+    gap: var(--space-1);
   }
 
   .categories h2 {
@@ -654,7 +654,7 @@
     padding: 0;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 2px;
+    gap: var(--space-half);
   }
 
   .category {
@@ -664,7 +664,7 @@
   .scope {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     width: 100%;
     height: 32px;
     padding: 0 10px;
@@ -702,7 +702,7 @@
 
   .count {
     color: var(--faint);
-    font-size: 11px;
+    font-size: var(--text-xs);
   }
 
   .category .tools {
@@ -722,7 +722,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: var(--space-2);
     height: 32px;
     margin-top: 6px;
     border: 1px dashed var(--line-strong);
@@ -737,7 +737,7 @@
 
   .output {
     display: grid;
-    gap: 8px;
+    gap: var(--space-2);
     padding: 14px 16px 16px;
     border-top: 1px solid var(--line);
   }
@@ -745,7 +745,7 @@
   .target {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     color: var(--muted);
     margin-top: 4px;
   }
@@ -753,7 +753,7 @@
   .target .name {
     flex: 1;
     min-width: 0;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--ink);
   }
 
@@ -771,13 +771,13 @@
     display: grid;
     grid-template-columns: 32px minmax(0, 1fr) minmax(0, 160px) 72px 120px 64px;
     align-items: center;
-    column-gap: 12px;
+    column-gap: var(--space-3);
   }
 
   .head {
     padding: 10px 29px 8px;
     border-bottom: 1px solid var(--line);
-    font-size: 10px;
+    font-size: var(--text-2xs);
   }
 
   .right {
@@ -793,7 +793,7 @@
     padding: 10px 16px 16px;
     display: grid;
     align-content: start;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .row {
@@ -870,13 +870,13 @@
   .title {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     min-width: 0;
   }
 
   .title b {
     font-family: var(--font-display);
-    font-size: 15px;
+    font-size: var(--text-lg);
     font-weight: 600;
     letter-spacing: -0.01em;
     color: var(--ink);
@@ -890,7 +890,7 @@
   }
 
   .cat {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--muted);
     overflow: hidden;
     white-space: nowrap;
@@ -916,7 +916,7 @@
     border: 1px solid var(--line);
     background: var(--bg-sunken);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--ink);
   }
 
@@ -966,7 +966,7 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 24px;
+    gap: var(--space-6);
     padding: 16px 24px;
     border-bottom: 1px solid var(--line);
   }
@@ -974,7 +974,7 @@
   .problem-head p {
     margin-top: 6px;
     max-width: 560px;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 
@@ -982,7 +982,7 @@
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
     padding: 8px 24px;
     border-bottom: 1px solid var(--line);
     color: var(--app-amber-ink);
@@ -1006,7 +1006,7 @@
     white-space: nowrap;
     text-overflow: ellipsis;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--faint);
   }
 
@@ -1014,23 +1014,23 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--muted);
   }
 
   .none {
     padding: 24px 12px;
     color: var(--muted);
-    font-size: 13px;
+    font-size: var(--text-md);
   }
 
   .uploading {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     padding: 6px 24px;
     border-top: 1px solid var(--line);
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--muted);
   }
 
@@ -1059,7 +1059,7 @@
   .intro {
     position: relative;
     display: grid;
-    gap: 16px;
+    gap: var(--space-4);
     justify-items: start;
     width: 560px;
     padding: 32px;
@@ -1069,7 +1069,7 @@
 
   .intro h2 {
     font-family: var(--font-display);
-    font-size: 36px;
+    font-size: var(--text-display);
     font-weight: 700;
     letter-spacing: -0.03em;
     line-height: 1.1;
@@ -1083,14 +1083,14 @@
   }
 
   .intro .note {
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
     overflow-wrap: anywhere;
   }
 
   .actions {
     display: flex;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .dropzone {
@@ -1100,7 +1100,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+    gap: var(--space-2);
     border: 1px dashed var(--accent);
     background: color-mix(in srgb, var(--bg) 88%, transparent);
     color: var(--accent-ink);
@@ -1120,7 +1120,7 @@
 
   .field {
     display: grid;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .input {

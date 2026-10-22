@@ -18,7 +18,7 @@
   .monitors {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   /* The popup's rounded corners are an owner exception to the design system (HK-006). */

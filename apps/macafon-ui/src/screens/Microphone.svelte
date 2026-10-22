@@ -156,7 +156,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px 10px;
+    gap: var(--space-2) var(--space-2);
     padding: 14px 24px;
     border-bottom: 1px solid var(--line);
   }
@@ -177,7 +177,7 @@
   .meters {
     display: grid;
     grid-template-columns: 1fr auto 1fr;
-    gap: 32px;
+    gap: var(--space-8);
     align-items: center;
     padding: 12px 24px;
     border-bottom: 1px solid var(--line);
@@ -185,16 +185,16 @@
 
   .latency {
     display: flex;
-    gap: 8px;
+    gap: var(--space-2);
     align-items: baseline;
   }
 
   .banner {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
     padding: 8px 24px;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--ink);
     background: var(--bg-raised);
     border-bottom: 1px solid var(--line);
@@ -222,7 +222,7 @@
   .chain {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 16px;
+    gap: var(--space-4);
     align-items: start;
     transition: opacity var(--dur) var(--ease);
   }

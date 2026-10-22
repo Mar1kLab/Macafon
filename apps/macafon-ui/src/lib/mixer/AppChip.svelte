@@ -222,14 +222,14 @@
   .chip {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     width: 100%;
     height: 32px;
     padding: 0 8px;
     border: 1px solid var(--line);
     background: var(--bg-raised);
     color: var(--ink);
-    font-size: 13px;
+    font-size: var(--text-md);
     text-align: left;
     cursor: grab;
     transition:
@@ -266,7 +266,7 @@
     background: color-mix(in srgb, var(--c) 30%, transparent);
     color: var(--c-ink);
     font-family: var(--font-display);
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-weight: 700;
   }
 
@@ -277,7 +277,7 @@
 
   .vol {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--muted);
   }
 
@@ -304,7 +304,7 @@
     height: 6px;
     border-radius: 50%;
     background: var(--c-ink);
-    animation: pulse 1.2s ease-in-out infinite;
+    animation: pulse var(--dur-loop) ease-in-out infinite;
   }
 
   @keyframes pulse {
@@ -331,7 +331,7 @@
   .menu button {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     width: 100%;
     padding: 6px 12px;
     text-align: left;
@@ -355,7 +355,7 @@
   kbd {
     margin-left: auto;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--faint);
   }
 

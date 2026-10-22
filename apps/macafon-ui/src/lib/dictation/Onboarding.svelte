@@ -8,7 +8,7 @@
 <script lang="ts">
   // Dictation's first-run guide (§8.4): step by step, what it is and how to start — first of all
   // that everything runs on this computer: no account, no cloud, audio and text never leave it.
-  import { prefersReducedMotion } from 'svelte/motion';
+  import { reveal } from '../motion';
   import { Download, HardDrive, Keyboard, Languages, Mic, ShieldCheck, WifiOff } from '@lucide/svelte';
   import type { Component } from 'svelte';
   import { fly } from 'svelte/transition';
@@ -60,7 +60,7 @@
     </ol>
 
     {#key step}
-      <section class="step" in:fly={{ x: 24 * direction, duration: prefersReducedMotion.current ? 0 : 200 }} aria-live="polite">
+      <section class="step" in:fly={{ x: 24 * direction, ...reveal() }} aria-live="polite">
         <span class="icon"><current.icon size={28} strokeWidth={1.25} /></span>
         <h3>{t(`dictation.onboarding.${current.id}.title`)}</h3>
         <p>{t(`dictation.onboarding.${current.id}.body`)}</p>
@@ -112,7 +112,7 @@
 <style>
   .guide {
     display: grid;
-    gap: 20px;
+    gap: var(--space-5);
   }
 
   .steps {
@@ -121,21 +121,21 @@
     list-style: none;
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 4px;
+    gap: var(--space-1);
   }
 
   .steps button {
     width: 100%;
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    gap: var(--space-2);
     padding: 8px 0 6px;
     border: 0;
     border-top: 2px solid var(--line);
     background: none;
     color: var(--faint);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--text-sm);
     text-align: left;
     cursor: pointer;
   }
@@ -157,14 +157,14 @@
 
   .n {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     color: var(--accent-ink);
   }
 
   .step {
     display: grid;
-    gap: 12px;
+    gap: var(--space-3);
     min-height: 260px;
     align-content: start;
   }
@@ -181,19 +181,19 @@
 
   h3 {
     font-family: var(--font-display);
-    font-size: 24px;
+    font-size: var(--text-xl);
     letter-spacing: -0.02em;
     color: var(--ink-strong);
   }
 
   p {
-    font-size: 14px;
+    font-size: var(--text-md);
     line-height: 1.5;
     color: var(--ink);
   }
 
   .note {
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 
@@ -202,17 +202,17 @@
     padding: 0;
     list-style: none;
     display: grid;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .facts li {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
     padding: 8px 12px;
     border: 1px solid var(--line);
     background: var(--bg-sunken);
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--ink);
   }
 
@@ -225,7 +225,7 @@
     flex: none;
     width: 72px;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--accent-ink);
@@ -235,15 +235,15 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 12px;
-    font-size: 13px;
+    gap: var(--space-3);
+    font-size: var(--text-md);
     color: var(--muted);
   }
 
   .keys span {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .keys span::before {
@@ -255,7 +255,7 @@
     padding: 6px 12px;
     border: 1px solid var(--line-strong);
     font-family: var(--font-mono);
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--ink-strong);
   }
 
@@ -269,13 +269,13 @@
     list-style: none;
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .languages li {
     padding: 4px 10px;
     border: 1px solid var(--accent);
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--ink-strong);
   }
 

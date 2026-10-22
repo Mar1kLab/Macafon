@@ -224,7 +224,7 @@
   .test {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
     height: 64px;
     padding: 0 24px;
     border-top: 1px solid var(--line);
@@ -257,7 +257,7 @@
     height: 100%;
     padding: 0 14px;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--muted);
@@ -268,7 +268,7 @@
 
   .ab b {
     font-family: var(--font-display);
-    font-size: 15px;
+    font-size: var(--text-lg);
     letter-spacing: 0;
     margin-right: 6px;
   }
@@ -317,14 +317,14 @@
   }
 
   .hint {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--faint);
   }
 
   .match {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .headphones {

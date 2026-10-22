@@ -96,12 +96,12 @@
 </Dialog>
 
 <style>
-  .device-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-height: calc(100vh - 160px); overflow-y: auto; }
+  .device-panel { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); max-height: calc(100vh - 160px); overflow-y: auto; }
   .device-panel > p, .pair, .filter { grid-column: 1 / -1; }
-  .sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  fieldset, .pair { border: 1px solid var(--line); padding: 12px; display: grid; gap: 12px; min-width: 0; }
+  .sliders { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+  fieldset, .pair { border: 1px solid var(--line); padding: 12px; display: grid; gap: var(--space-3); min-width: 0; }
   legend { padding: 0 4px; }
-  .choices { display: flex; flex-wrap: wrap; gap: 4px; }
+  .choices { display: flex; flex-wrap: wrap; gap: var(--space-1); }
   .selected { border-color: var(--app-teal); color: var(--app-teal-ink); }
-  .error { color: var(--danger); font-size: 12px; overflow-wrap: anywhere; }
+  .error { color: var(--danger); font-size: var(--text-sm); overflow-wrap: anywhere; }
 </style>

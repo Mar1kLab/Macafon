@@ -225,7 +225,7 @@
 <style>
   .hotkeys {
     display: grid;
-    gap: 16px;
+    gap: var(--space-4);
     padding: 14px 24px;
   }
 
@@ -233,7 +233,7 @@
 
   .group {
     display: grid;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   ul {
@@ -241,14 +241,14 @@
     padding: 0;
     list-style: none;
     display: grid;
-    gap: 4px;
+    gap: var(--space-1);
   }
 
   li {
     display: grid;
     grid-template-columns: minmax(100px, 1fr) minmax(0, 1fr) minmax(0, 1fr);
     align-items: center;
-    column-gap: 8px;
+    column-gap: var(--space-2);
     padding: 4px 8px 4px 12px;
     border: 1px solid var(--line);
     background: var(--bg-sunken);
@@ -261,7 +261,7 @@
   }
 
   .hint {
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 
@@ -272,7 +272,7 @@
     text-overflow: ellipsis;
     padding: 4px 10px;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--ink);
     text-align: center;
     background: var(--bg-raised);
@@ -297,14 +297,14 @@
   code {
     overflow-wrap: anywhere;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--ink);
   }
 
   .problem,
   .note {
     grid-column: 1 / -1;
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
 
   .problem {

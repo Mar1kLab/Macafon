@@ -150,12 +150,12 @@
 <style>
   .form {
     display: grid;
-    gap: 16px;
+    gap: var(--space-4);
   }
 
   .field {
     display: grid;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .field.inline {
@@ -166,7 +166,7 @@
   .keys {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: var(--space-2);
     align-items: start;
   }
 
@@ -182,7 +182,7 @@
 
   .meta {
     color: var(--muted);
-    font-size: 11px;
+    font-size: var(--text-xs);
     overflow-wrap: anywhere;
   }
 

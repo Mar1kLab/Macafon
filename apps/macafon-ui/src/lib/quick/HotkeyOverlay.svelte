@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { prefersReducedMotion } from 'svelte/motion';
+  import { DURATION, motion } from '../motion';
   import { AudioLines, AudioWaveform, ChevronDown, ChevronLeft, ChevronRight, Headphones, History, Mic, MicOff, MonitorSmartphone, SlidersHorizontal, Speech, Volume2, VolumeX, X } from '@lucide/svelte';
   import Logo from '../components/Logo.svelte';
   import LevelMeter from '../components/LevelMeter.svelte';
@@ -245,13 +245,13 @@
       </div>
       {#if playerUnderMain}
         <!-- Sideways, the sounds take the full height; the player stays under the main part. -->
-        <div class="dock" transition:reveal={{ expand: 'down', duration: prefersReducedMotion.current ? 0 : 200 }}><SoundpadOverlay part="player" /></div>
+        <div class="dock" transition:reveal={{ expand: 'down', duration: motion(DURATION.reveal) }}><SoundpadOverlay part="player" /></div>
       {/if}
       </div>
 
       {#if side}
         <!-- Side content scrolls without contributing to the main height or down width. -->
-        <div class="side-reveal" transition:reveal={{ expand, duration: prefersReducedMotion.current ? 0 : 200 }}>
+        <div class="side-reveal" transition:reveal={{ expand, duration: motion(DURATION.reveal) }}>
           <aside class="side" class:sounds={side === 'sounds'}>
             {#if side === 'sounds'}
               <SoundpadOverlay part="library" />
@@ -268,7 +268,7 @@
     </div>
     {#if side === 'sounds' && !playerUnderMain}
       <!-- Keep the player row reserved until the side panel finishes closing. -->
-      <div class="dock" transition:reveal={{ expand, duration: prefersReducedMotion.current ? 0 : 200 }}><SoundpadOverlay part="player" /></div>
+      <div class="dock" transition:reveal={{ expand, duration: motion(DURATION.reveal) }}><SoundpadOverlay part="player" /></div>
     {/if}
   {/if}
 </div>
@@ -288,12 +288,12 @@
   .frame .b { bottom: 0; }
   .frame .l { left: 0; }
   .frame .r { right: 0; }
-  header { display: flex; align-items: center; gap: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
-  .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-size: 18px; letter-spacing: -0.03em; color: var(--ink-strong); }
+  header { display: flex; align-items: center; gap: var(--space-6); padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-display); font-size: var(--text-lg); letter-spacing: -0.03em; color: var(--ink-strong); }
   .logo { display: inline-flex; width: 24px; height: 28px; }
   .logo :global(svg) { width: 100%; height: 100%; }
-  .header-end { margin-left: auto; display: flex; align-items: center; gap: 20px; }
-  kbd { font-family: var(--font-mono); font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+  .header-end { margin-left: auto; display: flex; align-items: center; gap: var(--space-5); }
+  kbd { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
   .round { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); background: var(--bg-sunken); transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease); }
   .round:hover:not(:disabled) { border-color: var(--line-strong); color: var(--ink-strong); }
   .round:disabled { opacity: 0.4; }
@@ -309,15 +309,15 @@
   .main-column { flex: none; display: flex; flex-direction: column; }
   .main { flex: none; }
   /* As wide as the overlay was before side panels, a little wider: the strips share it. */
-  .main { display: flex; gap: 24px; min-width: 816px; }
+  .main { display: flex; gap: var(--space-6); min-width: 816px; }
   .main.controls-only { min-width: 0; }
   .volumes { flex: 1; min-width: 0; display: flex; overflow-x: auto; padding: 0 2px 4px; }
-  .strip { flex: 1 0 88px; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .strip { flex: 1 0 88px; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); }
   .master { flex-grow: 0; border-right: 1px solid var(--line); margin-right: 8px; padding-right: 8px; }
-  .strip-name { font-family: var(--font-display); font-size: 13px; font-weight: 600; color: var(--ink-strong); max-width: 88px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .strip-name { font-family: var(--font-display); font-size: var(--text-md); font-weight: 600; color: var(--ink-strong); max-width: 88px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .mute { color: var(--channel-ink); }
   .alert, .round.alert { color: var(--danger); border-color: var(--danger); }
-  .controls { width: 240px; flex: none; padding-left: 24px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+  .controls { width: 240px; flex: none; padding-left: 24px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--space-2); }
   .controls-only .controls { padding-left: 0; border-left: 0; }
   /* Volumes after the controls in the layout: on the right of them. */
   .main.volumes-right { flex-direction: row-reverse; }
@@ -326,10 +326,10 @@
   /* The last row sits at the bottom of the column, along the bottom of the strips. */
   .wide.last { margin-top: auto; padding-top: 4px; }
 
-  .switches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .switches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
   /* An odd last switch takes the whole row. */
   .switches > :last-child:nth-child(odd) { grid-column: span 2; }
-  .switch { position: relative; overflow: hidden; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: 54px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: transparent; color: var(--faint); font-size: 11px; transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease); }
+  .switch { position: relative; overflow: hidden; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-1); height: 54px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: transparent; color: var(--faint); font-size: var(--text-xs); transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease); }
   .switch span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .switch:hover:not(:disabled) { border-color: var(--line-strong); color: var(--ink); }
   .switch.on { background: var(--accent); border-color: var(--accent); color: var(--ink-strong); }
@@ -356,13 +356,13 @@
   .split.open .flag :global(svg) { transform: rotate(180deg); }
   .switch:focus-visible, .flag:focus-visible, .round:focus-visible { outline: 1px solid var(--ink); outline-offset: 2px; position: relative; z-index: 1; }
 
-  .picker .hud-label { font-size: 9px; }
-  .picker-nav { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
-  .picker-name { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 12px; }
+  .picker .hud-label { font-size: var(--text-2xs); }
+  .picker-nav { display: flex; gap: var(--space-2); align-items: center; margin-top: 6px; }
+  .picker-name { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: var(--space-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: var(--text-sm); }
   .picker-name :global(svg) { flex: none; color: var(--muted); }
-  .picker-name small { margin-left: 6px; font-size: 9px; color: var(--app-amber-ink); }
-  .level :global(.meter) { grid-template-columns: auto 1fr auto 36px auto; gap: 8px; }
-  .level :global(.hud-label) { font-size: 9px; }
+  .picker-name small { margin-left: 6px; font-size: var(--text-2xs); color: var(--app-amber-ink); }
+  .level :global(.meter) { grid-template-columns: auto 1fr auto 36px auto; gap: var(--space-2); }
+  .level :global(.hud-label) { font-size: var(--text-2xs); }
   .level.muted { opacity: 0.5; }
 
   .side-reveal { position: relative; flex: none; width: 464px; min-height: 0; }
@@ -374,10 +374,10 @@
   /* Under the main part the player follows the strips, a line above it. */
   .main-column .dock { margin-top: 12px; }
   .dock :global(.dock) { flex: 1; overflow-x: auto; scrollbar-width: thin; }
-  .status { flex: 1; align-self: center; padding: 24px; font-size: 13px; color: var(--muted); }
+  .status { flex: 1; align-self: center; padding: 24px; font-size: var(--text-md); color: var(--muted); }
   /* Sketch: the app's own look — sharp corners, HUD labels, accent marks instead of fills. */
   .sketch .round, .sketch .switch, .sketch .flag, .sketch .split .switch, .sketch .split .flag, .sketch kbd { border-radius: 0; }
-  .sketch .switch span { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
-  .sketch .strip-name { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
+  .sketch .switch span { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.1em; text-transform: uppercase; }
+  .sketch .strip-name { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
   @media (prefers-reduced-motion: reduce) { .round, .switch, .flag, .flag :global(svg) { transition: none; } }
 </style>

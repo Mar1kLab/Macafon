@@ -116,14 +116,14 @@
   .simple {
     display: grid;
     grid-template-columns: minmax(150px, 220px) 1fr;
-    gap: 16px;
+    gap: var(--space-4);
     align-items: center;
   }
 
   .character {
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 10px;
+    gap: var(--space-2);
     align-items: center;
   }
 
@@ -138,12 +138,12 @@
   .band-head {
     display: grid;
     grid-template-columns: 104px 160px auto;
-    gap: 10px;
+    gap: var(--space-2);
     align-items: center;
   }
 
   .help {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--muted);
   }
 </style>

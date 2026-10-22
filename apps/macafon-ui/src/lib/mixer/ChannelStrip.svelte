@@ -232,7 +232,7 @@
     position: relative;
     display: grid;
     grid-template-rows: auto minmax(84px, 1fr) minmax(140px, 240px) auto auto auto;
-    gap: 12px;
+    gap: var(--space-3);
     width: 196px;
     min-width: 0;
     flex: none;
@@ -256,7 +256,7 @@
   header {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     height: 40px;
     color: var(--c-ink);
   }
@@ -267,7 +267,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: var(--font-display);
-    font-size: 16px;
+    font-size: var(--text-lg);
     font-weight: 700;
     letter-spacing: -0.03em;
     color: var(--ink-strong);
@@ -276,7 +276,7 @@
   .tools {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-2);
     flex: none;
     margin-left: auto;
   }
@@ -299,11 +299,11 @@
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .folded p {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--faint);
   }
 
@@ -351,7 +351,7 @@
   .apps {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--space-2);
     margin: 0;
     padding: 0;
     list-style: none;
@@ -363,7 +363,7 @@
 
   .empty {
     padding: 8px 0;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--faint);
   }
 
@@ -372,7 +372,7 @@
   }
 
   .flash :global(.chip) {
-    animation: flash 900ms ease-out;
+    animation: flash var(--dur-flash) var(--ease-out);
   }
 
   @keyframes flash {
@@ -385,7 +385,7 @@
   .level {
     display: flex;
     justify-content: center;
-    gap: 14px;
+    gap: var(--space-3);
     min-height: 0;
   }
 
@@ -393,25 +393,25 @@
     display: flex;
     justify-content: center;
     align-items: baseline;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .readout .value {
     font-family: var(--font-display);
-    font-size: 18px;
+    font-size: var(--text-lg);
     font-weight: 600;
     color: var(--ink-strong);
   }
 
   .db {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--muted);
   }
 
   footer {
     display: flex;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   footer .btn {

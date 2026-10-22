@@ -74,7 +74,7 @@
     display: grid;
     grid-template-columns: 44px 1fr 56px;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   canvas {
@@ -85,7 +85,7 @@
 
   .value {
     text-align: right;
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--muted);
   }
 

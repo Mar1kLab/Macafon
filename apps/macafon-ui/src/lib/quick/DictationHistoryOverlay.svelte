@@ -35,11 +35,11 @@
   </section>
 {/if}
 <style>
-  .history { display: flex; flex-direction: column; min-height: 0; min-width: 0; flex: 1; gap: 12px; }
+  .history { display: flex; flex-direction: column; min-height: 0; min-width: 0; flex: 1; gap: var(--space-3); }
   .head {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
     flex: none;
   }
 
@@ -62,7 +62,7 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-rows: auto auto;
-    column-gap: 10px;
+    column-gap: var(--space-2);
     padding: 6px 0;
     border-top: 1px solid var(--line);
   }
@@ -76,12 +76,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--ink);
   }
 
   .meta {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--faint);
   }
 
@@ -90,12 +90,12 @@
     grid-row: 1 / 3;
     align-self: center;
     display: flex;
-    gap: 4px;
+    gap: var(--space-1);
   }
 
   .empty {
     padding: 8px 0;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 

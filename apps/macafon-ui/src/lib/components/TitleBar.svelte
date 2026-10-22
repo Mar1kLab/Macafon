@@ -59,7 +59,7 @@
     min-width: 0;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
     padding-left: 12px;
     transition: opacity var(--dur) var(--ease);
   }
@@ -78,7 +78,7 @@
 
   b {
     font-family: var(--font-display);
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 600;
     letter-spacing: -0.02em;
     color: var(--ink-strong);
@@ -91,7 +91,7 @@
     text-overflow: ellipsis;
     padding-left: 10px;
     border-left: 1px solid var(--line);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--faint);
   }
 

@@ -74,6 +74,6 @@
     display: grid;
     grid-template-columns: 104px auto;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
   }
 </style>

@@ -43,7 +43,7 @@
   .master {
     display: grid;
     grid-template-rows: auto minmax(84px, 1fr) minmax(140px, 240px) auto auto auto;
-    gap: 12px;
+    gap: var(--space-3);
     width: 136px;
     flex: none;
     padding: 0 12px 12px;
@@ -65,7 +65,7 @@
   .level {
     display: flex;
     justify-content: center;
-    gap: 14px;
+    gap: var(--space-3);
     min-height: 0;
   }
 
@@ -75,19 +75,19 @@
     display: flex;
     justify-content: center;
     align-items: baseline;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .value {
     font-family: var(--font-display);
-    font-size: 18px;
+    font-size: var(--text-lg);
     font-weight: 600;
     color: var(--ink-strong);
   }
 
   .db {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--muted);
   }
 

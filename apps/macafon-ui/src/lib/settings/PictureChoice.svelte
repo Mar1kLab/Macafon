@@ -43,13 +43,13 @@
   .choices {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   button {
     position: relative;
     display: grid;
-    gap: 10px;
+    gap: var(--space-2);
     align-content: start;
     padding: 10px;
     border: 1px solid var(--line);
@@ -77,12 +77,12 @@
 
   .text {
     display: grid;
-    gap: 2px;
+    gap: var(--space-half);
   }
 
   .name {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 500;
     letter-spacing: 0.15em;
     text-transform: uppercase;
@@ -93,7 +93,7 @@
   }
 
   .hint {
-    font-size: 12px;
+    font-size: var(--text-sm);
     line-height: 1.4;
     color: var(--muted);
   }

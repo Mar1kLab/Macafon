@@ -171,7 +171,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 12px;
+    gap: var(--space-3);
     border: 1px dashed var(--accent);
     background: color-mix(in srgb, var(--bg) 90%, transparent);
     color: var(--accent-ink);
@@ -198,7 +198,7 @@
   .panel {
     position: relative;
     display: grid;
-    gap: 12px;
+    gap: var(--space-3);
     justify-items: start;
     max-width: 480px;
     padding: 32px;
@@ -208,7 +208,7 @@
 
   h1 {
     font-family: var(--font-display);
-    font-size: 32px;
+    font-size: var(--text-display);
     font-weight: 700;
     letter-spacing: -0.03em;
     color: var(--ink-strong);
@@ -227,7 +227,7 @@
 
   .reason {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--danger);
   }
 </style>

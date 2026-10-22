@@ -257,7 +257,7 @@
   .soundpad {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--space-2);
     min-height: 0;
     min-width: 0;
     flex: 1;
@@ -271,14 +271,14 @@
   .bar {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-2);
     min-width: 0;
   }
 
   .search {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     height: 32px;
     padding: 0 12px;
     border: 1px solid var(--line);
@@ -298,7 +298,7 @@
     background: none;
     color: var(--ink);
     outline: none;
-    font-size: 12px;
+    font-size: var(--text-sm);
     user-select: text;
   }
 
@@ -309,7 +309,7 @@
   .filters {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     min-width: 0;
   }
 
@@ -320,13 +320,13 @@
   .chip {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-2);
     flex: none;
     height: 32px;
     padding: 0 12px;
     border: 1px solid var(--line);
     border-radius: 12px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--muted);
     background: var(--bg-sunken);
     transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
@@ -339,7 +339,7 @@
 
   .chip small {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--faint);
   }
 
@@ -359,7 +359,7 @@
   .player {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     min-width: 0;
     min-height: 28px;
     flex-wrap: nowrap;
@@ -376,7 +376,7 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--accent-ink);
   }
 
@@ -387,7 +387,7 @@
   .time {
     flex: none;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--ink);
   }
 
@@ -401,7 +401,7 @@
     display: grid;
     grid-template-columns: auto 1fr;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-2);
     margin-left: 4px;
     color: var(--muted);
   }
@@ -413,7 +413,7 @@
   /* A narrower ruler: a short track and a tight readout. */
   .volume :global(.ruler.compact) {
     grid-template-columns: 1fr 34px;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .volume :global(.ruler.compact .track) {
@@ -421,14 +421,14 @@
   }
 
   .volume :global(.ruler.compact .value) {
-    font-size: 11px;
+    font-size: var(--text-xs);
   }
 
   .sort :global(.trigger),
   .scope :global(.trigger) {
     height: 32px;
     border-radius: 12px;
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
 
   .round {
@@ -461,7 +461,7 @@
   .pads {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
+    gap: var(--space-2);
     min-height: 0;
     flex: 1 1 0;
     grid-auto-rows: 52px;
@@ -509,7 +509,7 @@
     height: 100%;
     display: grid;
     align-content: space-between;
-    gap: 6px;
+    gap: var(--space-2);
     padding: 8px 10px;
     border: 0;
     background: none;
@@ -563,16 +563,16 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--ink);
   }
 
   .meta {
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    gap: var(--space-2);
     min-width: 0;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--muted);
   }
 
@@ -597,14 +597,14 @@
     flex: none;
     margin-left: auto;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--muted);
   }
 
   .pads.list {
     grid-auto-rows: 28px;
     grid-template-columns: minmax(0, 1fr);
-    gap: 4px;
+    gap: var(--space-1);
   }
 
   /* The seek bar fills the space left by the transport and output volumes; a thin one. */
@@ -621,7 +621,7 @@
   .list .play {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
     padding: 0 34px 0 10px;
   }
 
@@ -679,7 +679,7 @@
   }
 
   .empty {
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 

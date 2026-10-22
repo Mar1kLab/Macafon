@@ -722,7 +722,7 @@
 {/if}
 
 <style>
-  .mode { display: flex; flex-wrap: wrap; gap: 4px; }
+  .mode { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 
   .overlay-setup {
     border-top: 1px solid var(--line);
@@ -748,11 +748,11 @@
   }
 
   .top {
-    gap: 16px;
+    gap: var(--space-4);
   }
 
   .back {
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   h1 {
@@ -782,7 +782,7 @@
   .sections button {
     display: flex;
     align-items: baseline;
-    gap: 10px;
+    gap: var(--space-2);
     width: 100%;
     padding: 8px 12px;
     border: 0;
@@ -790,7 +790,7 @@
     background: none;
     color: var(--muted);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--text-md);
     text-align: left;
     cursor: pointer;
     transition:
@@ -816,7 +816,7 @@
 
   .sections .n {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     color: var(--faint);
   }
@@ -831,7 +831,7 @@
     padding: 24px;
     display: grid;
     align-content: start;
-    gap: 24px;
+    gap: var(--space-6);
     min-width: 0;
     min-height: 0;
   }
@@ -857,7 +857,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 24px;
+    gap: var(--space-6);
     padding: 14px 24px;
   }
 
@@ -872,14 +872,14 @@
   }
 
   .hint {
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 
   .row.column {
     flex-direction: column;
     align-items: stretch;
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .slider {
@@ -900,7 +900,7 @@
     margin: 0;
     padding: 14px 24px 14px 0;
     display: grid;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .live figcaption {
@@ -912,13 +912,13 @@
     padding: 0;
     list-style: none;
     display: grid;
-    gap: 4px;
+    gap: var(--space-1);
   }
 
   .priority li {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     padding: 4px 8px;
     border: 1px solid var(--line);
     background: var(--bg-sunken);
@@ -926,7 +926,7 @@
 
   .priority .n {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--accent-ink);
     width: 16px;
   }
@@ -941,7 +941,7 @@
   }
 
   .priority .empty {
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 

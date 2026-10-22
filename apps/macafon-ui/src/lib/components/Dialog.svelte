@@ -71,7 +71,7 @@
   }
 
   dialog[open] {
-    animation: appear var(--dur-card) ease-out;
+    animation: appear var(--dur-card) var(--ease-out);
   }
 
   header,
@@ -100,7 +100,7 @@
   footer {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: var(--space-2);
     padding: 0 24px 24px;
   }
 

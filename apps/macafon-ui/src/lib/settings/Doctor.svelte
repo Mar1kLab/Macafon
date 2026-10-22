@@ -116,13 +116,13 @@
 <style>
   .doctor {
     display: grid;
-    gap: 12px;
+    gap: var(--space-3);
     padding: 14px 24px;
   }
 
   .actions {
     display: flex;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   ul {
@@ -130,13 +130,13 @@
     padding: 0;
     list-style: none;
     display: grid;
-    gap: 4px;
+    gap: var(--space-1);
   }
 
   li {
     display: grid;
     grid-template-columns: 16px 1fr auto;
-    gap: 12px;
+    gap: var(--space-3);
     align-items: center;
     padding: 8px 12px;
     border: 1px solid var(--line);
@@ -165,7 +165,7 @@
   }
 
   .hint {
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 </style>

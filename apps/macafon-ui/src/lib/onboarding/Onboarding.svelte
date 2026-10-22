@@ -380,7 +380,7 @@
   .top {
     display: flex;
     align-items: center;
-    gap: 24px;
+    gap: var(--space-6);
     height: 59px;
     padding: 0 24px;
     border-bottom: 1px solid var(--line);
@@ -389,9 +389,9 @@
   .brand {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     font-family: var(--font-display);
-    font-size: 15px;
+    font-size: var(--text-lg);
     font-weight: 700;
     letter-spacing: -0.03em;
     color: var(--ink-strong);
@@ -406,7 +406,7 @@
     flex: 1;
     display: flex;
     justify-content: center;
-    gap: 4px;
+    gap: var(--space-1);
     list-style: none;
     margin: 0;
     padding: 0;
@@ -415,7 +415,7 @@
   .rail li {
     display: flex;
     align-items: baseline;
-    gap: 6px;
+    gap: var(--space-2);
     padding: 6px 10px;
     border-bottom: 2px solid var(--line);
     color: var(--faint);
@@ -427,7 +427,7 @@
 
   .rail .n {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
   }
 
   .rail .passed {
@@ -451,12 +451,12 @@
   .panel {
     position: relative;
     display: grid;
-    gap: 16px;
+    gap: var(--space-4);
     width: 640px;
     padding: 32px;
     border: 1px solid var(--line);
     background: var(--bg-raised);
-    animation: appear var(--dur-card) ease-out;
+    animation: appear var(--dur-card) var(--ease-out);
   }
 
   .panel.wide {
@@ -465,7 +465,7 @@
 
   h1 {
     font-family: var(--font-display);
-    font-size: 40px;
+    font-size: var(--text-display);
     font-weight: 700;
     letter-spacing: -0.03em;
     line-height: 1.1;
@@ -480,12 +480,12 @@
   }
 
   .lead {
-    font-size: 14px;
+    font-size: var(--text-md);
     color: var(--ink);
   }
 
   .note {
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 
@@ -503,9 +503,9 @@
 
   .howto li {
     display: flex;
-    gap: 12px;
+    gap: var(--space-3);
     padding: 10px 16px;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--ink);
   }
 
@@ -530,7 +530,7 @@
   .device {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
     height: 48px;
     padding: 0 16px;
     text-align: left;
@@ -576,7 +576,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 24px;
+    gap: var(--space-6);
     padding: 14px 16px;
     border: 1px solid var(--line);
     background: var(--bg-sunken);
@@ -592,13 +592,13 @@
     padding: 0;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .apps li {
     display: grid;
     align-content: start;
-    gap: 8px;
+    gap: var(--space-2);
     padding: 12px;
     border: 1px solid var(--line);
   }
@@ -612,14 +612,14 @@
   }
 
   .apps p {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--muted);
   }
 
   .actions {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     padding: 16px 24px;
     border-top: 1px solid var(--line);
   }

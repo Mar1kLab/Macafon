@@ -216,7 +216,7 @@
   .ruler {
     display: grid;
     align-items: center;
-    gap: 6px 10px;
+    gap: var(--space-2) var(--space-2);
   }
 
   .ruler.stacked {

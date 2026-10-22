@@ -268,7 +268,7 @@
     flex-direction: column;
     border-left: 1px solid var(--line-strong);
     background: var(--bg-raised);
-    animation: slide var(--dur-card) ease-out;
+    animation: slide var(--dur-card) var(--ease-out);
   }
 
   @keyframes slide {
@@ -281,7 +281,7 @@
   header {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
     padding: 12px 12px 12px 20px;
     border-top: 3px solid var(--c);
     border-bottom: 1px solid var(--line);
@@ -289,7 +289,7 @@
 
   h2 {
     font-family: var(--font-display);
-    font-size: 18px;
+    font-size: var(--text-lg);
     font-weight: 700;
     letter-spacing: -0.03em;
     color: var(--ink-strong);
@@ -308,7 +308,7 @@
   .tabs button {
     padding: 4px 10px;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--muted);
@@ -324,7 +324,7 @@
     overflow-y: auto;
     display: grid;
     align-content: start;
-    gap: 16px;
+    gap: var(--space-4);
     padding: 20px;
   }
 
@@ -332,7 +332,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: var(--space-4);
   }
 
   .grow {
@@ -342,7 +342,7 @@
 
   .module {
     display: grid;
-    gap: 10px;
+    gap: var(--space-2);
     padding: 12px;
     border: 1px solid var(--line);
     background: var(--bg-sunken);
@@ -361,13 +361,13 @@
   }
 
   .help {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--muted);
   }
 
   .field {
     display: grid;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .input {
@@ -388,7 +388,7 @@
   .icons {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .swatches button {

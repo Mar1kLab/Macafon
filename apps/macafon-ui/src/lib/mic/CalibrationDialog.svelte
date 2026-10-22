@@ -59,13 +59,13 @@
 
 <style>
   .lead {
-    font-size: 14px;
+    font-size: var(--text-md);
     color: var(--ink);
   }
 
   .note {
     margin-top: 12px;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 

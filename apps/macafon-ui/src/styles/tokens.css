@@ -44,13 +44,34 @@
   --font-mono: 'Geist Mono Variable', monospace;
   --font-serif: 'Instrument Serif', serif;
 
-  /* Spacing (§4): 4px base unit */
-  --spacing: 0.25rem;
+  /* Type scale (§3.1): six text steps and one display size; nothing else is used. */
+  --text-2xs: 10px; /* badges, compact scales, meter captions */
+  --text-xs: 11px; /* HUD labels, buttons */
+  --text-sm: 12px; /* values, hints, secondary text */
+  --text-md: 13px; /* body, controls */
+  --text-lg: 16px; /* card and channel titles */
+  --text-xl: 24px; /* section and dialog titles */
+  --text-display: 36px; /* onboarding and empty-state headlines */
 
-  /* Motion (§5) */
+  /* Spacing (§4): 4px base unit; --space-half only for hairline gaps inside a control. */
+  --spacing: 0.25rem;
+  --space-half: 2px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Motion (§5): durations and easing; spring presets live in lib/motion.ts. */
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
-  --dur: 150ms;
-  --dur-card: 300ms;
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --dur: 150ms; /* hover, focus, colour changes */
+  --dur-reveal: 200ms; /* tooltips, menus, step changes */
+  --dur-card: 300ms; /* card appearance, expanding sections */
+  --dur-flash: 900ms; /* one-off attention flashes */
+  --dur-loop: 1200ms; /* idle loops: activity pulse, loader */
 
   /* Sidebar (§4) */
   --sidebar-width: 64px;

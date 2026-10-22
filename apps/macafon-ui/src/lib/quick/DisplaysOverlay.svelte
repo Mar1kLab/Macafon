@@ -54,13 +54,13 @@
 {/if}
 
 <style>
-  .displays { display: flex; flex-direction: column; min-height: 0; min-width: 0; flex: 1; gap: 12px; }
-  .head { display: flex; align-items: center; gap: 10px; flex: none; min-height: 32px; }
+  .displays { display: flex; flex-direction: column; min-height: 0; min-width: 0; flex: 1; gap: var(--space-3); }
+  .head { display: flex; align-items: center; gap: var(--space-2); flex: none; min-height: 32px; }
   .spacer { flex: 1; }
   .round { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); background: var(--bg-sunken); }
   .round:hover { border-color: var(--line-strong); color: var(--ink-strong); }
-  ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; min-height: 0; flex: 1; overscroll-behavior: contain; scrollbar-gutter: stable; }
-  .row { width: 100%; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: transparent; color: var(--ink); font-size: 13px; text-align: left; transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease); }
+  ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); overflow-y: auto; min-height: 0; flex: 1; overscroll-behavior: contain; scrollbar-gutter: stable; }
+  .row { width: 100%; display: flex; align-items: center; gap: var(--space-2); height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: transparent; color: var(--ink); font-size: var(--text-md); text-align: left; transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease); }
   .row:hover { border-color: var(--line-strong); color: var(--ink-strong); }
   .row.active { border-color: var(--accent); }
   .row:focus-visible, .round:focus-visible, .pending button:focus-visible { outline: 1px solid var(--ink); outline-offset: 2px; }
@@ -68,14 +68,14 @@
   .active .icon, .mark { color: var(--accent-ink); }
   .mark { display: inline-flex; }
   .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .warn { font-family: var(--font-mono); font-size: 10px; color: var(--app-amber-ink); }
-  kbd { font-family: var(--font-mono); font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
-  .pending { display: grid; grid-template-columns: 1fr auto auto; grid-template-rows: auto auto; column-gap: 8px; row-gap: 2px; align-items: center; padding: 10px 12px; border: 1px solid var(--app-amber); border-radius: 12px; flex: none; }
-  .question { font-size: 13px; color: var(--ink-strong); }
-  .count { grid-row: 2; font-family: var(--font-mono); font-size: 11px; color: var(--app-amber-ink); }
-  .pending button { grid-row: span 2; height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; color: var(--ink); background: transparent; }
+  .warn { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--app-amber-ink); }
+  kbd { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
+  .pending { display: grid; grid-template-columns: 1fr auto auto; grid-template-rows: auto auto; column-gap: var(--space-2); row-gap: var(--space-half); align-items: center; padding: 10px 12px; border: 1px solid var(--app-amber); border-radius: 12px; flex: none; }
+  .question { font-size: var(--text-md); color: var(--ink-strong); }
+  .count { grid-row: 2; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--app-amber-ink); }
+  .pending button { grid-row: span 2; height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; font-size: var(--text-sm); color: var(--ink); background: transparent; }
   .pending .keep { background: var(--accent); border-color: var(--accent); color: var(--ink-strong); }
-  .empty { margin: 0; font-size: 13px; color: var(--muted); }
+  .empty { margin: 0; font-size: var(--text-md); color: var(--muted); }
   /* Sketch: the app's own look, picked with the hotkey popup's (HK-006). */
   :global(.sketch) .row, :global(.sketch) .round, :global(.sketch) .pending, :global(.sketch) .pending button, :global(.sketch) kbd { border-radius: 0; }
   @media (prefers-reduced-motion: reduce) { .row { transition: none; } }

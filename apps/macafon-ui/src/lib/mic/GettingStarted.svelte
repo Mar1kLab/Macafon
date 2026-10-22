@@ -37,7 +37,7 @@
     display: grid;
     grid-template-columns: auto 1fr auto;
     align-items: start;
-    gap: 16px;
+    gap: var(--space-4);
     margin-bottom: 16px;
     padding: 12px 16px;
     border: 1px solid var(--line);
@@ -56,14 +56,14 @@
     padding: 0;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 20px;
+    gap: var(--space-5);
   }
 
   li {
     display: flex;
     align-items: flex-start;
-    gap: 10px;
-    font-size: 13px;
+    gap: var(--space-2);
+    font-size: var(--text-md);
     color: var(--ink);
   }
 
@@ -80,7 +80,7 @@
     justify-content: center;
     border: 1px solid var(--line-strong);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--accent-ink);
   }
 
@@ -104,7 +104,7 @@
   small {
     display: block;
     margin-top: 4px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--muted);
   }
 </style>

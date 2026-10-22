@@ -41,7 +41,7 @@
   .row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
   }
 
   .raw {
@@ -50,7 +50,7 @@
   }
 
   .clip-hint {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--danger);
   }
 </style>

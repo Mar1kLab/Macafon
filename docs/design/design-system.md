@@ -85,9 +85,31 @@ Fonts are bundled with the application (all under SIL OFL 1.1), never loaded fro
              background: var(--bg-sunken); }
 ```
 
+### 3.1 Type scale
+
+Components use only these tokens (`tokens.css`); a size outside the scale is a bug.
+
+| Token | Size | Use |
+|---|---|---|
+| `--text-2xs` | 10px | Badges, compact scales, meter captions, `.btn.small` |
+| `--text-xs` | 11px | HUD labels, buttons |
+| `--text-sm` | 12px | Values, hints, secondary text |
+| `--text-md` | 13px | Body text and controls (the page default) |
+| `--text-lg` | 16px | Card, channel and dialog item titles |
+| `--text-xl` | 24px | Section and dialog titles |
+| `--text-display` | 36px | Onboarding, empty-state and error headlines (Archivo) |
+
+Pictures that draw a miniature of another surface (popup and overlay previews in Settings) scale
+with their container (`cqw`) and are the only exception.
+
 ## 4. Grid, spacing, shapes
 
 - Base unit `4px` (`--spacing: .25rem`), card padding 24px (`p-6`), 32px on a wide window.
+- Spacing tokens: `--space-1` 4, `--space-2` 8, `--space-3` 12, `--space-4` 16, `--space-5` 20,
+  `--space-6` 24, `--space-8` 32 px; `--space-half` 2 px only for hairline gaps inside one control.
+  Gaps always use them.
+- Screens share one header (`PageHeader`): 59 px tall, `--space-6` side padding, the HUD title, then
+  controls, a spacer and the actions; content below is padded `--space-6`.
 - Minimum window size 960×640, default 1180×760. A 64px navigation sidebar (icons) with HUD captions on hover.
 - `border-radius: 0` on all elements except the round EQ points; application chips are rectangular too (also 0, with an icon).
 - 1px `--line` borders; hover — `--line-strong`; focus-visible — 1px `--accent` + outline offset 2px.
@@ -96,12 +118,19 @@ Fonts are bundled with the application (all under SIL OFL 1.1), never loaded fro
 
 ## 5. Motion
 
-- Base animation: `150ms cubic-bezier(.4,0,.2,1)`; card appearance/hover: `300ms ease-out`.
+- Motion tokens: `--dur` 150 ms (hover, focus, colour), `--dur-reveal` 200 ms (tooltips, menus,
+  steps), `--dur-card` 300 ms (cards, expanding sections), `--dur-flash` 900 ms (one-off attention
+  flash), `--dur-loop` 1200 ms (idle loops: activity pulse, loader); easing `--ease`
+  (`cubic-bezier(.4,0,.2,1)`) and `--ease-out`. Script animation takes the same values and spring
+  presets from `lib/motion.ts`, whose `motion()` returns 0 under reduced motion.
 - Application chip hover: `translateY(-4px)` + `drop-shadow(0 6px 14px rgba(0,0,0,.28))` (the icons on ArtCraft).
 - Drag & drop: the lifted chip follows the cursor with a slight tilt (2°); the target channel is highlighted
   with a border in its `--app` color and corner ticks.
 - Meters — 60 fps, 1 s peak hold, a smooth 20 dB/s fall.
-- Respect `prefers-reduced-motion`: disable the tilt, translate and appearance animation.
+- Respect `prefers-reduced-motion`: disable the tilt, translate and appearance animation. WebView2
+  reports Windows "Animation effects" off as reduced motion, so one check covers both.
+- Animated icons (Moving Icons, vendored in `lib/icons/animated`) play once on a state change or on
+  hover of their control, never on an idle screen.
 
 ## 6. Components
 

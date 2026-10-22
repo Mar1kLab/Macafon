@@ -312,7 +312,7 @@
 <style>
   .builder {
     display: grid;
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .busy,
@@ -332,7 +332,7 @@
   .caption {
     display: block;
     margin-bottom: 8px;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     color: var(--faint);
   }
 
@@ -348,7 +348,7 @@
   .canvas {
     position: relative;
     display: flex;
-    gap: 12px;
+    gap: var(--space-3);
     min-height: 196px;
     padding: 14px;
     border: 1px solid var(--line-strong);
@@ -398,7 +398,7 @@
     width: 230px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--space-2);
     padding-left: 12px;
     border-left: 1px solid var(--line);
   }
@@ -420,7 +420,7 @@
   .switches {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .switches > :global(:last-child:nth-child(odd)) {
@@ -436,12 +436,12 @@
     min-width: 0;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-2);
     border: 1px solid var(--line);
     background: var(--bg-sunken);
     color: var(--muted);
     font: inherit;
-    font-size: 11px;
+    font-size: var(--text-xs);
     text-align: left;
     cursor: grab;
     touch-action: none;
@@ -482,7 +482,7 @@
   .switch {
     flex-direction: column;
     justify-content: center;
-    gap: 4px;
+    gap: var(--space-1);
     width: 100%;
     height: 46px;
     padding: 4px;
@@ -491,7 +491,7 @@
 
   .switch .label {
     max-width: 100%;
-    font-size: 10px;
+    font-size: var(--text-2xs);
   }
 
   .wide {
@@ -503,11 +503,11 @@
     flex: 1;
     min-width: 0;
     display: grid;
-    gap: 5px;
+    gap: var(--space-1);
   }
 
   .wide-face .hud-label {
-    font-size: 9px;
+    font-size: var(--text-2xs);
   }
 
   .nav {
@@ -537,14 +537,14 @@
   }
 
   .volumes-label {
-    font-size: 9px;
+    font-size: var(--text-2xs);
     color: var(--faint);
   }
 
   .strips {
     flex: 1;
     display: flex;
-    gap: 10px;
+    gap: var(--space-2);
     justify-content: space-around;
   }
 
@@ -555,7 +555,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .strip i {
@@ -575,7 +575,7 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     color: var(--faint);
   }
 
@@ -626,7 +626,7 @@
   .tray-parts {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: var(--space-2);
     min-height: 30px;
   }
 
@@ -647,7 +647,7 @@
   .empty {
     align-self: center;
     margin: auto;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--faint);
   }
 
@@ -655,17 +655,17 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: var(--space-4);
   }
 
   .hint {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--muted);
   }
 
   .foot .btn {
     flex: none;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .ghost {

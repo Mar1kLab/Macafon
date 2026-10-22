@@ -221,7 +221,7 @@
   .trigger {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     width: 100%;
     height: 30px;
     padding: 0 8px 0 10px;
@@ -249,7 +249,7 @@
     white-space: nowrap;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .panel {
@@ -288,7 +288,7 @@
     white-space: nowrap;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .label {
@@ -312,7 +312,7 @@
 
   .group {
     padding: 8px 12px 2px;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--faint);
   }
 
@@ -320,7 +320,7 @@
     border-top: 1px solid var(--line);
     padding: 6px;
     display: flex;
-    gap: 6px;
+    gap: var(--space-2);
     flex-wrap: wrap;
   }
 </style>

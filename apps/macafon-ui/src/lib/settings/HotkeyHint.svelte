@@ -16,8 +16,8 @@
 </span>
 
 <style>
-  .hints { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; min-width: 0; }
+  .hints { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-1); min-width: 0; }
   .hints:empty { display: none; }
-  kbd { font-family: var(--font-mono); font-size: 9px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+  kbd { font-family: var(--font-mono); font-size: var(--text-2xs); line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
   kbd + kbd::before { content: '/ '; color: var(--faint); }
 </style>

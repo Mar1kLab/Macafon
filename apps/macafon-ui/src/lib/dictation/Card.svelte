@@ -39,7 +39,7 @@
     min-width: 0;
     background: var(--bg-raised);
     border: 1px solid var(--line);
-    transition: border-color var(--dur-card) ease-out;
+    transition: border-color var(--dur-card) var(--ease-out);
   }
 
   .card:hover,
@@ -68,14 +68,14 @@
   header {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
     min-height: 32px;
     padding: 8px 14px 0 16px;
   }
 
   .number {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--c-ink);
   }
 
@@ -87,7 +87,7 @@
   .content {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--space-3);
     padding: 12px 16px 16px;
     transition: opacity var(--dur) var(--ease);
   }
@@ -101,7 +101,7 @@
     padding: 8px 16px;
     border-top: 1px solid var(--line);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--muted);

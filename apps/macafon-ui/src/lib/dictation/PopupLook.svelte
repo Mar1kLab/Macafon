@@ -202,7 +202,7 @@
 
   .dot {
     fill: var(--ink-strong);
-    animation: shimmer 900ms var(--ease) infinite;
+    animation: shimmer var(--dur-flash) var(--ease) infinite;
   }
 
 
@@ -245,7 +245,7 @@
   .vu {
     font-family: var(--font-serif);
     font-style: italic;
-    font-size: 17px;
+    font-size: var(--text-lg);
     fill: var(--muted);
   }
 
@@ -269,7 +269,7 @@
 
   .hud {
     font-family: var(--font-mono);
-    font-size: 8.5px;
+    font-size: var(--text-2xs);
     font-weight: 500;
     letter-spacing: 0.12em;
     fill: var(--ink);
@@ -279,7 +279,7 @@
 
   .rec {
     fill: var(--danger);
-    animation: blink 1s steps(1) infinite;
+    animation: blink var(--dur-loop) steps(1) infinite;
   }
 
 

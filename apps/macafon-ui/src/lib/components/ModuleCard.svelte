@@ -1,7 +1,7 @@
 <script lang="ts">
   // Module card (design system §6, DSP-001): number, HUD title, on/off, main control, gain
   // reduction and an Advanced accordion. Off → content at 40% opacity, the frame stays.
-  import { prefersReducedMotion } from 'svelte/motion';
+  import { reveal } from '../motion';
   import type { Snippet } from 'svelte';
   import { slide } from 'svelte/transition';
   import { ChevronDown } from '@lucide/svelte';
@@ -83,7 +83,7 @@
       <span class="chevron" class:open><ChevronDown size={12} strokeWidth={1.5} /></span>
     </button>
     {#if open}
-      <div class="advanced content" id={advancedId} transition:slide={{ duration: prefersReducedMotion.current ? 0 : 300 }}>
+      <div class="advanced content" id={advancedId} transition:slide={reveal('card')}>
         {@render advanced()}
       </div>
     {/if}
@@ -97,7 +97,7 @@
     flex-direction: column;
     background: var(--bg-raised);
     border: 1px solid var(--line);
-    transition: border-color var(--dur-card) ease-out;
+    transition: border-color var(--dur-card) var(--ease-out);
     min-width: 0;
   }
 
@@ -133,14 +133,14 @@
   header {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
     padding: 8px 14px 0 16px;
     min-height: 32px;
   }
 
   .number {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--c-ink);
   }
 
@@ -161,7 +161,7 @@
   .content {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--space-2);
     padding: 10px 16px 0;
     transition: opacity var(--dur) var(--ease);
   }
@@ -178,10 +178,10 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 4px;
+    gap: var(--space-1);
     margin-top: auto;
     padding: 6px 14px 8px;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--faint);
   }
 
@@ -202,7 +202,7 @@
   .advanced {
     border-top: 1px solid var(--line);
     padding: 14px 16px 16px;
-    gap: 10px;
+    gap: var(--space-2);
   }
 
   .card:not(:has(.advanced-toggle)) .content:last-child {

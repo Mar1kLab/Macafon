@@ -523,6 +523,26 @@ const scenarios = {
     await page.getByRole('button', { name: 'Use folder' }).click();
     await page.waitForTimeout(900);
   },
+  soundpad: async (page) => {
+    await page.goto(`${base}?platform=windows&screen=soundpad`);
+    await page.waitForSelector('.screen .top');
+    await page.waitForTimeout(400);
+  },
+  displays: async (page) => {
+    await page.goto(`${base}?platform=windows&screen=displays`);
+    await page.waitForSelector('.screen .top');
+    await page.waitForTimeout(400);
+  },
+  'displays-empty': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=displays&displays=empty`);
+    await page.waitForSelector('.screen .top');
+    await page.waitForTimeout(400);
+  },
+  'displays-pending': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=displays&displays=pending`);
+    await page.waitForSelector('.screen .top');
+    await page.waitForTimeout(400);
+  },
   unavailable: async (page) => {
     await page.goto(`${base}?daemon=down`);
     await page.waitForSelector('.unavailable');

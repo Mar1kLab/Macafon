@@ -77,7 +77,7 @@
     left: 3%;
     top: 4%;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     color: var(--faint);
   }

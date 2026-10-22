@@ -26,19 +26,19 @@
     bottom: 96px;
     z-index: 50;
     display: grid;
-    gap: 8px;
+    gap: var(--space-2);
     width: 320px;
   }
 
   .toast {
     display: flex;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--space-2);
     padding: 10px 6px 10px 14px;
     background: var(--bg-raised);
     border: 1px solid var(--line);
     border-left: 2px solid var(--accent);
-    animation: slide var(--dur-card) ease-out;
+    animation: slide var(--dur-card) var(--ease-out);
   }
 
   .toast.danger {
@@ -51,7 +51,7 @@
 
   .message {
     margin-top: 2px;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 

@@ -67,7 +67,7 @@
   .dictation {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--space-3);
     min-height: 0;
     min-width: 0;
     flex: 1;
@@ -76,7 +76,7 @@
   header {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
     flex-wrap: wrap;
     flex: none;
   }
@@ -88,9 +88,9 @@
   .memory {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-2);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--faint);
@@ -117,7 +117,7 @@
 
   .settings {
     display: grid;
-    gap: 8px;
+    gap: var(--space-2);
     flex: none;
   }
 
@@ -125,16 +125,16 @@
     display: grid;
     grid-template-columns: 112px minmax(0, 1fr);
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .row .hud-label {
-    font-size: 10px;
+    font-size: var(--text-2xs);
   }
 
   .chips {
     display: flex;
-    gap: 4px;
+    gap: var(--space-1);
     flex-wrap: wrap;
   }
 
@@ -143,7 +143,7 @@
     border: 1px solid var(--line);
     border-radius: 999px;
     background: transparent;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--muted);
   }
 

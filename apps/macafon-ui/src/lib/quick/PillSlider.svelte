@@ -94,7 +94,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--space-2);
     height: 32px;
     padding: 0 12px;
     overflow: hidden;
@@ -133,7 +133,7 @@
   .name,
   .value {
     position: relative;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--ink-strong);
     white-space: nowrap;
   }
@@ -146,7 +146,7 @@
 
   .value {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
 
   .muted .value {
@@ -197,7 +197,7 @@
 
   .sketch .name {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 500;
     letter-spacing: 0.15em;
     text-transform: uppercase;

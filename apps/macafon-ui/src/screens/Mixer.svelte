@@ -266,7 +266,7 @@
   .top {
     display: flex;
     align-items: center;
-    gap: 10px 14px;
+    gap: var(--space-2) var(--space-3);
     min-height: 59px;
     padding: 14px 24px;
     border-bottom: 1px solid var(--line);
@@ -280,7 +280,7 @@
   .switch {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .spacer {
@@ -297,7 +297,7 @@
   .channels {
     height: 100%;
     display: flex;
-    gap: 12px;
+    gap: var(--space-3);
     padding: 20px 24px;
     overflow: auto;
     align-items: stretch;
@@ -310,7 +310,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: var(--space-2);
     border: 1px dashed var(--line-strong);
     color: var(--muted);
     align-self: flex-start;
@@ -335,7 +335,7 @@
   .intro {
     position: relative;
     display: grid;
-    gap: 16px;
+    gap: var(--space-4);
     justify-items: start;
     width: 640px;
     padding: 32px;
@@ -345,7 +345,7 @@
 
   h2 {
     font-family: var(--font-display);
-    font-size: 36px;
+    font-size: var(--text-display);
     font-weight: 700;
     letter-spacing: -0.03em;
     line-height: 1.1;
@@ -363,14 +363,14 @@
   }
 
   .intro .note {
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 
   .preview {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
+    gap: var(--space-3);
     width: 100%;
     margin: 0;
     padding: 0;
@@ -380,7 +380,7 @@
   .preview li {
     display: grid;
     align-content: start;
-    gap: 6px;
+    gap: var(--space-2);
     padding: 12px;
     border: 1px solid var(--line);
     border-top: 3px solid var(--c);
@@ -389,12 +389,12 @@
 
   .preview b {
     font-family: var(--font-display);
-    font-size: 16px;
+    font-size: var(--text-lg);
     color: var(--ink-strong);
   }
 
   .preview small {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--muted);
   }
 
@@ -407,12 +407,12 @@
 
   .create {
     display: grid;
-    gap: 16px;
+    gap: var(--space-4);
   }
 
   .field {
     display: grid;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .input {
@@ -431,7 +431,7 @@
 
   .swatches {
     display: flex;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .swatches button {

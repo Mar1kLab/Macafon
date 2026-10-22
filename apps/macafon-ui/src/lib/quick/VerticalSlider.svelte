@@ -89,15 +89,15 @@
 </div>
 
 <style>
-  .fader { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-  .readout { font-family: var(--font-mono); font-size: 13px; color: var(--color-ink); font-variant-numeric: tabular-nums; }
+  .fader { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); }
+  .readout { font-family: var(--font-mono); font-size: var(--text-md); color: var(--color-ink); font-variant-numeric: tabular-nums; }
   .track { position: relative; width: 44px; height: 144px; border: 1px solid var(--line); border-radius: 22px; background: var(--bg-sunken); cursor: ns-resize; touch-action: none; user-select: none; }
   .fill { position: absolute; inset: auto 0 0; height: var(--fill); background: var(--color); border-radius: 22px; transition: height var(--dur) var(--ease), opacity var(--dur) var(--ease); }
   .ticks { position: absolute; inset: 12px 15px; background: repeating-linear-gradient(to top, var(--line-strong) 0 1px, transparent 1px 12px); pointer-events: none; }
   .thumb { position: absolute; left: 8px; right: 8px; bottom: clamp(8px, var(--fill), 134px); height: 3px; background: var(--ink-strong); border-radius: 2px; pointer-events: none; transition: bottom var(--dur) var(--ease); }
   .track:focus-visible { outline: 2px solid var(--color-ink); outline-offset: 4px; }
   .track:hover { border-color: var(--color-ink); }
-  .state { color: var(--danger); font-size: 10px; font-family: var(--font-mono); }
+  .state { color: var(--danger); font-size: var(--text-2xs); font-family: var(--font-mono); }
   .quiet { color: var(--faint); }
   .muted .fill { opacity: 0.25; }
   .muted .readout { color: var(--muted); }

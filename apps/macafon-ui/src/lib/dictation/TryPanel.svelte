@@ -2,7 +2,7 @@
   // TRY IT (PRD §9.9.1), pinned at the bottom like TEST on the Microphone screen: hold the
   // button or Space to dictate through the whole pipeline; the text shows here instead of being
   // inserted. History (STT-015) expands upward: the last results, in daemon memory only.
-  import { prefersReducedMotion } from 'svelte/motion';
+  import { reveal } from '../motion';
   import { slide } from 'svelte/transition';
   import { ChevronUp, Copy, CornerDownLeft, Mic, Trash2 } from '@lucide/svelte';
   import PopupLook from './PopupLook.svelte';
@@ -45,7 +45,7 @@
 
 <div class="panel">
   {#if historyOpen}
-    <div class="history" transition:slide={{ duration: prefersReducedMotion.current ? 0 : 300 }}>
+    <div class="history" transition:slide={reveal('card')}>
       <div class="history-head">
         <span class="hud-label">{t('dictation.test.history')}</span>
         <span class="hint">{t('dictation.test.historyHint')}</span>
@@ -135,7 +135,7 @@
   .bar {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: var(--space-3);
     min-height: 64px;
     padding: 10px 24px;
   }
@@ -154,7 +154,7 @@
     min-width: 0;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .look {
@@ -171,7 +171,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 14px;
+    font-size: var(--text-md);
     color: var(--ink-strong);
   }
 
@@ -179,7 +179,7 @@
   .time {
     flex: none;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--muted);
@@ -187,17 +187,17 @@
   }
 
   .muted {
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 
   .history-toggle {
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .count {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--accent-ink);
   }
 
@@ -220,7 +220,7 @@
   .history-head {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
     margin-bottom: 8px;
   }
 
@@ -229,7 +229,7 @@
   }
 
   .hint {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--faint);
   }
 
@@ -242,14 +242,14 @@
   li {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
     min-height: 34px;
     border-top: 1px solid var(--line);
   }
 
   li .text {
     flex: 1;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--ink);
   }
 </style>

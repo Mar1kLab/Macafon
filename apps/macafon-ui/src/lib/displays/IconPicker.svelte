@@ -36,7 +36,7 @@
 </div>
 
 <style>
-  .icons { display: flex; flex-wrap: wrap; gap: 4px; }
+  .icons { display: flex; flex-wrap: wrap; gap: var(--space-1); }
   .icon { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); background: var(--bg-sunken); color: var(--muted); transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease); }
   .icon:hover { border-color: var(--line-strong); color: var(--ink); }
   .icon.on { border-color: var(--accent); color: var(--accent-ink); }

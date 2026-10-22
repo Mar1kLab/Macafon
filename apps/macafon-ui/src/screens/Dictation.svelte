@@ -295,7 +295,7 @@
   .top {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
     min-height: 59px;
     padding: 14px 24px;
     border-bottom: 1px solid var(--line);
@@ -310,12 +310,12 @@
   .status {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     padding: 3px 8px;
     border: 1px solid var(--line);
     background: var(--bg-sunken);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--muted);
@@ -333,7 +333,7 @@
 
   .status.live .dot {
     background: var(--danger);
-    animation: blink 1s steps(1) infinite;
+    animation: blink var(--dur-loop) steps(1) infinite;
   }
 
   .status.error {
@@ -352,7 +352,7 @@
   .master {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
   }
 
   .master .hud-label {
@@ -362,10 +362,10 @@
   .banner {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     padding: 8px 24px;
     border-bottom: 1px solid var(--line);
-    font-size: 13px;
+    font-size: var(--text-md);
   }
 
   .banner.danger {
@@ -387,7 +387,7 @@
   h2 {
     font-family: var(--font-display);
     font-weight: 700;
-    font-size: 32px;
+    font-size: var(--text-display);
     letter-spacing: -0.03em;
     color: var(--ink-strong);
   }
@@ -400,14 +400,14 @@
 
   .hero p {
     margin-top: 6px;
-    font-size: 14px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 
   .key {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   kbd {
@@ -415,7 +415,7 @@
     border: 1px solid var(--line);
     background: var(--bg-sunken);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-sm);
     text-align: center;
     color: var(--ink-strong);
   }
@@ -427,7 +427,7 @@
   .grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 16px;
+    gap: var(--space-4);
   }
 
   .grid :global(.engine) {
@@ -436,7 +436,7 @@
 
   .stack {
     display: grid;
-    gap: 16px;
+    gap: var(--space-4);
     align-content: start;
   }
 
@@ -467,13 +467,13 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: center;
-    gap: 12px 32px;
+    gap: var(--space-3) var(--space-8);
   }
 
   .history-foot {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .history-foot > span {
@@ -483,7 +483,7 @@
   .link {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-2);
     font: inherit;
     color: var(--muted);
     text-transform: uppercase;
@@ -498,7 +498,7 @@
   }
 
   .body {
-    font-size: 12.5px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 
@@ -506,8 +506,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    font-size: 13px;
+    gap: var(--space-3);
+    font-size: var(--text-md);
     color: var(--ink);
   }
 
@@ -521,7 +521,7 @@
     padding: 0;
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: var(--space-2);
     /* The defaults alone are dozens of words: a few rows, the rest scrolls. */
     max-height: 100px;
     overflow-y: auto;
@@ -531,11 +531,11 @@
   .words li {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-2);
     padding: 3px 4px 3px 8px;
     border: 1px solid var(--line);
     background: var(--bg-sunken);
-    font-size: 12.5px;
+    font-size: var(--text-md);
     color: var(--ink);
   }
 
@@ -555,7 +555,7 @@
     background: var(--bg-sunken);
     color: var(--ink);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--text-md);
   }
 
   .word:focus {

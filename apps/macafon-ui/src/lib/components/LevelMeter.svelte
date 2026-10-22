@@ -101,7 +101,7 @@
     display: grid;
     grid-template-columns: auto 1fr auto 48px auto;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
     min-width: 0;
   }
 
@@ -121,7 +121,7 @@
 
   .clip {
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     padding: 0 4px;
     border: 1px solid transparent;

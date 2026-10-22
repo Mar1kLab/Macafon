@@ -51,7 +51,7 @@
     display: grid;
     grid-template-columns: 104px auto 1fr;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
   }
 
   .segmented.row.wrap {
@@ -66,7 +66,7 @@
   .wrap .options {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: var(--space-1);
     min-width: 0;
     border: 0;
     background: none;
@@ -90,7 +90,7 @@
   .segmented.inline {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .options {
@@ -103,7 +103,7 @@
     height: 22px;
     padding: 0 10px;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--muted);

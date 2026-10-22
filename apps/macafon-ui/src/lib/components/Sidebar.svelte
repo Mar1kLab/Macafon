@@ -87,7 +87,7 @@
     display: flex;
     align-items: center;
     font-family: var(--font-display);
-    font-size: 15px;
+    font-size: var(--text-lg);
     font-weight: 700;
     letter-spacing: -0.03em;
     color: var(--ink-strong);
@@ -101,7 +101,7 @@
     margin: 12px 0 0;
     padding: 0;
     display: grid;
-    gap: 4px;
+    gap: var(--space-1);
   }
 
   button {
@@ -149,19 +149,19 @@
   }
 
   .bottom { margin-top: auto; display: grid; justify-items: center; width: 100%; }
-  .status-label { font-family: var(--font-mono); font-size: 9px; color: var(--muted); }
+  .status-label { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--muted); }
   .status {
     padding: 16px 0;
     display: grid;
     justify-items: center;
-    gap: 10px;
+    gap: var(--space-2);
   }
 
   .muted {
     color: var(--danger);
     border-color: var(--danger);
     padding: 1px 3px;
-    font-size: 8px;
+    font-size: var(--text-2xs);
   }
 
   .dot {

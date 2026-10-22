@@ -116,27 +116,27 @@
 </section>
 
 <style>
-  .onboarding { border: 1px solid var(--line); background: var(--bg-raised); padding: 24px; display: flex; flex-direction: column; gap: 24px; max-width: 760px; }
-  header { display: flex; gap: 16px; align-items: flex-start; }
+  .onboarding { border: 1px solid var(--line); background: var(--bg-raised); padding: 24px; display: flex; flex-direction: column; gap: var(--space-6); max-width: 760px; }
+  header { display: flex; gap: var(--space-4); align-items: flex-start; }
   .mark { width: 44px; height: 44px; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--accent); color: var(--accent-ink); }
-  h2 { margin: 0 0 6px; font-family: var(--font-display); font-size: 20px; letter-spacing: -0.02em; color: var(--ink-strong); }
-  p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
-  .step { display: flex; flex-direction: column; gap: 12px; }
-  .hint { font-size: 12px; color: var(--muted); }
+  h2 { margin: 0 0 6px; font-family: var(--font-display); font-size: var(--text-xl); letter-spacing: -0.02em; color: var(--ink-strong); }
+  p { margin: 0; font-size: var(--text-md); line-height: 1.5; color: var(--muted); }
+  .step { display: flex; flex-direction: column; gap: var(--space-3); }
+  .hint { font-size: var(--text-sm); color: var(--muted); }
   .choices { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
-  .choices li { display: grid; grid-template-columns: auto auto minmax(140px, 220px) 1fr; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .choices li { display: grid; grid-template-columns: auto auto minmax(140px, 220px) 1fr; align-items: center; gap: var(--space-3); padding: 8px 0; border-bottom: 1px solid var(--line); }
   .choices li.off .sketch, .choices li.off .icon { opacity: 0.4; }
   .icon { display: inline-flex; color: var(--muted); }
   .sketch { min-width: 0; }
-  .input { height: 30px; padding: 0 8px; border: 1px solid var(--line); background: var(--bg-sunken); color: var(--ink); font-size: 13px; user-select: text; min-width: 0; }
+  .input { height: 30px; padding: 0 8px; border: 1px solid var(--line); background: var(--bg-sunken); color: var(--ink); font-size: var(--text-md); user-select: text; min-width: 0; }
   .input:focus { outline: none; border-color: var(--accent); }
   .input:disabled { color: var(--faint); }
-  .check, .assign { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; position: relative; font-size: 13px; color: var(--ink); }
+  .check, .assign { display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; position: relative; font-size: var(--text-md); color: var(--ink); }
   .check input, .assign input { position: absolute; opacity: 0; width: 1px; height: 1px; }
   .box { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line-strong); color: var(--ink-strong); background: var(--bg-sunken); }
   input:checked + .box { background: var(--accent); border-color: var(--accent); }
   input:focus-visible + .box { outline: 1px solid var(--ink); outline-offset: 2px; }
-  .safety { font-size: 12px; }
-  .try { display: flex; align-items: center; gap: 12px; }
-  .actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .safety { font-size: var(--text-sm); }
+  .try { display: flex; align-items: center; gap: var(--space-3); }
+  .actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
 </style>

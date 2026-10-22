@@ -47,8 +47,8 @@
 </Dialog>
 
 <style>
-  .form { display: flex; flex-direction: column; gap: 18px; }
-  .field { display: flex; flex-direction: column; gap: 8px; }
-  .input { height: 34px; padding: 0 10px; border: 1px solid var(--line); background: var(--bg-sunken); color: var(--ink); font-size: 13px; }
+  .form { display: flex; flex-direction: column; gap: var(--space-4); }
+  .field { display: flex; flex-direction: column; gap: var(--space-2); }
+  .input { height: 34px; padding: 0 10px; border: 1px solid var(--line); background: var(--bg-sunken); color: var(--ink); font-size: var(--text-md); }
   .input:focus { outline: none; border-color: var(--accent); }
 </style>

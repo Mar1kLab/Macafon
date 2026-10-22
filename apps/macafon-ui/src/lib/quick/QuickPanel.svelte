@@ -235,7 +235,7 @@
   .panel {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--space-2);
     padding: 12px;
     background: var(--bg-raised);
   }
@@ -246,7 +246,7 @@
   .row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
   }
 
   .logo {
@@ -263,10 +263,10 @@
   .brand {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     margin-right: auto;
     font-family: var(--font-display);
-    font-size: 14px;
+    font-size: var(--text-md);
     letter-spacing: -0.02em;
     color: var(--ink-strong);
   }
@@ -319,13 +319,13 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: var(--space-2);
     padding: 6px 10px;
     border: 1px solid var(--line);
     background: var(--bg-sunken);
     color: var(--ink);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--text-sm);
     cursor: pointer;
   }
 
@@ -335,7 +335,7 @@
   .tiles {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .tile {
@@ -343,7 +343,7 @@
     grid-template-columns: auto minmax(0, 1fr);
     grid-template-rows: auto auto;
     align-items: center;
-    column-gap: 9px;
+    column-gap: var(--space-2);
     min-width: 0;
     padding: 7px 10px;
     border-radius: 12px;
@@ -399,7 +399,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-weight: 600;
     color: inherit;
   }
@@ -409,7 +409,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 10.5px;
+    font-size: var(--text-xs);
     opacity: 0.8;
   }
 
@@ -424,7 +424,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     text-align: center;
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 600;
     color: var(--ink-strong);
   }
@@ -432,14 +432,14 @@
   .preset small {
     margin-left: 6px;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--app-amber-ink);
   }
 
   .volumes {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-2);
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -458,7 +458,7 @@
 
   .status {
     padding: 8px 0;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 
@@ -466,7 +466,7 @@
     justify-content: space-between;
     padding-top: 10px;
     border-top: 1px solid var(--line);
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--faint);
   }
 
@@ -480,7 +480,7 @@
   kbd {
     flex: none;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--muted);
   }
 
@@ -602,7 +602,7 @@
 
   .sketch .state {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--muted);
@@ -611,7 +611,7 @@
 
   .sketch .quit {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     letter-spacing: 0.15em;
     text-transform: uppercase;
     color: var(--muted);
@@ -629,7 +629,7 @@
 
   .sketch footer {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
   }
 
   @media (prefers-reduced-motion: reduce) {

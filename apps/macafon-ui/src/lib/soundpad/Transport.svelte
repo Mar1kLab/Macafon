@@ -58,7 +58,7 @@
   .transport {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: var(--space-4);
     height: 64px;
     padding: 0 24px;
     border-top: 1px solid var(--line);
@@ -67,7 +67,7 @@
 
   .buttons {
     display: flex;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .now {
@@ -78,7 +78,7 @@
   }
 
   .now .hud-label {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -86,7 +86,7 @@
 
   .now b {
     font-family: var(--font-display);
-    font-size: 15px;
+    font-size: var(--text-lg);
     font-weight: 600;
     letter-spacing: -0.02em;
     color: var(--ink-strong);

@@ -86,13 +86,13 @@
   .ratio {
     display: grid;
     grid-template-columns: 1fr auto;
-    gap: 10px;
+    gap: var(--space-2);
     align-items: center;
   }
 
   .gate {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-2);
   }
 </style>

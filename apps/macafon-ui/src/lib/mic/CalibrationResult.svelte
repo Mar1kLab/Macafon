@@ -41,20 +41,20 @@
 <style>
   .note {
     margin-top: 12px;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--muted);
   }
 
   .stats {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
+    gap: var(--space-3);
     margin-bottom: 20px;
   }
 
   .stats > div {
     display: grid;
-    gap: 4px;
+    gap: var(--space-1);
     padding: 12px;
     border: 1px solid var(--line);
     background: var(--bg-sunken);
@@ -62,7 +62,7 @@
 
   .big {
     font-family: var(--font-display);
-    font-size: 26px;
+    font-size: var(--text-xl);
     font-weight: 600;
     letter-spacing: -0.03em;
     color: var(--ink-strong);
@@ -71,7 +71,7 @@
   .big small {
     margin-left: 4px;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--muted);
   }
 
@@ -84,13 +84,13 @@
     margin: 8px 0 0;
     padding: 0;
     display: grid;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .changes li {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
     padding: 6px 0;
     border-bottom: 1px solid var(--line);
   }
@@ -109,6 +109,6 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-3);
   }
 </style>

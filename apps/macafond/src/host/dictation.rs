@@ -11,7 +11,8 @@ const DOUBLE_TAP: Duration = Duration::from_millis(400);
 
 impl DaemonHost {
     pub(super) fn dictation_hotkey(&mut self, action: HotkeyAction, pressed: bool) {
-        if !self.config.dictation.enabled {
+        // The enable toggle is the one dictation shortcut that works while dictation is off.
+        if !self.config.dictation.enabled && action != HotkeyAction::DictationEnableToggle {
             return;
         }
         let result = match action {
@@ -33,7 +34,7 @@ impl DaemonHost {
                             });
                     if double {
                         self.dictation.pending_hold = None;
-                        self.begin_dictation(false, copy, true)
+                        self.begin_dictation_hotkey(copy, true)
                     } else {
                         // Started by `tick_dictation` once held for HOLD_DELAY.
                         self.dictation.pending_hold = Some((now, copy));
@@ -55,7 +56,7 @@ impl DaemonHost {
                 if self.dictation.phase == DictationPhase::Listening {
                     self.finish_dictation()
                 } else {
-                    self.begin_dictation(false, false, true)
+                    self.begin_dictation_hotkey(false, true)
                 }
             }
             HotkeyAction::DictationCopyLast | HotkeyAction::DictationPasteLast => self
@@ -429,6 +430,18 @@ impl DaemonHost {
         self.dictation_changed();
         Ok(())
     }
+    /// A shortcut pressed while the previous dictation is still being transcribed is ignored:
+    /// starting would fail as busy, and reporting that would replace the running phase, so the
+    /// pending text would be dropped instead of inserted.
+    fn begin_dictation_hotkey(&mut self, copy: bool, hands_free: bool) -> Result<(), ErrorBody> {
+        if matches!(
+            self.dictation.phase,
+            DictationPhase::Listening | DictationPhase::Transcribing
+        ) {
+            return Ok(());
+        }
+        self.begin_dictation(false, copy, hands_free)
+    }
     pub(super) fn cancel_dictation(&mut self) {
         self.dictation.cancel(self.config.dictation.enabled);
         self.release_dictation_input();
@@ -446,7 +459,7 @@ impl DaemonHost {
         if let Some((since, copy)) = self.dictation.pending_hold {
             if since.elapsed() >= HOLD_DELAY {
                 self.dictation.pending_hold = None;
-                if self.begin_dictation(false, copy, false).is_err() {
+                if self.begin_dictation_hotkey(copy, false).is_err() {
                     self.dictation.phase = DictationPhase::Error;
                     self.dictation.popup_state = crate::osd::dictation::State::Error;
                     self.dictation.error = Some("dictation action failed".into());

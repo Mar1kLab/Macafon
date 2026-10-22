@@ -378,14 +378,14 @@ impl DaemonHost {
             .ok_or_else(soundpad_unavailable)?
             .folder()
             .to_owned();
-        let moved = library::delete_category(&folder, name).map_err(library_error)?;
-        for (from, to) in moved {
-            self.sound_renamed(&from, &to);
-        }
+        let result = library::delete_category(&folder, name, |from, to| {
+            self.sound_renamed(from, to);
+        });
         if let Some(soundpad) = &mut self.soundpad {
             soundpad.rescan();
         }
-        Ok(())
+        self.soundpad_changed();
+        result.map_err(library_error)
     }
 
     fn respond_soundpad_transport(

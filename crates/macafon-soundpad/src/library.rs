@@ -453,6 +453,15 @@ pub fn move_to_category(
     id: &str,
     category: Option<&str>,
 ) -> Result<SoundEntry, Error> {
+    move_to_category_with(root, id, category, rename_no_replace)
+}
+
+fn move_to_category_with(
+    root: &Path,
+    id: &str,
+    category: Option<&str>,
+    mut move_file: impl FnMut(&Path, &Path) -> Result<(), Error>,
+) -> Result<SoundEntry, Error> {
     let source = resolve(root, id)?;
     let dir = category_directory(root, category)?;
     if source.parent() == Some(dir.as_path()) {
@@ -462,9 +471,19 @@ pub fn move_to_category(
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or_else(|| Error::InvalidId(id.into()))?;
-    let target = unique_path(&dir, filename);
-    fs::rename(source, &target)?;
-    sound_entry(&prepare_root(root)?, &target)
+    let root = prepare_root(root)?;
+    let metadata = ordinary_metadata(&source)?;
+    for _ in 0..32 {
+        let target = unique_path(&dir, filename);
+        // Prepare the resulting ID before mutation; no fallible metadata read after moving.
+        let entry = sound_entry_with_metadata(&root, &target, &metadata)?;
+        match move_file(&source, &target) {
+            Ok(()) => return Ok(entry),
+            Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists).into())
 }
 pub fn delete(root: &Path, id: &str) -> Result<(), Error> {
     fs::remove_file(resolve(root, id)?)?;
@@ -489,31 +508,71 @@ pub fn rename_category(root: &Path, from: &str, to: &str) -> Result<(), Error> {
     rename_no_replace(&source, &target)?;
     Ok(())
 }
-pub fn delete_category(root: &Path, name: &str) -> Result<Vec<(String, String)>, Error> {
+pub fn delete_category(
+    root: &Path,
+    name: &str,
+    mut moved: impl FnMut(&str, &str),
+) -> Result<(), Error> {
     validate_name(name)?;
     let root = prepare_root(root)?;
     let dir = root.join(name);
     if !ordinary_metadata(&dir)?.is_dir() {
         return Err(Error::InvalidName(name.into()));
     }
-    let mut moved = Vec::new();
     let mut sounds = Vec::new();
     scan_directory(&root, &dir, &mut sounds)?;
     sounds.sort_by(|a, b| a.id.cmp(&b.id));
     for sound in sounds {
         let destination = move_to_category(&root, &sound.id, None)?;
-        moved.push((sound.id, destination.id));
+        moved(&sound.id, &destination.id);
     }
     if fs::read_dir(&dir)?.next().is_none() {
         fs::remove_dir(dir)?;
     }
-    Ok(moved)
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+    #[test]
+    fn category_move_retries_a_concurrent_destination_without_overwriting() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir(temp.path().join("Category")).unwrap();
+        fs::write(temp.path().join("Category/a.wav"), b"source").unwrap();
+        let mut first = true;
+        let moved = move_to_category_with(temp.path(), "Category/a.wav", None, |source, target| {
+            if first {
+                first = false;
+                fs::write(target, b"external").unwrap();
+            }
+            rename_no_replace(source, target)
+        })
+        .unwrap();
+        assert_eq!(moved.id, "a (2).wav");
+        assert_eq!(fs::read(temp.path().join("a.wav")).unwrap(), b"external");
+        assert_eq!(fs::read(moved.path).unwrap(), b"source");
+    }
+
+    #[test]
+    fn category_deletion_reports_completed_moves_before_a_later_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir(root.join("Category")).unwrap();
+        for name in ["a.wav", "b.wav"] {
+            fs::write(root.join("Category").join(name), b"identical").unwrap();
+        }
+        let mut completed = Vec::new();
+        let result = delete_category(root, "Category", |from, to| {
+            completed.push((from.to_owned(), to.to_owned()));
+            // An external actor removes the next source after the inventory was captured.
+            fs::remove_file(root.join("Category/b.wav")).unwrap();
+        });
+        assert!(result.is_err());
+        assert_eq!(completed, vec![("Category/a.wav".into(), "a.wav".into())]);
+        assert_eq!(fs::read(root.join("a.wav")).unwrap(), b"identical");
+    }
     #[test]
     fn garbage_moves_to_reserved_folder_and_valid_wav_stays() {
         let temp = tempfile::tempdir().unwrap();
@@ -585,7 +644,7 @@ mod tests {
                 .iter()
                 .any(|e| e.id == "Renamed/tone.wav")
         );
-        delete_category(root, "Renamed").unwrap();
+        delete_category(root, "Renamed", |_, _| {}).unwrap();
         assert!(root.join("tone.wav").exists());
         // Never destroy unsupported or deeper content to make a category disappear.
         assert!(root.join("Renamed/notes.txt").exists());
@@ -646,8 +705,13 @@ mod tests {
         fs::create_dir(temp.path().join("Memes")).unwrap();
         fs::write(temp.path().join("beep.wav"), b"root").unwrap();
         fs::write(temp.path().join("Memes/beep.wav"), b"category").unwrap();
+        let mut moved = Vec::new();
+        delete_category(temp.path(), "Memes", |from, to| {
+            moved.push((from.to_owned(), to.to_owned()))
+        })
+        .unwrap();
         assert_eq!(
-            delete_category(temp.path(), "Memes").unwrap(),
+            moved,
             vec![("Memes/beep.wav".into(), "beep (2).wav".into())]
         );
         assert_eq!(fs::read(temp.path().join("beep.wav")).unwrap(), b"root");
@@ -681,7 +745,7 @@ mod tests {
         assert_eq!(scan(&root).unwrap().len(), 2);
         assert_eq!(scan(&root).unwrap()[0].id, moved.id);
         assert_eq!(categories(&root).unwrap(), vec!["aaa", "Memes"]);
-        delete_category(&root, "Memes").unwrap();
+        delete_category(&root, "Memes", |_, _| {}).unwrap();
         assert!(root.join("Memes/notes.txt").exists());
         assert!(root.join("Beep (2).WAV").exists());
         delete(&root, &moved.id).unwrap();

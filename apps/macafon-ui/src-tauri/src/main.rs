@@ -258,12 +258,19 @@ fn main_closed(app: &AppHandle) {
         app.exit(0);
         return;
     }
+    // As a page's own unsubscribe: the overlay may still show the microphone level.
+    let others_metering = {
+        let meters = app.state::<MeterWindows>();
+        let mut labels = meters.labels();
+        labels.remove("main");
+        !labels.is_empty()
+    };
     std::thread::spawn(move || {
-        for method in [
-            "meters.unsubscribe",
-            "devices.unsubscribe",
-            "ui.window_closed",
-        ] {
+        let meters = (!others_metering).then_some("meters.unsubscribe");
+        for method in meters
+            .into_iter()
+            .chain(["devices.unsubscribe", "ui.window_closed"])
+        {
             if let Err(error) = bridge.call(method, None) {
                 tracing::debug!(method, error = %error.message, "after the window closed");
             }

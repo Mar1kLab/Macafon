@@ -76,8 +76,14 @@ mod windows {
         let mut dirty_at: Option<Instant> = None;
         let mut volume_read_at = Instant::now() - Duration::from_secs(1);
         loop {
-            // Discovery and volume queries never change settings.
-            if scanned_at.elapsed() >= Duration::from_secs(2) {
+            // Discovery and volume queries never change settings. A HID scan is not free: every
+            // 2 s while a window shows levels, else every 10 s (NFR-R7).
+            let discovery = if hub.metering() {
+                Duration::from_secs(2)
+            } else {
+                Duration::from_secs(10)
+            };
+            if scanned_at.elapsed() >= discovery {
                 scanned_at = Instant::now();
                 match macaron::discover() {
                     Ok(found) => {
@@ -165,7 +171,13 @@ mod windows {
                 }
                 dirty_at = None;
             }
-            match receiver.recv_timeout(Duration::from_millis(100)) {
+            // Without a device there are no volumes to follow: wake for commands or the scan.
+            let wait = if devices.is_empty() && dirty_at.is_none() {
+                Duration::from_secs(1)
+            } else {
+                Duration::from_millis(100)
+            };
+            match receiver.recv_timeout(wait) {
                 Ok(work) => {
                     if work.queued_at.elapsed() >= Duration::from_secs(2) {
                         let _ = work.reply.send(Outcome::Error(ErrorBody::new(

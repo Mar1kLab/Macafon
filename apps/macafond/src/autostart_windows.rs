@@ -13,6 +13,9 @@ use windows::core::{PCWSTR, w};
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
 const VALUE: PCWSTR = w!("Macafon");
 
+/// Marks a login start: the daemon defers warming the UI while the session settles.
+pub const ARG: &str = "--autostart";
+
 /// Windows paths cannot contain quotes. Always quote the executable, including spaces,
 /// shell metacharacters and non-ASCII characters; Run values are not shell commands.
 fn command_line(executable: &Path) -> Result<Vec<u16>, String> {
@@ -22,9 +25,67 @@ fn command_line(executable: &Path) -> Result<Vec<u16>, String> {
     }
     Ok(std::iter::once(34)
         .chain(path)
-        .chain("\" run".encode_utf16())
+        .chain(format!("\" run {ARG}").encode_utf16())
         .chain(std::iter::once(0))
         .collect())
+}
+
+/// The stored command line, without its terminator.
+fn stored() -> Option<Vec<u16>> {
+    let mut bytes = 0;
+    // SAFETY: as in `state`, a size-only query.
+    let sized = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            RUN_KEY,
+            VALUE,
+            RRF_RT_REG_SZ,
+            None,
+            None,
+            Some(&mut bytes),
+        )
+    };
+    if sized != ERROR_SUCCESS {
+        return None;
+    }
+    let mut buffer = vec![0u16; (bytes as usize).div_ceil(2)];
+    // SAFETY: the buffer holds `bytes` bytes and outlives the call.
+    let read = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            RUN_KEY,
+            VALUE,
+            RRF_RT_REG_SZ,
+            None,
+            Some(buffer.as_mut_ptr().cast()),
+            Some(&mut bytes),
+        )
+    };
+    if read != ERROR_SUCCESS {
+        return None;
+    }
+    buffer.truncate((bytes as usize / 2).saturating_sub(1));
+    Some(buffer)
+}
+
+/// An enabled entry from an older version (or another install path) is rewritten to start
+/// this executable with the current arguments; a disabled one stays off.
+pub fn refresh() {
+    let Some(current) = stored() else {
+        return;
+    };
+    let Ok(executable) = std::env::current_exe() else {
+        return;
+    };
+    let Ok(mut wanted) = command_line(&executable) else {
+        return;
+    };
+    wanted.pop();
+    if current != wanted
+        && let Err(error) = set(true)
+    {
+        tracing::warn!(%error, "Cannot update the Windows autostart entry");
+    }
 }
 
 pub fn state() -> AutostartState {
@@ -111,7 +172,7 @@ mod tests {
             assert_eq!(command.last(), Some(&0));
             assert_eq!(
                 String::from_utf16(&command[..command.len() - 1]).expect("UTF-16"),
-                format!("\"{path}\" run")
+                format!("\"{path}\" run --autostart")
             );
         }
         assert!(command_line(Path::new("bad\"path.exe")).is_err());

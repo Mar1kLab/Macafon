@@ -39,30 +39,54 @@ pub struct Status {
 
 pub struct Hotkeys {
     bindings: mpsc::Sender<Vec<Binding>>,
+    #[cfg(windows)]
+    waker: windows::Waker,
 }
 
 impl Hotkeys {
     /// Start the service; it reports its backend through `ControlMessage::HotkeyStatus`.
     pub fn spawn(control: ControlSender<ControlMessage>) -> Self {
         let (bindings, receiver) = mpsc::channel();
+        #[cfg(windows)]
+        let waker = windows::Waker::default();
+        #[cfg(windows)]
+        let thread_waker = waker.clone();
         let spawned = std::thread::Builder::new()
             .name("macafon-hotkeys".into())
-            .spawn(move || run(receiver, control));
+            .spawn(move || {
+                #[cfg(windows)]
+                windows::run(receiver, control, thread_waker);
+                #[cfg(not(windows))]
+                run_other(receiver, control);
+            });
         if let Err(error) = spawned {
             tracing::warn!(%error, "Cannot start the hotkey service");
         }
-        Self { bindings }
+        Self {
+            bindings,
+            #[cfg(windows)]
+            waker,
+        }
     }
 
     /// A service without a backend; the test reads what would be registered.
     #[cfg(test)]
     pub fn fake() -> (Self, mpsc::Receiver<Vec<Binding>>) {
         let (bindings, receiver) = mpsc::channel();
-        (Self { bindings }, receiver)
+        (
+            Self {
+                bindings,
+                #[cfg(windows)]
+                waker: windows::Waker::default(),
+            },
+            receiver,
+        )
     }
 
     pub fn bind(&self, bindings: Vec<Binding>) {
         let _ = self.bindings.send(bindings);
+        #[cfg(windows)]
+        self.waker.wake();
     }
 }
 
@@ -90,13 +114,6 @@ fn press(control: &ControlSender<ControlMessage>, action: &str, pressed: bool) {
         action: action.to_owned(),
         pressed,
     });
-}
-
-fn run(receiver: mpsc::Receiver<Vec<Binding>>, control: ControlSender<ControlMessage>) {
-    #[cfg(windows)]
-    windows::run(receiver, control);
-    #[cfg(not(windows))]
-    run_other(receiver, control);
 }
 
 #[cfg(not(windows))]

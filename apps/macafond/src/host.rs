@@ -62,6 +62,10 @@ pub enum ControlMessage {
     HotkeyStatus(crate::hotkeys::Status),
 }
 
+/// How long a login start waits before warming the UI in the background.
+#[cfg(windows)]
+const UI_PREWARM_AT_LOGIN: std::time::Duration = std::time::Duration::from_secs(20);
+
 pub struct DaemonHost {
     #[cfg(windows)]
     displays: displays::Runtime,
@@ -98,6 +102,8 @@ pub struct DaemonHost {
     hub: Arc<Hub>,
     tray: Option<Tray>,
     tray_wanted: bool,
+    /// Started at login: the warm UI waits for the session to settle (`UI_PREWARM_AT_LOGIN`).
+    autostarted: bool,
     hotkeys: Option<crate::hotkeys::Hotkeys>,
     hotkey_status: Option<crate::hotkeys::Status>,
     /// What the hotkey service registered last.
@@ -162,6 +168,7 @@ impl DaemonHost {
             hub,
             tray: None,
             tray_wanted: tray,
+            autostarted: false,
             hotkeys: None,
             hotkey_status: None,
             bound_hotkeys: None,
@@ -179,6 +186,10 @@ impl DaemonHost {
 
     pub fn set_config_recovery(&mut self, recovery: Option<macafon_ipc::ConfigRecovery>) {
         self.config_recovery = recovery;
+    }
+
+    pub fn set_autostarted(&mut self, autostarted: bool) {
+        self.autostarted = autostarted;
     }
 
     /// Persist pending changes now (shutdown).
@@ -395,6 +406,10 @@ impl MixerHost for DaemonHost {
         self.mixer.stream_peaks(&self.config, peaks);
     }
 
+    fn mixer_watched(&self) -> bool {
+        self.hub.metering()
+    }
+
     fn take_mix_changed(&mut self) -> bool {
         std::mem::take(&mut self.mix_changed)
     }
@@ -430,8 +445,28 @@ impl MicrophoneHost for DaemonHost {
             // A warm UI opens the tray panel and the hotkey overlay at once (owner decision,
             // 2026-10-17, against NFR-R5); without a tray nobody would open them.
             #[cfg(windows)]
-            if self.tray_wanted {
-                crate::ui::prewarm();
+            {
+                // An entry written by an older version starts the daemon without `--autostart`.
+                crate::autostart::refresh();
+                if self.tray_wanted {
+                    if self.autostarted {
+                        // Login is busy with every other startup app: the microphone is ready
+                        // now, the ~190 MB WebView2 warm-up can wait. A click in between just
+                        // starts the UI as without a warm one.
+                        let spawned = std::thread::Builder::new()
+                            .name("macafon-ui-prewarm".into())
+                            .spawn(|| {
+                                std::thread::sleep(UI_PREWARM_AT_LOGIN);
+                                crate::ui::prewarm();
+                            });
+                        if let Err(error) = spawned {
+                            tracing::warn!(%error, "Cannot defer the UI warm-up");
+                            crate::ui::prewarm();
+                        }
+                    } else {
+                        crate::ui::prewarm();
+                    }
+                }
             }
         }
         Ok(())

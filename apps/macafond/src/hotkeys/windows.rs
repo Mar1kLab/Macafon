@@ -6,14 +6,32 @@ use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey:
 use macafon_backend::ControlSender;
 use macafon_ipc::HotkeyBackend;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, TryRecvError};
+use windows::Win32::Foundation::{LPARAM, WPARAM};
+use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, GetKeyboardLayoutList, HKL, MAPVK_VK_TO_VSC, MapVirtualKeyExW, ToUnicodeEx,
     VK_CONTROL, VK_LCONTROL, VK_MENU, VK_OEM_3, VK_RMENU, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetMessageW, KillTimer, MSG, SetTimer,
+    DispatchMessageW, GetMessageW, KillTimer, MSG, PostThreadMessageW, SetTimer, WM_NULL,
 };
+
+/// Wakes the hotkey thread's message loop for new bindings; 0 until its queue exists.
+#[derive(Clone, Default)]
+pub struct Waker(Arc<AtomicU32>);
+
+impl Waker {
+    pub fn wake(&self) {
+        let thread = self.0.load(Ordering::Acquire);
+        if thread != 0 {
+            // SAFETY: posts an empty message to a thread of this process; no pointers.
+            let _ = unsafe { PostThreadMessageW(thread, WM_NULL, WPARAM(0), LPARAM(0)) };
+        }
+    }
+}
 
 struct Backend {
     sided: Option<super::sided::Hook>,
@@ -28,11 +46,6 @@ struct Backend {
 impl Backend {
     fn new() -> Result<Self, String> {
         let manager = GlobalHotKeyManager::new().map_err(|error| error.to_string())?;
-        // SAFETY: a thread timer with no callback; GetMessageW below pumps its messages.
-        let timer = unsafe { SetTimer(None, 0, 20, None) };
-        if timer == 0 {
-            return Err(std::io::Error::last_os_error().to_string());
-        }
         Ok(Self {
             sided: None,
             manager,
@@ -40,7 +53,7 @@ impl Backend {
             actions: HashMap::new(),
             accelerators: HashMap::new(),
             held: HashSet::new(),
-            timer,
+            timer: 0,
         })
     }
 
@@ -141,6 +154,24 @@ impl Backend {
             }
             active
         });
+        self.poll_while_held();
+    }
+
+    /// Releases are polled every 20 ms, only while a hotkey is held: idle, the thread sleeps.
+    fn poll_while_held(&mut self) {
+        if self.held.is_empty() {
+            if self.timer != 0 {
+                // SAFETY: the timer was created on this thread and has no callback.
+                let _ = unsafe { KillTimer(None, self.timer) };
+                self.timer = 0;
+            }
+        } else if self.timer == 0 {
+            // SAFETY: a thread timer with no callback; GetMessageW pumps its messages.
+            self.timer = unsafe { SetTimer(None, 0, 20, None) };
+            if self.timer == 0 {
+                tracing::warn!(error = %std::io::Error::last_os_error(), "Cannot poll held hotkeys");
+            }
+        }
     }
 }
 
@@ -149,8 +180,10 @@ impl Drop for Backend {
         for key in &self.registered {
             let _ = self.manager.unregister(*key);
         }
-        // SAFETY: the timer was created on this thread and has no callback.
-        let _ = unsafe { KillTimer(None, self.timer) };
+        if self.timer != 0 {
+            // SAFETY: the timer was created on this thread and has no callback.
+            let _ = unsafe { KillTimer(None, self.timer) };
+        }
     }
 }
 
@@ -196,7 +229,7 @@ pub fn types_with_altgr(accel: &super::accel::Accel) -> bool {
     })
 }
 
-pub fn run(receiver: Receiver<Vec<Binding>>, control: ControlSender<ControlMessage>) {
+pub fn run(receiver: Receiver<Vec<Binding>>, control: ControlSender<ControlMessage>, waker: Waker) {
     let mut backend = match Backend::new() {
         Ok(backend) => backend,
         Err(error) => {
@@ -226,8 +259,20 @@ pub fn run(receiver: Receiver<Vec<Binding>>, control: ControlSender<ControlMessa
         }
     };
     backend.bind(Vec::new(), &control);
+    // The manager's window gave this thread a message queue: bindings can wake it from now on.
+    // SAFETY: no arguments; the ID of the calling thread.
+    waker
+        .0
+        .store(unsafe { GetCurrentThreadId() }, Ordering::Release);
     let mut message = MSG::default();
+    // Bindings sent before the waker was set are taken before the first wait.
+    let mut first = true;
     loop {
+        if std::mem::take(&mut first) {
+            if let Some(bindings) = receiver.try_iter().last() {
+                backend.bind(bindings, &control);
+            }
+        }
         // SAFETY: message is writable; no window filter, so the manager's hidden window
         // and the thread timer are both serviced on the manager's owning thread.
         let result = unsafe { GetMessageW(&mut message, None, 0, 0) }.0;

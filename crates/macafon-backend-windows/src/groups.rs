@@ -9,6 +9,11 @@ use crate::output::{OutputChange, OutputPolicy};
 use macafon_backend::{AppMix, MixerHost, PlaybackStream};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+/// How often sessions and the system volume are read while no window shows mixer levels;
+/// session events still refresh the list at once (NFR-R7).
+const UNWATCHED_POLL: Duration = Duration::from_secs(1);
 
 pub(crate) struct VolumeGroups {
     watcher: Option<SessionWatcher>,
@@ -24,6 +29,8 @@ pub(crate) struct VolumeGroups {
     muted: HashMap<String, bool>,
     enabled: bool,
     refresh: bool,
+    /// When sessions and the system volume were last read.
+    polled_at: Option<Instant>,
     output: OutputPolicy,
     output_journal: PathBuf,
     /// No output chosen: the system default is the user's (OUT-001 "Follow system default").
@@ -50,6 +57,7 @@ impl VolumeGroups {
             muted: HashMap::new(),
             enabled: false,
             refresh: true,
+            polled_at: None,
             output: OutputPolicy::default(),
             output_journal,
             following_system: false,
@@ -65,26 +73,6 @@ impl VolumeGroups {
     }
 
     fn tick_with<H: MixerHost>(&mut self, watcher: &SessionWatcher, host: &mut H) {
-        // Read before applying: startup and an endpoint change adopt Windows, never a saved fader.
-        if let Ok(mut observed) = watcher.master(None) {
-            if let Some(previous) = &self.master {
-                let desired = host.master_volume();
-                if previous.0 == observed.0
-                    && ((desired.0 - previous.1).abs() > 0.001 || desired.1 != previous.2)
-                {
-                    match watcher.master(Some(desired)) {
-                        Ok(actual) => observed = actual,
-                        Err(error) => tracing::warn!(%error, "Cannot set system volume"),
-                    }
-                }
-            }
-            if self.master.as_ref() != Some(&observed)
-                || host.master_volume() != (observed.1, observed.2)
-            {
-                host.master_volume_changed(observed.1, observed.2);
-            }
-            self.master = Some(observed);
-        }
         while let Some(event) = watcher.try_event() {
             match event {
                 MixerEvent::AppsChanged => self.refresh = true,
@@ -120,6 +108,36 @@ impl VolumeGroups {
                 }
             }
         }
+        // Live levels need fresh peaks every tick; otherwise reading every session over COM
+        // ten times a second would be work nobody sees.
+        let poll = host.mixer_watched()
+            || self.refresh
+            || self
+                .polled_at
+                .is_none_or(|at| at.elapsed() >= UNWATCHED_POLL);
+        if poll {
+            self.polled_at = Some(Instant::now());
+            // Read before applying: startup and an endpoint change adopt Windows, never a saved fader.
+            if let Ok(mut observed) = watcher.master(None) {
+                if let Some(previous) = &self.master {
+                    let desired = host.master_volume();
+                    if previous.0 == observed.0
+                        && ((desired.0 - previous.1).abs() > 0.001 || desired.1 != previous.2)
+                    {
+                        match watcher.master(Some(desired)) {
+                            Ok(actual) => observed = actual,
+                            Err(error) => tracing::warn!(%error, "Cannot set system volume"),
+                        }
+                    }
+                }
+                if self.master.as_ref() != Some(&observed)
+                    || host.master_volume() != (observed.1, observed.2)
+                {
+                    host.master_volume_changed(observed.1, observed.2);
+                }
+                self.master = Some(observed);
+            }
+        }
         let enabled = host.mixer_enabled();
         if self.enabled && !enabled {
             self.release(Some(watcher));
@@ -135,10 +153,12 @@ impl VolumeGroups {
                 Err(error) => tracing::warn!(%error, "Cannot set new app volume"),
             }
         }
-        // Every tick: the apps carry fresh peaks for the meters.
-        match watcher.apps() {
-            Ok(apps) => self.apps_changed(host, apps),
-            Err(error) => tracing::debug!(%error, "Cannot list app sessions"),
+        // The apps carry fresh peaks for the meters.
+        if poll {
+            match watcher.apps() {
+                Ok(apps) => self.apps_changed(host, apps),
+                Err(error) => tracing::debug!(%error, "Cannot list app sessions"),
+            }
         }
         if enabled {
             self.apply_apps(watcher, host);
@@ -381,6 +401,7 @@ mod tests {
                 muted: HashMap::new(),
                 enabled: true,
                 refresh: true,
+                polled_at: None,
                 output: OutputPolicy::default(),
                 output_journal: PathBuf::new(),
                 following_system: false,

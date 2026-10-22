@@ -98,6 +98,9 @@ struct RunArgs {
     /// Do not show the tray icon (tests, headless sessions).
     #[arg(long)]
     no_tray: bool,
+    /// Started by the login autostart entry: warm the UI only once the session has settled.
+    #[arg(long, hide = true)]
+    autostart: bool,
 }
 
 fn parse_preset(id: &str) -> Result<Preset, String> {
@@ -219,6 +222,7 @@ fn run(args: RunArgs) -> Result<()> {
         !args.no_tray,
     )));
     host.borrow_mut().set_config_recovery(config_recovery);
+    host.borrow_mut().set_autostarted(args.autostart);
     let flushing = host.clone();
     platform::run(host, receiver, move || flushing.borrow_mut().flush())
 }

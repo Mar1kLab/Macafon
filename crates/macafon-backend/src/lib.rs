@@ -225,6 +225,11 @@ pub trait MixerHost {
     fn app_volume_changed(&mut self, _stream: &PlaybackStream, _volume_pct: f32) {}
     /// Linear peaks of apps since the last call, by [`PlaybackStream::id`] (WIN-CH-004).
     fn stream_peaks(&mut self, _peaks: &[(u32, f32)]) {}
+    /// A window shows live mixer levels: volume groups poll app peaks every tick, and only
+    /// about once a second otherwise.
+    fn mixer_watched(&self) -> bool {
+        true
+    }
     /// A fader or mute changed since the last call: volume groups write it right away
     /// instead of on the next poll, so a held volume key moves the sound smoothly.
     fn take_mix_changed(&mut self) -> bool {

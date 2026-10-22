@@ -201,7 +201,19 @@ impl VolumeGroups {
             let next = self.ids.len() as u32 + 1;
             let id = *self.ids.entry(app.exe.clone()).or_insert(next);
             peaks.push((id, app.peak));
-            streams.push((app.exe.clone(), stream(id, &app)));
+            let stream = stream(id, &app);
+            // An app already muted in Windows before Macafon wrote anything keeps that mute;
+            // a mute that Macafon's own channel or Master explains is not the app's.
+            if app.muted
+                && !self.applied.contains_key(&app.exe)
+                && !self.muted.contains_key(&app.exe)
+                && !host
+                    .app_mix(&stream)
+                    .is_some_and(|mix| mix.channel_muted || mix.master_muted)
+            {
+                self.muted.insert(app.exe.clone(), true);
+            }
+            streams.push((app.exe.clone(), stream));
         }
         if self.refresh || streams != self.streams {
             self.refresh = false;
@@ -332,6 +344,53 @@ mod tests {
         assert_eq!(soundpad.node_name, crate::mixer::SOUNDPAD);
         assert!(soundpad.movable && soundpad.running);
         assert!(soundpad.media_role.is_none());
+    }
+    #[test]
+    fn an_app_muted_in_windows_stays_muted_unless_its_channel_explains_it() {
+        struct Host {
+            channel_muted: bool,
+        }
+        impl MixerHost for Host {
+            fn app_mix(&self, _stream: &PlaybackStream) -> Option<AppMix> {
+                Some(AppMix {
+                    channel_pct: 100.0,
+                    app_pct: 100.0,
+                    master_pct: 100.0,
+                    channel_muted: self.channel_muted,
+                    master_muted: false,
+                })
+            }
+        }
+        let app = |exe: &str| App {
+            exe: exe.into(),
+            executable: None,
+            active: true,
+            session_count: 1,
+            app_pct: 100.0,
+            muted: true,
+            peak: 0.0,
+        };
+        for channel_muted in [false, true] {
+            let mut groups = VolumeGroups {
+                watcher: None,
+                master: None,
+                ids: HashMap::new(),
+                streams: Vec::new(),
+                applied: HashMap::new(),
+                new_app: None,
+                muted: HashMap::new(),
+                enabled: true,
+                refresh: true,
+                output: OutputPolicy::default(),
+                output_journal: PathBuf::new(),
+                following_system: false,
+            };
+            groups.apps_changed(&mut Host { channel_muted }, vec![app("player.exe")]);
+            assert_eq!(
+                groups.muted.get("player.exe").copied(),
+                (!channel_muted).then_some(true)
+            );
+        }
     }
     #[test]
     fn system_master_is_not_applied_again_to_sessions() {

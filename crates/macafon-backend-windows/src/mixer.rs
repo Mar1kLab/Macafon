@@ -594,19 +594,20 @@ impl Worker {
         let mut targets = Vec::new();
         let mut defaulted = Vec::new();
         for instance in std::mem::take(&mut self.unapplied) {
-            let Some(exe) = self
-                .sessions
-                .iter()
-                .find(|s| s.instance == instance)
-                .map(|s| s.key.exe.clone())
-            else {
+            let Some(session) = self.sessions.iter().find(|s| s.instance == instance) else {
                 continue; // Gone.
             };
+            let exe = session.key.exe.clone();
             let settings = match self.settings.get(&exe) {
                 Some(settings) => *settings,
                 None => match self.new_app.filter(|_| !self.released.contains(&exe)) {
-                    Some(settings) => {
-                        defaulted.push((instance.clone(), exe));
+                    Some(mut settings) => {
+                        // Windows remembers an app's own mute across launches; the default
+                        // faders must not lift it.
+                        // SAFETY: a live session interface owned by this worker.
+                        settings.app_muted =
+                            unsafe { session.volume.GetMute() }.is_ok_and(|m| m.as_bool());
+                        defaulted.push((instance.clone(), exe, settings));
                         settings
                     }
                     None => continue, // Unmanaged.
@@ -615,9 +616,19 @@ impl Worker {
             targets.push((instance, settings));
         }
         let failed = self.apply_all(&targets, journal);
-        for (instance, exe) in defaulted {
+        for (instance, exe, settings) in defaulted {
             if !failed.iter().any(|(bad, _)| *bad == instance) {
-                let _ = self.events.send(MixerEvent::NewAppDefaulted { exe });
+                let _ = self
+                    .events
+                    .send(MixerEvent::NewAppDefaulted { exe: exe.clone() });
+                if settings.app_muted {
+                    // The host keeps the app's own mute for its later fader writes.
+                    let _ = self.events.send(MixerEvent::ExternalVolume {
+                        exe,
+                        app_pct: settings.app_pct,
+                        muted: true,
+                    });
+                }
             }
         }
         let mut first_error = None;

@@ -9,17 +9,44 @@
   import Ticks from './lib/components/Ticks.svelte';
   import EmptyState from './lib/components/EmptyState.svelte';
   import Microphone from './screens/Microphone.svelte';
-  import Settings from './screens/Settings.svelte';
-  import Mixer from './screens/Mixer.svelte';
-  import Soundpad from './screens/Soundpad.svelte';
-  import Dictation from './screens/Dictation.svelte';
-  import Displays from './screens/Displays.svelte';
   import Onboarding from './lib/onboarding/Onboarding.svelte';
   import { daemon } from './lib/state';
   import { nav } from './lib/state/nav.svelte';
   import { t } from './lib/i18n';
 
   const screen = $derived(nav.screen);
+
+  // The other screens load on first use and in idle time after the first paint: the window
+  // opens with only the Microphone screen to parse, and switching later finds them ready.
+  const loaders = {
+    settings: () => import('./screens/Settings.svelte'),
+    mixer: () => import('./screens/Mixer.svelte'),
+    soundpad: () => import('./screens/Soundpad.svelte'),
+    dictation: () => import('./screens/Dictation.svelte'),
+    displays: () => import('./screens/Displays.svelte'),
+  };
+  type Lazy = keyof typeof loaders;
+  type Loaded = { [K in Lazy]?: Awaited<ReturnType<(typeof loaders)[K]>>['default'] };
+  let screens = $state.raw<Loaded>({});
+
+  function load(name: Lazy) {
+    if (screens[name]) return;
+    void loaders[name]().then((module) => (screens = { ...screens, [name]: module.default }));
+  }
+
+  $effect(() => {
+    if (screen in loaders) load(screen as Lazy);
+  });
+
+  onMount(() => {
+    const prefetch = () => (Object.keys(loaders) as Lazy[]).forEach(load);
+    if ('requestIdleCallback' in window) {
+      const id = requestIdleCallback(prefetch, { timeout: 3000 });
+      return () => cancelIdleCallback(id);
+    }
+    const timer = setTimeout(prefetch, 1000);
+    return () => clearTimeout(timer);
+  });
 
   // SND-001: audio files dropped anywhere in the window go to the Soundpad; its own screen
   // takes drops itself, into the category on screen.
@@ -116,15 +143,15 @@
           </EmptyState>
         </div>
       {:else if screen === 'settings'}
-        <Settings onnavigate={(next) => nav.go(next)} />
+        {#if screens.settings}<screens.settings onnavigate={(next) => nav.go(next)} />{/if}
       {:else if screen === 'mixer'}
-        <Mixer />
+        {#if screens.mixer}<screens.mixer />{/if}
       {:else if screen === 'soundpad' && daemon.soundpadAvailable}
-        <Soundpad />
+        {#if screens.soundpad}<screens.soundpad />{/if}
       {:else if screen === 'dictation' && daemon.dictationAvailable}
-        <Dictation />
+        {#if screens.dictation}<screens.dictation />{/if}
       {:else if screen === 'displays' && daemon.displaysAvailable}
-        <Displays />
+        {#if screens.displays}<screens.displays />{/if}
       {:else}
         <Microphone />
       {/if}

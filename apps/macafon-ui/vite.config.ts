@@ -11,6 +11,10 @@ export default defineConfig({
   clearScreen: false,
   server: { port: 1420, strictPort: true, host: '127.0.0.1' },
   envPrefix: ['VITE_', 'TAURI_ENV_'],
-  build: { target: 'es2022' },
+  build: {
+    target: 'es2022',
+    // Code used by several windows/screens shares one chunk instead of dozens of tiny files.
+    rolldownOptions: { output: { codeSplitting: { groups: [{ name: 'shared', minShareCount: 2, minSize: 0 }] } } },
+  },
   test: { include: ['src/**/*.test.ts'] },
 });

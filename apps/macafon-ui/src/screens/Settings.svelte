@@ -828,6 +828,10 @@
     background: var(--bg-raised);
     scroll-margin-top: 24px;
     transition: border-color var(--dur) var(--ease);
+    /* Sections off screen skip layout and paint (the previews are heavy); once rendered,
+       their real height is remembered, so scrolling and jumps stay put. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 480px;
   }
 
   /* The section being edited gets the corner ticks (UIP-005). */

@@ -14,7 +14,6 @@ Linux (PipeWire) is experimental (owner decision, 2026-10-17).
 | [docs/PRD.md](docs/PRD.md) | Requirements, requirement IDs (MIC-, DSP-, CH-, APP-, WIN-CH- …), parameter ranges, NFRs, architecture |
 | [docs/design/design-system.md](docs/design/design-system.md) | Color tokens, fonts, UI components — the only source of styles |
 | [docs/adr/](docs/adr/) | Accepted architecture decisions (Windows only on the free VB-CABLE — ADR-0004) |
-| [docs/research/sonar-analysis.md](docs/research/sonar-analysis.md) | Why the product is the way it is |
 
 See PRD §5 / §19 for the current stage. Do not run ahead: no Windows code before M3 and no M4+
 features without a direct request, but keep things extensible where the PRD explicitly requires it

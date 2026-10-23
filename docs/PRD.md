@@ -8,7 +8,7 @@
 | **Status** | Under review |
 | **Platforms** | Linux (PipeWire ≥ 1.0) — first; Windows 10/11 — second phase (virtual microphone on the free VB-CABLE, no driver of our own) |
 | **License** | Open source, free: GPL-3.0-only for the application, MIT/Apache-2.0 for `macafon-dsp` |
-| **Related documents** | [SteelSeries Sonar analysis](research/sonar-analysis.md) · [Design system](design/design-system.md) |
+| **Related documents** | [Design system](design/design-system.md) |
 
 ---
 

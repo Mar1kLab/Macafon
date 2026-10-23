@@ -219,3 +219,11 @@ downloads you start yourself (from Hugging Face); audio and dictated text never 
 Dictation uses [whisper.cpp](https://github.com/ggml-org/whisper.cpp) with OpenAI Whisper models and
 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) with NVIDIA Parakeet TDT 0.6B v3 (CC-BY-4.0).
 VB-CABLE is a separate product by [VB-Audio](https://vb-audio.com/) and is not bundled.
+
+## Alternatives
+
+Macafon is a free, open-source alternative to SteelSeries Sonar (microphone processing and a per-app
+mixer), Voicemeeter (a virtual microphone and routing) and Soundpad (a soundboard) — in one lightweight
+app.
+
+*Not affiliated with SteelSeries, VB-Audio or Leppsoft; product names are trademarks of their owners.*

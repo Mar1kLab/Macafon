@@ -110,11 +110,17 @@ impl Journal {
 
     pub fn open(state_dir: &Path) -> Result<Self, Error> {
         let path = state_dir.join("session-volumes.json");
-        let entries = match std::fs::read(&path) {
+        let mut entries: Vec<Entry> = match std::fs::read(&path) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(error)?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(error(e)),
         };
+        // Before 0.9.0 the SoundDeck session was `<soundpad>`.
+        for entry in &mut entries {
+            if entry.key.exe == "<soundpad>" {
+                entry.key.exe = crate::mixer::SOUNDDECK.to_owned();
+            }
+        }
         Ok(Self {
             path,
             entries,
@@ -278,6 +284,34 @@ mod tests {
                 .value = value;
             Ok(())
         }
+    }
+
+    #[test]
+    fn soundpad_records_before_0_9_restore_the_sounddeck_session() {
+        let dir = std::env::temp_dir().join(format!("macafon-soundpad-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        std::fs::write(
+            dir.join("session-volumes.json"),
+            r#"[{"key":{"exe":"<soundpad>","endpoint":"out"},"instance":"old",
+                "previous":{"volume":1.0,"muted":false},"ours":{"volume":0.125,"muted":false}}]"#,
+        )
+        .expect("old journal");
+        let mut store = Fake(vec![StoredSession {
+            key: Key {
+                exe: crate::mixer::SOUNDDECK.into(),
+                endpoint: "out".into(),
+            },
+            instance: "new".into(),
+            value: Value {
+                volume: 0.125,
+                muted: false,
+            },
+        }]);
+        let mut journal = Journal::open(&dir).expect("open");
+        journal.restore(&mut store).expect("restore");
+        assert_eq!(store.0[0].value.volume, 1.0);
+        assert_eq!(journal.pending(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

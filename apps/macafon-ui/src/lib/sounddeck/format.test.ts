@@ -15,7 +15,7 @@ const sound = (name: string, extra: Partial<SoundInfo> = {}): SoundInfo => ({
   ...extra,
 });
 
-describe('soundpad list', () => {
+describe('sounddeck list', () => {
   it('formats durations for short effects and long tracks', () => {
     expect(formatDuration(2400, true)).toBe('0:02.4');
     expect(formatDuration(9999, true)).toBe('0:10.0');

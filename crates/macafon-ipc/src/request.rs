@@ -219,72 +219,72 @@ pub enum Request {
     /// reacts as it did to the UI disconnecting (BG-001 hint, §9.5 quit on close).
     #[serde(rename = "ui.window_closed")]
     UiWindowClosed,
-    /// The library, its sounds and the soundpad preferences (§7.6).
-    #[serde(rename = "soundpad.get")]
-    SoundpadGet,
+    /// The library, its sounds and the SoundDeck preferences (§7.6).
+    #[serde(rename = "sounddeck.get")]
+    SoundDeckGet,
     /// Look at the folder again now; it is also rescanned every few seconds.
-    #[serde(rename = "soundpad.rescan")]
-    SoundpadRescan,
+    #[serde(rename = "sounddeck.rescan")]
+    SoundDeckRescan,
     /// Open the library folder in the file manager.
-    #[serde(rename = "soundpad.open_folder")]
-    SoundpadOpenFolder,
+    #[serde(rename = "sounddeck.open_folder")]
+    SoundDeckOpenFolder,
     /// Use another library folder, on any drive; `null` goes back to the default one. A missing
     /// folder is created. Playback stops; settings and hotkeys of sounds stay by their ids.
-    #[serde(rename = "soundpad.set_folder")]
-    SoundpadSetFolder { folder: Option<String> },
+    #[serde(rename = "sounddeck.set_folder")]
+    SoundDeckSetFolder { folder: Option<String> },
     /// SND-002: play a sound from the start, replacing what plays.
-    #[serde(rename = "soundpad.play")]
-    SoundpadPlay { id: String },
+    #[serde(rename = "sounddeck.play")]
+    SoundDeckPlay { id: String },
     /// Play a random sound, of one category if given.
-    #[serde(rename = "soundpad.play_random")]
-    SoundpadPlayRandom {
+    #[serde(rename = "sounddeck.play_random")]
+    SoundDeckPlayRandom {
         #[serde(default)]
         category: Option<String>,
     },
-    #[serde(rename = "soundpad.stop")]
-    SoundpadStop,
+    #[serde(rename = "sounddeck.stop")]
+    SoundDeckStop,
     /// `null` toggles.
-    #[serde(rename = "soundpad.set_paused")]
-    SoundpadSetPaused {
+    #[serde(rename = "sounddeck.set_paused")]
+    SoundDeckSetPaused {
         #[serde(default)]
         paused: Option<bool>,
     },
-    #[serde(rename = "soundpad.seek")]
-    SoundpadSeek { position_ms: u32 },
-    #[serde(rename = "soundpad.set_looping")]
-    SoundpadSetLooping { looping: bool },
-    #[serde(rename = "soundpad.set_prefs")]
-    SoundpadSetPrefs { patch: crate::SoundpadPrefsPatch },
+    #[serde(rename = "sounddeck.seek")]
+    SoundDeckSeek { position_ms: u32 },
+    #[serde(rename = "sounddeck.set_looping")]
+    SoundDeckSetLooping { looping: bool },
+    #[serde(rename = "sounddeck.set_prefs")]
+    SoundDeckSetPrefs { patch: crate::SoundDeckPrefsPatch },
     /// Monitor output by device name; `null` follows the default output.
-    #[serde(rename = "soundpad.set_monitor_device")]
-    SoundpadSetMonitorDevice { device: Option<String> },
-    #[serde(rename = "soundpad.set_sound")]
-    SoundpadSetSound {
+    #[serde(rename = "sounddeck.set_monitor_device")]
+    SoundDeckSetMonitorDevice { device: Option<String> },
+    #[serde(rename = "sounddeck.set_sound")]
+    SoundDeckSetSound {
         id: String,
         patch: crate::SoundPatch,
     },
     /// New file name without extension.
-    #[serde(rename = "soundpad.rename")]
-    SoundpadRename { id: String, name: String },
+    #[serde(rename = "sounddeck.rename")]
+    SoundDeckRename { id: String, name: String },
     /// Move into a category; `null` is the folder itself.
-    #[serde(rename = "soundpad.move")]
-    SoundpadMove {
+    #[serde(rename = "sounddeck.move")]
+    SoundDeckMove {
         id: String,
         category: Option<String>,
     },
     /// Delete the file from the library folder.
-    #[serde(rename = "soundpad.delete")]
-    SoundpadDelete { id: String },
-    #[serde(rename = "soundpad.delete_problem_sounds")]
-    SoundpadDeleteProblemSounds,
-    #[serde(rename = "soundpad.create_category")]
-    SoundpadCreateCategory { name: String },
-    #[serde(rename = "soundpad.rename_category")]
-    SoundpadRenameCategory { from: String, to: String },
+    #[serde(rename = "sounddeck.delete")]
+    SoundDeckDelete { id: String },
+    #[serde(rename = "sounddeck.delete_problem_sounds")]
+    SoundDeckDeleteProblemSounds,
+    #[serde(rename = "sounddeck.create_category")]
+    SoundDeckCreateCategory { name: String },
+    #[serde(rename = "sounddeck.rename_category")]
+    SoundDeckRenameCategory { from: String, to: String },
     /// Its sounds move to the folder itself.
-    #[serde(rename = "soundpad.delete_category")]
-    SoundpadDeleteCategory { name: String },
-    /// Add a file to the library in base64 chunks of up to `SOUNDPAD_UPLOAD_CHUNK_BYTES`
+    #[serde(rename = "sounddeck.delete_category")]
+    SoundDeckDeleteCategory { name: String },
+    /// Add a file to the library in base64 chunks of up to `SOUNDDECK_UPLOAD_CHUNK_BYTES`
     /// decoded bytes:
     /// `offset` is the byte offset of `data`; `done` finishes the file and returns the
     /// state. A new upload starts with `offset` 0 under a client-chosen `upload_id`.
@@ -324,8 +324,8 @@ pub enum Request {
     /// DISP-005: every connected monitor on, extended, at its preferred mode.
     #[serde(rename = "displays.all_on")]
     DisplaysAllOn,
-    #[serde(rename = "soundpad.upload")]
-    SoundpadUpload {
+    #[serde(rename = "sounddeck.upload")]
+    SoundDeckUpload {
         upload_id: String,
         file_name: String,
         #[serde(default)]

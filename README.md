@@ -165,9 +165,9 @@ macafon ctl status
 macafon ctl preset broadcast            # natural, discord-clear, noisy-room, broadcast, warm-podcast, raw
 macafon ctl mic mute toggle
 macafon ctl channel voice volume +5
-macafon ctl soundpad list               # SoundDeck
-macafon ctl soundpad play "Memes/airhorn.mp3"
-macafon ctl soundpad stop
+macafon ctl sounddeck list               # SoundDeck
+macafon ctl sounddeck play "Memes/airhorn.mp3"
+macafon ctl sounddeck stop
 macafon ctl dictation toggle            # on, off, toggle
 macafon ctl display                     # display profiles
 macafon ctl display apply <id>          # also next, revert, all-on, save "Work"
@@ -204,7 +204,7 @@ visual language in the [design system](docs/design/design-system.md), architectu
 | `apps/macafon-cli` | `macafon` command line |
 | `apps/macafon-ui` | Svelte 5 + Tauri v2 UI |
 | `crates/macafon-dsp`, `macafon-studio`, `macafon-engine` | DSP chain, noise suppression, audio engine |
-| `crates/macafon-soundpad` | Sound library, decoding, playback |
+| `crates/macafon-sounddeck` | Sound library, decoding, playback |
 | `crates/macafon-stt`, `apps/macafon-stt` | Dictation engines and the on-demand speech worker |
 | `crates/macafon-backend*` | Windows (WASAPI, display profiles) and Linux (PipeWire) backends |
 | `crates/macafon-ipc`, `macafon-config`, `macafon-apps` | Protocol, settings, app rules |

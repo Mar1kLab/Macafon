@@ -14,7 +14,7 @@ mod hotkeys;
 mod mixer;
 mod output_control;
 mod request;
-mod soundpad;
+mod sounddeck;
 mod state;
 pub mod transport;
 #[cfg(all(test, feature = "ts"))]
@@ -58,9 +58,9 @@ pub const MAX_LINE_BYTES: usize = 1 << 20;
 pub const MAX_METER_HZ: u32 = 60;
 
 pub use request::Request;
-pub use soundpad::{
-    SOUNDPAD_UPLOAD_CHUNK_BYTES, SoundInfo, SoundPatch, SoundpadOverlayControls,
-    SoundpadOverlayView, SoundpadPlayback, SoundpadPrefs, SoundpadPrefsPatch, SoundpadState,
+pub use sounddeck::{
+    SOUNDDECK_UPLOAD_CHUNK_BYTES, SoundDeckOverlayControls, SoundDeckOverlayView,
+    SoundDeckPlayback, SoundDeckPrefs, SoundDeckPrefsPatch, SoundDeckState, SoundInfo, SoundPatch,
 };
 pub use state::{
     AbRecording, AbSide, AbState, AbWaveform, AutostartMethod, AutostartState, CalibrationFailure,

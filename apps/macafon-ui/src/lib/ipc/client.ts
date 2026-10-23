@@ -21,7 +21,7 @@ import type {
   PlaybackDevice,
   Request,
   OutputControl,
-  SoundpadState,
+  SoundDeckState,
 } from './protocol';
 
 export type Method = Request['method'];
@@ -103,28 +103,28 @@ interface Results {
   'ui.window_closed': null;
   'prefs.get': Preferences;
   'prefs.set': Preferences;
-  'soundpad.get': SoundpadState;
-  'soundpad.rescan': SoundpadState;
-  'soundpad.open_folder': null;
-  'soundpad.set_folder': SoundpadState;
-  'soundpad.play': null;
-  'soundpad.play_random': null;
-  'soundpad.stop': null;
-  'soundpad.set_paused': null;
-  'soundpad.seek': null;
-  'soundpad.set_looping': null;
-  'soundpad.set_prefs': SoundpadState;
-  'soundpad.set_monitor_device': SoundpadState;
-  'soundpad.set_sound': SoundpadState;
-  'soundpad.rename': SoundpadState;
-  'soundpad.move': SoundpadState;
-  'soundpad.delete': SoundpadState;
-  'soundpad.delete_problem_sounds': SoundpadState;
-  'soundpad.create_category': SoundpadState;
-  'soundpad.rename_category': SoundpadState;
-  'soundpad.delete_category': SoundpadState;
+  'sounddeck.get': SoundDeckState;
+  'sounddeck.rescan': SoundDeckState;
+  'sounddeck.open_folder': null;
+  'sounddeck.set_folder': SoundDeckState;
+  'sounddeck.play': null;
+  'sounddeck.play_random': null;
+  'sounddeck.stop': null;
+  'sounddeck.set_paused': null;
+  'sounddeck.seek': null;
+  'sounddeck.set_looping': null;
+  'sounddeck.set_prefs': SoundDeckState;
+  'sounddeck.set_monitor_device': SoundDeckState;
+  'sounddeck.set_sound': SoundDeckState;
+  'sounddeck.rename': SoundDeckState;
+  'sounddeck.move': SoundDeckState;
+  'sounddeck.delete': SoundDeckState;
+  'sounddeck.delete_problem_sounds': SoundDeckState;
+  'sounddeck.create_category': SoundDeckState;
+  'sounddeck.rename_category': SoundDeckState;
+  'sounddeck.delete_category': SoundDeckState;
   /** The state once `done`, `null` for intermediate chunks. */
-  'soundpad.upload': SoundpadState | null;
+  'sounddeck.upload': SoundDeckState | null;
   'dictation.get': DictationState;
   'dictation.set_prefs': DictationState;
   'dictation.download': DictationState;

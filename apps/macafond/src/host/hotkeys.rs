@@ -66,17 +66,17 @@ impl VolumeRepeats {
 impl DaemonHost {
     /// Every action available now: the global ones and three per channel.
     pub(super) fn hotkey_actions(&self) -> Vec<(HotkeyAction, String)> {
-        let soundpad = self.soundpad.is_some();
+        let sounddeck = self.sounddeck.is_some();
         let displays = self.displays_available();
         let mut actions: Vec<(HotkeyAction, String)> = HotkeyAction::GLOBAL
             .into_iter()
             .filter(|action| {
-                soundpad
+                sounddeck
                     || !matches!(
                         action,
-                        HotkeyAction::SoundpadStop
-                            | HotkeyAction::SoundpadPauseToggle
-                            | HotkeyAction::SoundpadRandom
+                        HotkeyAction::SoundDeckStop
+                            | HotkeyAction::SoundDeckPauseToggle
+                            | HotkeyAction::SoundDeckRandom
                     )
             })
             .filter(|action| {
@@ -106,9 +106,9 @@ impl DaemonHost {
                     HotkeyAction::PushToMute => "Push to mute",
                     HotkeyAction::BypassToggle => "Toggle processing bypass",
                     HotkeyAction::PresetNext => "Next microphone preset",
-                    HotkeyAction::SoundpadStop => "SoundDeck: stop",
-                    HotkeyAction::SoundpadPauseToggle => "SoundDeck: pause or resume",
-                    HotkeyAction::SoundpadRandom => "SoundDeck: play a random sound",
+                    HotkeyAction::SoundDeckStop => "SoundDeck: stop",
+                    HotkeyAction::SoundDeckPauseToggle => "SoundDeck: pause or resume",
+                    HotkeyAction::SoundDeckRandom => "SoundDeck: play a random sound",
                     HotkeyAction::PresetPrevious => "Previous microphone preset",
                     HotkeyAction::DisplayProfileNext => "Displays: next profile",
                     HotkeyAction::DisplayRevert => "Displays: previous layout",
@@ -117,7 +117,7 @@ impl DaemonHost {
                     HotkeyAction::ChannelVolumeUp(_)
                     | HotkeyAction::ChannelVolumeDown(_)
                     | HotkeyAction::ChannelMute(_)
-                    | HotkeyAction::SoundpadPlay(_)
+                    | HotkeyAction::SoundDeckPlay(_)
                     | HotkeyAction::DisplayProfile(_) => "",
                 };
                 (action, description.to_owned())
@@ -138,10 +138,10 @@ impl DaemonHost {
                 format!("{name}: mute"),
             ));
         }
-        if let Some(soundpad) = &self.soundpad {
-            for entry in soundpad.entries() {
+        if let Some(sounddeck) = &self.sounddeck {
+            for entry in sounddeck.entries() {
                 actions.push((
-                    HotkeyAction::SoundpadPlay(entry.id.clone()),
+                    HotkeyAction::SoundDeckPlay(entry.id.clone()),
                     format!("SoundDeck: {}", entry.name),
                 ));
             }
@@ -459,10 +459,10 @@ impl DaemonHost {
                 delta_pct: -step_pct,
             },
             HotkeyAction::ChannelMute(id) => Request::ChannelToggleMute { id: id.clone() },
-            HotkeyAction::SoundpadStop => Request::SoundpadStop,
-            HotkeyAction::SoundpadPauseToggle => Request::SoundpadSetPaused { paused: None },
-            HotkeyAction::SoundpadRandom => Request::SoundpadPlayRandom { category: None },
-            HotkeyAction::SoundpadPlay(id) => Request::SoundpadPlay { id: id.clone() },
+            HotkeyAction::SoundDeckStop => Request::SoundDeckStop,
+            HotkeyAction::SoundDeckPauseToggle => Request::SoundDeckSetPaused { paused: None },
+            HotkeyAction::SoundDeckRandom => Request::SoundDeckPlayRandom { category: None },
+            HotkeyAction::SoundDeckPlay(id) => Request::SoundDeckPlay { id: id.clone() },
             HotkeyAction::DisplayProfile(id) => Request::DisplaysApply { id: id.clone() },
             HotkeyAction::DisplayProfileNext => match self.next_display_profile() {
                 Some(id) => Request::DisplaysApply { id },
@@ -486,10 +486,10 @@ impl DaemonHost {
             | HotkeyAction::DictationLanguageCycle => return,
             // A sound is heard; a popup on every press would only be in the way.
             HotkeyAction::QuickPanel
-            | HotkeyAction::SoundpadStop
-            | HotkeyAction::SoundpadPauseToggle
-            | HotkeyAction::SoundpadRandom
-            | HotkeyAction::SoundpadPlay(_) => return,
+            | HotkeyAction::SoundDeckStop
+            | HotkeyAction::SoundDeckPauseToggle
+            | HotkeyAction::SoundDeckRandom
+            | HotkeyAction::SoundDeckPlay(_) => return,
             HotkeyAction::DisplayProfile(_)
             | HotkeyAction::DisplayProfileNext
             | HotkeyAction::DisplayRevert

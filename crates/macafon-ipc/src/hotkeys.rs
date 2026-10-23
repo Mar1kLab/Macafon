@@ -28,12 +28,12 @@ pub enum HotkeyAction {
     ChannelVolumeUp(String),
     ChannelVolumeDown(String),
     ChannelMute(String),
-    /// Soundpad (§7.6): stop whatever plays.
-    SoundpadStop,
-    SoundpadPauseToggle,
-    SoundpadRandom,
-    /// Play one sound by its library id: `soundpad_play.Memes/airhorn.mp3`.
-    SoundpadPlay(String),
+    /// SoundDeck (§7.6): stop whatever plays.
+    SoundDeckStop,
+    SoundDeckPauseToggle,
+    SoundDeckRandom,
+    /// Play one sound by its library id: `sounddeck_play.Memes/airhorn.mp3`.
+    SoundDeckPlay(String),
     /// Apply a display profile by its id: `display_profile.work` (DISP-003).
     DisplayProfile(String),
     /// The next display profile after the active one.
@@ -64,9 +64,9 @@ impl HotkeyAction {
         Self::BypassToggle,
         Self::PresetNext,
         Self::PresetPrevious,
-        Self::SoundpadStop,
-        Self::SoundpadPauseToggle,
-        Self::SoundpadRandom,
+        Self::SoundDeckStop,
+        Self::SoundDeckPauseToggle,
+        Self::SoundDeckRandom,
         Self::DisplayProfileNext,
         Self::DisplayRevert,
         Self::DisplayAllOn,
@@ -94,10 +94,10 @@ impl HotkeyAction {
             Self::ChannelVolumeUp(id) => format!("channel_volume_up.{id}"),
             Self::ChannelVolumeDown(id) => format!("channel_volume_down.{id}"),
             Self::ChannelMute(id) => format!("channel_mute.{id}"),
-            Self::SoundpadStop => "soundpad_stop".into(),
-            Self::SoundpadPauseToggle => "soundpad_pause".into(),
-            Self::SoundpadRandom => "soundpad_random".into(),
-            Self::SoundpadPlay(id) => format!("soundpad_play.{id}"),
+            Self::SoundDeckStop => "sounddeck_stop".into(),
+            Self::SoundDeckPauseToggle => "sounddeck_pause".into(),
+            Self::SoundDeckRandom => "sounddeck_random".into(),
+            Self::SoundDeckPlay(id) => format!("sounddeck_play.{id}"),
             Self::DisplayProfile(id) => format!("display_profile.{id}"),
             Self::DisplayProfileNext => "display_profile_next".into(),
             Self::DisplayRevert => "display_revert".into(),
@@ -124,9 +124,9 @@ impl HotkeyAction {
             "bypass_toggle" => Self::BypassToggle,
             "preset_next" => Self::PresetNext,
             "preset_previous" => Self::PresetPrevious,
-            "soundpad_stop" => Self::SoundpadStop,
-            "soundpad_pause" => Self::SoundpadPauseToggle,
-            "soundpad_random" => Self::SoundpadRandom,
+            "sounddeck_stop" => Self::SoundDeckStop,
+            "sounddeck_pause" => Self::SoundDeckPauseToggle,
+            "sounddeck_random" => Self::SoundDeckRandom,
             "display_profile_next" => Self::DisplayProfileNext,
             "display_revert" => Self::DisplayRevert,
             "display_all_on" => Self::DisplayAllOn,
@@ -140,7 +140,7 @@ impl HotkeyAction {
                     "channel_volume_up" => Self::ChannelVolumeUp(channel),
                     "channel_volume_down" => Self::ChannelVolumeDown(channel),
                     "channel_mute" => Self::ChannelMute(channel),
-                    "soundpad_play" => Self::SoundpadPlay(channel),
+                    "sounddeck_play" => Self::SoundDeckPlay(channel),
                     "display_profile" => Self::DisplayProfile(channel),
                     _ => return None,
                 }
@@ -170,11 +170,11 @@ impl HotkeyAction {
             Self::ChannelVolumeUp(id) => format!("macafon ctl channel {id} volume +5"),
             Self::ChannelVolumeDown(id) => format!("macafon ctl channel {id} volume -5"),
             Self::ChannelMute(id) => format!("macafon ctl channel {id} mute"),
-            Self::SoundpadStop => "macafon ctl soundpad stop".into(),
-            Self::SoundpadPauseToggle => "macafon ctl soundpad pause".into(),
-            Self::SoundpadRandom => "macafon ctl soundpad random".into(),
-            Self::SoundpadPlay(id) => {
-                format!("macafon ctl soundpad play -- {}", quote_argument(id))
+            Self::SoundDeckStop => "macafon ctl sounddeck stop".into(),
+            Self::SoundDeckPauseToggle => "macafon ctl sounddeck pause".into(),
+            Self::SoundDeckRandom => "macafon ctl sounddeck random".into(),
+            Self::SoundDeckPlay(id) => {
+                format!("macafon ctl sounddeck play -- {}", quote_argument(id))
             }
             Self::DisplayProfile(id) => {
                 format!("macafon ctl display apply -- {}", quote_argument(id))
@@ -267,12 +267,12 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
-    fn soundpad_command_preserves_shell_metacharacters() {
+    fn sounddeck_command_preserves_shell_metacharacters() {
         let id = "-it's $HOME `test` #звук.wav";
-        let command = HotkeyAction::SoundpadPlay(id.into()).command();
-        assert!(command.starts_with("macafon ctl soundpad play -- "));
+        let command = HotkeyAction::SoundDeckPlay(id.into()).command();
+        assert!(command.starts_with("macafon ctl sounddeck play -- "));
         let argument = command
-            .strip_prefix("macafon ctl soundpad play -- ")
+            .strip_prefix("macafon ctl sounddeck play -- ")
             .expect("prefix");
         let output = std::process::Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", &format!(
@@ -291,12 +291,12 @@ mod tests {
         for action in HotkeyAction::GLOBAL.into_iter().chain([
             HotkeyAction::ChannelVolumeUp("voice".into()),
             HotkeyAction::ChannelMute("ch-2".into()),
-            HotkeyAction::SoundpadPlay("Memes/air horn.v2.mp3".into()),
+            HotkeyAction::SoundDeckPlay("Memes/air horn.v2.mp3".into()),
         ]) {
             assert_eq!(HotkeyAction::parse(&action.id()), Some(action));
         }
         assert_eq!(HotkeyAction::parse("channel_mute."), None);
-        assert_eq!(HotkeyAction::parse("soundpad_play."), None);
+        assert_eq!(HotkeyAction::parse("sounddeck_play."), None);
         assert_eq!(HotkeyAction::parse("explode"), None);
     }
 }

@@ -7,7 +7,7 @@ a file dialog is still pending. Mixer — [mixer.md](mixer.md).
 
 The mock transport (`src/lib/ipc/mock.ts`) handles the connection, microphone, presets, calibration and
 A/B. `src/lib/ipc/mock/` holds the device and application data (`fixtures`), pure functions
-(`helpers`), synthetic signals (`signals`), SoundDeck (`soundpad`) and a separate mixer (`mixer`). The mixer
+(`helpers`), synthetic signals (`signals`), SoundDeck (`sounddeck`) and a separate mixer (`mixer`). The mixer
 owns the channels, applications and meters, uses the generated IPC types and hands out copies of its
 state for replies and events.
 

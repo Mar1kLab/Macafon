@@ -187,27 +187,27 @@ impl DaemonHost {
             | Request::AppsSetManaged { .. }
             | Request::AppsForget { .. }
             | Request::AppsSetVolume { .. }) => return self.respond_mixer(request),
-            request @ (Request::SoundpadGet
-            | Request::SoundpadRescan
-            | Request::SoundpadOpenFolder
-            | Request::SoundpadSetFolder { .. }
-            | Request::SoundpadPlay { .. }
-            | Request::SoundpadPlayRandom { .. }
-            | Request::SoundpadStop
-            | Request::SoundpadSetPaused { .. }
-            | Request::SoundpadSeek { .. }
-            | Request::SoundpadSetLooping { .. }
-            | Request::SoundpadSetPrefs { .. }
-            | Request::SoundpadSetMonitorDevice { .. }
-            | Request::SoundpadSetSound { .. }
-            | Request::SoundpadRename { .. }
-            | Request::SoundpadMove { .. }
-            | Request::SoundpadDelete { .. }
-            | Request::SoundpadDeleteProblemSounds
-            | Request::SoundpadCreateCategory { .. }
-            | Request::SoundpadRenameCategory { .. }
-            | Request::SoundpadDeleteCategory { .. }
-            | Request::SoundpadUpload { .. }) => return self.respond_soundpad(request),
+            request @ (Request::SoundDeckGet
+            | Request::SoundDeckRescan
+            | Request::SoundDeckOpenFolder
+            | Request::SoundDeckSetFolder { .. }
+            | Request::SoundDeckPlay { .. }
+            | Request::SoundDeckPlayRandom { .. }
+            | Request::SoundDeckStop
+            | Request::SoundDeckSetPaused { .. }
+            | Request::SoundDeckSeek { .. }
+            | Request::SoundDeckSetLooping { .. }
+            | Request::SoundDeckSetPrefs { .. }
+            | Request::SoundDeckSetMonitorDevice { .. }
+            | Request::SoundDeckSetSound { .. }
+            | Request::SoundDeckRename { .. }
+            | Request::SoundDeckMove { .. }
+            | Request::SoundDeckDelete { .. }
+            | Request::SoundDeckDeleteProblemSounds
+            | Request::SoundDeckCreateCategory { .. }
+            | Request::SoundDeckRenameCategory { .. }
+            | Request::SoundDeckDeleteCategory { .. }
+            | Request::SoundDeckUpload { .. }) => return self.respond_sounddeck(request),
             request @ (Request::DisplaysGet
             | Request::DisplaysSave { .. }
             | Request::DisplaysCreate { .. }

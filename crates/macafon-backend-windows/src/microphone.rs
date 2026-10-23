@@ -12,7 +12,7 @@ use crate::Error;
 use crate::com::ComGuard;
 use crate::wasapi::{HNS_PER_SECOND, ProAudioThread, Stream};
 use assert_no_alloc::assert_no_alloc;
-use macafon_backend::SoundpadTap;
+use macafon_backend::SoundDeckTap;
 use macafon_engine::{DriftReader, DriftStats, DriftWriter, MicRt, drift_buffer};
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
@@ -206,11 +206,11 @@ pub struct MicrophonePipeline {
 
 impl MicrophonePipeline {
     /// Start both threads. Missing devices are not an error: each side keeps retrying.
-    /// Soundpad sounds (§7.6) are mixed into the cable after the chain by `soundpad`.
+    /// SoundDeck sounds (§7.6) are mixed into the cable after the chain by `sounddeck`.
     pub fn start(
         config: &MicrophoneConfig,
         processor: MicRt,
-        soundpad: Option<SoundpadTap>,
+        sounddeck: Option<SoundDeckTap>,
     ) -> Result<Self, Error> {
         let (writer, reader) = drift_buffer(1);
         let (budget_producer, budget) = RingBuffer::new(BUDGET_QUEUE);
@@ -229,7 +229,7 @@ impl MicrophonePipeline {
         let mut threads = Vec::with_capacity(2);
         let state = shared.clone();
         threads.push(spawn("macafon-render", move || {
-            render_thread(&state, render, reader, soundpad)
+            render_thread(&state, render, reader, sounddeck)
         })?);
         let state = shared.clone();
         let buffer_hns = render.buffer_hns;
@@ -521,7 +521,7 @@ fn render_thread(
     shared: &Shared,
     settings: RenderSettings,
     mut reader: DriftReader,
-    mut soundpad: Option<SoundpadTap>,
+    mut sounddeck: Option<SoundDeckTap>,
 ) -> Result<(), Error> {
     let _com = ComGuard::new()?;
     let _mmcss = ProAudioThread::register();
@@ -596,7 +596,7 @@ fn render_thread(
                     let block = &mut mono[..frames as usize];
                     assert_no_alloc(|| {
                         reader.read(block, padding as usize);
-                        match &mut soundpad {
+                        match &mut sounddeck {
                             Some(tap) => tap.mix_with_voice(block, out, channels),
                             None => {
                                 for (frame, sample) in

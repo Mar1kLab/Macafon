@@ -21,7 +21,7 @@
   const loaders = {
     settings: () => import('./screens/Settings.svelte'),
     mixer: () => import('./screens/Mixer.svelte'),
-    soundpad: () => import('./screens/Soundpad.svelte'),
+    sounddeck: () => import('./screens/SoundDeck.svelte'),
     dictation: () => import('./screens/Dictation.svelte'),
     displays: () => import('./screens/Displays.svelte'),
   };
@@ -48,10 +48,10 @@
     return () => clearTimeout(timer);
   });
 
-  // SND-001: audio files dropped anywhere in the window go to the Soundpad; its own screen
+  // SND-001: audio files dropped anywhere in the window go to the SoundDeck; its own screen
   // takes drops itself, into the category on screen.
   let fileDrag = $state(false);
-  const hasFiles = (event: DragEvent) => daemon.soundpadAvailable && (event.dataTransfer?.types.includes('Files') ?? false);
+  const hasFiles = (event: DragEvent) => daemon.sounddeckAvailable && (event.dataTransfer?.types.includes('Files') ?? false);
 
   function ondragover(event: DragEvent) {
     // Without this the WebView would open a dropped file in place of the app.
@@ -65,9 +65,9 @@
     fileDrag = false;
     if (!hasFiles(event)) return;
     const files = [...(event.dataTransfer?.files ?? [])];
-    nav.go('soundpad');
+    nav.go('sounddeck');
     const added = await daemon.uploadSounds(files, null);
-    if (added > 0) daemon.toast(t('soundpad.added', { count: added }));
+    if (added > 0) daemon.toast(t('sounddeck.added', { count: added }));
   }
 
   // UI scale 90–150% with Ctrl +/− and Ctrl 0 (PRD §9.8). The layout never gets smaller than
@@ -146,8 +146,8 @@
         {#if screens.settings}<screens.settings onnavigate={(next) => nav.go(next)} />{/if}
       {:else if screen === 'mixer'}
         {#if screens.mixer}<screens.mixer />{/if}
-      {:else if screen === 'soundpad' && daemon.soundpadAvailable}
-        {#if screens.soundpad}<screens.soundpad />{/if}
+      {:else if screen === 'sounddeck' && daemon.sounddeckAvailable}
+        {#if screens.sounddeck}<screens.sounddeck />{/if}
       {:else if screen === 'dictation' && daemon.dictationAvailable}
         {#if screens.dictation}<screens.dictation />{/if}
       {:else if screen === 'displays' && daemon.displaysAvailable}
@@ -156,11 +156,11 @@
         <Microphone />
       {/if}
     </main>
-    {#if fileDrag && screen !== 'soundpad'}
+    {#if fileDrag && screen !== 'sounddeck'}
       <div class="dropzone" aria-hidden="true">
         <Ticks color="var(--accent)" />
         <Upload size={22} strokeWidth={1.5} />
-        <span class="hud-label">{t('soundpad.dropApp')}</span>
+        <span class="hud-label">{t('sounddeck.dropApp')}</span>
       </div>
     {/if}
   </div>

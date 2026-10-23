@@ -9,7 +9,7 @@ mod microphone;
 mod mixer;
 mod presets;
 mod requests;
-mod soundpad;
+mod sounddeck;
 
 use crate::ab::Ab;
 use crate::calibration::Recording;
@@ -111,10 +111,10 @@ pub struct DaemonHost {
     pressed_hotkeys: std::collections::HashSet<String>,
     volume_repeats: hotkeys::VolumeRepeats,
     icons: macafon_apps::icons::IconResolver,
-    /// Created when the daemon starts, where the platform has a soundpad (§7.6).
-    soundpad: Option<crate::soundpad::Soundpad>,
-    soundpad_dirty: bool,
-    soundpad_broadcast_at: Option<Instant>,
+    /// Created when the daemon starts, where the platform has a SoundDeck (§7.6).
+    sounddeck: Option<crate::sounddeck::SoundDeck>,
+    sounddeck_dirty: bool,
+    sounddeck_broadcast_at: Option<Instant>,
     quit: bool,
     server: Option<(Endpoint, ControlSender<ControlMessage>)>,
     _socket: Option<SocketGuard>,
@@ -175,9 +175,9 @@ impl DaemonHost {
             pressed_hotkeys: std::collections::HashSet::new(),
             volume_repeats: hotkeys::VolumeRepeats::new(control.clone()),
             icons: macafon_apps::icons::IconResolver::from_env(),
-            soundpad: None,
-            soundpad_dirty: false,
-            soundpad_broadcast_at: None,
+            sounddeck: None,
+            sounddeck_dirty: false,
+            sounddeck_broadcast_at: None,
             quit: false,
             server: Some((endpoint, control)),
             _socket: None,
@@ -427,7 +427,7 @@ impl MicrophoneHost for DaemonHost {
                 self.tray = Tray::spawn(TrayState::default(), control.clone());
                 self.changed();
             }
-            self.start_soundpad();
+            self.start_sounddeck();
             // Spawned after signals are blocked, like the tray (HK-003).
             self.hotkeys = Some(crate::hotkeys::Hotkeys::spawn(control.clone()));
             if self
@@ -545,17 +545,17 @@ impl MicrophoneHost for DaemonHost {
         self.ab.take_request()
     }
 
-    fn soundpad_tap(
+    fn sounddeck_tap(
         &mut self,
-        output: macafon_backend::SoundpadOutput,
-    ) -> Option<macafon_backend::SoundpadTap> {
-        Some(self.soundpad.as_mut()?.tap(output))
+        output: macafon_backend::SoundDeckOutput,
+    ) -> Option<macafon_backend::SoundDeckTap> {
+        Some(self.sounddeck.as_mut()?.tap(output))
     }
 
-    fn soundpad_monitor(&self) -> Option<Option<String>> {
-        self.soundpad
+    fn sounddeck_monitor(&self) -> Option<Option<String>> {
+        self.sounddeck
             .as_ref()?
-            .monitor_wanted(&self.config.soundpad)
+            .monitor_wanted(&self.config.sounddeck)
     }
 
     fn player_failed(&mut self, error: Error) {
@@ -568,8 +568,8 @@ impl MicrophoneHost for DaemonHost {
         if ready != self.virtual_mic_ready {
             self.virtual_mic_ready = ready;
             self.changed();
-            if self.soundpad.is_some() {
-                self.soundpad_changed();
+            if self.sounddeck.is_some() {
+                self.sounddeck_changed();
             }
         }
     }
@@ -695,7 +695,7 @@ impl MicrophoneHost for DaemonHost {
         #[cfg(windows)]
         self.tick_displays();
         self.tick_dictation();
-        self.tick_soundpad(Instant::now());
+        self.tick_sounddeck(Instant::now());
         self.refresh_input();
         self.mixer.collect_garbage();
         self.mixer.poll_default_sink(&self.config.mixer);
@@ -776,16 +776,16 @@ mod tests {
         wav.extend_from_slice(&0i16.to_le_bytes());
         std::fs::write(root.join("sounds/Short sounds/tone.wav"), wav).expect("valid sound");
         let mut config = Config::default();
-        config.soundpad.folder = Some(root.join("sounds"));
+        config.sounddeck.folder = Some(root.join("sounds"));
         config
-            .soundpad
+            .sounddeck
             .edit_sound("Short sounds/tone.wav", |sound| {
                 sound.favorite = true;
                 sound.play_count = 9;
             });
         for (suffix, key) in [("", "Ctrl+F8"), ("#secondary", "Ctrl+F9")] {
             config.hotkeys.insert(
-                format!("soundpad_play.Short sounds/tone.wav{suffix}"),
+                format!("sounddeck_play.Short sounds/tone.wav{suffix}"),
                 key.into(),
             );
         }
@@ -798,17 +798,23 @@ mod tests {
             sender,
             false,
         );
-        host.soundpad = Some(crate::soundpad::Soundpad::new(
-            &host.config.soundpad,
+        host.sounddeck = Some(crate::sounddeck::SoundDeck::new(
+            &host.config.sounddeck,
             &root.join("state"),
         ));
         let wait_for = |host: &mut DaemonHost, id: &str| {
-            host.respond_soundpad(macafon_ipc::Request::SoundpadRescan)
+            host.respond_sounddeck(macafon_ipc::Request::SoundDeckRescan)
                 .expect("request scan");
             let deadline = Instant::now() + std::time::Duration::from_secs(5);
             loop {
-                host.tick_soundpad(Instant::now());
-                if host.soundpad.as_ref().expect("soundpad").entry(id).is_ok() {
+                host.tick_sounddeck(Instant::now());
+                if host
+                    .sounddeck
+                    .as_ref()
+                    .expect("sounddeck")
+                    .entry(id)
+                    .is_ok()
+                {
                     break;
                 }
                 assert!(Instant::now() < deadline, "inventory did not arrive");
@@ -822,13 +828,16 @@ mod tests {
         )
         .expect("Explorer rename");
         wait_for(&mut host, "Renamed/tone.wav");
-        assert!(host.config.soundpad.sound("Renamed/tone.wav").favorite);
-        assert_eq!(host.config.soundpad.sound("Renamed/tone.wav").play_count, 9);
+        assert!(host.config.sounddeck.sound("Renamed/tone.wav").favorite);
+        assert_eq!(
+            host.config.sounddeck.sound("Renamed/tone.wav").play_count,
+            9
+        );
         for (suffix, key) in [("", "Ctrl+F8"), ("#secondary", "Ctrl+F9")] {
             assert_eq!(
                 host.config
                     .hotkeys
-                    .get(&format!("soundpad_play.Renamed/tone.wav{suffix}"))
+                    .get(&format!("sounddeck_play.Renamed/tone.wav{suffix}"))
                     .map(String::as_str),
                 Some(key)
             );
@@ -838,7 +847,7 @@ mod tests {
     }
 
     #[test]
-    fn deleting_soundpad_category_preserves_settings_and_both_hotkeys_on_collision() {
+    fn deleting_sounddeck_category_preserves_settings_and_both_hotkeys_on_collision() {
         let root =
             std::env::temp_dir().join(format!("macafon-category-settings-{}", std::process::id()));
         std::fs::create_dir_all(root.join("sounds/Memes")).expect("category");
@@ -846,14 +855,16 @@ mod tests {
         std::fs::write(root.join("sounds/Memes/beep.#звук.wav"), b"category")
             .expect("category sound");
         let mut config = Config::default();
-        config.soundpad.folder = Some(root.join("sounds"));
-        config.soundpad.edit_sound("Memes/beep.#звук.wav", |sound| {
-            sound.favorite = true;
-            sound.play_count = 7;
-        });
+        config.sounddeck.folder = Some(root.join("sounds"));
+        config
+            .sounddeck
+            .edit_sound("Memes/beep.#звук.wav", |sound| {
+                sound.favorite = true;
+                sound.play_count = 7;
+            });
         for (suffix, key) in [("", "Ctrl+F8"), ("#secondary", "Ctrl+F9")] {
             config.hotkeys.insert(
-                format!("soundpad_play.Memes/beep.#звук.wav{suffix}"),
+                format!("sounddeck_play.Memes/beep.#звук.wav{suffix}"),
                 key.into(),
             );
         }
@@ -866,24 +877,24 @@ mod tests {
             sender,
             false,
         );
-        host.soundpad = Some(crate::soundpad::Soundpad::new(
-            &host.config.soundpad,
+        host.sounddeck = Some(crate::sounddeck::SoundDeck::new(
+            &host.config.sounddeck,
             &root.join("state"),
         ));
         // Do not rescan first: the operation must also handle files added since the last scan.
-        host.respond_soundpad(macafon_ipc::Request::SoundpadDeleteCategory {
+        host.respond_sounddeck(macafon_ipc::Request::SoundDeckDeleteCategory {
             name: "Memes".into(),
         })
         .expect("delete category");
         let new_id = "beep.#звук (2).wav";
-        assert!(host.config.soundpad.sound(new_id).favorite);
-        assert_eq!(host.config.soundpad.sound(new_id).play_count, 7);
-        assert!(!host.config.soundpad.sound("beep.#звук.wav").favorite);
+        assert!(host.config.sounddeck.sound(new_id).favorite);
+        assert_eq!(host.config.sounddeck.sound(new_id).play_count, 7);
+        assert!(!host.config.sounddeck.sound("beep.#звук.wav").favorite);
         for (suffix, key) in [("", "Ctrl+F8"), ("#secondary", "Ctrl+F9")] {
             assert_eq!(
                 host.config
                     .hotkeys
-                    .get(&format!("soundpad_play.{new_id}{suffix}"))
+                    .get(&format!("sounddeck_play.{new_id}{suffix}"))
                     .map(String::as_str),
                 Some(key)
             );

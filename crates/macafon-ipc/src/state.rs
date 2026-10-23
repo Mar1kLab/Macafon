@@ -210,7 +210,7 @@ pub struct Capabilities {
     pub hotkey_popup: bool,
     /// Sounds play into the virtual microphone and the headphones (§7.6).
     #[serde(default)]
-    pub soundpad: bool,
+    pub sounddeck: bool,
     /// Local speech to text (§8.4).
     #[serde(default)]
     pub dictation: bool,
@@ -229,7 +229,7 @@ impl Capabilities {
         channel_fx: true,
         graph_quantum: true,
         hotkey_popup: false,
-        soundpad: false,
+        sounddeck: false,
         dictation: false,
         displays: false,
         input_channel: true,
@@ -240,7 +240,7 @@ impl Capabilities {
         channel_fx: false,
         graph_quantum: false,
         hotkey_popup: true,
-        soundpad: true,
+        sounddeck: true,
         dictation: true,
         displays: true,
         input_channel: false,

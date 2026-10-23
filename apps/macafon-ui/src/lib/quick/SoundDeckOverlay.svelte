@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  import { FAVORITES, SOUND_SORTS, savedSort, type SoundSort } from '../soundpad/format';
+  import { FAVORITES, SOUND_SORTS, savedSort, type SoundSort } from '../sounddeck/format';
 
   /** Where the user was in the sounds: kept across openings and UI restarts. */
   interface Place {
@@ -13,7 +13,7 @@
     sort: SoundSort;
   }
 
-  const PLACE_KEY = 'macafon.overlay.soundpad';
+  const PLACE_KEY = 'macafon.overlay.sounddeck';
 
   function loadPlace(): Place {
     try {
@@ -44,10 +44,10 @@
   import { Headphones, Mic, Pause, Play, Search, Square, Star } from '@lucide/svelte';
   import Dropdown from '../components/Dropdown.svelte';
   import RulerSlider from '../components/RulerSlider.svelte';
-  import SeekBar from '../soundpad/SeekBar.svelte';
+  import SeekBar from '../sounddeck/SeekBar.svelte';
   import { indexShortcuts } from '../settings/shortcut';
-  import { formatDuration, inScope, matches, sortOptions, sortSounds, type SoundScope } from '../soundpad/format';
-  import type { SoundInfo, SoundpadOverlayView } from '../ipc/protocol';
+  import { formatDuration, inScope, matches, sortOptions, sortSounds, type SoundScope } from '../sounddeck/format';
+  import type { SoundInfo, SoundDeckOverlayView } from '../ipc/protocol';
   import { daemon } from '../state';
   import { t } from '../i18n';
   import { tip } from '../components/tooltip.svelte';
@@ -59,14 +59,14 @@
   /** Pads per page: a little more than the visible area in either view. */
   const PAGE = 60;
 
-  const soundpad = $derived(daemon.soundpad);
+  const sounddeck = $derived(daemon.sounddeck);
   /** SND-006: pads in a grid or rows in a list. */
-  const view = $derived(soundpad?.prefs.overlay_view ?? 'grid');
+  const view = $derived(sounddeck?.prefs.overlay_view ?? 'grid');
   const sketch = $derived(daemon.sketch);
   /** Row height and columns of the view, to load enough rows for a scroll position. */
-  const metricsOf = (layout: SoundpadOverlayView) => (layout === 'list' ? { row: 32, columns: 1 } : { row: 60, columns: 3 });
+  const metricsOf = (layout: SoundDeckOverlayView) => (layout === 'list' ? { row: 32, columns: 1 } : { row: 60, columns: 3 });
   const metrics = $derived(metricsOf(view));
-  const playback = $derived(daemon.soundpadPlayback);
+  const playback = $derived(daemon.sounddeckPlayback);
   const playingId = $derived(playback?.sound_id ?? null);
   const place = loadPlace();
   let scope = $state<SoundScope>(place.scope);
@@ -79,24 +79,24 @@
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   const sorts = sortOptions();
   /** Enough pads to reach the remembered scroll position, then a page more on demand. */
-  const first = metricsOf(daemon.soundpad?.prefs.overlay_view ?? 'grid');
+  const first = metricsOf(daemon.sounddeck?.prefs.overlay_view ?? 'grid');
   let shown = $state(Math.max(PAGE, Math.ceil(place.scrollTop / first.row + 8) * first.columns));
 
   const scopes = $derived([
-    { value: null as SoundScope, label: t('soundpad.all') },
-    ...(soundpad?.categories ?? []).map((category) => ({ value: category as SoundScope, label: category })),
+    { value: null as SoundScope, label: t('sounddeck.all') },
+    ...(sounddeck?.categories ?? []).map((category) => ({ value: category as SoundScope, label: category })),
   ]);
-  const favoriteCount = $derived(soundpad?.sounds.filter((sound) => sound.favorite).length ?? 0);
+  const favoriteCount = $derived(sounddeck?.sounds.filter((sound) => sound.favorite).length ?? 0);
   // A category that is gone falls back to every sound.
   const activeScope = $derived(scopes.some((item) => item.value === scope) ? scope : null);
   const pads = $derived(
     sortSounds(
-      (soundpad?.sounds ?? []).filter((sound) => !sound.error && inScope(sound, activeScope) && (!favorites || sound.favorite) && matches(sound, query)),
+      (sounddeck?.sounds ?? []).filter((sound) => !sound.error && inScope(sound, activeScope) && (!favorites || sound.favorite) && matches(sound, query)),
       sort,
     ).sort((a, b) => Number(b.favorite) - Number(a.favorite)),
   );
   const visible = $derived(pads.slice(0, shown));
-  const playing = $derived(playingId === null ? null : soundpad?.sounds.find((sound) => sound.id === playingId));
+  const playing = $derived(playingId === null ? null : sounddeck?.sounds.find((sound) => sound.id === playingId));
 
   onMount(() => {
     void tick().then(() => {
@@ -142,12 +142,12 @@
 
   /** The pad's star: favorites without leaving the overlay. */
   function star(sound: SoundInfo) {
-    void daemon.setSoundpad(daemon.client.call('soundpad.set_sound', { id: sound.id, patch: { favorite: !sound.favorite } }));
+    void daemon.setSoundDeck(daemon.client.call('sounddeck.set_sound', { id: sound.id, patch: { favorite: !sound.favorite } }));
   }
 
   /** Name, category, length and plays: everything the pad has no room for. */
   function describe(sound: SoundInfo): string {
-    return [sound.name, sound.category, formatDuration(sound.duration_ms, true), t('soundpad.plays', { count: sound.play_count })]
+    return [sound.name, sound.category, formatDuration(sound.duration_ms, true), t('sounddeck.plays', { count: sound.play_count })]
       .filter(Boolean)
       .join(' · ');
   }
@@ -168,37 +168,37 @@
       class="round"
       class:on={playback && !playback.paused}
       disabled={!playback}
-      aria-label={playback?.paused ? t('soundpad.resume') : t('soundpad.pause')}
-      {@attach tip(playback?.paused ? t('soundpad.resume') : t('soundpad.pause'))}
-      onclick={() => daemon.run(daemon.client.call('soundpad.set_paused', { paused: null }))}
+      aria-label={playback?.paused ? t('sounddeck.resume') : t('sounddeck.pause')}
+      {@attach tip(playback?.paused ? t('sounddeck.resume') : t('sounddeck.pause'))}
+      onclick={() => daemon.run(daemon.client.call('sounddeck.set_paused', { paused: null }))}
     >
       {#if !playback || playback.paused}<Play size={13} strokeWidth={1.5} />{:else}<Pause size={13} strokeWidth={1.5} />{/if}
     </button>
-    <button class="round" disabled={!playback} aria-label={t('quick.soundpadStop')} {@attach tip(t('quick.soundpadStop'))} onclick={() => daemon.stopSound()}>
+    <button class="round" disabled={!playback} aria-label={t('quick.sounddeckStop')} {@attach tip(t('quick.sounddeckStop'))} onclick={() => daemon.stopSound()}>
       <Square size={12} strokeWidth={1.5} />
     </button>
     <span class="now" aria-live="polite" {@attach tip(playing?.name)}>
-      {#if playback}{playback.loading ? t('soundpad.loading') : (playing?.name ?? playback.sound_id)}{:else}<span class="idle">{t('soundpad.nothingPlaying')}</span>{/if}
+      {#if playback}{playback.loading ? t('sounddeck.loading') : (playing?.name ?? playback.sound_id)}{:else}<span class="idle">{t('sounddeck.nothingPlaying')}</span>{/if}
     </span>
     <SeekBar compact />
     <span class="time">{formatDuration(playback?.position_ms ?? 0)}<span class="total">&nbsp;/ {formatDuration(playback?.duration_ms ?? null)}</span></span>
-    {#if soundpad}
-      <span class="volume" class:off={!soundpad.prefs.to_microphone} {@attach tip(t('soundpad.microphoneVolume'))}>
+    {#if sounddeck}
+      <span class="volume" class:off={!sounddeck.prefs.to_microphone} {@attach tip(t('sounddeck.microphoneVolume'))}>
         <Mic size={13} strokeWidth={1.5} />
-        <RulerSlider compact label={t('soundpad.microphoneVolume')} value={soundpad.prefs.microphone_volume_pct} min={0} max={200} step={1} defaultValue={100} origin={100} color="violet" disabled={!soundpad.prefs.to_microphone} format={(value) => `${value}%`} onchange={(microphone_volume_pct) => daemon.setSoundpadPrefs({ microphone_volume_pct })} />
+        <RulerSlider compact label={t('sounddeck.microphoneVolume')} value={sounddeck.prefs.microphone_volume_pct} min={0} max={200} step={1} defaultValue={100} origin={100} color="violet" disabled={!sounddeck.prefs.to_microphone} format={(value) => `${value}%`} onchange={(microphone_volume_pct) => daemon.setSoundDeckPrefs({ microphone_volume_pct })} />
       </span>
-      <span class="volume" class:off={!soundpad.prefs.to_headphones} {@attach tip(t('soundpad.headphonesVolume'))}>
+      <span class="volume" class:off={!sounddeck.prefs.to_headphones} {@attach tip(t('sounddeck.headphonesVolume'))}>
         <Headphones size={13} strokeWidth={1.5} />
-        <RulerSlider compact label={t('soundpad.headphonesVolume')} value={soundpad.prefs.headphones_volume_pct} min={0} max={200} step={1} defaultValue={70} origin={100} color="teal" disabled={!soundpad.prefs.to_headphones} format={(value) => `${value}%`} onchange={(headphones_volume_pct) => daemon.setSoundpadPrefs({ headphones_volume_pct })} />
+        <RulerSlider compact label={t('sounddeck.headphonesVolume')} value={sounddeck.prefs.headphones_volume_pct} min={0} max={200} step={1} defaultValue={70} origin={100} color="teal" disabled={!sounddeck.prefs.to_headphones} format={(value) => `${value}%`} onchange={(headphones_volume_pct) => daemon.setSoundDeckPrefs({ headphones_volume_pct })} />
       </span>
     {/if}
   </div>
 {/snippet}
 
 {#if part === 'player'}
-  <section class="dock" class:sketch aria-label={t('soundpad.transport')}>{@render player()}</section>
+  <section class="dock" class:sketch aria-label={t('sounddeck.transport')}>{@render player()}</section>
 {:else}
-<section id="overlay-sounds" class="soundpad" class:sketch aria-label={t('quick.soundpad')}>
+<section id="overlay-sounds" class="sounddeck" class:sketch aria-label={t('quick.sounddeck')}>
   <div class="bar">
     <label class="search">
       <Search size={13} strokeWidth={1.5} />
@@ -206,8 +206,8 @@
         bind:this={search}
         type="search"
         bind:value={query}
-        placeholder={t('soundpad.searchPlaceholder')}
-        aria-label={t('quick.soundpadSearch')}
+        placeholder={t('sounddeck.searchPlaceholder')}
+        aria-label={t('quick.sounddeckSearch')}
         oninput={restart}
         onkeydown={(event) => {
           if (event.key === 'Enter' && pads[0]) {
@@ -218,25 +218,25 @@
       />
     </label>
     <div class="filters">
-      <button class="chip favorites" class:active={favorites} aria-pressed={favorites} {@attach tip(t('quick.soundpadFavoritesHint'))} onclick={() => setFavorites(!favorites)}>
-        <Star size={11} strokeWidth={1.5} />{t('soundpad.favorites')}<small>{favoriteCount}</small>
+      <button class="chip favorites" class:active={favorites} aria-pressed={favorites} {@attach tip(t('quick.sounddeckFavoritesHint'))} onclick={() => setFavorites(!favorites)}>
+        <Star size={11} strokeWidth={1.5} />{t('sounddeck.favorites')}<small>{favoriteCount}</small>
       </button>
-      <div class="scope"><Dropdown label={t('soundpad.categories')} options={scopes} value={activeScope} width="138px" onchange={setScope} /></div>
-      <div class="sort"><Dropdown label={t('soundpad.sort')} options={sorts} value={sort} width="138px" onchange={setSort} /></div>
+      <div class="scope"><Dropdown label={t('sounddeck.categories')} options={scopes} value={activeScope} width="138px" onchange={setScope} /></div>
+      <div class="sort"><Dropdown label={t('sounddeck.sort')} options={sorts} value={sort} width="138px" onchange={setSort} /></div>
     </div>
   </div>
 
-  {#if (soundpad?.sounds.length ?? 0) === 0}
-    <p class="empty">{t('quick.soundpadEmpty')}</p>
+  {#if (sounddeck?.sounds.length ?? 0) === 0}
+    <p class="empty">{t('quick.sounddeckEmpty')}</p>
   {:else if pads.length === 0}
-    <p class="empty">{favorites && !query ? t('quick.soundpadNoFavorites') : t('quick.soundpadNoMatches', { query })}</p>
+    <p class="empty">{favorites && !query ? t('quick.sounddeckNoFavorites') : t('quick.sounddeckNoMatches', { query })}</p>
   {:else}
     <div class="pads" class:list={view === 'list'} bind:this={list} {onscroll}>
       {#each visible as sound (sound.id)}
         {@const active = playingId === sound.id}
-        {@const shortcut = shortcuts.get(`soundpad_play.${sound.id}`) ?? null}
+        {@const shortcut = shortcuts.get(`sounddeck_play.${sound.id}`) ?? null}
         <div class="pad" class:active class:favorite={sound.favorite} style:--progress={active && playback ? `${Math.min(playback.position_ms / Math.max(playback.duration_ms, 1), 1) * 100}%` : '0%'}>
-          <button class="play" aria-label={t('quick.soundpadPlay', { name: sound.name })} {@attach tip(describe(sound))} onclick={() => (active ? daemon.stopSound() : daemon.playSound(sound.id))}>
+          <button class="play" aria-label={t('quick.sounddeckPlay', { name: sound.name })} {@attach tip(describe(sound))} onclick={() => (active ? daemon.stopSound() : daemon.playSound(sound.id))}>
             <span class="name">{sound.name}</span>
             <span class="meta">
               <span class="length">{active && playback ? `${formatDuration(playback.position_ms)} / ` : ''}{formatDuration(sound.duration_ms, true)}</span>
@@ -244,7 +244,7 @@
               {#if shortcut}<kbd>{shortcut}</kbd>{/if}
             </span>
           </button>
-          <button class="star" aria-pressed={sound.favorite} aria-label={sound.favorite ? t('soundpad.unfavorite') : t('soundpad.favorite')} {@attach tip(sound.favorite ? t('soundpad.unfavorite') : t('soundpad.favorite'))} onclick={() => star(sound)}>
+          <button class="star" aria-pressed={sound.favorite} aria-label={sound.favorite ? t('sounddeck.unfavorite') : t('sounddeck.favorite')} {@attach tip(sound.favorite ? t('sounddeck.unfavorite') : t('sounddeck.favorite'))} onclick={() => star(sound)}>
             <Star size={12} strokeWidth={1.5} />
           </button>
         </div>
@@ -255,7 +255,7 @@
 {/if}
 
 <style>
-  .soundpad {
+  .sounddeck {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);

@@ -2,7 +2,7 @@
   // 03 / SETTINGS (PRD §9.5) — what the daemon supports today: start with system (AS-001),
   // the setup guide (§9.2), fallback microphone (MIC-006), input channel (MIC-004), system
   // default microphone (MIC-012), virtual microphone format (MIC-011), quit (BG-005), about.
-  // Mixer: known-app sorting (APP-006) and the output priority list (OUT-002). The soundpad
+  // Mixer: known-app sorting (APP-006) and the output priority list (OUT-002). The SoundDeck
   // library folder (SND-001). Hotkeys (HK-002, HK-004) and their popup (HK-006, where the
   // daemon draws one), shown in pictures with the overlay (HK-007, SND-006). Doctor (§9.6).
   // A section list on the left follows the scroll and jumps to a section.
@@ -28,7 +28,7 @@
   import PictureChoice from '../lib/settings/PictureChoice.svelte';
   import PopupPicture from '../lib/settings/PopupPicture.svelte';
   import LookPicture from '../lib/settings/LookPicture.svelte';
-  import LibraryFolder from '../lib/soundpad/LibraryFolder.svelte';
+  import LibraryFolder from '../lib/sounddeck/LibraryFolder.svelte';
   import PopupLook from '../lib/dictation/PopupLook.svelte';
   import { t } from '../lib/i18n';
   import type {
@@ -41,7 +41,7 @@
     OverlayExpand,
     OverlayPlacement,
     OverlayPrefs,
-    SoundpadOverlayView,
+    SoundDeckOverlayView,
   } from '../lib/ipc/protocol';
   import { OSD_MAX_OFFSET_PCT, QUANTUM_CHOICES, SAMPLE_RATE_HZ } from '../lib/ipc/dsp';
   import { tip } from '../lib/components/tooltip.svelte';
@@ -148,7 +148,7 @@
     label: t(`settings.osd.looks.${value}`),
     hint: t(`settings.osd.lookHints.${value}`),
   }));
-  const overlayViewOptions = (['grid', 'list'] as SoundpadOverlayView[]).map((value) => ({ value, label: t(`settings.overlay.views.${value}`) }));
+  const overlayViewOptions = (['grid', 'list'] as SoundDeckOverlayView[]).map((value) => ({ value, label: t(`settings.overlay.views.${value}`) }));
   const monitorOptions = [false, true].map((value) => ({
     value,
     label: t(value ? 'settings.osd.primaryMonitor' : 'settings.osd.activeMonitor'),
@@ -198,7 +198,7 @@
         ['audio', t('settings.audio'), !!mic],
         ['outputs', t('settings.outputs'), daemon.outputControls.length > 0],
         ['mixer', t('settings.mixer'), !!mixer],
-        ['soundpad', t('settings.soundpad'), !!daemon.soundpad],
+        ['sounddeck', t('settings.sounddeck'), !!daemon.sounddeck],
         ['hotkeys', t('settings.hotkeys.title'), !!daemon.hotkeys],
         ['popup', t('settings.osd.title'), !!prefs && !!daemon.hello?.capabilities.hotkey_popup],
         ['overlay', t('settings.overlay.title'), !!prefs],
@@ -478,14 +478,14 @@
         </section>
       {/if}
 
-      {#if daemon.soundpad}
-        <section id="settings-soundpad">
+      {#if daemon.sounddeck}
+        <section id="settings-sounddeck">
           <span class="ticks"><Ticks /></span>
-          <h2 class="hud-label" tabindex="-1">{t('settings.soundpad')}</h2>
+          <h2 class="hud-label" tabindex="-1">{t('settings.sounddeck')}</h2>
           <div class="row column">
             <div>
-              <p class="name">{t('soundpad.folder')}</p>
-              <p class="hint">{t('soundpad.folderHint')}</p>
+              <p class="name">{t('sounddeck.folder')}</p>
+              <p class="hint">{t('sounddeck.folderHint')}</p>
             </div>
             <LibraryFolder />
           </div>
@@ -607,15 +607,15 @@
               {#snippet picture(placement)}<OverlayLayoutPicture expand={overlay.expand === 'down' ? 'right' : overlay.expand} {placement} />{/snippet}
             </PictureChoice>
           </div>
-          {#if daemon.soundpad?.prefs.show_in_overlay}
+          {#if daemon.sounddeck?.prefs.show_in_overlay}
             <div class="row">
               <p class="name">{t('settings.overlay.view')}</p>
               <Segmented
                 label={t('settings.overlay.view')}
                 layout="inline"
                 options={overlayViewOptions}
-                value={daemon.soundpad.prefs.overlay_view}
-                onchange={(overlay_view) => daemon.setSoundpadPrefs({ overlay_view })}
+                value={daemon.sounddeck.prefs.overlay_view}
+                onchange={(overlay_view) => daemon.setSoundDeckPrefs({ overlay_view })}
               />
             </div>
 

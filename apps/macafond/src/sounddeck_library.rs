@@ -1,5 +1,5 @@
 //! Bounded offline library inventory and duration probing; never runs on the control/audio loop.
-use macafon_soundpad::library::{self, SoundEntry};
+use macafon_sounddeck::library::{self, SoundEntry};
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -39,7 +39,7 @@ impl Worker {
         // Dropping the channels cancels the worker without joining slow filesystem I/O on the
         // control loop. Only one scan and at most two result messages can be outstanding.
         let spawned = thread::Builder::new()
-            .name("macafon-soundpad-library".into())
+            .name("macafon-sounddeck-library".into())
             .spawn(move || run(receiver, sender, current_revision));
         if let Err(error) = &spawned {
             tracing::warn!(%error, "Cannot start SoundDeck library worker");
@@ -136,7 +136,7 @@ fn run(
                         {
                             duration
                         }
-                        _ => macafon_soundpad::decode::probe_duration_ms(&entry.path)
+                        _ => macafon_sounddeck::decode::probe_duration_ms(&entry.path)
                             .ok()
                             .flatten(),
                     };

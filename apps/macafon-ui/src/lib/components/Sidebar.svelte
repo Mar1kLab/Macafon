@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  export type Screen = 'microphone' | 'mixer' | 'soundpad' | 'dictation' | 'displays' | 'settings';
+  export type Screen = 'microphone' | 'mixer' | 'sounddeck' | 'dictation' | 'displays' | 'settings';
 </script>
 
 <script lang="ts">
@@ -20,7 +20,7 @@
   const items = $derived([
     { id: 'microphone' as const, icon: Mic, label: t('nav.microphone') },
     { id: 'mixer' as const, icon: SlidersVertical, label: t('nav.mixer') },
-    ...(daemon.soundpadAvailable ? [{ id: 'soundpad' as const, icon: AudioWaveform, label: t('nav.soundpad') }] : []),
+    ...(daemon.sounddeckAvailable ? [{ id: 'sounddeck' as const, icon: AudioWaveform, label: t('nav.sounddeck') }] : []),
     ...(daemon.dictationAvailable ? [{ id: 'dictation' as const, icon: Speech, label: t('nav.dictation') }] : []),
     ...(daemon.displaysAvailable ? [{ id: 'displays' as const, icon: MonitorSmartphone, label: t('nav.displays') }] : []),
   ]);

@@ -14,7 +14,7 @@ use crate::journal::{self, SystemDefaults};
 use crate::microphone::{MicrophoneConfig, MicrophonePipeline};
 use crate::monitor::Monitor;
 use crate::player::Player;
-use macafon_backend::{ControlSender, Error, MicrophoneHost, Node, PlayerRequest, SoundpadOutput};
+use macafon_backend::{ControlSender, Error, MicrophoneHost, Node, PlayerRequest, SoundDeckOutput};
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
@@ -148,7 +148,7 @@ struct LoopState {
     input: Option<String>,
     clock_reported_at: Option<Instant>,
     groups: Option<VolumeGroups>,
-    /// Soundpad monitor stream and the endpoint it plays into (§7.6).
+    /// SoundDeck monitor stream and the endpoint it plays into (§7.6).
     monitor: Option<(String, Monitor)>,
     monitor_retry_at: Option<Instant>,
 }
@@ -267,15 +267,15 @@ impl LoopState {
                 }
             }
         }
-        self.soundpad_monitor(host);
+        self.sounddeck_monitor(host);
         host.tick();
         Ok(())
     }
 
-    /// Keep the soundpad monitor on the output the host wants: reopened when the device or
+    /// Keep the SoundDeck monitor on the output the host wants: reopened when the device or
     /// the default output changes or the stream fails, retried every second.
-    fn soundpad_monitor<H: MicrophoneHost>(&mut self, host: &mut H) {
-        let target = host.soundpad_monitor().and_then(|device| {
+    fn sounddeck_monitor<H: MicrophoneHost>(&mut self, host: &mut H) {
+        let target = host.sounddeck_monitor().and_then(|device| {
             device
                 .filter(|id| {
                     self.endpoints
@@ -305,7 +305,7 @@ impl LoopState {
         if self.monitor_retry_at.is_some_and(|at| Instant::now() < at) {
             return;
         }
-        let Some(tap) = host.soundpad_tap(SoundpadOutput::Monitor) else {
+        let Some(tap) = host.sounddeck_tap(SoundDeckOutput::Monitor) else {
             return;
         };
         match Monitor::start(target.clone(), tap) {
@@ -336,8 +336,8 @@ impl LoopState {
             stream_buffer_ms: 0.0,
             low_latency_render: true,
         };
-        let soundpad = host.soundpad_tap(SoundpadOutput::Microphone);
-        match MicrophonePipeline::start(&config, processor, soundpad) {
+        let sounddeck = host.sounddeck_tap(SoundDeckOutput::Microphone);
+        match MicrophonePipeline::start(&config, processor, sounddeck) {
             Ok(pipeline) => {
                 tracing::info!(
                     cable = self.cable.is_some(),

@@ -26,9 +26,9 @@
   import RulerSlider from '../lib/components/RulerSlider.svelte';
   import Ticks from '../lib/components/Ticks.svelte';
   import Toggle from '../lib/components/Toggle.svelte';
-  import LibraryFolder from '../lib/soundpad/LibraryFolder.svelte';
-  import SoundDialog from '../lib/soundpad/SoundDialog.svelte';
-  import Transport from '../lib/soundpad/Transport.svelte';
+  import LibraryFolder from '../lib/sounddeck/LibraryFolder.svelte';
+  import SoundDialog from '../lib/sounddeck/SoundDialog.svelte';
+  import Transport from '../lib/sounddeck/Transport.svelte';
   import {
     FAVORITES,
     UNCATEGORIZED,
@@ -41,7 +41,7 @@
     sortSounds,
     type SoundScope,
     type SoundSort,
-  } from '../lib/soundpad/format';
+  } from '../lib/sounddeck/format';
   import { indexShortcuts } from '../lib/settings/shortcut';
   import { daemon } from '../lib/state';
   import { t } from '../lib/i18n';
@@ -57,9 +57,9 @@
   const SOUND_MIME = 'application/x-macafon-sound';
   const ACCEPT = '.mp3,.wav,.ogg,.flac,.m4a,.aac,audio/*';
 
-  const soundpad = $derived(daemon.soundpad);
-  const prefs = $derived(soundpad?.prefs);
-  const playback = $derived(daemon.soundpadPlayback);
+  const sounddeck = $derived(daemon.sounddeck);
+  const prefs = $derived(sounddeck?.prefs);
+  const playback = $derived(daemon.sounddeckPlayback);
 
   let scope = $state<SoundScope>(null);
   let query = $state('');
@@ -74,10 +74,10 @@
   let deletingCategory = $state<string | null>(null);
   let deletingSound = $state<SoundInfo | null>(null);
 
-  const sounds = $derived(soundpad?.sounds ?? []);
+  const sounds = $derived(sounddeck?.sounds ?? []);
   /** Not a folder name: the daemon refuses `Unplayable` as a category. */
   const PROBLEMS = '\u0000unplayable';
-  const problems = $derived(soundpad?.problem_sounds ?? []);
+  const problems = $derived(sounddeck?.problem_sounds ?? []);
   let confirmProblems = $state(false);
   // The list emptied: back to every sound.
   $effect(() => {
@@ -86,7 +86,7 @@
 
   async function deleteProblems() {
     confirmProblems = false;
-    await daemon.setSoundpad(daemon.client.call('soundpad.delete_problem_sounds'));
+    await daemon.setSoundDeck(daemon.client.call('sounddeck.delete_problem_sounds'));
   }
   const visible = $derived(sortSounds(sounds.filter((sound) => inScope(sound, scope) && matches(sound, query)), sort));
   // Rows are drawn a page at a time, so a library of thousands of sounds opens at once; a new
@@ -111,16 +111,16 @@
   const uploadCategory = $derived(scope && scope !== FAVORITES && scope !== PROBLEMS ? scope : null);
 
   const scopes = $derived([
-    { value: null as SoundScope, label: t('soundpad.all'), count: sounds.length },
-    { value: FAVORITES as SoundScope, label: t('soundpad.favorites'), count: sounds.filter((s) => s.favorite).length },
-    { value: UNCATEGORIZED as SoundScope, label: t('soundpad.uncategorized'), count: sounds.filter((s) => s.category === null).length },
+    { value: null as SoundScope, label: t('sounddeck.all'), count: sounds.length },
+    { value: FAVORITES as SoundScope, label: t('sounddeck.favorites'), count: sounds.filter((s) => s.favorite).length },
+    { value: UNCATEGORIZED as SoundScope, label: t('sounddeck.uncategorized'), count: sounds.filter((s) => s.category === null).length },
   ]);
   const categories = $derived(
-    (soundpad?.categories ?? []).map((name) => ({ name, count: sounds.filter((s) => s.category === name).length })),
+    (sounddeck?.categories ?? []).map((name) => ({ name, count: sounds.filter((s) => s.category === name).length })),
   );
   const sorts = sortOptions();
   const monitorOptions = $derived([
-    { value: null as string | null, label: t('soundpad.followDefault') },
+    { value: null as string | null, label: t('sounddeck.followDefault') },
     ...(daemon.mixer?.outputs ?? []).map((output) => ({ value: output.name as string | null, label: output.description })),
   ]);
 
@@ -135,11 +135,11 @@
     const list = [...(files ?? [])];
     if (list.length === 0) return;
     const added = await daemon.uploadSounds(list, category);
-    if (added > 0) daemon.toast(t('soundpad.added', { count: added }));
+    if (added > 0) daemon.toast(t('sounddeck.added', { count: added }));
   }
 
   function setFavorite(sound: SoundInfo) {
-    void daemon.setSoundpad(daemon.client.call('soundpad.set_sound', { id: sound.id, patch: { favorite: !sound.favorite } }));
+    void daemon.setSoundDeck(daemon.client.call('sounddeck.set_sound', { id: sound.id, patch: { favorite: !sound.favorite } }));
   }
 
   async function saveCategory() {
@@ -149,22 +149,22 @@
     categoryDialog = null;
     const request =
       dialog.from === null
-        ? daemon.client.call('soundpad.create_category', { name })
-        : daemon.client.call('soundpad.rename_category', { from: dialog.from, to: name });
-    if ((await daemon.setSoundpad(request)) && dialog.from !== null && scope === dialog.from) scope = name;
+        ? daemon.client.call('sounddeck.create_category', { name })
+        : daemon.client.call('sounddeck.rename_category', { from: dialog.from, to: name });
+    if ((await daemon.setSoundDeck(request)) && dialog.from !== null && scope === dialog.from) scope = name;
   }
 
   async function deleteCategory() {
     const name = deletingCategory;
     deletingCategory = null;
     if (name === null) return;
-    if ((await daemon.setSoundpad(daemon.client.call('soundpad.delete_category', { name }))) && scope === name) scope = null;
+    if ((await daemon.setSoundDeck(daemon.client.call('sounddeck.delete_category', { name }))) && scope === name) scope = null;
   }
 
   async function deleteSound() {
     const sound = deletingSound;
     deletingSound = null;
-    if (sound) await daemon.setSoundpad(daemon.client.call('soundpad.delete', { id: sound.id }));
+    if (sound) await daemon.setSoundDeck(daemon.client.call('sounddeck.delete', { id: sound.id }));
   }
 
   // --- Drag & drop: files from the file manager, sounds between categories ----------------
@@ -189,7 +189,7 @@
     if (moving) {
       if (target === SCREEN_TARGET || target === FAVORITES || target === null) return;
       const sound = sounds.find((item) => item.id === moving);
-      if (sound && sound.category !== category) void daemon.setSoundpad(daemon.client.call('soundpad.move', { id: moving, category }));
+      if (sound && sound.category !== category) void daemon.setSoundDeck(daemon.client.call('sounddeck.move', { id: moving, category }));
       return;
     }
     void upload(event.dataTransfer?.files, category);
@@ -226,7 +226,7 @@
   }
 </script>
 
-{#if soundpad && prefs}
+{#if sounddeck && prefs}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="screen"
@@ -236,24 +236,24 @@
     }}
     ondrop={(event) => ondrop(event, SCREEN_TARGET)}
   >
-    <PageHeader title={t('soundpad.section')}>
-        <Input class="search" compact type="search" bind:value={query} placeholder={t('soundpad.searchPlaceholder')} aria-label={t('soundpad.search')}>
+    <PageHeader title={t('sounddeck.section')}>
+        <Input class="search" compact type="search" bind:value={query} placeholder={t('sounddeck.searchPlaceholder')} aria-label={t('sounddeck.search')}>
           {#snippet icon()}<Search size={14} strokeWidth={1.5} />{/snippet}
         </Input>
-        <span class="hud-label">{t('soundpad.sort')}</span>
-        <Dropdown label={t('soundpad.sort')} options={sorts} value={sort} width="170px" onchange={(value) => {
+        <span class="hud-label">{t('sounddeck.sort')}</span>
+        <Dropdown label={t('sounddeck.sort')} options={sorts} value={sort} width="170px" onchange={(value) => {
           sort = value;
           saveSort(value);
         }} />
       {#snippet actions()}
-        <button class="btn tool" {@attach tip(t('soundpad.randomHint'))} aria-label={t('soundpad.random')} disabled={visible.every((sound) => sound.error)} onclick={() => {
+        <button class="btn tool" {@attach tip(t('sounddeck.randomHint'))} aria-label={t('sounddeck.random')} disabled={visible.every((sound) => sound.error)} onclick={() => {
           const pool = visible.filter((sound) => !sound.error);
           const pick = pool[Math.floor(Math.random() * pool.length)];
           if (pick) daemon.playSound(pick.id);
-        }}><Shuffle size={13} strokeWidth={1.5} /><span class="label">{t('soundpad.random')}</span></button>
-        <button class="btn tool" {@attach tip(soundpad.folder)} aria-label={t('soundpad.openFolder')} onclick={() => daemon.run(daemon.client.call('soundpad.open_folder'))}><FolderOpen size={13} strokeWidth={1.5} /><span class="label">{t('soundpad.openFolder')}</span></button>
+        }}><Shuffle size={13} strokeWidth={1.5} /><span class="label">{t('sounddeck.random')}</span></button>
+        <button class="btn tool" {@attach tip(sounddeck.folder)} aria-label={t('sounddeck.openFolder')} onclick={() => daemon.run(daemon.client.call('sounddeck.open_folder'))}><FolderOpen size={13} strokeWidth={1.5} /><span class="label">{t('sounddeck.openFolder')}</span></button>
         <LibraryFolder variant="button" />
-        <button class="btn invert" onclick={() => fileInput?.click()}><Plus size={13} strokeWidth={1.5} />{t('soundpad.addFiles')}</button>
+        <button class="btn invert" onclick={() => fileInput?.click()}><Plus size={13} strokeWidth={1.5} />{t('sounddeck.addFiles')}</button>
         <input
           bind:this={fileInput}
           class="visually-hidden"
@@ -267,17 +267,17 @@
             void upload(input.files, uploadCategory).then(() => (input.value = ''));
           }}
         />
-        <SettingsLink section="soundpad" />
+        <SettingsLink section="sounddeck" />
       {/snippet}
     </PageHeader>
 
-    {#if !soundpad.microphone_ready}
-      <p class="banner" role="status"><TriangleAlert size={14} strokeWidth={1.5} />{t('soundpad.cableMissing')}</p>
+    {#if !sounddeck.microphone_ready}
+      <p class="banner" role="status"><TriangleAlert size={14} strokeWidth={1.5} />{t('sounddeck.cableMissing')}</p>
     {/if}
 
     <div class="body">
       <aside class="side">
-        <section class="categories" aria-label={t('soundpad.categories')}>
+        <section class="categories" aria-label={t('sounddeck.categories')}>
           <ul>
             {#each scopes as item (item.value)}
               <li>
@@ -296,7 +296,7 @@
               </li>
             {/each}
           </ul>
-          <h2 class="hud-label">{t('soundpad.categories')}</h2>
+          <h2 class="hud-label">{t('sounddeck.categories')}</h2>
           <ul>
             {#each categories as category (category.name)}
               <li class="category">
@@ -312,74 +312,74 @@
                   <span class="label">{category.name}</span><span class="count value">{category.count}</span>
                 </button>
                 <span class="tools">
-                  <button class="btn icon ghost small" aria-label={`${t('soundpad.renameCategory')}: ${category.name}`} {@attach tip(t('soundpad.renameCategory'))} onclick={() => (categoryDialog = { from: category.name, name: category.name })}><Pencil size={12} strokeWidth={1.5} /></button>
-                  <button class="btn icon ghost small" aria-label={`${t('soundpad.deleteCategory')}: ${category.name}`} {@attach tip(t('soundpad.deleteCategory'))} onclick={() => (deletingCategory = category.name)}><Trash2 size={12} strokeWidth={1.5} /></button>
+                  <button class="btn icon ghost small" aria-label={`${t('sounddeck.renameCategory')}: ${category.name}`} {@attach tip(t('sounddeck.renameCategory'))} onclick={() => (categoryDialog = { from: category.name, name: category.name })}><Pencil size={12} strokeWidth={1.5} /></button>
+                  <button class="btn icon ghost small" aria-label={`${t('sounddeck.deleteCategory')}: ${category.name}`} {@attach tip(t('sounddeck.deleteCategory'))} onclick={() => (deletingCategory = category.name)}><Trash2 size={12} strokeWidth={1.5} /></button>
                 </span>
               </li>
             {/each}
           </ul>
-          <button class="new" onclick={() => (categoryDialog = { from: null, name: '' })}><Plus size={13} strokeWidth={1.5} /><span class="hud-label">{t('soundpad.newCategory')}</span></button>
+          <button class="new" onclick={() => (categoryDialog = { from: null, name: '' })}><Plus size={13} strokeWidth={1.5} /><span class="hud-label">{t('sounddeck.newCategory')}</span></button>
           {#if problems.length}
             <ul class="problems">
               <li>
-                <button class="scope problem" class:active={scope === PROBLEMS} aria-current={scope === PROBLEMS ? 'true' : undefined} {@attach tip(t('soundpad.unplayableHint'))} onclick={() => (scope = PROBLEMS)}>
+                <button class="scope problem" class:active={scope === PROBLEMS} aria-current={scope === PROBLEMS ? 'true' : undefined} {@attach tip(t('sounddeck.unplayableHint'))} onclick={() => (scope = PROBLEMS)}>
                   <TriangleAlert size={13} strokeWidth={1.5} />
-                  <span class="label">{t('soundpad.unplayable')}</span><span class="count value">{problems.length}</span>
+                  <span class="label">{t('sounddeck.unplayable')}</span><span class="count value">{problems.length}</span>
                 </button>
               </li>
             </ul>
           {/if}
         </section>
 
-        <section class="output" aria-label={t('soundpad.output')}>
-          <h2 class="hud-label">{t('soundpad.output')}</h2>
+        <section class="output" aria-label={t('sounddeck.output')}>
+          <h2 class="hud-label">{t('sounddeck.output')}</h2>
           <div class="target">
             <Mic size={14} strokeWidth={1.5} />
-            <span class="name" {@attach tip(t('soundpad.toMicrophoneHint'))}>{t('soundpad.toMicrophone')}</span>
-            <Toggle checked={prefs.to_microphone} label={t('soundpad.toMicrophone')} color="violet" onchange={(to_microphone) => daemon.setSoundpadPrefs({ to_microphone })} />
+            <span class="name" {@attach tip(t('sounddeck.toMicrophoneHint'))}>{t('sounddeck.toMicrophone')}</span>
+            <Toggle checked={prefs.to_microphone} label={t('sounddeck.toMicrophone')} color="violet" onchange={(to_microphone) => daemon.setSoundDeckPrefs({ to_microphone })} />
           </div>
-          <RulerSlider compact label={t('soundpad.microphoneVolume')} value={prefs.microphone_volume_pct} min={0} max={200} step={1} defaultValue={100} origin={100} color="violet" disabled={!prefs.to_microphone} format={(value) => `${value}%`} onchange={(microphone_volume_pct) => daemon.setSoundpadPrefs({ microphone_volume_pct })} />
+          <RulerSlider compact label={t('sounddeck.microphoneVolume')} value={prefs.microphone_volume_pct} min={0} max={200} step={1} defaultValue={100} origin={100} color="violet" disabled={!prefs.to_microphone} format={(value) => `${value}%`} onchange={(microphone_volume_pct) => daemon.setSoundDeckPrefs({ microphone_volume_pct })} />
           <div class="target">
             <Headphones size={14} strokeWidth={1.5} />
-            <span class="name" {@attach tip(t('soundpad.toHeadphonesHint'))}>{t('soundpad.toHeadphones')}</span>
-            <Toggle checked={prefs.to_headphones} label={t('soundpad.toHeadphones')} color="teal" onchange={(to_headphones) => daemon.setSoundpadPrefs({ to_headphones })} />
+            <span class="name" {@attach tip(t('sounddeck.toHeadphonesHint'))}>{t('sounddeck.toHeadphones')}</span>
+            <Toggle checked={prefs.to_headphones} label={t('sounddeck.toHeadphones')} color="teal" onchange={(to_headphones) => daemon.setSoundDeckPrefs({ to_headphones })} />
           </div>
-          <RulerSlider compact label={t('soundpad.headphonesVolume')} value={prefs.headphones_volume_pct} min={0} max={200} step={1} defaultValue={70} origin={100} color="teal" disabled={!prefs.to_headphones} format={(value) => `${value}%`} onchange={(headphones_volume_pct) => daemon.setSoundpadPrefs({ headphones_volume_pct })} />
-          <Dropdown label={t('soundpad.monitorDevice')} options={monitorOptions} value={prefs.monitor_device} disabled={!prefs.to_headphones} onchange={(device) => daemon.setSoundpad(daemon.client.call('soundpad.set_monitor_device', { device }))} />
-          <label class="target" {@attach tip(t('soundpad.muteVoiceHint'))}>
-            <span class="name">{t('soundpad.muteVoice')}</span>
-            <Toggle checked={prefs.mute_voice_while_playing} label={t('soundpad.muteVoice')} color="orange" onchange={(mute_voice_while_playing) => daemon.setSoundpadPrefs({ mute_voice_while_playing })} />
+          <RulerSlider compact label={t('sounddeck.headphonesVolume')} value={prefs.headphones_volume_pct} min={0} max={200} step={1} defaultValue={70} origin={100} color="teal" disabled={!prefs.to_headphones} format={(value) => `${value}%`} onchange={(headphones_volume_pct) => daemon.setSoundDeckPrefs({ headphones_volume_pct })} />
+          <Dropdown label={t('sounddeck.monitorDevice')} options={monitorOptions} value={prefs.monitor_device} disabled={!prefs.to_headphones} onchange={(device) => daemon.setSoundDeck(daemon.client.call('sounddeck.set_monitor_device', { device }))} />
+          <label class="target" {@attach tip(t('sounddeck.muteVoiceHint'))}>
+            <span class="name">{t('sounddeck.muteVoice')}</span>
+            <Toggle checked={prefs.mute_voice_while_playing} label={t('sounddeck.muteVoice')} color="orange" onchange={(mute_voice_while_playing) => daemon.setSoundDeckPrefs({ mute_voice_while_playing })} />
           </label>
         </section>
       </aside>
 
-      <section class="list" aria-label={t('soundpad.section')}>
+      <section class="list" aria-label={t('sounddeck.section')}>
         {#if scope === PROBLEMS}
           <div class="problem-head">
             <div>
-              <h2 class="hud-label">{t('soundpad.unplayable')}</h2>
-              <p>{t('soundpad.unplayableBody')}</p>
+              <h2 class="hud-label">{t('sounddeck.unplayable')}</h2>
+              <p>{t('sounddeck.unplayableBody')}</p>
             </div>
-            <button class="btn danger" onclick={() => (confirmProblems = true)}><Trash2 size={13} strokeWidth={1.5} />{t('soundpad.deleteAllUnplayable')}</button>
+            <button class="btn danger" onclick={() => (confirmProblems = true)}><Trash2 size={13} strokeWidth={1.5} />{t('sounddeck.deleteAllUnplayable')}</button>
           </div>
-          <ul class="rows problem-rows" aria-label={t('soundpad.unplayable')}>
+          <ul class="rows problem-rows" aria-label={t('sounddeck.unplayable')}>
             {#each problems as sound (sound.id)}
               <li class="problem-row">
                 <TriangleAlert size={13} strokeWidth={1.5} />
                 <span class="title"><b>{sound.name}</b><small>{sound.id.split('/').pop()}</small></span>
-                <span class="reason" {@attach tip(sound.error ?? '')}>{sound.error ?? t('soundpad.unplayableReason')}</span>
-                <button class="btn icon ghost small" aria-label={t('soundpad.deleteSound', { name: sound.name })} {@attach tip(t('soundpad.deleteSound', { name: sound.name }))} onclick={() => daemon.setSoundpad(daemon.client.call('soundpad.delete', { id: sound.id }))}><Trash2 size={13} strokeWidth={1.5} /></button>
+                <span class="reason" {@attach tip(sound.error ?? '')}>{sound.error ?? t('sounddeck.unplayableReason')}</span>
+                <button class="btn icon ghost small" aria-label={t('sounddeck.deleteSound', { name: sound.name })} {@attach tip(t('sounddeck.deleteSound', { name: sound.name }))} onclick={() => daemon.setSoundDeck(daemon.client.call('sounddeck.delete', { id: sound.id }))}><Trash2 size={13} strokeWidth={1.5} /></button>
               </li>
             {/each}
           </ul>
         {:else if sounds.length === 0}
           <div class="empty">
-            <EmptyState label={t('soundpad.emptyLabel')} title={t('soundpad.emptyTitle')} accent={t('soundpad.emptyAccent')}>
-              <p>{t('soundpad.emptyBody')}</p>
-              <p class="note">{t('soundpad.emptyNote', { folder: soundpad.folder })}</p>
+            <EmptyState label={t('sounddeck.emptyLabel')} title={t('sounddeck.emptyTitle')} accent={t('sounddeck.emptyAccent')}>
+              <p>{t('sounddeck.emptyBody')}</p>
+              <p class="note">{t('sounddeck.emptyNote', { folder: sounddeck.folder })}</p>
               {#snippet actions()}
-                <button class="btn invert" onclick={() => fileInput?.click()}><Plus size={13} strokeWidth={1.5} />{t('soundpad.addFiles')}</button>
-                <button class="btn" onclick={() => daemon.run(daemon.client.call('soundpad.open_folder'))}><FolderOpen size={13} strokeWidth={1.5} />{t('soundpad.openFolder')}</button>
+                <button class="btn invert" onclick={() => fileInput?.click()}><Plus size={13} strokeWidth={1.5} />{t('sounddeck.addFiles')}</button>
+                <button class="btn" onclick={() => daemon.run(daemon.client.call('sounddeck.open_folder'))}><FolderOpen size={13} strokeWidth={1.5} />{t('sounddeck.openFolder')}</button>
                 <LibraryFolder variant="button" />
               {/snippet}
             </EmptyState>
@@ -387,16 +387,16 @@
         {:else}
           <div class="head hud-label" aria-hidden="true">
             <span></span>
-            <span>{t('soundpad.columns.name')}</span>
-            <span>{t('soundpad.columns.category')}</span>
-            <span class="right">{t('soundpad.columns.length')}</span>
-            <span>{t('soundpad.columns.hotkey')}</span>
+            <span>{t('sounddeck.columns.name')}</span>
+            <span>{t('sounddeck.columns.category')}</span>
+            <span class="right">{t('sounddeck.columns.length')}</span>
+            <span>{t('sounddeck.columns.hotkey')}</span>
             <span></span>
           </div>
-          <ul class="rows" bind:this={listElement} role="listbox" aria-label={t('soundpad.section')} onscroll={onrowsscroll}>
+          <ul class="rows" bind:this={listElement} role="listbox" aria-label={t('sounddeck.section')} onscroll={onrowsscroll}>
             {#each rendered as sound, index (sound.id)}
               {@const playing = playback?.sound_id === sound.id}
-            {@const shortcut = shortcuts.get(`soundpad_play.${sound.id}`) ?? null}
+            {@const shortcut = shortcuts.get(`sounddeck_play.${sound.id}`) ?? null}
               <li
                 class="row"
                 class:selected={selected === sound.id}
@@ -408,7 +408,7 @@
                 tabindex="0"
                 draggable="true"
                 aria-label={sound.name}
-                {@attach tip(sound.error ? t('soundpad.broken', { error: sound.error }) : undefined)}
+                {@attach tip(sound.error ? t('sounddeck.broken', { error: sound.error }) : undefined)}
                 style:--progress={playing && playback ? `${Math.min(playback.position_ms / Math.max(playback.duration_ms, 1), 1) * 100}%` : '0%'}
                 onclick={() => (selected = sound.id)}
                 ondblclick={() => toggle(sound)}
@@ -424,7 +424,7 @@
                   class:on={playing}
                   disabled={sound.error !== null}
                   tabindex="-1"
-                  aria-label={playing ? t('soundpad.stop') : t('soundpad.play', { name: sound.name })}
+                  aria-label={playing ? t('sounddeck.stop') : t('sounddeck.play', { name: sound.name })}
                   onclick={(event) => {
                     event.stopPropagation();
                     toggle(sound);
@@ -439,17 +439,17 @@
                 <span class="cat">{sound.category ?? ''}</span>
                 <span class="len value">{formatDuration(sound.duration_ms, true)}</span>
                 <span class="key">
-                  {#if shortcut}<kbd>{shortcut}</kbd>{:else}<button class="assign" tabindex="-1" aria-label={`${t('soundpad.hotkey')}: ${sound.name}`} onclick={(event) => {
+                  {#if shortcut}<kbd>{shortcut}</kbd>{:else}<button class="assign" tabindex="-1" aria-label={`${t('sounddeck.hotkey')}: ${sound.name}`} onclick={(event) => {
                     event.stopPropagation();
                     editing = sound.id;
                   }}><Keyboard size={12} strokeWidth={1.5} /></button>{/if}
                 </span>
                 <span class="tools">
-                  <button class="btn icon ghost small fav" class:on={sound.favorite} tabindex="-1" aria-pressed={sound.favorite} aria-label={sound.favorite ? t('soundpad.unfavorite') : t('soundpad.favorite')} {@attach tip(sound.favorite ? t('soundpad.unfavorite') : t('soundpad.favorite'))} onclick={(event) => {
+                  <button class="btn icon ghost small fav" class:on={sound.favorite} tabindex="-1" aria-pressed={sound.favorite} aria-label={sound.favorite ? t('sounddeck.unfavorite') : t('sounddeck.favorite')} {@attach tip(sound.favorite ? t('sounddeck.unfavorite') : t('sounddeck.favorite'))} onclick={(event) => {
                     event.stopPropagation();
                     setFavorite(sound);
                   }}><Star size={13} strokeWidth={1.5} /></button>
-                  <button class="btn icon ghost small" tabindex="-1" aria-label={t('soundpad.edit', { name: sound.name })} {@attach tip(t('soundpad.edit', { name: sound.name }))} onclick={(event) => {
+                  <button class="btn icon ghost small" tabindex="-1" aria-label={t('sounddeck.edit', { name: sound.name })} {@attach tip(t('sounddeck.edit', { name: sound.name }))} onclick={(event) => {
                     event.stopPropagation();
                     editing = sound.id;
                   }}><Pencil size={13} strokeWidth={1.5} /></button>
@@ -457,10 +457,10 @@
               </li>
             {:else}
               <li class="none" role="presentation">
-                <EmptyState compact role="status" label={query ? t('soundpad.noMatchesLabel') : t('soundpad.emptyCategoryLabel')}>
-                  <p>{query ? t('soundpad.noMatches', { query }) : t('soundpad.noneInCategory')}</p>
+                <EmptyState compact role="status" label={query ? t('sounddeck.noMatchesLabel') : t('sounddeck.emptyCategoryLabel')}>
+                  <p>{query ? t('sounddeck.noMatches', { query }) : t('sounddeck.noneInCategory')}</p>
                   {#snippet actions()}
-                    {#if query}<button class="btn small" onclick={() => (query = '')}>{t('soundpad.clearSearch')}</button>{/if}
+                    {#if query}<button class="btn small" onclick={() => (query = '')}>{t('sounddeck.clearSearch')}</button>{/if}
                   {/snippet}
                 </EmptyState>
               </li>
@@ -469,7 +469,7 @@
         {/if}
         {#each Object.entries(daemon.uploads) as [name, progress] (name)}
           <p class="uploading" role="status">
-            <Upload size={13} strokeWidth={1.5} /><span>{t('soundpad.uploading', { name })}</span>
+            <Upload size={13} strokeWidth={1.5} /><span>{t('sounddeck.uploading', { name })}</span>
             <span class="bar"><span style:width="{progress * 100}%"></span></span>
           </p>
         {/each}
@@ -485,11 +485,11 @@
         <span class="hud-label">
           {dropTarget === SCREEN_TARGET
             ? uploadCategory
-              ? t('soundpad.dropTo', { name: uploadCategory })
-              : t('soundpad.drop')
+              ? t('sounddeck.dropTo', { name: uploadCategory })
+              : t('sounddeck.drop')
             : dropTarget === FAVORITES || dropTarget === UNCATEGORIZED
-              ? t('soundpad.drop')
-              : t('soundpad.dropTo', { name: dropTarget })}
+              ? t('sounddeck.drop')
+              : t('sounddeck.dropTo', { name: dropTarget })}
         </span>
       </div>
     {/if}
@@ -504,15 +504,15 @@
   {/key}
 {/if}
 
-<Dialog open={confirmProblems} title={t('soundpad.deleteAllUnplayable')} onclose={() => (confirmProblems = false)}>
-  <p>{t('soundpad.deleteAllUnplayableBody', { count: problems.length })}</p>
+<Dialog open={confirmProblems} title={t('sounddeck.deleteAllUnplayable')} onclose={() => (confirmProblems = false)}>
+  <p>{t('sounddeck.deleteAllUnplayableBody', { count: problems.length })}</p>
   {#snippet actions()}
     <button class="btn" onclick={() => (confirmProblems = false)}>{t('common.cancel')}</button>
-    <button class="btn danger on" onclick={deleteProblems}>{t('soundpad.deleteAllUnplayable')}</button>
+    <button class="btn danger on" onclick={deleteProblems}>{t('sounddeck.deleteAllUnplayable')}</button>
   {/snippet}
 </Dialog>
 
-<Dialog open={categoryDialog !== null} title={categoryDialog?.from ? t('soundpad.renameCategory') : t('soundpad.newCategory')} onclose={() => (categoryDialog = null)}>
+<Dialog open={categoryDialog !== null} title={categoryDialog?.from ? t('sounddeck.renameCategory') : t('sounddeck.newCategory')} onclose={() => (categoryDialog = null)}>
   {#if categoryDialog}
     <form
       onsubmit={(event) => {
@@ -520,30 +520,30 @@
         void saveCategory();
       }}
     >
-      <Field label={t('soundpad.categoryName')}>
+      <Field label={t('sounddeck.categoryName')}>
         <Input bind:value={categoryDialog.name} maxlength={64} autofocus />
       </Field>
     </form>
   {/if}
   {#snippet actions()}
     <button class="btn" onclick={() => (categoryDialog = null)}>{t('common.cancel')}</button>
-    <button class="btn invert" disabled={!categoryDialog?.name.trim()} onclick={saveCategory}>{t('soundpad.save')}</button>
+    <button class="btn invert" disabled={!categoryDialog?.name.trim()} onclick={saveCategory}>{t('sounddeck.save')}</button>
   {/snippet}
 </Dialog>
 
-<Dialog open={deletingCategory !== null} title={t('soundpad.deleteCategory')} onclose={() => (deletingCategory = null)}>
-  <p>{t('soundpad.deleteCategoryBody', { name: deletingCategory ?? '' })}</p>
+<Dialog open={deletingCategory !== null} title={t('sounddeck.deleteCategory')} onclose={() => (deletingCategory = null)}>
+  <p>{t('sounddeck.deleteCategoryBody', { name: deletingCategory ?? '' })}</p>
   {#snippet actions()}
     <button class="btn" onclick={() => (deletingCategory = null)}>{t('common.cancel')}</button>
-    <button class="btn danger on" onclick={deleteCategory}>{t('soundpad.delete')}</button>
+    <button class="btn danger on" onclick={deleteCategory}>{t('sounddeck.delete')}</button>
   {/snippet}
 </Dialog>
 
-<Dialog open={deletingSound !== null} title={t('soundpad.deleteTitle')} onclose={() => (deletingSound = null)}>
-  <p>{t('soundpad.deleteBody', { name: deletingSound?.name ?? '' })}</p>
+<Dialog open={deletingSound !== null} title={t('sounddeck.deleteTitle')} onclose={() => (deletingSound = null)}>
+  <p>{t('sounddeck.deleteBody', { name: deletingSound?.name ?? '' })}</p>
   {#snippet actions()}
     <button class="btn" onclick={() => (deletingSound = null)}>{t('common.cancel')}</button>
-    <button class="btn danger on" onclick={deleteSound}>{t('soundpad.delete')}</button>
+    <button class="btn danger on" onclick={deleteSound}>{t('sounddeck.delete')}</button>
   {/snippet}
 </Dialog>
 
@@ -554,12 +554,12 @@
     flex-direction: column;
     height: 100%;
     min-width: 0;
-    container: soundpad / inline-size;
+    container: sounddeck / inline-size;
   }
 
   /* A narrow window keeps the toolbar on one line: its tools show only their icons. A container
      query, as media queries do not see the UI zoom. */
-  @container soundpad (max-width: 1176px) {
+  @container sounddeck (max-width: 1176px) {
     .tool .label {
       display: none;
     }

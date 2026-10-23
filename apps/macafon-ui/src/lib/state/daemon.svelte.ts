@@ -25,11 +25,11 @@ import type {
   Preferences,
   PresetInfo,
   OutputControl,
-  SoundpadPlayback,
-  SoundpadPrefsPatch,
-  SoundpadState,
+  SoundDeckPlayback,
+  SoundDeckPrefsPatch,
+  SoundDeckState,
 } from '../ipc/protocol';
-import { PROTOCOL_VERSION, SOUNDPAD_UPLOAD_CHUNK_BYTES } from '../ipc/protocol';
+import { PROTOCOL_VERSION, SOUNDDECK_UPLOAD_CHUNK_BYTES } from '../ipc/protocol';
 import { t } from '../i18n';
 
 type PrefsPatch = {
@@ -56,7 +56,7 @@ const UNDO_DEPTH = 100;
 const METER_HZ = 60;
 const ONBOARDING_KEY = 'macafon.onboarding';
 
-/** The library's formats (`SUPPORTED_EXTENSIONS` in macafon-soundpad). */
+/** The library's formats (`SUPPORTED_EXTENSIONS` in macafon-sounddeck). */
 export const SOUND_EXTENSIONS = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'];
 
 export function isSoundFile(name: string): boolean {
@@ -86,10 +86,10 @@ export class DaemonStore {
   outputControls = $state.raw<OutputControl[]>([]);
   hotkeys = $state.raw<HotkeysState | null>(null);
   prefs = $state.raw<Preferences | null>(null);
-  /** The library and its preferences (§7.6); `null` where the platform has no soundpad. */
-  soundpad = $state.raw<SoundpadState | null>(null);
+  /** The library and its preferences (§7.6); `null` where the platform has no sounddeck. */
+  sounddeck = $state.raw<SoundDeckState | null>(null);
   /** Progress of the playing sound, updated about 10 times a second. */
-  soundpadPlayback = $state.raw<SoundpadPlayback | null>(null);
+  sounddeckPlayback = $state.raw<SoundDeckPlayback | null>(null);
   /** Dictation (§8.4); `null` where the platform has none. */
   dictation = $state.raw<DictationState | null>(null);
   /** Saved monitor layouts (§8.5); `null` where the platform has none. */
@@ -159,8 +159,8 @@ export class DaemonStore {
     return this.hello?.capabilities.channel_fx ?? true;
   }
 
-  get soundpadAvailable(): boolean {
-    return this.hello?.capabilities.soundpad ?? false;
+  get sounddeckAvailable(): boolean {
+    return this.hello?.capabilities.sounddeck ?? false;
   }
 
   /** The look of the hotkey popup, overlay and tray panel (HK-006): Sketch unless Classic
@@ -243,13 +243,13 @@ export class DaemonStore {
       this.autostart = autostart;
       const outputControls = await this.client.call('output_controls.list');
       if (fresh('output_controls.changed')) this.outputControls = outputControls;
-      if (hello.capabilities.soundpad) {
-        const soundpad = await this.client.call('soundpad.get');
-        if (fresh('soundpad.changed')) this.soundpad = soundpad;
-        if (fresh('soundpad.playback')) this.soundpadPlayback = soundpad.playback;
+      if (hello.capabilities.sounddeck) {
+        const sounddeck = await this.client.call('sounddeck.get');
+        if (fresh('sounddeck.changed')) this.sounddeck = sounddeck;
+        if (fresh('sounddeck.playback')) this.sounddeckPlayback = sounddeck.playback;
       } else {
-        this.soundpad = null;
-        this.soundpadPlayback = null;
+        this.sounddeck = null;
+        this.sounddeckPlayback = null;
       }
       const dictation = hello.capabilities.dictation ? await this.client.call('dictation.get') : null;
       if (fresh('dictation.changed')) this.dictation = dictation;
@@ -361,11 +361,11 @@ export class DaemonStore {
       case 'mixer.meters':
         mixerMeterBus.update(event.data);
         break;
-      case 'soundpad.changed':
-        this.applySoundpad(event.data);
+      case 'sounddeck.changed':
+        this.applySoundDeck(event.data);
         break;
-      case 'soundpad.playback':
-        this.soundpadPlayback = event.data;
+      case 'sounddeck.playback':
+        this.sounddeckPlayback = event.data;
         break;
       case 'dictation.changed':
         this.applyDictation(event.data);
@@ -556,42 +556,42 @@ export class DaemonStore {
       });
   }
 
-  // --- Soundpad ---------------------------------------------------------------------------
+  // --- SoundDeck ---------------------------------------------------------------------------
 
-  private soundpadPrefs = new PrefsQueue<SoundpadPrefsPatch, SoundpadState>(
-    (patch) => this.client.call('soundpad.set_prefs', { patch }),
-    () => this.run(this.client.call('soundpad.get')),
-    (state) => this.applySoundpad(state),
+  private sounddeckPrefs = new PrefsQueue<SoundDeckPrefsPatch, SoundDeckState>(
+    (patch) => this.client.call('sounddeck.set_prefs', { patch }),
+    () => this.run(this.client.call('sounddeck.get')),
+    (state) => this.applySoundDeck(state),
     (error) => this.fail(error),
   );
 
   /** A volume drag keeps its local value until the last request is answered. */
-  private applySoundpad(state: SoundpadState) {
-    const prefs = this.soundpadPrefs.keepEditing(state.prefs, this.soundpad?.prefs);
-    this.soundpad = { ...state, prefs };
-    this.soundpadPlayback = state.playback;
+  private applySoundDeck(state: SoundDeckState) {
+    const prefs = this.sounddeckPrefs.keepEditing(state.prefs, this.sounddeck?.prefs);
+    this.sounddeck = { ...state, prefs };
+    this.sounddeckPlayback = state.playback;
   }
 
-  async setSoundpad(request: Promise<SoundpadState | null>): Promise<boolean> {
-    const state = await this.run(request.then((value) => value ?? this.soundpad));
-    if (state) this.applySoundpad(state);
+  async setSoundDeck(request: Promise<SoundDeckState | null>): Promise<boolean> {
+    const state = await this.run(request.then((value) => value ?? this.sounddeck));
+    if (state) this.applySoundDeck(state);
     return state !== undefined;
   }
 
   /** Optimistic preference change; a slider drag sends only the latest values. */
-  setSoundpadPrefs(patch: SoundpadPrefsPatch): void {
-    const soundpad = this.soundpad;
-    if (!soundpad) return;
-    this.soundpad = { ...soundpad, prefs: withPatch(soundpad.prefs, patch) };
-    this.soundpadPrefs.push(patch);
+  setSoundDeckPrefs(patch: SoundDeckPrefsPatch): void {
+    const sounddeck = this.sounddeck;
+    if (!sounddeck) return;
+    this.sounddeck = { ...sounddeck, prefs: withPatch(sounddeck.prefs, patch) };
+    this.sounddeckPrefs.push(patch);
   }
 
   playSound(id: string): void {
-    this.client.call('soundpad.play', { id }).catch((error) => this.fail(error));
+    this.client.call('sounddeck.play', { id }).catch((error) => this.fail(error));
   }
 
   stopSound(): void {
-    this.client.call('soundpad.stop').catch((error) => this.fail(error));
+    this.client.call('sounddeck.stop').catch((error) => this.fail(error));
   }
 
   /** Add files to the library through the daemon, in chunks that fit one protocol line. */
@@ -599,7 +599,7 @@ export class DaemonStore {
     let added = 0;
     for (const file of files) {
       if (!isSoundFile(file.name)) {
-        this.toast(t('soundpad.unsupported', { name: file.name }), { tone: 'danger' });
+        this.toast(t('sounddeck.unsupported', { name: file.name }), { tone: 'danger' });
         continue;
       }
       const key = file.name;
@@ -608,9 +608,9 @@ export class DaemonStore {
       try {
         let offset = 0;
         do {
-          const chunk = new Uint8Array(await file.slice(offset, offset + SOUNDPAD_UPLOAD_CHUNK_BYTES).arrayBuffer());
+          const chunk = new Uint8Array(await file.slice(offset, offset + SOUNDDECK_UPLOAD_CHUNK_BYTES).arrayBuffer());
           const done = offset + chunk.length >= file.size;
-          const state = await this.client.call('soundpad.upload', {
+          const state = await this.client.call('sounddeck.upload', {
             upload_id: uploadId,
             file_name: file.name,
             category,
@@ -620,7 +620,7 @@ export class DaemonStore {
           });
           offset += chunk.length;
           this.uploads = { ...this.uploads, [key]: file.size ? offset / file.size : 1 };
-          if (state) this.applySoundpad(state);
+          if (state) this.applySoundDeck(state);
         } while (offset < file.size);
         added++;
       } catch (error) {

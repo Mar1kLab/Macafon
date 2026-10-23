@@ -1,7 +1,7 @@
-// Soundpad state and requests of the mock daemon: a plausible library, playback progress and
+// SoundDeck state and requests of the mock daemon: a plausible library, playback progress and
 // uploads kept in memory.
 import { DaemonError } from '../client';
-import type { Event, SoundInfo, SoundpadPlayback, SoundpadState } from '../protocol';
+import type { Event, SoundInfo, SoundDeckPlayback, SoundDeckState } from '../protocol';
 import { clone } from './helpers';
 
 const EXTENSIONS = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'];
@@ -50,8 +50,8 @@ function defaultFolder(windows: boolean): string {
   return windows ? 'C:\\Users\\Alex\\Music\\Macafon Sounds' : '/home/alex/Music/Macafon Sounds';
 }
 
-export class MockSoundpad {
-  readonly state: SoundpadState;
+export class MockSoundDeck {
+  readonly state: SoundDeckState;
   private timer: number | undefined;
   private startedAt = 0;
   private offsetMs = 0;
@@ -89,12 +89,12 @@ export class MockSoundpad {
   call(method: string, p: Record<string, unknown>): unknown {
     const s = this.state;
     switch (method) {
-      case 'soundpad.get':
-      case 'soundpad.rescan':
+      case 'sounddeck.get':
+      case 'sounddeck.rescan':
         return clone(s);
-      case 'soundpad.open_folder':
+      case 'sounddeck.open_folder':
         return null;
-      case 'soundpad.set_folder': {
+      case 'sounddeck.set_folder': {
         const folder = ((p.folder as string | null) ?? '').trim();
         const absolute = this.windows ? /^[a-zA-Z]:[\\/]|^\\\\/.test(folder) : folder.startsWith('/');
         if (folder && !absolute) throw new DaemonError('invalid_params', `${folder} is not a full path`);
@@ -103,20 +103,20 @@ export class MockSoundpad {
         s.default_folder = !folder || folder === defaultFolder(this.windows);
         return this.changed();
       }
-      case 'soundpad.play':
+      case 'sounddeck.play':
         this.play(this.sound(String(p.id)));
         return null;
-      case 'soundpad.play_random': {
+      case 'sounddeck.play_random': {
         const category = (p.category as string | null) ?? null;
         const pool = s.sounds.filter((x) => !x.error && (category === null || x.category === category));
         if (pool.length === 0) throw new DaemonError('not_found', 'no sounds to play');
         this.play(pool[Math.floor(Math.random() * pool.length)]!);
         return null;
       }
-      case 'soundpad.stop':
+      case 'sounddeck.stop':
         this.stop();
         return null;
-      case 'soundpad.set_paused': {
+      case 'sounddeck.set_paused': {
         const playback = s.playback;
         if (!playback) return null;
         const paused = (p.paused as boolean | null) ?? !playback.paused;
@@ -128,28 +128,28 @@ export class MockSoundpad {
         this.progress();
         return null;
       }
-      case 'soundpad.seek':
+      case 'sounddeck.seek':
         if (s.playback) {
           this.offsetMs = Math.min(Number(p.position_ms), s.playback.duration_ms);
           this.startedAt = performance.now();
           this.progress();
         }
         return null;
-      case 'soundpad.set_looping':
+      case 'sounddeck.set_looping':
         this.looping = Boolean(p.looping);
         if (s.playback) s.playback.looping = this.looping;
         this.progress();
         return null;
-      case 'soundpad.set_prefs':
+      case 'sounddeck.set_prefs':
         Object.assign(s.prefs, p.patch);
         return this.changed();
-      case 'soundpad.set_monitor_device':
+      case 'sounddeck.set_monitor_device':
         s.prefs.monitor_device = (p.device as string | null) ?? null;
         return this.changed();
-      case 'soundpad.set_sound':
+      case 'sounddeck.set_sound':
         Object.assign(this.sound(String(p.id)), p.patch);
         return this.changed();
-      case 'soundpad.rename': {
+      case 'sounddeck.rename': {
         const target = this.sound(String(p.id));
         const name = String(p.name).trim();
         if (!name || /[\\/:*?"<>|]/.test(name)) throw new DaemonError('invalid_params', 'invalid file name');
@@ -157,41 +157,41 @@ export class MockSoundpad {
         this.rekey(target, `${target.category ? `${target.category}/` : ''}${name}.${extension}`);
         return this.changed();
       }
-      case 'soundpad.move': {
+      case 'sounddeck.move': {
         const target = this.sound(String(p.id));
         const category = (p.category as string | null) ?? null;
         const file = target.id.split('/').pop()!;
         this.rekey(target, `${category ? `${category}/` : ''}${file}`);
         return this.changed();
       }
-      case 'soundpad.delete':
+      case 'sounddeck.delete':
         if (s.playback?.sound_id === p.id) this.stop();
         s.sounds = s.sounds.filter((x) => x.id !== p.id);
         s.problem_sounds = s.problem_sounds.filter((x) => x.id !== p.id);
         return this.changed();
-      case 'soundpad.delete_problem_sounds':
+      case 'sounddeck.delete_problem_sounds':
         s.problem_sounds = [];
         return this.changed();
-      case 'soundpad.create_category': {
+      case 'sounddeck.create_category': {
         const name = String(p.name).trim();
         if (s.categories.some((c) => c.toLowerCase() === name.toLowerCase())) throw new DaemonError('already_exists', 'category exists');
         s.categories = [...s.categories, name].sort((a, b) => a.localeCompare(b));
         return this.changed();
       }
-      case 'soundpad.rename_category': {
+      case 'sounddeck.rename_category': {
         const from = String(p.from);
         const to = String(p.to).trim();
         s.categories = s.categories.map((c) => (c === from ? to : c)).sort((a, b) => a.localeCompare(b));
         for (const x of s.sounds.filter((x) => x.category === from)) this.rekey(x, `${to}/${x.id.split('/').pop()}`);
         return this.changed();
       }
-      case 'soundpad.delete_category': {
+      case 'sounddeck.delete_category': {
         const name = String(p.name);
         s.categories = s.categories.filter((c) => c !== name);
         for (const x of s.sounds.filter((x) => x.category === name)) this.rekey(x, x.id.split('/').pop()!);
         return this.changed();
       }
-      case 'soundpad.upload': {
+      case 'sounddeck.upload': {
         const fileName = String(p.file_name);
         const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
         if (!EXTENSIONS.includes(extension)) throw new DaemonError('invalid_params', `unsupported file type .${extension}`);
@@ -258,7 +258,7 @@ export class MockSoundpad {
   private stop() {
     clearInterval(this.timer);
     this.state.playback = null;
-    this.emit({ event: 'soundpad.playback', data: null });
+    this.emit({ event: 'sounddeck.playback', data: null });
   }
 
   private position(): number {
@@ -278,11 +278,11 @@ export class MockSoundpad {
       position = 0;
     }
     playback.position_ms = Math.round(position);
-    this.emit({ event: 'soundpad.playback', data: clone(playback) as SoundpadPlayback });
+    this.emit({ event: 'sounddeck.playback', data: clone(playback) as SoundDeckPlayback });
   }
 
-  private changed(): SoundpadState {
-    this.emit({ event: 'soundpad.changed', data: clone(this.state) });
+  private changed(): SoundDeckState {
+    this.emit({ event: 'sounddeck.changed', data: clone(this.state) });
     return clone(this.state);
   }
 }

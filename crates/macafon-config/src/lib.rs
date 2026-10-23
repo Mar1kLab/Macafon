@@ -4,7 +4,7 @@ pub mod dictation;
 pub mod displays;
 pub mod mixer;
 pub mod presets;
-pub mod soundpad;
+pub mod sounddeck;
 mod storage;
 
 pub(crate) use storage::write_atomically;
@@ -12,7 +12,7 @@ pub use storage::{Error, Loaded, Recovered, Store, config_dir, state_dir};
 
 pub use displays::DisplaysConfig;
 pub use mixer::{AppRule, AppsConfig, ChannelConfig, MixerConfig};
-pub use soundpad::{SoundConfig, SoundpadConfig};
+pub use sounddeck::{SoundConfig, SoundDeckConfig};
 
 use macafon_dsp::{ChainSettings, InputChannel};
 use serde::{Deserialize, Serialize};
@@ -32,7 +32,9 @@ pub struct Config {
     pub audio: AudioConfig,
     /// `[hotkeys]`: action id → shortcut, `mic_mute_toggle = "Ctrl+Alt+M"` (§8.3).
     pub hotkeys: BTreeMap<String, String>,
-    pub soundpad: SoundpadConfig,
+    /// `[sounddeck]`; configs before 0.9.0 call it `[soundpad]`.
+    #[serde(alias = "soundpad")]
+    pub sounddeck: SoundDeckConfig,
     pub dictation: dictation::DictationConfig,
     pub displays: DisplaysConfig,
 }
@@ -327,7 +329,7 @@ impl Default for Config {
             ui: UiConfig::default(),
             audio: AudioConfig::default(),
             hotkeys: BTreeMap::new(),
-            soundpad: SoundpadConfig::default(),
+            sounddeck: SoundDeckConfig::default(),
             dictation: dictation::DictationConfig::default(),
             displays: DisplaysConfig::default(),
         }
@@ -515,9 +517,10 @@ mod tests {
 
     #[test]
     fn old_overlay_preferences_keep_the_classic_layout() {
-        let config: Config =
-            toml::from_str("[ui.osd]\nstyle = 'horizontal'\n[soundpad]\nshow_in_overlay = false\n")
-                .expect("old config");
+        let config: Config = toml::from_str(
+            "[ui.osd]\nstyle = 'horizontal'\n[sounddeck]\nshow_in_overlay = false\n",
+        )
+        .expect("old config");
         assert_eq!(config.ui.osd.look, OsdLook::Classic);
         assert_eq!(Config::default().ui.osd.look, OsdLook::Sketch);
         assert_eq!(
@@ -539,14 +542,14 @@ mod tests {
             changed
         );
         assert_eq!(
-            config.soundpad.overlay_view,
-            soundpad::SoundpadOverlayView::Grid
+            config.sounddeck.overlay_view,
+            sounddeck::SoundDeckOverlayView::Grid
         );
         assert_eq!(
-            config.soundpad.overlay_controls,
-            soundpad::SoundpadOverlayControls::Top
+            config.sounddeck.overlay_controls,
+            sounddeck::SoundDeckOverlayControls::Top
         );
-        assert!(!config.soundpad.show_in_overlay);
+        assert!(!config.sounddeck.show_in_overlay);
     }
 
     #[test]

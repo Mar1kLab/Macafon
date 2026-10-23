@@ -66,7 +66,7 @@ impl SoundLoader {
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop);
         let worker = thread::Builder::new()
-            .name("macafon-soundpad-loader".into())
+            .name("macafon-sounddeck-loader".into())
             .spawn(move || {
                 while let Ok(request) = requests.recv() {
                     if worker_stop.load(Ordering::Acquire) {

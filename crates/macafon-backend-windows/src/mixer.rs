@@ -21,7 +21,7 @@ use windows::core::{BOOL, GUID, Interface, PCWSTR, Ref, implement};
 
 /// Stable pseudo executable for the Windows system sounds session.
 pub const SYSTEM_SOUNDS: &str = "<system-sounds>";
-pub(crate) const SOUNDPAD: &str = "<soundpad>";
+pub(crate) const SOUNDDECK: &str = "<sounddeck>";
 const CONTEXT: GUID = GUID::from_u128(0xac36e42c_763e_4420_976c_6be5be43d672);
 const VOLUME_PENDING: u64 = 1 << 33;
 
@@ -403,18 +403,18 @@ impl Worker {
                     continue;
                 }
                 let pid = control.GetProcessId().unwrap_or(0);
-                let soundpad = pid == std::process::id()
-                    && control.GetGroupingParam().ok() == Some(crate::wasapi::SOUNDPAD_SESSION);
+                let sounddeck = pid == std::process::id()
+                    && control.GetGroupingParam().ok() == Some(crate::wasapi::SOUNDDECK_SESSION);
                 // Internal cable/A-B/preview streams must never share the monitor's fader.
-                if pid == std::process::id() && !soundpad {
+                if pid == std::process::id() && !sounddeck {
                     continue;
                 }
                 let system = control.IsSystemSoundsSession() == S_OK;
                 let executable = (!system)
                     .then(|| crate::sessions::executable(pid))
                     .flatten();
-                let exe = if soundpad {
-                    SOUNDPAD.into()
+                let exe = if sounddeck {
+                    SOUNDDECK.into()
                 } else if system {
                     SYSTEM_SOUNDS.into()
                 } else {

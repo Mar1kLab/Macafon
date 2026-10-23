@@ -6,7 +6,7 @@
   import Logo from '../components/Logo.svelte';
   import LevelMeter from '../components/LevelMeter.svelte';
   import VerticalSlider from './VerticalSlider.svelte';
-  import SoundpadOverlay from './SoundpadOverlay.svelte';
+  import SoundDeckOverlay from './SoundDeckOverlay.svelte';
   import DictationOverlay from './DictationOverlay.svelte';
   import DictationHistoryOverlay from './DictationHistoryOverlay.svelte';
   import DisplaysOverlay from './DisplaysOverlay.svelte';
@@ -30,9 +30,9 @@
   const channels = $derived(mixer?.channels.filter((channel) => channel.enabled) ?? []);
   const preset = $derived(daemon.presets.find((item) => item.id === mic?.preset)?.name ?? t('quick.custom'));
   const shortcut = $derived(daemon.hotkeys?.bindings.find((binding) => binding.action === 'quick_panel')?.shortcut);
-  const soundpad = $derived(daemon.soundpad?.prefs.show_in_overlay ? daemon.soundpad : null);
+  const sounddeck = $derived(daemon.sounddeck?.prefs.show_in_overlay ? daemon.sounddeck : null);
   const dictation = $derived(dictationTile(daemon.dictation, daemon.hotkeys));
-  const playback = $derived(daemon.soundpadPlayback);
+  const playback = $derived(daemon.sounddeckPlayback);
   /** The look picked for the hotkey popup: the overlay follows it (HK-006, HK-007). */
   const sketch = $derived(daemon.sketch);
 
@@ -54,7 +54,7 @@
   const setup = $derived(daemon.prefs?.overlay ?? DEFAULT_OVERLAY);
   const expand = $derived(setup.expand);
   const Flag = $derived(expand === 'left' ? ChevronLeft : expand === 'down' ? ChevronDown : ChevronRight);
-  const playing = $derived(playback && soundpad?.sounds.find((sound) => sound.id === playback.sound_id));
+  const playing = $derived(playback && sounddeck?.sounds.find((sound) => sound.id === playback.sound_id));
   const output = $derived(mixer?.outputs.find((item) => item.name === mixer.output) ?? null);
   /** Display profiles (§8.5), where the platform has them and one is saved. */
   const displays = $derived(daemon.displays && daemon.displays.profiles.length > 0 ? daemon.displays : null);
@@ -68,7 +68,7 @@
         case 'dictation_history':
           return setup.dictation_history && !!daemon.dictation;
         case 'sounds':
-          return !!soundpad;
+          return !!sounddeck;
         case 'display_profiles':
           return setup.display_profiles && !!displays;
         case 'output_device':
@@ -95,7 +95,7 @@
   }
   let panel = $state<Side>(savedPanel());
   const side = $derived(
-    panel === 'sounds' && soundpad ? 'sounds'
+    panel === 'sounds' && sounddeck ? 'sounds'
       : panel === 'dictation' && dictation && !dictation.needsModel ? 'dictation'
         : panel === 'history' && daemon.dictation && setup.dictation_history ? 'history'
           : panel === 'displays' && displays && setup.display_profiles ? 'displays'
@@ -166,12 +166,12 @@
       </button>
       {@render flag(side === 'history', t('quick.dictationHistoryToggle'), () => toggle('history'), false, 'overlay-history')}
     </div>
-  {:else if part === 'sounds' && soundpad}
+  {:else if part === 'sounds' && sounddeck}
     <div class="split {expand}" class:open={side === 'sounds'}>
-      <button class="switch" class:on={!!playback} aria-expanded={side === 'sounds'} aria-controls="overlay-sounds" {@attach tip(playing ? playing.name : side === 'sounds' ? t('quick.soundpadHide') : t('quick.soundpadShowHint'))} onclick={() => toggle('sounds')}>
-        <AudioWaveform size={16} strokeWidth={1.5} /><span>{playing ? playing.name : t('quick.soundpadShow')}</span>
+      <button class="switch" class:on={!!playback} aria-expanded={side === 'sounds'} aria-controls="overlay-sounds" {@attach tip(playing ? playing.name : side === 'sounds' ? t('quick.sounddeckHide') : t('quick.sounddeckShowHint'))} onclick={() => toggle('sounds')}>
+        <AudioWaveform size={16} strokeWidth={1.5} /><span>{playing ? playing.name : t('quick.sounddeckShow')}</span>
       </button>
-      {@render flag(side === 'sounds', side === 'sounds' ? t('quick.soundpadHide') : t('quick.soundpadShowHint'), () => toggle('sounds'), false, 'overlay-sounds')}
+      {@render flag(side === 'sounds', side === 'sounds' ? t('quick.sounddeckHide') : t('quick.sounddeckShowHint'), () => toggle('sounds'), false, 'overlay-sounds')}
     </div>
   {:else if part === 'display_profiles' && displays}
     <div class="split {expand}" class:open={side === 'displays'}>
@@ -268,7 +268,7 @@
       </div>
       {#if playerUnderMain}
         <!-- Sideways, the sounds take the full height; the player stays under the main part. -->
-        <div class="dock" transition:reveal={{ expand: 'down', duration: motion(DURATION.reveal) }}><SoundpadOverlay part="player" /></div>
+        <div class="dock" transition:reveal={{ expand: 'down', duration: motion(DURATION.reveal) }}><SoundDeckOverlay part="player" /></div>
       {/if}
       </div>
 
@@ -277,7 +277,7 @@
         <div class="side-reveal" bind:offsetHeight={sideHeight} style:--down-height="{downHeight}px" transition:reveal={{ expand, duration: motion(DURATION.reveal) }}>
           <aside class="side" class:sounds={side === 'sounds'}>
             {#if side === 'sounds'}
-              <SoundpadOverlay part="library" />
+              <SoundDeckOverlay part="library" />
             {:else if side === 'dictation'}
               <DictationOverlay />
             {:else if side === 'displays'}
@@ -291,7 +291,7 @@
     </div>
     {#if side === 'sounds' && !playerUnderMain}
       <!-- Keep the player row reserved until the side panel finishes closing. -->
-      <div class="dock" transition:reveal={{ expand, duration: motion(DURATION.reveal) }}><SoundpadOverlay part="player" /></div>
+      <div class="dock" transition:reveal={{ expand, duration: motion(DURATION.reveal) }}><SoundDeckOverlay part="player" /></div>
     {/if}
   {/if}
 </div>

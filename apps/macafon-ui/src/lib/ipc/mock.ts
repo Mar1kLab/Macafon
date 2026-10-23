@@ -6,7 +6,7 @@
 // global shortcut service. `?platform=windows` acts like the Windows daemon (VB-CABLE, no
 // channel effects); add `&cable=missing` for a system without VB-CABLE. `?look=classic` picks the
 // classic look of the popup and overlay (Sketch is the default); `?sounds=list` and `?controls=bottom|hidden` lay out the
-// overlay's soundpad. `?dictation=ready|downloading|error` sets up dictation (mock/dictation.ts),
+// overlay's sounddeck. `?dictation=ready|downloading|error` sets up dictation (mock/dictation.ts),
 // `?displays=empty|pending` the display profiles (mock/displays.ts).
 
 import { DaemonError, type DaemonStatus, type Transport } from './client';
@@ -33,7 +33,7 @@ import type {
 import { DEVICES, MOCK_ICONS } from './mock/fixtures';
 import { clone, latencySamples, sameChain, slugify } from './mock/helpers';
 import { MockMixer } from './mock/mixer';
-import { MockSoundpad } from './mock/soundpad';
+import { MockSoundDeck } from './mock/sounddeck';
 import { MockDictation } from './mock/dictation';
 import { MockDisplays } from './mock/displays';
 import { SILENT, random, voiceLevel } from './mock/signals';
@@ -41,7 +41,7 @@ import { SILENT, random, voiceLevel } from './mock/signals';
 const VERSION = '0.1.0-mock';
 
 const GLOBAL_HOTKEYS = ['quick_panel', 'mic_mute_toggle', 'push_to_talk', 'push_to_mute', 'bypass_toggle', 'preset_next', 'preset_previous'];
-const SOUNDPAD_HOTKEYS = ['soundpad_stop', 'soundpad_pause', 'soundpad_random'];
+const SOUNDDECK_HOTKEYS = ['sounddeck_stop', 'sounddeck_pause', 'sounddeck_random'];
 const DISPLAY_HOTKEYS = ['display_profile_next', 'display_revert', 'display_all_on'];
 const DICTATION_HOTKEYS = [
   'dictation_hold',
@@ -79,12 +79,12 @@ function hotkeyCommand(action: string): string {
       return `macafon ctl channel ${channel} volume -5`;
     case 'channel_mute':
       return `macafon ctl channel ${channel} mute`;
-    case 'soundpad_stop':
-      return 'macafon ctl soundpad stop';
-    case 'soundpad_pause':
-      return 'macafon ctl soundpad pause';
-    case 'soundpad_random':
-      return 'macafon ctl soundpad random';
+    case 'sounddeck_stop':
+      return 'macafon ctl sounddeck stop';
+    case 'sounddeck_pause':
+      return 'macafon ctl sounddeck pause';
+    case 'sounddeck_random':
+      return 'macafon ctl sounddeck random';
     case 'dictation_enable_toggle':
       return 'macafon ctl dictation toggle';
     case 'display_profile_next':
@@ -95,7 +95,7 @@ function hotkeyCommand(action: string): string {
       return 'macafon ctl display all-on';
     default:
       if (action.startsWith('display_profile.')) return `macafon ctl display apply -- '${action.slice('display_profile.'.length)}'`;
-      if (action.startsWith('soundpad_play.')) return `macafon ctl soundpad play ${JSON.stringify(action.slice('soundpad_play.'.length))}`;
+      if (action.startsWith('sounddeck_play.')) return `macafon ctl sounddeck play ${JSON.stringify(action.slice('sounddeck_play.'.length))}`;
       return '';
   }
 }
@@ -153,10 +153,10 @@ export class MockTransport implements Transport {
     ['channel_volume_down.voice', 'RAlt+PageDown'],
     ['channel_volume_up.music', 'Ctrl+Alt+R'],
     ['channel_volume_down.music', 'Ctrl+Alt+F'],
-    ['soundpad_stop', 'Ctrl+Alt+X'],
-    ['soundpad_play.Air horn.mp3', 'Ctrl+Alt+1'],
-    ['soundpad_play.Memes/Bruh.mp3', 'Ctrl+Alt+2'],
-    ['soundpad_play.Memes/Vine boom.wav', 'Ctrl+Alt+3'],
+    ['sounddeck_stop', 'Ctrl+Alt+X'],
+    ['sounddeck_play.Air horn.mp3', 'Ctrl+Alt+1'],
+    ['sounddeck_play.Memes/Bruh.mp3', 'Ctrl+Alt+2'],
+    ['sounddeck_play.Memes/Vine boom.wav', 'Ctrl+Alt+3'],
     // STT-003: Wispr Flow's Windows defaults plus copy and clipboard-only dictation.
     ['dictation_hold', 'Ctrl+Win'],
     ['dictation_toggle', 'Ctrl+Win+Space'],
@@ -175,7 +175,7 @@ export class MockTransport implements Transport {
   private deviceMeterTimer: number | undefined;
   private started = performance.now();
   private mixer = new MockMixer(this.query.get('mixer') !== 'off', this.started, (event) => this.emit(event));
-  private soundpad = new MockSoundpad((event) => this.emit(event), this.windows);
+  private sounddeck = new MockSoundDeck((event) => this.emit(event), this.windows);
   private dictation = new MockDictation((event) => this.emit(event), this.query.get('dictation'));
   private displays = new MockDisplays((event) => this.emit(event), this.query.get('displays'));
   private outputControls: OutputControl[] = [];
@@ -347,7 +347,7 @@ export class MockTransport implements Transport {
     const actions = [
       ...GLOBAL_HOTKEYS, 'master_volume_up', 'master_volume_down', 'master_mute',
       ...this.mixer.state.channels.flatMap((c) => [`channel_volume_up.${c.id}`, `channel_volume_down.${c.id}`, `channel_mute.${c.id}`]),
-      ...(this.windows ? [...SOUNDPAD_HOTKEYS, ...this.soundpad.state.sounds.map((x) => `soundpad_play.${x.id}`)] : []),
+      ...(this.windows ? [...SOUNDDECK_HOTKEYS, ...this.sounddeck.state.sounds.map((x) => `sounddeck_play.${x.id}`)] : []),
       ...(this.windows ? DICTATION_HOTKEYS : []),
       ...(this.windows ? [...DISPLAY_HOTKEYS, ...this.displays.ids.map((id) => `display_profile.${id}`)] : []),
     ];
@@ -371,9 +371,9 @@ export class MockTransport implements Transport {
 
   /** Bindings of sounds that are gone are dropped; the mock does not track renames. */
   private syncSoundHotkeys() {
-    const ids = new Set(this.soundpad.state.sounds.map((x) => `soundpad_play.${x.id}`));
+    const ids = new Set(this.sounddeck.state.sounds.map((x) => `sounddeck_play.${x.id}`));
     for (const action of [...this.shortcuts.keys()]) {
-      if (action.startsWith('soundpad_play.') && !ids.has(action.replace(/#secondary$/, ''))) this.shortcuts.delete(action);
+      if (action.startsWith('sounddeck_play.') && !ids.has(action.replace(/#secondary$/, ''))) this.shortcuts.delete(action);
     }
     this.emit({ event: 'hotkeys.changed', data: this.hotkeys() });
   }
@@ -413,11 +413,11 @@ export class MockTransport implements Transport {
     if (method.startsWith('mixer.') || method.startsWith('channel.') || (method.startsWith('apps.') && method !== 'apps.icon')) {
       return this.mixer.call(method, p);
     }
-    if (method.startsWith('soundpad.')) {
-      if (!this.windows) throw new DaemonError('bad_request', 'the soundpad is not available on this platform');
-      const result = this.soundpad.call(method, p);
+    if (method.startsWith('sounddeck.')) {
+      if (!this.windows) throw new DaemonError('bad_request', 'the SoundDeck is not available on this platform');
+      const result = this.sounddeck.call(method, p);
       // Renamed and moved sounds take their hotkeys along, as in the daemon.
-      if (method === 'soundpad.rename' || method === 'soundpad.move' || method === 'soundpad.delete' || method.endsWith('_category')) {
+      if (method === 'sounddeck.rename' || method === 'sounddeck.move' || method === 'sounddeck.delete' || method.endsWith('_category')) {
         this.syncSoundHotkeys();
       }
       return result;
@@ -480,7 +480,7 @@ export class MockTransport implements Transport {
             channel_fx: !this.windows,
             graph_quantum: !this.windows,
             hotkey_popup: this.windows,
-            soundpad: this.windows,
+            sounddeck: this.windows,
             dictation: this.windows,
             displays: this.windows,
             input_channel: !this.windows,

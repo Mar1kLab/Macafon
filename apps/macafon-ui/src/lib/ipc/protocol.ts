@@ -5,7 +5,7 @@ type JsonValue = number | string | boolean | null | JsonValue[] | { [key: string
 
 export const PROTOCOL_VERSION = 1;
 export const MAX_METER_HZ = 60;
-export const SOUNDPAD_UPLOAD_CHUNK_BYTES = 524288;
+export const SOUNDDECK_UPLOAD_CHUNK_BYTES = 524288;
 export const DISPLAY_PROFILE_ICONS = ["monitor","monitors","laptop","gamepad","tv","film","briefcase","moon"] as const;
 
 export type Module<T> = { enabled: boolean, } & T;
@@ -215,7 +215,7 @@ active: string | null, pending: DisplaysPending | null,
  */
 can_revert: boolean, };
 
-export type Request = { "method": "output_controls.list" } | { "method": "output_controls.set", "params": { id: string, settings: MacaronSettings, } } | { "method": "hello", "params": { protocol: number, client: string, } } | { "method": "daemon.quit" } | { "method": "autostart.get" } | { "method": "autostart.set", "params": { enabled: boolean, } } | { "method": "mic.get" } | { "method": "mic.set", "params": { settings: ChainSettings, } } | { "method": "mic.set_preset", "params": { preset: string, } } | { "method": "mic.set_muted", "params": { muted: boolean, } } | { "method": "mic.toggle_mute" } | { "method": "mic.set_bypass", "params": { bypass: boolean, } } | { "method": "mic.set_device", "params": { device: string | null, } } | { "method": "mic.set_fallback_device", "params": { device: string | null, } } | { "method": "mic.set_input_channel", "params": { channel: InputChannel, } } | { "method": "mic.set_default_source", "params": { confirmed: boolean, } } | { "method": "mic.restore_default_source" } | { "method": "ab.export", "params": { side: AbSide, path: string, } } | { "method": "ab.outputs" } | { "method": "presets.list" } | { "method": "presets.save", "params": { name: string, } } | { "method": "presets.update", "params": { id: string, } } | { "method": "presets.rename", "params": { id: string, name: string, } } | { "method": "presets.duplicate", "params": { id: string, } } | { "method": "presets.delete", "params": { id: string, } } | { "method": "presets.export", "params": { id: string, } } | { "method": "presets.import", "params": { document: JsonValue, } } | { "method": "devices.list" } | { "method": "devices.subscribe" } | { "method": "devices.unsubscribe" } | { "method": "meters.subscribe", "params": { hz: number, } } | { "method": "meters.unsubscribe" } | { "method": "calibration.start" } | { "method": "calibration.cancel" } | { "method": "calibration.get" } | { "method": "ab.record", "params": { max_seconds: number | null, } } | { "method": "ab.stop_recording" } | { "method": "ab.play", "params": { device: string | null, } } | { "method": "ab.stop" } | { "method": "ab.select", "params": { side: AbSide, } } | { "method": "ab.toggle" } | { "method": "ab.seek", "params": { position_ms: number, } } | { "method": "ab.set_loudness_match", "params": { enabled: boolean, } } | { "method": "ab.get" } | { "method": "ab.waveform", "params": { points: number, } } | { "method": "mixer.get" } | { "method": "mixer.set_enabled", "params": { enabled: boolean, } } | { "method": "mixer.set_master", "params": { volume_pct: number | null, muted: boolean | null, } } | { "method": "mixer.set_output", "params": { device: string | null, } } | { "method": "mixer.set_output_priority", "params": { devices: Array<string>, } } | { "method": "mixer.set_auto_classify", "params": { enabled: boolean, } } | { "method": "channel.create", "params": { name: string, color: string, icon: string | null, } } | { "method": "channel.update", "params": { id: string, patch: ChannelPatch, } } | { "method": "channel.delete", "params": { id: string, } } | { "method": "channel.set", "params": { id: string, settings: ChannelSettings, } } | { "method": "channel.adjust_volume", "params": { id: string, delta_pct: number, } } | { "method": "channel.toggle_mute", "params": { id: string, } } | { "method": "channel.set_default", "params": { id: string, } } | { "method": "channel.reorder", "params": { ids: Array<string>, } } | { "method": "apps.move", "params": { app_key: string, channel: string, } } | { "method": "apps.set_managed", "params": { app_key: string, managed: boolean, } } | { "method": "apps.forget", "params": { app_key: string, } } | { "method": "apps.set_volume", "params": { app_key: string, volume_pct: number, } } | { "method": "apps.icon", "params": { icon: string, } } | { "method": "doctor.run" } | { "method": "doctor.fix", "params": { check: DoctorCheckId, } } | { "method": "mic.cycle_preset", "params": { step: number, } } | { "method": "hotkeys.get" } | { "method": "hotkeys.set", "params": { action: string, shortcut: string | null, secondary: boolean, } } | { "method": "ui.window_closed" } | { "method": "soundpad.get" } | { "method": "soundpad.rescan" } | { "method": "soundpad.open_folder" } | { "method": "soundpad.set_folder", "params": { folder: string | null, } } | { "method": "soundpad.play", "params": { id: string, } } | { "method": "soundpad.play_random", "params": { category: string | null, } } | { "method": "soundpad.stop" } | { "method": "soundpad.set_paused", "params": { paused: boolean | null, } } | { "method": "soundpad.seek", "params": { position_ms: number, } } | { "method": "soundpad.set_looping", "params": { looping: boolean, } } | { "method": "soundpad.set_prefs", "params": { patch: SoundpadPrefsPatch, } } | { "method": "soundpad.set_monitor_device", "params": { device: string | null, } } | { "method": "soundpad.set_sound", "params": { id: string, patch: SoundPatch, } } | { "method": "soundpad.rename", "params": { id: string, name: string, } } | { "method": "soundpad.move", "params": { id: string, category: string | null, } } | { "method": "soundpad.delete", "params": { id: string, } } | { "method": "soundpad.delete_problem_sounds" } | { "method": "soundpad.create_category", "params": { name: string, } } | { "method": "soundpad.rename_category", "params": { from: string, to: string, } } | { "method": "soundpad.delete_category", "params": { name: string, } } | { "method": "displays.get" } | { "method": "displays.save", "params": { name: string, icon: string, } } | { "method": "displays.create", "params": { profile: DisplayProfile, } } | { "method": "displays.suggestions" } | { "method": "displays.update", "params": { profile: DisplayProfile, } } | { "method": "displays.recapture", "params": { id: string, } } | { "method": "displays.delete", "params": { id: string, } } | { "method": "displays.reorder", "params": { ids: Array<string>, } } | { "method": "displays.apply", "params": { id: string, } } | { "method": "displays.confirm", "params": { keep: boolean, } } | { "method": "displays.revert" } | { "method": "displays.all_on" } | { "method": "soundpad.upload", "params": { upload_id: string, file_name: string, category: string | null, offset: number, data: string, done: boolean, } } | { "method": "prefs.get" } | { "method": "prefs.set", "params": { volume_step_pct: number | null, quantum_frames: number | null, close_action: CloseAction | null,
+export type Request = { "method": "output_controls.list" } | { "method": "output_controls.set", "params": { id: string, settings: MacaronSettings, } } | { "method": "hello", "params": { protocol: number, client: string, } } | { "method": "daemon.quit" } | { "method": "autostart.get" } | { "method": "autostart.set", "params": { enabled: boolean, } } | { "method": "mic.get" } | { "method": "mic.set", "params": { settings: ChainSettings, } } | { "method": "mic.set_preset", "params": { preset: string, } } | { "method": "mic.set_muted", "params": { muted: boolean, } } | { "method": "mic.toggle_mute" } | { "method": "mic.set_bypass", "params": { bypass: boolean, } } | { "method": "mic.set_device", "params": { device: string | null, } } | { "method": "mic.set_fallback_device", "params": { device: string | null, } } | { "method": "mic.set_input_channel", "params": { channel: InputChannel, } } | { "method": "mic.set_default_source", "params": { confirmed: boolean, } } | { "method": "mic.restore_default_source" } | { "method": "ab.export", "params": { side: AbSide, path: string, } } | { "method": "ab.outputs" } | { "method": "presets.list" } | { "method": "presets.save", "params": { name: string, } } | { "method": "presets.update", "params": { id: string, } } | { "method": "presets.rename", "params": { id: string, name: string, } } | { "method": "presets.duplicate", "params": { id: string, } } | { "method": "presets.delete", "params": { id: string, } } | { "method": "presets.export", "params": { id: string, } } | { "method": "presets.import", "params": { document: JsonValue, } } | { "method": "devices.list" } | { "method": "devices.subscribe" } | { "method": "devices.unsubscribe" } | { "method": "meters.subscribe", "params": { hz: number, } } | { "method": "meters.unsubscribe" } | { "method": "calibration.start" } | { "method": "calibration.cancel" } | { "method": "calibration.get" } | { "method": "ab.record", "params": { max_seconds: number | null, } } | { "method": "ab.stop_recording" } | { "method": "ab.play", "params": { device: string | null, } } | { "method": "ab.stop" } | { "method": "ab.select", "params": { side: AbSide, } } | { "method": "ab.toggle" } | { "method": "ab.seek", "params": { position_ms: number, } } | { "method": "ab.set_loudness_match", "params": { enabled: boolean, } } | { "method": "ab.get" } | { "method": "ab.waveform", "params": { points: number, } } | { "method": "mixer.get" } | { "method": "mixer.set_enabled", "params": { enabled: boolean, } } | { "method": "mixer.set_master", "params": { volume_pct: number | null, muted: boolean | null, } } | { "method": "mixer.set_output", "params": { device: string | null, } } | { "method": "mixer.set_output_priority", "params": { devices: Array<string>, } } | { "method": "mixer.set_auto_classify", "params": { enabled: boolean, } } | { "method": "channel.create", "params": { name: string, color: string, icon: string | null, } } | { "method": "channel.update", "params": { id: string, patch: ChannelPatch, } } | { "method": "channel.delete", "params": { id: string, } } | { "method": "channel.set", "params": { id: string, settings: ChannelSettings, } } | { "method": "channel.adjust_volume", "params": { id: string, delta_pct: number, } } | { "method": "channel.toggle_mute", "params": { id: string, } } | { "method": "channel.set_default", "params": { id: string, } } | { "method": "channel.reorder", "params": { ids: Array<string>, } } | { "method": "apps.move", "params": { app_key: string, channel: string, } } | { "method": "apps.set_managed", "params": { app_key: string, managed: boolean, } } | { "method": "apps.forget", "params": { app_key: string, } } | { "method": "apps.set_volume", "params": { app_key: string, volume_pct: number, } } | { "method": "apps.icon", "params": { icon: string, } } | { "method": "doctor.run" } | { "method": "doctor.fix", "params": { check: DoctorCheckId, } } | { "method": "mic.cycle_preset", "params": { step: number, } } | { "method": "hotkeys.get" } | { "method": "hotkeys.set", "params": { action: string, shortcut: string | null, secondary: boolean, } } | { "method": "ui.window_closed" } | { "method": "sounddeck.get" } | { "method": "sounddeck.rescan" } | { "method": "sounddeck.open_folder" } | { "method": "sounddeck.set_folder", "params": { folder: string | null, } } | { "method": "sounddeck.play", "params": { id: string, } } | { "method": "sounddeck.play_random", "params": { category: string | null, } } | { "method": "sounddeck.stop" } | { "method": "sounddeck.set_paused", "params": { paused: boolean | null, } } | { "method": "sounddeck.seek", "params": { position_ms: number, } } | { "method": "sounddeck.set_looping", "params": { looping: boolean, } } | { "method": "sounddeck.set_prefs", "params": { patch: SoundDeckPrefsPatch, } } | { "method": "sounddeck.set_monitor_device", "params": { device: string | null, } } | { "method": "sounddeck.set_sound", "params": { id: string, patch: SoundPatch, } } | { "method": "sounddeck.rename", "params": { id: string, name: string, } } | { "method": "sounddeck.move", "params": { id: string, category: string | null, } } | { "method": "sounddeck.delete", "params": { id: string, } } | { "method": "sounddeck.delete_problem_sounds" } | { "method": "sounddeck.create_category", "params": { name: string, } } | { "method": "sounddeck.rename_category", "params": { from: string, to: string, } } | { "method": "sounddeck.delete_category", "params": { name: string, } } | { "method": "displays.get" } | { "method": "displays.save", "params": { name: string, icon: string, } } | { "method": "displays.create", "params": { profile: DisplayProfile, } } | { "method": "displays.suggestions" } | { "method": "displays.update", "params": { profile: DisplayProfile, } } | { "method": "displays.recapture", "params": { id: string, } } | { "method": "displays.delete", "params": { id: string, } } | { "method": "displays.reorder", "params": { ids: Array<string>, } } | { "method": "displays.apply", "params": { id: string, } } | { "method": "displays.confirm", "params": { keep: boolean, } } | { "method": "displays.revert" } | { "method": "displays.all_on" } | { "method": "sounddeck.upload", "params": { upload_id: string, file_name: string, category: string | null, offset: number, data: string, done: boolean, } } | { "method": "prefs.get" } | { "method": "prefs.set", "params": { volume_step_pct: number | null, quantum_frames: number | null, close_action: CloseAction | null,
 /**
  * The whole popup setup; the daemon shows a sample popup with it.
  */
@@ -229,7 +229,7 @@ export type ErrorCode = "bad_request" | "protocol_mismatch" | "invalid_params" |
 
 export type ErrorBody = { code: ErrorCode, message: string, };
 
-export type Event = { "event": "output_controls.changed", "data": Array<OutputControl> } | { "event": "mic.noise_fallback", "data": { engine: NoiseEngine, } } | { "event": "devices.meter", "data": { name: string, peak_dbfs: number, } } | { "event": "meters", "data": Meters } | { "event": "mic.changed", "data": MicState } | { "event": "calibration.changed", "data": CalibrationState } | { "event": "ab.changed", "data": AbState } | { "event": "presets.changed", "data": Array<PresetInfo> } | { "event": "mixer.changed", "data": MixerState } | { "event": "mixer.meters", "data": MixerMeters } | { "event": "hotkeys.changed", "data": HotkeysState } | { "event": "devices.changed", "data": Array<Device> } | { "event": "prefs.changed", "data": Preferences } | { "event": "soundpad.changed", "data": SoundpadState } | { "event": "soundpad.playback", "data": SoundpadPlayback | null } | { "event": "ui.show", "data": { target: UiTarget, } } | { "event": "displays.changed", "data": DisplaysState } | { "event": "dictation.changed", "data": DictationState } | { "event": "dictation.level", "data": DictationLevel } | { "event": "dictation.result", "data": DictationResult };
+export type Event = { "event": "output_controls.changed", "data": Array<OutputControl> } | { "event": "mic.noise_fallback", "data": { engine: NoiseEngine, } } | { "event": "devices.meter", "data": { name: string, peak_dbfs: number, } } | { "event": "meters", "data": Meters } | { "event": "mic.changed", "data": MicState } | { "event": "calibration.changed", "data": CalibrationState } | { "event": "ab.changed", "data": AbState } | { "event": "presets.changed", "data": Array<PresetInfo> } | { "event": "mixer.changed", "data": MixerState } | { "event": "mixer.meters", "data": MixerMeters } | { "event": "hotkeys.changed", "data": HotkeysState } | { "event": "devices.changed", "data": Array<Device> } | { "event": "prefs.changed", "data": Preferences } | { "event": "sounddeck.changed", "data": SoundDeckState } | { "event": "sounddeck.playback", "data": SoundDeckPlayback | null } | { "event": "ui.show", "data": { target: UiTarget, } } | { "event": "displays.changed", "data": DisplaysState } | { "event": "dictation.changed", "data": DictationState } | { "event": "dictation.level", "data": DictationLevel } | { "event": "dictation.result", "data": DictationResult };
 
 export type Hello = { protocol: number, daemon_version: string, platform: Platform,
 /**
@@ -265,7 +265,7 @@ hotkey_popup: boolean,
 /**
  * Sounds play into the virtual microphone and the headphones (§7.6).
  */
-soundpad: boolean,
+sounddeck: boolean,
 /**
  * Local speech to text (§8.4).
  */
@@ -563,7 +563,7 @@ main_monitor: string, };
 export type SoundInfo = {
 /**
  * Path inside the library folder with `/` separators, `Memes/airhorn.mp3`; stable key for
- * hotkeys (`soundpad_play.<id>`) and per-sound settings.
+ * hotkeys (`sounddeck_play.<id>`) and per-sound settings.
  */
 id: string,
 /**
@@ -583,7 +583,7 @@ duration_ms: number | null,
  */
 volume_pct: number, favorite: boolean,
 /**
- * Times played, for sorting like Soundpad's play count.
+ * Times played, for sorting like SoundDeck's play count.
  */
 play_count: number,
 /**
@@ -596,17 +596,17 @@ added_unix_ms: number,
  */
 error: string | null, };
 
-export type SoundpadPlayback = { sound_id: string, position_ms: number, duration_ms: number, paused: boolean, looping: boolean,
+export type SoundDeckPlayback = { sound_id: string, position_ms: number, duration_ms: number, paused: boolean, looping: boolean,
 /**
  * Decoding: playback starts as soon as the sound is ready.
  */
 loading: boolean, };
 
-export type SoundpadOverlayView = "grid" | "list";
+export type SoundDeckOverlayView = "grid" | "list";
 
-export type SoundpadOverlayControls = "top" | "bottom" | "hidden";
+export type SoundDeckOverlayControls = "top" | "bottom" | "hidden";
 
-export type SoundpadPrefs = {
+export type SoundDeckPrefs = {
 /**
  * Play into Macafon Microphone, heard by the voice chat.
  */
@@ -632,11 +632,11 @@ mute_voice_while_playing: boolean,
  */
 monitor_device: string | null,
 /**
- * Show the soundpad panel in the hotkey overlay.
+ * Show the SoundDeck panel in the hotkey overlay.
  */
-show_in_overlay: boolean, overlay_view: SoundpadOverlayView, overlay_controls: SoundpadOverlayControls, };
+show_in_overlay: boolean, overlay_view: SoundDeckOverlayView, overlay_controls: SoundDeckOverlayControls, };
 
-export type SoundpadState = {
+export type SoundDeckState = {
 /**
  * Absolute path of the library folder.
  */
@@ -648,13 +648,13 @@ default_folder: boolean,
 /**
  * Every first-level subfolder, including empty ones.
  */
-categories: Array<string>, sounds: Array<SoundInfo>, problem_sounds: Array<SoundInfo>, prefs: SoundpadPrefs, playback: SoundpadPlayback | null,
+categories: Array<string>, sounds: Array<SoundInfo>, problem_sounds: Array<SoundInfo>, prefs: SoundDeckPrefs, playback: SoundDeckPlayback | null,
 /**
  * Sounds reach Macafon Microphone (on Windows: VB-CABLE is installed).
  */
 microphone_ready: boolean, };
 
-export type SoundpadPrefsPatch = { to_microphone?: boolean | null, to_headphones?: boolean | null, microphone_volume_pct?: number | null, headphones_volume_pct?: number | null, mute_voice_while_playing?: boolean | null, show_in_overlay?: boolean | null, overlay_view?: SoundpadOverlayView | null, overlay_controls?: SoundpadOverlayControls | null, };
+export type SoundDeckPrefsPatch = { to_microphone?: boolean | null, to_headphones?: boolean | null, microphone_volume_pct?: number | null, headphones_volume_pct?: number | null, mute_voice_while_playing?: boolean | null, show_in_overlay?: boolean | null, overlay_view?: SoundDeckOverlayView | null, overlay_controls?: SoundDeckOverlayControls | null, };
 
 export type SoundPatch = { volume_pct?: number | null, favorite?: boolean | null, };
 

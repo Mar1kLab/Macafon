@@ -103,12 +103,12 @@ fn protocol() -> String {
         OverlayPlacement::decl(&cfg),
         Preferences::decl(&cfg),
         SoundInfo::decl(&cfg),
-        SoundpadPlayback::decl(&cfg),
-        SoundpadOverlayView::decl(&cfg),
-        SoundpadOverlayControls::decl(&cfg),
-        SoundpadPrefs::decl(&cfg),
-        SoundpadState::decl(&cfg),
-        SoundpadPrefsPatch::decl(&cfg),
+        SoundDeckPlayback::decl(&cfg),
+        SoundDeckOverlayView::decl(&cfg),
+        SoundDeckOverlayControls::decl(&cfg),
+        SoundDeckPrefs::decl(&cfg),
+        SoundDeckState::decl(&cfg),
+        SoundDeckPrefsPatch::decl(&cfg),
         SoundPatch::decl(&cfg),
         DictationEngine::decl(&cfg),
         DictationLanguage::decl(&cfg),
@@ -135,7 +135,7 @@ fn protocol() -> String {
     out.push_str("// Protocol types of macafon-ipc (PRD §11.5).\n\n");
     out.push_str("type JsonValue = number | string | boolean | null | JsonValue[] | { [key: string]: JsonValue };\n\n");
     out.push_str(&format!(
-        "export const PROTOCOL_VERSION = {PROTOCOL_VERSION};\nexport const MAX_METER_HZ = {MAX_METER_HZ};\nexport const SOUNDPAD_UPLOAD_CHUNK_BYTES = {SOUNDPAD_UPLOAD_CHUNK_BYTES};\nexport const DISPLAY_PROFILE_ICONS = {} as const;\n\n",
+        "export const PROTOCOL_VERSION = {PROTOCOL_VERSION};\nexport const MAX_METER_HZ = {MAX_METER_HZ};\nexport const SOUNDDECK_UPLOAD_CHUNK_BYTES = {SOUNDDECK_UPLOAD_CHUNK_BYTES};\nexport const DISPLAY_PROFILE_ICONS = {} as const;\n\n",
         json!(DISPLAY_PROFILE_ICONS)
     ));
     for decl in decls {

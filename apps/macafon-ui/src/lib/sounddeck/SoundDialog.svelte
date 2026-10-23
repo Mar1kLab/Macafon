@@ -10,7 +10,7 @@
   import { daemon } from '../state';
   import { t } from '../i18n';
   import { formatDuration } from './format';
-  import type { SoundInfo, SoundpadState } from '../ipc/protocol';
+  import type { SoundInfo, SoundDeckState } from '../ipc/protocol';
   import Field from '../components/Field.svelte';
   import Input from '../components/Input.svelte';
 
@@ -27,10 +27,10 @@
   let name = $state(sound.name);
   let confirmDelete = $state(false);
   const categories = $derived([
-    { value: null as string | null, label: t('soundpad.uncategorized') },
-    ...(daemon.soundpad?.categories ?? []).map((category) => ({ value: category as string | null, label: category })),
+    { value: null as string | null, label: t('sounddeck.uncategorized') },
+    ...(daemon.sounddeck?.categories ?? []).map((category) => ({ value: category as string | null, label: category })),
   ]);
-  const action = $derived(`soundpad_play.${sound.id}`);
+  const action = $derived(`sounddeck_play.${sound.id}`);
 
   // The daemon's answer replaces the library, and this sound's old id with it: read what is
   // needed before awaiting, and switch the editor to the new id in the same update.
@@ -40,7 +40,7 @@
     const next = name.trim();
     const { id, name: current, category } = sound;
     if (!next || next === current) return;
-    const state = await daemon.run(daemon.client.call('soundpad.rename', { id, name: next }));
+    const state = await daemon.run(daemon.client.call('sounddeck.rename', { id, name: next }));
     if (!state) {
       name = current;
       return;
@@ -52,10 +52,10 @@
   const extension = (id: string) => /\.[^./]+$/.exec(id)?.[0] ?? '';
 
   /** Keep editing the sound under its new id; close if the daemon picked another name. */
-  function follow(state: SoundpadState, id: string) {
+  function follow(state: SoundDeckState, id: string) {
     const found = state.sounds.some((item) => item.id === id);
     if (found) onrenamed(id);
-    daemon.soundpad = state;
+    daemon.sounddeck = state;
     if (!found) onclose();
   }
 
@@ -63,29 +63,29 @@
     if (!sound) return;
     const { id, category: current } = sound;
     if (category === current) return;
-    const state = await daemon.run(daemon.client.call('soundpad.move', { id, category }));
+    const state = await daemon.run(daemon.client.call('sounddeck.move', { id, category }));
     if (state) follow(state, `${folder(category)}${id.split('/').pop()}`);
   }
 
   function edit(patch: { volume_pct?: number; favorite?: boolean }) {
-    if (daemon.soundpad) {
-      daemon.soundpad = {
-        ...daemon.soundpad,
-        sounds: daemon.soundpad.sounds.map((item) => (item.id === sound.id ? { ...item, ...patch } : item)),
+    if (daemon.sounddeck) {
+      daemon.sounddeck = {
+        ...daemon.sounddeck,
+        sounds: daemon.sounddeck.sounds.map((item) => (item.id === sound.id ? { ...item, ...patch } : item)),
       };
     }
-    void daemon.setSoundpad(daemon.client.call('soundpad.set_sound', { id: sound.id, patch }));
+    void daemon.setSoundDeck(daemon.client.call('sounddeck.set_sound', { id: sound.id, patch }));
   }
 
   async function remove() {
     confirmDelete = false;
-    if (await daemon.setSoundpad(daemon.client.call('soundpad.delete', { id: sound.id }))) onclose();
+    if (await daemon.setSoundDeck(daemon.client.call('sounddeck.delete', { id: sound.id }))) onclose();
   }
 </script>
 
-<Dialog open={!confirmDelete} title={t('soundpad.soundTitle')} {onclose} width="520px">
+<Dialog open={!confirmDelete} title={t('sounddeck.soundTitle')} {onclose} width="520px">
   <div class="form">
-    <Field label={t('soundpad.name')}>
+    <Field label={t('sounddeck.name')}>
       <Input
         bind:value={name}
         maxlength={120}
@@ -99,12 +99,12 @@
       />
     </Field>
     <div class="field">
-      <span class="hud-label">{t('soundpad.category')}</span>
-      <Dropdown label={t('soundpad.category')} options={categories} value={sound.category} onchange={move} />
+      <span class="hud-label">{t('sounddeck.category')}</span>
+      <Dropdown label={t('sounddeck.category')} options={categories} value={sound.category} onchange={move} />
     </div>
     <div class="field">
       <RulerSlider
-        label={t('soundpad.volume')}
+        label={t('sounddeck.volume')}
         value={sound.volume_pct}
         min={0}
         max={200}
@@ -117,33 +117,33 @@
       />
     </div>
     <div class="field inline">
-      <span class="hud-label">{t('soundpad.favorite')}</span>
-      <Toggle checked={sound.favorite} label={t('soundpad.favorite')} color="amber" onchange={(favorite) => edit({ favorite })} />
+      <span class="hud-label">{t('sounddeck.favorite')}</span>
+      <Toggle checked={sound.favorite} label={t('sounddeck.favorite')} color="amber" onchange={(favorite) => edit({ favorite })} />
     </div>
     <div class="field">
-      <span class="hud-label">{t('soundpad.hotkeys')}</span>
+      <span class="hud-label">{t('sounddeck.hotkeys')}</span>
       <div class="keys">
         <ShortcutKey {action} label={sound.name} />
         <ShortcutKey {action} secondary label={sound.name} />
       </div>
     </div>
     <p class="meta value">
-      {sound.id} · {formatDuration(sound.duration_ms, true)} · {t('soundpad.plays', { count: sound.play_count })}
+      {sound.id} · {formatDuration(sound.duration_ms, true)} · {t('sounddeck.plays', { count: sound.play_count })}
     </p>
   </div>
   {#snippet actions()}
-    <button class="btn danger" onclick={() => (confirmDelete = true)}><Trash2 size={13} strokeWidth={1.5} />{t('soundpad.delete')}</button>
+    <button class="btn danger" onclick={() => (confirmDelete = true)}><Trash2 size={13} strokeWidth={1.5} />{t('sounddeck.delete')}</button>
     <span class="spacer"></span>
-    <button class="btn" disabled={sound.error !== null} onclick={() => daemon.playSound(sound.id)}><Play size={13} strokeWidth={1.5} />{t('soundpad.preview')}</button>
+    <button class="btn" disabled={sound.error !== null} onclick={() => daemon.playSound(sound.id)}><Play size={13} strokeWidth={1.5} />{t('sounddeck.preview')}</button>
     <button class="btn invert" onclick={onclose}>{t('common.close')}</button>
   {/snippet}
 </Dialog>
 
-<Dialog open={confirmDelete} title={t('soundpad.deleteTitle')} onclose={() => (confirmDelete = false)}>
-  <p>{t('soundpad.deleteBody', { name: sound.name })}</p>
+<Dialog open={confirmDelete} title={t('sounddeck.deleteTitle')} onclose={() => (confirmDelete = false)}>
+  <p>{t('sounddeck.deleteBody', { name: sound.name })}</p>
   {#snippet actions()}
     <button class="btn" onclick={() => (confirmDelete = false)}>{t('common.cancel')}</button>
-    <button class="btn danger on" onclick={remove}>{t('soundpad.delete')}</button>
+    <button class="btn danger on" onclick={remove}>{t('sounddeck.delete')}</button>
   {/snippet}
 </Dialog>
 

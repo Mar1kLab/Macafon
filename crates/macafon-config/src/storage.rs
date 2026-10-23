@@ -200,13 +200,21 @@ fn parse(text: &str) -> Result<(Config, i64), String> {
         .validate()
         .map_err(|error| error.to_string())?;
     config.mixer.validate()?;
-    config.soundpad.normalize_levels();
-    config.soundpad.microphone_volume_pct =
-        crate::soundpad::clamp_volume(config.soundpad.microphone_volume_pct);
-    config.soundpad.headphones_volume_pct =
-        crate::soundpad::clamp_volume(config.soundpad.headphones_volume_pct);
-    for sound in config.soundpad.sounds.values_mut() {
-        sound.volume_pct = crate::soundpad::clamp_volume(sound.volume_pct);
+    // Hotkey ids before 0.9.0 start with `soundpad_`.
+    config.hotkeys = std::mem::take(&mut config.hotkeys)
+        .into_iter()
+        .map(|(id, shortcut)| match id.strip_prefix("soundpad_") {
+            Some(rest) => (format!("sounddeck_{rest}"), shortcut),
+            None => (id, shortcut),
+        })
+        .collect();
+    config.sounddeck.normalize_levels();
+    config.sounddeck.microphone_volume_pct =
+        crate::sounddeck::clamp_volume(config.sounddeck.microphone_volume_pct);
+    config.sounddeck.headphones_volume_pct =
+        crate::sounddeck::clamp_volume(config.sounddeck.headphones_volume_pct);
+    for sound in config.sounddeck.sounds.values_mut() {
+        sound.volume_pct = crate::sounddeck::clamp_volume(sound.volume_pct);
     }
     config.ui.volume_step_pct = config.ui.volume_step_pct.clamp(1, 20);
     if !QUANTUM_CHOICES.contains(&config.audio.quantum_frames) {
@@ -235,24 +243,49 @@ mod tests {
         UiConfig,
     };
     #[test]
-    fn soundpad_volumes_are_clamped_on_load() {
+    fn sounddeck_volumes_are_clamped_on_load() {
         let (config, _) = parse(
             r#"
-[soundpad]
+[sounddeck]
 normalized_levels = true
 microphone_volume_pct = 900.0
 headphones_volume_pct = -4.0
-[soundpad.sounds."bad.wav"]
+[sounddeck.sounds."bad.wav"]
 volume_pct = nan
-[soundpad.sounds."loud.wav"]
+[sounddeck.sounds."loud.wav"]
 volume_pct = 300.0
 "#,
         )
         .expect("config");
-        assert_eq!(config.soundpad.microphone_volume_pct, 200.0);
-        assert_eq!(config.soundpad.headphones_volume_pct, 0.0);
-        assert_eq!(config.soundpad.sound("bad.wav").volume_pct, 100.0);
-        assert_eq!(config.soundpad.sound("loud.wav").volume_pct, 200.0);
+        assert_eq!(config.sounddeck.microphone_volume_pct, 200.0);
+        assert_eq!(config.sounddeck.headphones_volume_pct, 0.0);
+        assert_eq!(config.sounddeck.sound("bad.wav").volume_pct, 100.0);
+        assert_eq!(config.sounddeck.sound("loud.wav").volume_pct, 200.0);
+    }
+
+    #[test]
+    fn soundpad_config_before_0_9_loads() {
+        let (config, _) = parse(
+            r#"
+[hotkeys]
+soundpad_stop = "Ctrl+Alt+S"
+"soundpad_play.Memes/air horn.mp3" = "Ctrl+Alt+H"
+mic_mute_toggle = "Ctrl+Alt+M"
+[soundpad]
+show_in_overlay = false
+"#,
+        )
+        .expect("config");
+        assert!(!config.sounddeck.show_in_overlay);
+        let ids: Vec<&str> = config.hotkeys.keys().map(String::as_str).collect();
+        assert_eq!(
+            ids,
+            [
+                "mic_mute_toggle",
+                "sounddeck_play.Memes/air horn.mp3",
+                "sounddeck_stop"
+            ]
+        );
     }
 
     use macafon_dsp::{InputChannel, Preset};
@@ -340,15 +373,15 @@ volume_pct = 300.0
                 quantum_frames: 256,
             },
             hotkeys: BTreeMap::new(),
-            soundpad: {
-                let mut soundpad = crate::SoundpadConfig {
+            sounddeck: {
+                let mut sounddeck = crate::SoundDeckConfig {
                     monitor_device: Some("headphones".into()),
-                    overlay_view: crate::soundpad::SoundpadOverlayView::List,
-                    overlay_controls: crate::soundpad::SoundpadOverlayControls::Hidden,
+                    overlay_view: crate::sounddeck::SoundDeckOverlayView::List,
+                    overlay_controls: crate::sounddeck::SoundDeckOverlayControls::Hidden,
                     ..Default::default()
                 };
-                soundpad.edit_sound("Memes/air horn.mp3", |sound| sound.favorite = true);
-                soundpad
+                sounddeck.edit_sound("Memes/air horn.mp3", |sound| sound.favorite = true);
+                sounddeck
             },
             mic: MicConfig {
                 stereo: true,

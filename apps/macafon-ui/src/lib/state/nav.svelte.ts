@@ -6,7 +6,7 @@ export type SettingsSection =
   | 'audio'
   | 'outputs'
   | 'mixer'
-  | 'soundpad'
+  | 'sounddeck'
   | 'hotkeys'
   | 'popup'
   | 'overlay'
@@ -16,7 +16,7 @@ export type SettingsSection =
 
 const query = new URLSearchParams(location.search);
 const initial = query.get('screen');
-const SCREENS: Screen[] = ['microphone', 'mixer', 'soundpad', 'dictation', 'displays', 'settings'];
+const SCREENS: Screen[] = ['microphone', 'mixer', 'sounddeck', 'dictation', 'displays', 'settings'];
 
 class Nav {
   screen = $state<Screen>(SCREENS.includes(initial as Screen) ? (initial as Screen) : 'microphone');

@@ -1,14 +1,16 @@
-//! Soundpad (PRD §7.6) on the daemon control loop: the library folder, background decoding,
+//! SoundDeck (PRD §7.6) on the daemon control loop: the library folder, background decoding,
 //! uploads and the playback control whose taps the audio backend mixes into the virtual
 //! microphone and the monitor output.
 
-use macafon_config::SoundpadConfig;
-use macafon_ipc::{ErrorBody, ErrorCode, SOUNDPAD_UPLOAD_CHUNK_BYTES, SoundInfo, SoundpadPlayback};
-use macafon_soundpad::cache::SoundLoader;
-use macafon_soundpad::library::{self, SoundEntry};
-use macafon_soundpad::rt::{Output, SoundpadControl, SoundpadTap};
+use macafon_config::SoundDeckConfig;
+use macafon_ipc::{
+    ErrorBody, ErrorCode, SOUNDDECK_UPLOAD_CHUNK_BYTES, SoundDeckPlayback, SoundInfo,
+};
+use macafon_sounddeck::cache::SoundLoader;
+use macafon_sounddeck::library::{self, SoundEntry};
+use macafon_sounddeck::rt::{Output, SoundDeckControl, SoundDeckTap};
 use std::collections::{HashMap, HashSet};
-#[path = "soundpad_library.rs"]
+#[path = "sounddeck_library.rs"]
 mod library_worker;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -47,8 +49,8 @@ pub struct TickOutcome {
     pub preload_ready: bool,
 }
 
-pub struct Soundpad {
-    control: SoundpadControl,
+pub struct SoundDeck {
+    control: SoundDeckControl,
     loader: SoundLoader,
     folder: PathBuf,
     uploads_dir: PathBuf,
@@ -75,13 +77,13 @@ pub struct Soundpad {
     preload_pending: Option<String>,
     uploads: HashMap<String, Upload>,
     last_active: Option<Instant>,
-    last_playback: Option<SoundpadPlayback>,
+    last_playback: Option<SoundDeckPlayback>,
 }
 
-impl Soundpad {
-    pub fn new(config: &SoundpadConfig, _state_dir: &Path) -> Self {
-        let mut soundpad = Self {
-            control: SoundpadControl::new(),
+impl SoundDeck {
+    pub fn new(config: &SoundDeckConfig, _state_dir: &Path) -> Self {
+        let mut sounddeck = Self {
+            control: SoundDeckControl::new(),
             loader: SoundLoader::new(CACHE_BYTES),
             folder: config.folder(),
             uploads_dir: config.folder().join(".macafon-uploads"),
@@ -106,8 +108,8 @@ impl Soundpad {
             last_active: None,
             last_playback: None,
         };
-        soundpad.apply(config);
-        soundpad
+        sounddeck.apply(config);
+        sounddeck
     }
 
     pub fn folder(&self) -> &Path {
@@ -136,7 +138,7 @@ impl Soundpad {
     }
 
     /// Output volumes and switches into the taps.
-    pub fn apply(&mut self, config: &SoundpadConfig) {
+    pub fn apply(&mut self, config: &SoundDeckConfig) {
         let control = &self.control;
         control.set_output_enabled(Output::Microphone, config.to_microphone);
         control.set_output_enabled(Output::Monitor, config.to_headphones);
@@ -145,12 +147,12 @@ impl Soundpad {
         control.set_duck_voice(config.mute_voice_while_playing);
     }
 
-    pub fn tap(&mut self, output: Output) -> SoundpadTap {
+    pub fn tap(&mut self, output: Output) -> SoundDeckTap {
         self.control.tap(output)
     }
 
     /// The monitor stream runs while a sound plays and a little after (§7.6).
-    pub fn monitor_wanted(&self, config: &SoundpadConfig) -> Option<Option<String>> {
+    pub fn monitor_wanted(&self, config: &SoundDeckConfig) -> Option<Option<String>> {
         let active = self.playing.is_some()
             || self.pending.is_some()
             || self
@@ -354,7 +356,7 @@ impl Soundpad {
             .collect()
     }
 
-    pub fn sounds(&self, config: &SoundpadConfig) -> Vec<SoundInfo> {
+    pub fn sounds(&self, config: &SoundDeckConfig) -> Vec<SoundInfo> {
         self.entries
             .iter()
             .map(|entry| {
@@ -417,7 +419,7 @@ impl Soundpad {
 
     /// Start `id` from the beginning, now if decoded, otherwise once its decode finishes.
     /// Returns whether it started now.
-    pub fn play(&mut self, id: &str, config: &SoundpadConfig) -> Result<bool, ErrorBody> {
+    pub fn play(&mut self, id: &str, config: &SoundDeckConfig) -> Result<bool, ErrorBody> {
         let entry = self.entry(id)?.clone();
         if let Some(error) = self.errors.get(id) {
             return Err(ErrorBody::new(
@@ -526,9 +528,9 @@ impl Soundpad {
         self.loader.invalidate(id);
     }
 
-    pub fn playback(&self) -> Option<SoundpadPlayback> {
+    pub fn playback(&self) -> Option<SoundDeckPlayback> {
         if let Some(id) = &self.pending {
-            return Some(SoundpadPlayback {
+            return Some(SoundDeckPlayback {
                 sound_id: id.clone(),
                 position_ms: 0,
                 duration_ms: self
@@ -543,7 +545,7 @@ impl Soundpad {
         }
         let status = self.control.status();
         let (token, id) = self.playing.as_ref()?;
-        (status.token == Some(*token)).then(|| SoundpadPlayback {
+        (status.token == Some(*token)).then(|| SoundDeckPlayback {
             sound_id: id.clone(),
             position_ms: status.position_ms,
             duration_ms: status.duration_ms,
@@ -554,7 +556,7 @@ impl Soundpad {
     }
 
     /// The playback to broadcast, if it changed since the last call.
-    pub fn playback_changed(&mut self) -> Option<Option<SoundpadPlayback>> {
+    pub fn playback_changed(&mut self) -> Option<Option<SoundDeckPlayback>> {
         let playback = self.playback();
         if playback == self.last_playback {
             return None;
@@ -564,7 +566,7 @@ impl Soundpad {
     }
 
     /// Control-loop housekeeping, every 100 ms.
-    pub fn tick(&mut self, config: &SoundpadConfig, now: Instant) -> TickOutcome {
+    pub fn tick(&mut self, config: &SoundDeckConfig, now: Instant) -> TickOutcome {
         self.control.tick(now);
         if self.playing.is_some() || self.pending.is_some() {
             self.last_active = Some(now);
@@ -599,7 +601,7 @@ impl Soundpad {
         outcome
     }
 
-    fn poll_loaded_sounds(&mut self, config: &SoundpadConfig) -> TickOutcome {
+    fn poll_loaded_sounds(&mut self, config: &SoundDeckConfig) -> TickOutcome {
         let mut outcome = TickOutcome::default();
         for loaded in self.loader.poll() {
             if self.preload_pending.as_deref() == Some(&loaded.id) {
@@ -684,11 +686,11 @@ impl Soundpad {
         if !library::SUPPORTED_EXTENSIONS.contains(&extension.as_str()) {
             return Err(invalid(format!("unsupported file type .{extension}")));
         }
-        if data.len() > SOUNDPAD_UPLOAD_CHUNK_BYTES.div_ceil(3) * 4 {
+        if data.len() > SOUNDDECK_UPLOAD_CHUNK_BYTES.div_ceil(3) * 4 {
             return Err(invalid("chunk too large".into()));
         }
         let bytes = decode_base64(data).ok_or_else(|| invalid("invalid base64 data".into()))?;
-        if bytes.len() > SOUNDPAD_UPLOAD_CHUNK_BYTES {
+        if bytes.len() > SOUNDDECK_UPLOAD_CHUNK_BYTES {
             return Err(invalid("chunk too large".into()));
         }
         let io = |error: std::io::Error| ErrorBody::new(ErrorCode::Internal, error.to_string());
@@ -766,8 +768,8 @@ fn remove_upload(path: &Path) {
     }
 }
 
-pub fn library_error(error: macafon_soundpad::Error) -> ErrorBody {
-    use macafon_soundpad::Error;
+pub fn library_error(error: macafon_sounddeck::Error) -> ErrorBody {
+    use macafon_sounddeck::Error;
     let code = match &error {
         Error::InvalidName(_)
         | Error::InvalidId(_)
@@ -884,27 +886,27 @@ fn open_folder_blocking(folder: &Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
-    fn wait_scan(soundpad: &mut Soundpad) -> bool {
-        soundpad.rescan();
+    fn wait_scan(sounddeck: &mut SoundDeck) -> bool {
+        sounddeck.rescan();
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut changed = false;
-        while soundpad.scan_busy || soundpad.scan_requested {
-            changed |= soundpad.poll_library();
+        while sounddeck.scan_busy || sounddeck.scan_requested {
+            changed |= sounddeck.poll_library();
             assert!(Instant::now() < deadline, "scan timed out");
             std::thread::sleep(Duration::from_millis(1));
         }
         changed
     }
 
-    fn test_soundpad(label: &str) -> (PathBuf, SoundpadConfig, Soundpad) {
+    fn test_sounddeck(label: &str) -> (PathBuf, SoundDeckConfig, SoundDeck) {
         let root = std::env::temp_dir().join(format!("macafon-{label}-{}", std::process::id()));
-        let config = SoundpadConfig {
+        let config = SoundDeckConfig {
             folder: Some(root.join("sounds")),
             ..Default::default()
         };
-        let mut soundpad = Soundpad::new(&config, &root.join("state"));
-        wait_scan(&mut soundpad);
-        (root, config, soundpad)
+        let mut sounddeck = SoundDeck::new(&config, &root.join("state"));
+        wait_scan(&mut sounddeck);
+        (root, config, sounddeck)
     }
 
     fn write_wav(path: &Path) {
@@ -927,106 +929,106 @@ mod tests {
 
     #[test]
     fn pending_decode_follows_rename() {
-        let (root, config, mut soundpad) = test_soundpad("pending-rename");
-        write_wav(&soundpad.folder.join("old.wav"));
-        wait_scan(&mut soundpad);
-        assert!(!soundpad.play("old.wav", &config).expect("play"));
-        let renamed = library::rename(&soundpad.folder, "old.wav", "new").expect("rename");
-        soundpad.renamed("old.wav", &renamed.id);
-        wait_scan(&mut soundpad);
+        let (root, config, mut sounddeck) = test_sounddeck("pending-rename");
+        write_wav(&sounddeck.folder.join("old.wav"));
+        wait_scan(&mut sounddeck);
+        assert!(!sounddeck.play("old.wav", &config).expect("play"));
+        let renamed = library::rename(&sounddeck.folder, "old.wav", "new").expect("rename");
+        sounddeck.renamed("old.wav", &renamed.id);
+        wait_scan(&mut sounddeck);
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            if let Some(id) = soundpad.tick(&config, Instant::now()).played {
+            if let Some(id) = sounddeck.tick(&config, Instant::now()).played {
                 assert_eq!(id, "new.wav");
                 break;
             }
             assert!(Instant::now() < deadline, "renamed sound stayed loading");
             std::thread::sleep(Duration::from_millis(2));
         }
-        drop(soundpad);
+        drop(sounddeck);
         std::fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
     fn another_folder_replaces_the_library_and_stops_playback() {
-        let (root, config, mut soundpad) = test_soundpad("set-folder");
-        write_wav(&soundpad.folder.join("old.wav"));
-        wait_scan(&mut soundpad);
-        soundpad.play("old.wav", &config).expect("play");
+        let (root, config, mut sounddeck) = test_sounddeck("set-folder");
+        write_wav(&sounddeck.folder.join("old.wav"));
+        wait_scan(&mut sounddeck);
+        sounddeck.play("old.wav", &config).expect("play");
         let other = root.join("D drive").join("Sounds");
         std::fs::create_dir_all(other.join("Memes")).expect("other folder");
         write_wav(&other.join("Memes").join("new.wav"));
-        soundpad.set_folder(other.clone());
-        wait_scan(&mut soundpad);
-        assert_eq!(soundpad.folder(), other);
-        assert_eq!(soundpad.playback(), None);
-        let ids: Vec<&str> = soundpad.entries().iter().map(|e| e.id.as_str()).collect();
+        sounddeck.set_folder(other.clone());
+        wait_scan(&mut sounddeck);
+        assert_eq!(sounddeck.folder(), other);
+        assert_eq!(sounddeck.playback(), None);
+        let ids: Vec<&str> = sounddeck.entries().iter().map(|e| e.id.as_str()).collect();
         assert_eq!(ids, ["Memes/new.wav"]);
-        assert_eq!(soundpad.categories(), ["Memes"]);
-        drop(soundpad);
+        assert_eq!(sounddeck.categories(), ["Memes"]);
+        drop(sounddeck);
         std::fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
     fn failed_rescan_preserves_the_known_library() {
-        let (root, _, mut soundpad) = test_soundpad("failed-rescan");
-        write_wav(&soundpad.folder.join("known.wav"));
-        wait_scan(&mut soundpad);
-        std::fs::rename(&soundpad.folder, root.join("backup")).expect("move folder");
-        std::fs::write(&soundpad.folder, b"temporarily unavailable").expect("block scan");
-        assert!(!wait_scan(&mut soundpad));
-        assert_eq!(soundpad.entries()[0].id, "known.wav");
-        drop(soundpad);
+        let (root, _, mut sounddeck) = test_sounddeck("failed-rescan");
+        write_wav(&sounddeck.folder.join("known.wav"));
+        wait_scan(&mut sounddeck);
+        std::fs::rename(&sounddeck.folder, root.join("backup")).expect("move folder");
+        std::fs::write(&sounddeck.folder, b"temporarily unavailable").expect("block scan");
+        assert!(!wait_scan(&mut sounddeck));
+        assert_eq!(sounddeck.entries()[0].id, "known.wav");
+        drop(sounddeck);
         std::fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
     fn rescan_cancels_deleted_pending_decode() {
-        let (root, config, mut soundpad) = test_soundpad("pending-delete");
-        write_wav(&soundpad.folder.join("old.wav"));
-        wait_scan(&mut soundpad);
-        soundpad.play("old.wav", &config).expect("play");
-        std::fs::remove_file(soundpad.folder.join("old.wav")).expect("delete");
-        wait_scan(&mut soundpad);
-        assert!(soundpad.playback().is_none());
-        assert!(soundpad.tick(&config, Instant::now()).played.is_none());
-        drop(soundpad);
+        let (root, config, mut sounddeck) = test_sounddeck("pending-delete");
+        write_wav(&sounddeck.folder.join("old.wav"));
+        wait_scan(&mut sounddeck);
+        sounddeck.play("old.wav", &config).expect("play");
+        std::fs::remove_file(sounddeck.folder.join("old.wav")).expect("delete");
+        wait_scan(&mut sounddeck);
+        assert!(sounddeck.playback().is_none());
+        assert!(sounddeck.tick(&config, Instant::now()).played.is_none());
+        drop(sounddeck);
         std::fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
     fn uploads_expire_and_reject_invalid_names_before_writing() {
-        let (root, config, mut soundpad) = test_soundpad("upload-expiry");
+        let (root, config, mut sounddeck) = test_sounddeck("upload-expiry");
         for name in ["NUL.wav", "audio:stream.wav", "trailing .wav:"] {
             assert!(
-                soundpad
+                sounddeck
                     .upload("bad", name, None, 0, "AAAA", false)
                     .is_err()
             );
         }
         assert!(
-            soundpad
+            sounddeck
                 .upload(
                     "bad",
                     "large.wav",
                     None,
                     0,
-                    &"A".repeat(SOUNDPAD_UPLOAD_CHUNK_BYTES.div_ceil(3) * 4 + 4),
+                    &"A".repeat(SOUNDDECK_UPLOAD_CHUNK_BYTES.div_ceil(3) * 4 + 4),
                     false
                 )
                 .is_err()
         );
-        assert!(!soundpad.uploads_dir.join("bad").exists());
-        soundpad
+        assert!(!sounddeck.uploads_dir.join("bad").exists());
+        sounddeck
             .upload("expired", "tone.wav", None, 0, "AAAA", false)
             .expect("chunk");
-        let path = soundpad.uploads["expired"].path.clone();
+        let path = sounddeck.uploads["expired"].path.clone();
         assert!(path.exists());
-        soundpad.tick(&config, Instant::now() + STALE_UPLOAD);
+        sounddeck.tick(&config, Instant::now() + STALE_UPLOAD);
         assert!(!path.exists());
         assert!(!path.parent().expect("directory").exists());
-        wait_scan(&mut soundpad);
-        drop(soundpad);
+        wait_scan(&mut sounddeck);
+        drop(sounddeck);
         std::fs::remove_dir_all(root).expect("cleanup");
     }
 
@@ -1043,36 +1045,36 @@ mod tests {
 
     #[test]
     fn hotkey_preloading_is_bounded_and_does_not_restart_evicted_work() {
-        let (root, _, mut soundpad) = test_soundpad("bounded-preload");
+        let (root, _, mut sounddeck) = test_sounddeck("bounded-preload");
         let ids: Vec<String> = (0..8).map(|i| format!("tone{i}.wav")).collect();
         for id in &ids {
-            write_wav(&soundpad.folder.join(id));
+            write_wav(&sounddeck.folder.join(id));
         }
-        wait_scan(&mut soundpad);
+        wait_scan(&mut sounddeck);
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            soundpad.preload(ids.iter().map(String::as_str));
-            soundpad.poll_loaded_sounds(&SoundpadConfig::default());
-            if soundpad.preloaded.len() == MAX_PRELOADS && soundpad.preload_pending.is_none() {
+            sounddeck.preload(ids.iter().map(String::as_str));
+            sounddeck.poll_loaded_sounds(&SoundDeckConfig::default());
+            if sounddeck.preloaded.len() == MAX_PRELOADS && sounddeck.preload_pending.is_none() {
                 break;
             }
             assert!(Instant::now() < deadline);
             std::thread::sleep(Duration::from_millis(1));
         }
-        soundpad.loader.clear();
-        soundpad.preload(ids.iter().map(String::as_str));
+        sounddeck.loader.clear();
+        sounddeck.preload(ids.iter().map(String::as_str));
         assert!(
-            soundpad.preload_pending.is_none(),
+            sounddeck.preload_pending.is_none(),
             "eviction must not cause decode churn"
         );
         let long = &ids[4];
-        soundpad.durations.insert(long.clone(), (0, Some(600_000)));
-        soundpad.preload(std::iter::once(long.as_str()));
+        sounddeck.durations.insert(long.clone(), (0, Some(600_000)));
+        sounddeck.preload(std::iter::once(long.as_str()));
         assert!(
-            soundpad.preload_pending.is_none(),
+            sounddeck.preload_pending.is_none(),
             "long sounds decode only on demand"
         );
-        drop(soundpad);
+        drop(sounddeck);
         std::fs::remove_dir_all(root).expect("cleanup");
     }
 
@@ -1108,29 +1110,29 @@ mod tests {
     #[test]
     #[ignore = "generated 5000-file performance measurement"]
     fn large_library_measurement() {
-        let (root, config, mut soundpad) = test_soundpad("large-library");
+        let (root, config, mut sounddeck) = test_sounddeck("large-library");
         for category in 0..50 {
-            let dir = soundpad.folder.join(format!("Category {category}"));
+            let dir = sounddeck.folder.join(format!("Category {category}"));
             std::fs::create_dir_all(&dir).expect("category");
             for sound in 0..100 {
                 write_wav(&dir.join(format!("Sound {sound}.wav")));
             }
         }
         let start = Instant::now();
-        assert_eq!(library::scan(&soundpad.folder).expect("scan").len(), 5000);
+        assert_eq!(library::scan(&sounddeck.folder).expect("scan").len(), 5000);
         eprintln!("5000 files scan: {:?}", start.elapsed());
         let start = Instant::now();
-        soundpad.rescan();
+        sounddeck.rescan();
         eprintln!("rescan dispatch: {:?}", start.elapsed());
         let mut max_tick = Duration::ZERO;
-        while soundpad.scan_busy || soundpad.scan_requested {
+        while sounddeck.scan_busy || sounddeck.scan_requested {
             let tick = Instant::now();
-            soundpad.tick(&config, Instant::now());
+            sounddeck.tick(&config, Instant::now());
             max_tick = max_tick.max(tick.elapsed());
             assert!(start.elapsed() < Duration::from_secs(20));
             std::thread::sleep(Duration::from_millis(1));
         }
-        assert_eq!(soundpad.entries.len(), 5000);
+        assert_eq!(sounddeck.entries.len(), 5000);
         eprintln!(
             "background inventory + probes + application: {:?}; maximum applying tick: {:?}",
             start.elapsed(),
@@ -1138,16 +1140,16 @@ mod tests {
         );
         let start = Instant::now();
         for _ in 0..100 {
-            soundpad.tick(&config, Instant::now());
+            sounddeck.tick(&config, Instant::now());
         }
         eprintln!("100 idle ticks: {:?}", start.elapsed());
         let start = Instant::now();
-        soundpad.scan_busy =
-            soundpad
+        sounddeck.scan_busy =
+            sounddeck
                 .worker
-                .request(soundpad.scan_revision, soundpad.folder.clone(), false);
-        while soundpad.scan_busy {
-            soundpad.poll_library();
+                .request(sounddeck.scan_revision, sounddeck.folder.clone(), false);
+        while sounddeck.scan_busy {
+            sounddeck.poll_library();
             std::thread::yield_now();
         }
         eprintln!(
@@ -1156,64 +1158,64 @@ mod tests {
         );
         for attempt in 0..3 {
             let start = Instant::now();
-            soundpad.scan_busy =
-                soundpad
+            sounddeck.scan_busy =
+                sounddeck
                     .worker
-                    .request(soundpad.scan_revision, soundpad.folder.clone(), false);
-            while soundpad.scan_busy {
-                soundpad.poll_library();
+                    .request(sounddeck.scan_revision, sounddeck.folder.clone(), false);
+            while sounddeck.scan_busy {
+                sounddeck.poll_library();
                 std::thread::yield_now();
             }
             eprintln!("steady notification check {attempt}: {:?}", start.elapsed());
         }
         let start = Instant::now();
-        let bytes = serde_json::to_vec(&soundpad.sounds(&config)).expect("serialize sounds");
+        let bytes = serde_json::to_vec(&sounddeck.sounds(&config)).expect("serialize sounds");
         eprintln!(
             "5000-sound payload: {} bytes, construction + serialization: {:?}",
             bytes.len(),
             start.elapsed()
         );
-        drop(soundpad);
+        drop(sounddeck);
         std::fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
     fn uploads_land_in_the_folder_in_order_only() {
-        let root = std::env::temp_dir().join(format!("macafon-soundpad-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("macafon-sounddeck-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        let config = SoundpadConfig {
+        let config = SoundDeckConfig {
             folder: Some(root.join("sounds")),
             ..Default::default()
         };
-        let mut soundpad = Soundpad::new(&config, &root.join("state"));
+        let mut sounddeck = SoundDeck::new(&config, &root.join("state"));
         // "RIFF" then the rest of a (not decodable) file; import only checks name and size.
         assert!(
-            soundpad
+            sounddeck
                 .upload("u1", "../Air horn.wav", Some("Memes"), 0, "UklGRg==", false)
                 .expect("first chunk")
                 .is_none()
         );
-        let skipped = soundpad.upload("u1", "Air horn.wav", Some("Memes"), 2, "AAAA", true);
+        let skipped = sounddeck.upload("u1", "Air horn.wav", Some("Memes"), 2, "AAAA", true);
         assert_eq!(
             skipped.expect_err("offset gap").code,
             ErrorCode::InvalidParams
         );
-        let entry = soundpad
+        let entry = sounddeck
             .upload("u1", "Air horn.wav", Some("Memes"), 4, "AAAA", true)
             .expect("last chunk")
             .expect("imported");
         assert_eq!(entry.id, "Memes/Air horn.wav");
         assert_eq!(std::fs::read(&entry.path).expect("file").len(), 7);
-        wait_scan(&mut soundpad);
-        assert!(!soundpad.entries().iter().any(|e| e.id == entry.id));
+        wait_scan(&mut sounddeck);
+        assert!(!sounddeck.entries().iter().any(|e| e.id == entry.id));
         assert!(
-            soundpad
+            sounddeck
                 .problem_sounds()
                 .iter()
                 .any(|sound| sound.id == "Unplayable/Air horn.wav" && sound.error.is_some())
         );
         assert!(
-            soundpad
+            sounddeck
                 .upload("u2", "notes.txt", None, 0, "AAAA", true)
                 .is_err()
         );

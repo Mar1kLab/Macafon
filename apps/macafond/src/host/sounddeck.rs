@@ -1,21 +1,21 @@
-//! Soundpad requests and housekeeping on the daemon control loop (PRD §7.6).
+//! SoundDeck requests and housekeeping on the daemon control loop (PRD §7.6).
 
 use super::{DaemonHost, reply};
-use crate::soundpad::{Soundpad, library_error, open_folder};
-use macafon_config::soundpad::clamp_volume;
+use crate::sounddeck::{SoundDeck, library_error, open_folder};
+use macafon_config::sounddeck::clamp_volume;
 use macafon_ipc::{
-    ErrorBody, ErrorCode, Event, HotkeyAction, Request, SoundpadPrefs, SoundpadPrefsPatch,
-    SoundpadState,
+    ErrorBody, ErrorCode, Event, HotkeyAction, Request, SoundDeckPrefs, SoundDeckPrefsPatch,
+    SoundDeckState,
 };
-use macafon_soundpad::library;
+use macafon_sounddeck::library;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 impl DaemonHost {
-    /// Create the soundpad where the platform plays it: only in the running daemon, so tests
+    /// Create the SoundDeck where the platform plays it: only in the running daemon, so tests
     /// never touch the user's folder.
-    pub(super) fn start_soundpad(&mut self) {
-        if !macafon_ipc::Platform::current().capabilities().soundpad {
+    pub(super) fn start_sounddeck(&mut self) {
+        if !macafon_ipc::Platform::current().capabilities().sounddeck {
             return;
         }
         let state_dir = match macafon_config::state_dir() {
@@ -25,23 +25,23 @@ impl DaemonHost {
                 return;
             }
         };
-        let mut soundpad = Soundpad::new(&self.config.soundpad, &state_dir);
-        soundpad.rescan();
-        tracing::info!(folder = %soundpad.folder().display(), sounds = soundpad.entries().len(), "SoundDeck ready");
-        self.soundpad = Some(soundpad);
+        let mut sounddeck = SoundDeck::new(&self.config.sounddeck, &state_dir);
+        sounddeck.rescan();
+        tracing::info!(folder = %sounddeck.folder().display(), sounds = sounddeck.entries().len(), "SoundDeck ready");
+        self.sounddeck = Some(sounddeck);
         self.preload_sounds();
     }
 
-    pub(super) fn soundpad_state(&self) -> Option<SoundpadState> {
-        let soundpad = self.soundpad.as_ref()?;
-        let config = &self.config.soundpad;
-        Some(SoundpadState {
-            folder: soundpad.folder().display().to_string(),
+    pub(super) fn sounddeck_state(&self) -> Option<SoundDeckState> {
+        let sounddeck = self.sounddeck.as_ref()?;
+        let config = &self.config.sounddeck;
+        Some(SoundDeckState {
+            folder: sounddeck.folder().display().to_string(),
             default_folder: config.folder.is_none(),
-            categories: soundpad.categories().to_vec(),
-            sounds: soundpad.sounds(config),
-            problem_sounds: soundpad.problem_sounds(),
-            prefs: SoundpadPrefs {
+            categories: sounddeck.categories().to_vec(),
+            sounds: sounddeck.sounds(config),
+            problem_sounds: sounddeck.problem_sounds(),
+            prefs: SoundDeckPrefs {
                 to_microphone: config.to_microphone,
                 to_headphones: config.to_headphones,
                 microphone_volume_pct: config.microphone_volume_pct,
@@ -50,38 +50,38 @@ impl DaemonHost {
                 monitor_device: config.monitor_device.clone(),
                 show_in_overlay: config.show_in_overlay,
                 overlay_controls: match config.overlay_controls {
-                    macafon_config::soundpad::SoundpadOverlayControls::Top => {
-                        macafon_ipc::SoundpadOverlayControls::Top
+                    macafon_config::sounddeck::SoundDeckOverlayControls::Top => {
+                        macafon_ipc::SoundDeckOverlayControls::Top
                     }
-                    macafon_config::soundpad::SoundpadOverlayControls::Bottom => {
-                        macafon_ipc::SoundpadOverlayControls::Bottom
+                    macafon_config::sounddeck::SoundDeckOverlayControls::Bottom => {
+                        macafon_ipc::SoundDeckOverlayControls::Bottom
                     }
-                    macafon_config::soundpad::SoundpadOverlayControls::Hidden => {
-                        macafon_ipc::SoundpadOverlayControls::Hidden
+                    macafon_config::sounddeck::SoundDeckOverlayControls::Hidden => {
+                        macafon_ipc::SoundDeckOverlayControls::Hidden
                     }
                 },
                 overlay_view: match config.overlay_view {
-                    macafon_config::soundpad::SoundpadOverlayView::Grid => {
-                        macafon_ipc::SoundpadOverlayView::Grid
+                    macafon_config::sounddeck::SoundDeckOverlayView::Grid => {
+                        macafon_ipc::SoundDeckOverlayView::Grid
                     }
-                    macafon_config::soundpad::SoundpadOverlayView::List => {
-                        macafon_ipc::SoundpadOverlayView::List
+                    macafon_config::sounddeck::SoundDeckOverlayView::List => {
+                        macafon_ipc::SoundDeckOverlayView::List
                     }
                 },
             },
-            playback: soundpad.playback(),
+            playback: sounddeck.playback(),
             microphone_ready: self.virtual_mic_ready,
         })
     }
 
-    fn soundpad_value(&self) -> Result<serde_json::Value, ErrorBody> {
-        reply(self.soundpad_state())
+    fn sounddeck_value(&self) -> Result<serde_json::Value, ErrorBody> {
+        reply(self.sounddeck_state())
     }
 
     /// Sounds, categories or preferences changed: tell the clients, and register the hotkeys
     /// of the sounds that exist now.
-    pub(super) fn soundpad_changed(&mut self) {
-        self.soundpad_dirty = true;
+    pub(super) fn sounddeck_changed(&mut self) {
+        self.sounddeck_dirty = true;
         let bound = self.bound_hotkeys.clone();
         self.rebind_hotkeys();
         if self.bound_hotkeys != bound {
@@ -92,7 +92,7 @@ impl DaemonHost {
 
     /// Sounds with a hotkey are decoded ahead, so a press plays at once.
     pub(super) fn preload_sounds(&mut self) {
-        let Some(soundpad) = &mut self.soundpad else {
+        let Some(sounddeck) = &mut self.sounddeck else {
             return;
         };
         let ids: std::collections::BTreeSet<String> = self
@@ -101,21 +101,21 @@ impl DaemonHost {
             .keys()
             .filter_map(
                 |binding| match HotkeyAction::parse(super::hotkeys::base_action(binding)) {
-                    Some(HotkeyAction::SoundpadPlay(id)) => Some(id),
+                    Some(HotkeyAction::SoundDeckPlay(id)) => Some(id),
                     _ => None,
                 },
             )
             .collect();
-        soundpad.preload(ids.iter().map(String::as_str));
+        sounddeck.preload(ids.iter().map(String::as_str));
     }
 
     /// Every 100 ms: decodes, the end of a sound, the folder and progress events.
-    pub(super) fn tick_soundpad(&mut self, now: Instant) {
-        let Some(soundpad) = &mut self.soundpad else {
+    pub(super) fn tick_sounddeck(&mut self, now: Instant) {
+        let Some(sounddeck) = &mut self.sounddeck else {
             return;
         };
-        let outcome = soundpad.tick(&self.config.soundpad, now);
-        let playback = soundpad.playback_changed();
+        let outcome = sounddeck.tick(&self.config.sounddeck, now);
+        let playback = sounddeck.playback_changed();
         if let Some(id) = &outcome.played {
             self.count_play(id);
         }
@@ -123,30 +123,30 @@ impl DaemonHost {
             self.sound_renamed(&from, &to);
         }
         if outcome.library_changed {
-            self.soundpad_changed();
+            self.sounddeck_changed();
         }
-        if self.soundpad_dirty
+        if self.sounddeck_dirty
             && self
-                .soundpad_broadcast_at
+                .sounddeck_broadcast_at
                 .is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_secs(1))
             && self.hub.has_clients()
-            && let Some(state) = self.soundpad_state()
-            && self.hub.broadcast_soundpad(state)
+            && let Some(state) = self.sounddeck_state()
+            && self.hub.broadcast_sounddeck(state)
         {
-            self.soundpad_dirty = false;
-            self.soundpad_broadcast_at = Some(now);
+            self.sounddeck_dirty = false;
+            self.sounddeck_broadcast_at = Some(now);
         }
         if outcome.preload_ready {
             self.preload_sounds();
         }
         if let Some(playback) = playback {
-            self.hub.broadcast(&Event::SoundpadPlayback(playback));
+            self.hub.broadcast(&Event::SoundDeckPlayback(playback));
         }
     }
 
     fn count_play(&mut self, id: &str) {
-        self.soundpad_dirty = true;
-        self.config.soundpad.edit_sound(id, |sound| {
+        self.sounddeck_dirty = true;
+        self.config.sounddeck.edit_sound(id, |sound| {
             sound.play_count = sound.play_count.saturating_add(1)
         });
         self.changed_at = Some(Instant::now());
@@ -157,27 +157,27 @@ impl DaemonHost {
         if from == to {
             return;
         }
-        self.config.soundpad.rename_sound(from, to);
+        self.config.sounddeck.rename_sound(from, to);
         self.update_sound_hotkeys(from, Some(to));
-        if let Some(soundpad) = &mut self.soundpad {
-            soundpad.renamed(from, to);
+        if let Some(sounddeck) = &mut self.sounddeck {
+            sounddeck.renamed(from, to);
         }
         self.changed_at = Some(Instant::now());
     }
 
     /// A deleted sound takes its settings and hotkeys along.
     fn sound_removed(&mut self, id: &str) {
-        self.config.soundpad.sounds.remove(id);
+        self.config.sounddeck.sounds.remove(id);
         self.update_sound_hotkeys(id, None);
-        if let Some(soundpad) = &mut self.soundpad {
-            soundpad.removed(id);
+        if let Some(sounddeck) = &mut self.sounddeck {
+            sounddeck.removed(id);
         }
         self.changed_at = Some(Instant::now());
     }
 
     fn update_sound_hotkeys(&mut self, from: &str, to: Option<&str>) {
-        let from = HotkeyAction::SoundpadPlay(from.to_owned()).id();
-        let to = to.map(|id| HotkeyAction::SoundpadPlay(id.to_owned()).id());
+        let from = HotkeyAction::SoundDeckPlay(from.to_owned()).id();
+        let to = to.map(|id| HotkeyAction::SoundDeckPlay(id.to_owned()).id());
         for suffix in ["", "#secondary"] {
             if let Some(shortcut) = self.config.hotkeys.remove(&format!("{from}{suffix}"))
                 && let Some(to) = &to
@@ -189,27 +189,27 @@ impl DaemonHost {
         }
     }
 
-    pub(super) fn respond_soundpad(
+    pub(super) fn respond_sounddeck(
         &mut self,
         request: Request,
     ) -> Result<serde_json::Value, ErrorBody> {
-        let soundpad = self.soundpad.as_mut().ok_or_else(soundpad_unavailable)?;
-        let folder = soundpad.folder().to_owned();
+        let sounddeck = self.sounddeck.as_mut().ok_or_else(sounddeck_unavailable)?;
+        let folder = sounddeck.folder().to_owned();
         let null = Ok(serde_json::Value::Null);
         match request {
-            Request::SoundpadGet => {}
-            Request::SoundpadRescan => {
-                soundpad.rescan();
+            Request::SoundDeckGet => {}
+            Request::SoundDeckRescan => {
+                sounddeck.rescan();
             }
-            Request::SoundpadOpenFolder => {
+            Request::SoundDeckOpenFolder => {
                 open_folder(&folder).map_err(super::backend_error)?;
                 return null;
             }
-            Request::SoundpadSetFolder { folder } => {
+            Request::SoundDeckSetFolder { folder } => {
                 let chosen = library_folder(folder.as_deref())?;
                 let path = chosen
                     .clone()
-                    .unwrap_or_else(macafon_config::soundpad::default_folder);
+                    .unwrap_or_else(macafon_config::sounddeck::default_folder);
                 std::fs::create_dir_all(&path).map_err(|error| {
                     ErrorBody::new(
                         ErrorCode::InvalidParams,
@@ -222,38 +222,38 @@ impl DaemonHost {
                         format!("{} is not a folder", path.display()),
                     ));
                 }
-                if folder_path(&path) != folder_path(soundpad.folder()) {
-                    soundpad.set_folder(path);
+                if folder_path(&path) != folder_path(sounddeck.folder()) {
+                    sounddeck.set_folder(path);
                 }
-                self.config.soundpad.folder = chosen;
+                self.config.sounddeck.folder = chosen;
                 self.changed_at = Some(Instant::now());
-                self.soundpad_changed();
+                self.sounddeck_changed();
             }
-            Request::SoundpadPlay { .. }
-            | Request::SoundpadPlayRandom { .. }
-            | Request::SoundpadStop
-            | Request::SoundpadSetPaused { .. }
-            | Request::SoundpadSeek { .. }
-            | Request::SoundpadSetLooping { .. } => {
-                return self.respond_soundpad_transport(request);
+            Request::SoundDeckPlay { .. }
+            | Request::SoundDeckPlayRandom { .. }
+            | Request::SoundDeckStop
+            | Request::SoundDeckSetPaused { .. }
+            | Request::SoundDeckSeek { .. }
+            | Request::SoundDeckSetLooping { .. } => {
+                return self.respond_sounddeck_transport(request);
             }
-            Request::SoundpadSetPrefs { patch } => {
-                apply_prefs(&mut self.config.soundpad, patch);
-                soundpad.apply(&self.config.soundpad);
+            Request::SoundDeckSetPrefs { patch } => {
+                apply_prefs(&mut self.config.sounddeck, patch);
+                sounddeck.apply(&self.config.sounddeck);
                 self.changed_at = Some(Instant::now());
-                self.soundpad_changed();
+                self.sounddeck_changed();
             }
-            Request::SoundpadSetMonitorDevice { device } => {
-                self.config.soundpad.monitor_device = device;
+            Request::SoundDeckSetMonitorDevice { device } => {
+                self.config.sounddeck.monitor_device = device;
                 self.changed_at = Some(Instant::now());
-                self.soundpad_changed();
+                self.sounddeck_changed();
             }
-            Request::SoundpadSetSound { id, patch } => {
-                soundpad.entry(&id)?;
+            Request::SoundDeckSetSound { id, patch } => {
+                sounddeck.entry(&id)?;
                 if let Some(volume) = patch.volume_pct {
-                    soundpad.sound_volume_changed(&id, clamp_volume(volume));
+                    sounddeck.sound_volume_changed(&id, clamp_volume(volume));
                 }
-                self.config.soundpad.edit_sound(&id, |sound| {
+                self.config.sounddeck.edit_sound(&id, |sound| {
                     if let Some(volume) = patch.volume_pct {
                         sound.volume_pct = volume;
                     }
@@ -262,58 +262,58 @@ impl DaemonHost {
                     }
                 });
                 self.changed_at = Some(Instant::now());
-                self.soundpad_changed();
+                self.sounddeck_changed();
             }
-            Request::SoundpadRename { id, name } => {
-                soundpad.entry(&id)?;
+            Request::SoundDeckRename { id, name } => {
+                sounddeck.entry(&id)?;
                 let entry = library::rename(&folder, &id, &name).map_err(library_error)?;
                 self.sound_renamed(&id, &entry.id);
-                if let Some(soundpad) = &mut self.soundpad {
-                    soundpad.rescan();
+                if let Some(sounddeck) = &mut self.sounddeck {
+                    sounddeck.rescan();
                 }
-                self.soundpad_changed();
+                self.sounddeck_changed();
             }
-            Request::SoundpadMove { id, category } => {
-                soundpad.entry(&id)?;
+            Request::SoundDeckMove { id, category } => {
+                sounddeck.entry(&id)?;
                 let entry = library::move_to_category(&folder, &id, category.as_deref())
                     .map_err(library_error)?;
                 self.sound_renamed(&id, &entry.id);
-                if let Some(soundpad) = &mut self.soundpad {
-                    soundpad.rescan();
+                if let Some(sounddeck) = &mut self.sounddeck {
+                    sounddeck.rescan();
                 }
-                self.soundpad_changed();
+                self.sounddeck_changed();
             }
-            Request::SoundpadDeleteProblemSounds => {
+            Request::SoundDeckDeleteProblemSounds => {
                 let deleted = library::delete_problem_sounds(&folder).map_err(library_error)?;
-                soundpad.rescan();
+                sounddeck.rescan();
                 for id in deleted {
                     self.sound_removed(&id);
                 }
-                self.soundpad_changed();
+                self.sounddeck_changed();
             }
-            Request::SoundpadDelete { id } => {
+            Request::SoundDeckDelete { id } => {
                 if !id.starts_with("Unplayable/") {
-                    soundpad.entry(&id)?;
+                    sounddeck.entry(&id)?;
                 }
                 library::delete(&folder, &id).map_err(library_error)?;
-                soundpad.rescan();
+                sounddeck.rescan();
                 self.sound_removed(&id);
-                self.soundpad_changed();
+                self.sounddeck_changed();
             }
-            Request::SoundpadCreateCategory { name } => {
+            Request::SoundDeckCreateCategory { name } => {
                 library::create_category(&folder, &name).map_err(library_error)?;
-                soundpad.rescan();
-                self.soundpad_changed();
+                sounddeck.rescan();
+                self.sounddeck_changed();
             }
-            Request::SoundpadRenameCategory { from, to } => {
-                self.rename_soundpad_category(&from, &to)?;
-                self.soundpad_changed();
+            Request::SoundDeckRenameCategory { from, to } => {
+                self.rename_sounddeck_category(&from, &to)?;
+                self.sounddeck_changed();
             }
-            Request::SoundpadDeleteCategory { name } => {
-                self.delete_soundpad_category(&name)?;
-                self.soundpad_changed();
+            Request::SoundDeckDeleteCategory { name } => {
+                self.delete_sounddeck_category(&name)?;
+                self.sounddeck_changed();
             }
-            Request::SoundpadUpload {
+            Request::SoundDeckUpload {
                 upload_id,
                 file_name,
                 category,
@@ -321,7 +321,7 @@ impl DaemonHost {
                 data,
                 done,
             } => {
-                let entry = soundpad.upload(
+                let entry = sounddeck.upload(
                     &upload_id,
                     &file_name,
                     category.as_deref(),
@@ -332,28 +332,28 @@ impl DaemonHost {
                 if entry.is_none() {
                     return null;
                 }
-                self.soundpad_dirty = true;
+                self.sounddeck_dirty = true;
                 return null;
             }
             _ => {
-                return Err(not_soundpad_request());
+                return Err(not_sounddeck_request());
             }
         }
-        self.soundpad_value()
+        self.sounddeck_value()
     }
 
-    fn rename_soundpad_category(&mut self, from: &str, to: &str) -> Result<(), ErrorBody> {
+    fn rename_sounddeck_category(&mut self, from: &str, to: &str) -> Result<(), ErrorBody> {
         let folder = self
-            .soundpad
+            .sounddeck
             .as_ref()
-            .ok_or_else(soundpad_unavailable)?
+            .ok_or_else(sounddeck_unavailable)?
             .folder()
             .to_owned();
         // Only known sounds can have settings; the folder rename itself also moves new files.
         let moved: Vec<String> = self
-            .soundpad
+            .sounddeck
             .as_ref()
-            .ok_or_else(soundpad_unavailable)?
+            .ok_or_else(sounddeck_unavailable)?
             .entries()
             .iter()
             .filter(|entry| entry.category.as_deref() == Some(from))
@@ -364,45 +364,45 @@ impl DaemonHost {
             let file = id.rsplit('/').next().unwrap_or(&id);
             self.sound_renamed(&id, &format!("{to}/{file}"));
         }
-        if let Some(soundpad) = &mut self.soundpad {
-            soundpad.rescan();
+        if let Some(sounddeck) = &mut self.sounddeck {
+            sounddeck.rescan();
         }
         Ok(())
     }
 
     /// Sounds move to the folder itself, under the names the library actually gave them.
-    fn delete_soundpad_category(&mut self, name: &str) -> Result<(), ErrorBody> {
+    fn delete_sounddeck_category(&mut self, name: &str) -> Result<(), ErrorBody> {
         let folder = self
-            .soundpad
+            .sounddeck
             .as_ref()
-            .ok_or_else(soundpad_unavailable)?
+            .ok_or_else(sounddeck_unavailable)?
             .folder()
             .to_owned();
         let result = library::delete_category(&folder, name, |from, to| {
             self.sound_renamed(from, to);
         });
-        if let Some(soundpad) = &mut self.soundpad {
-            soundpad.rescan();
+        if let Some(sounddeck) = &mut self.sounddeck {
+            sounddeck.rescan();
         }
-        self.soundpad_changed();
+        self.sounddeck_changed();
         result.map_err(library_error)
     }
 
-    fn respond_soundpad_transport(
+    fn respond_sounddeck_transport(
         &mut self,
         request: Request,
     ) -> Result<serde_json::Value, ErrorBody> {
-        let soundpad = self.soundpad.as_mut().ok_or_else(soundpad_unavailable)?;
+        let sounddeck = self.sounddeck.as_mut().ok_or_else(sounddeck_unavailable)?;
         match request {
-            Request::SoundpadPlay { id } => {
-                if soundpad.play(&id, &self.config.soundpad)? {
+            Request::SoundDeckPlay { id } => {
+                if sounddeck.play(&id, &self.config.sounddeck)? {
                     self.count_play(&id);
                 }
                 self.tick_playback();
             }
-            Request::SoundpadPlayRandom { category } => {
-                let candidates: Vec<String> = soundpad
-                    .sounds(&self.config.soundpad)
+            Request::SoundDeckPlayRandom { category } => {
+                let candidates: Vec<String> = sounddeck
+                    .sounds(&self.config.sounddeck)
                     .into_iter()
                     .filter(|sound| {
                         sound.error.is_none()
@@ -415,60 +415,64 @@ impl DaemonHost {
                 let id = random_pick(&candidates)
                     .ok_or_else(|| ErrorBody::new(ErrorCode::NotFound, "no sounds to play"))?
                     .clone();
-                return self.respond_soundpad(Request::SoundpadPlay { id });
+                return self.respond_sounddeck(Request::SoundDeckPlay { id });
             }
-            Request::SoundpadStop => {
-                soundpad.stop();
+            Request::SoundDeckStop => {
+                sounddeck.stop();
                 self.tick_playback();
             }
-            Request::SoundpadSetPaused { paused } => {
-                soundpad.set_paused(paused);
+            Request::SoundDeckSetPaused { paused } => {
+                sounddeck.set_paused(paused);
                 self.tick_playback();
             }
-            Request::SoundpadSeek { position_ms } => {
-                soundpad.seek(position_ms);
+            Request::SoundDeckSeek { position_ms } => {
+                sounddeck.seek(position_ms);
                 self.tick_playback();
             }
-            Request::SoundpadSetLooping { looping } => {
-                soundpad.set_looping(looping);
-                self.config.soundpad.looping = looping;
+            Request::SoundDeckSetLooping { looping } => {
+                sounddeck.set_looping(looping);
+                self.config.sounddeck.looping = looping;
                 self.changed_at = Some(Instant::now());
                 self.tick_playback();
             }
-            _ => return Err(not_soundpad_request()),
+            _ => return Err(not_sounddeck_request()),
         }
         Ok(serde_json::Value::Null)
     }
 
     /// Send a playback change at once instead of on the next tick.
     fn tick_playback(&mut self) {
-        if let Some(playback) = self.soundpad.as_mut().and_then(Soundpad::playback_changed) {
-            self.hub.broadcast(&Event::SoundpadPlayback(playback));
+        if let Some(playback) = self
+            .sounddeck
+            .as_mut()
+            .and_then(SoundDeck::playback_changed)
+        {
+            self.hub.broadcast(&Event::SoundDeckPlayback(playback));
         }
     }
 }
 
-fn apply_prefs(config: &mut macafon_config::SoundpadConfig, patch: SoundpadPrefsPatch) {
+fn apply_prefs(config: &mut macafon_config::SoundDeckConfig, patch: SoundDeckPrefsPatch) {
     if let Some(value) = patch.overlay_controls {
         config.overlay_controls = match value {
-            macafon_ipc::SoundpadOverlayControls::Top => {
-                macafon_config::soundpad::SoundpadOverlayControls::Top
+            macafon_ipc::SoundDeckOverlayControls::Top => {
+                macafon_config::sounddeck::SoundDeckOverlayControls::Top
             }
-            macafon_ipc::SoundpadOverlayControls::Bottom => {
-                macafon_config::soundpad::SoundpadOverlayControls::Bottom
+            macafon_ipc::SoundDeckOverlayControls::Bottom => {
+                macafon_config::sounddeck::SoundDeckOverlayControls::Bottom
             }
-            macafon_ipc::SoundpadOverlayControls::Hidden => {
-                macafon_config::soundpad::SoundpadOverlayControls::Hidden
+            macafon_ipc::SoundDeckOverlayControls::Hidden => {
+                macafon_config::sounddeck::SoundDeckOverlayControls::Hidden
             }
         };
     }
     if let Some(value) = patch.overlay_view {
         config.overlay_view = match value {
-            macafon_ipc::SoundpadOverlayView::Grid => {
-                macafon_config::soundpad::SoundpadOverlayView::Grid
+            macafon_ipc::SoundDeckOverlayView::Grid => {
+                macafon_config::sounddeck::SoundDeckOverlayView::Grid
             }
-            macafon_ipc::SoundpadOverlayView::List => {
-                macafon_config::soundpad::SoundpadOverlayView::List
+            macafon_ipc::SoundDeckOverlayView::List => {
+                macafon_config::sounddeck::SoundDeckOverlayView::List
             }
         };
     }
@@ -504,7 +508,7 @@ fn library_folder(folder: Option<&str>) -> Result<Option<PathBuf>, ErrorBody> {
             format!("{folder} is not a full path"),
         ));
     }
-    let default = macafon_config::soundpad::default_folder();
+    let default = macafon_config::sounddeck::default_folder();
     Ok((folder_path(&path) != folder_path(&default)).then_some(path))
 }
 
@@ -513,14 +517,14 @@ fn folder_path(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned())
 }
 
-fn soundpad_unavailable() -> ErrorBody {
+fn sounddeck_unavailable() -> ErrorBody {
     ErrorBody::new(
         ErrorCode::BadRequest,
         "the SoundDeck is not available on this platform",
     )
 }
 
-fn not_soundpad_request() -> ErrorBody {
+fn not_sounddeck_request() -> ErrorBody {
     ErrorBody::new(ErrorCode::BadRequest, "not a SoundDeck request")
 }
 
@@ -544,25 +548,25 @@ mod tests {
 
     #[test]
     fn overlay_prefs_patch_preserves_absent_fields_and_round_trips() {
-        let mut config = macafon_config::SoundpadConfig::default();
+        let mut config = macafon_config::SoundDeckConfig::default();
         let patch = serde_json::from_value(serde_json::json!({
             "overlay_view": "list", "overlay_controls": "bottom"
         }))
         .expect("overlay patch");
         apply_prefs(&mut config, patch);
-        apply_prefs(&mut config, SoundpadPrefsPatch::default());
+        apply_prefs(&mut config, SoundDeckPrefsPatch::default());
         assert_eq!(
             config.overlay_view,
-            macafon_config::soundpad::SoundpadOverlayView::List
+            macafon_config::sounddeck::SoundDeckOverlayView::List
         );
         assert_eq!(
             config.overlay_controls,
-            macafon_config::soundpad::SoundpadOverlayControls::Bottom
+            macafon_config::sounddeck::SoundDeckOverlayControls::Bottom
         );
         assert!(config.show_in_overlay);
         let saved = serde_json::to_string(&config).expect("save preferences");
         assert_eq!(
-            serde_json::from_str::<macafon_config::SoundpadConfig>(&saved)
+            serde_json::from_str::<macafon_config::SoundDeckConfig>(&saved)
                 .expect("load preferences"),
             config
         );

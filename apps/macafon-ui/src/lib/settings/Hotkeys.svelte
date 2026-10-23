@@ -48,22 +48,22 @@
   const groups = $derived.by(() => {
     const result: { id: string; title: string; bindings: HotkeyBinding[] }[] = [];
     for (const binding of hotkeys?.bindings ?? []) {
-      // Single sounds get their shortcuts on the Soundpad screen.
-      if (binding.action.startsWith('soundpad_play.')) continue;
-      const soundpad = binding.action.startsWith('soundpad_');
+      // Single sounds get their shortcuts on the SoundDeck screen.
+      if (binding.action.startsWith('sounddeck_play.')) continue;
+      const sounddeck = binding.action.startsWith('sounddeck_');
       const dictation = binding.action.startsWith('dictation_');
       const displays = binding.action.startsWith('display_');
-      const channel = soundpad || dictation || displays ? undefined : binding.action.split('.')[1];
+      const channel = sounddeck || dictation || displays ? undefined : binding.action.split('.')[1];
       const general = binding.action === 'quick_panel' || binding.action.startsWith('master_');
-      const id = channel ?? (general ? 'general' : soundpad ? 'soundpad' : dictation ? 'dictation' : displays ? 'displays' : '');
+      const id = channel ?? (general ? 'general' : sounddeck ? 'sounddeck' : dictation ? 'dictation' : displays ? 'displays' : '');
       let group = result.find((g) => g.id === id);
       if (!group) {
         const title = channel
           ? t('settings.hotkeys.channel', { name: channelName(channel) })
           : general
             ? t('settings.hotkeys.general')
-            : soundpad
-              ? t('settings.hotkeys.soundpad')
+            : sounddeck
+              ? t('settings.hotkeys.sounddeck')
               : dictation
                 ? t('settings.hotkeys.dictation')
                 : displays

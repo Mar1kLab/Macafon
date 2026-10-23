@@ -1,15 +1,15 @@
-//! `[soundpad]`: the sound library and how it plays (PRD §7.6).
+//! `[sounddeck]`: the sound library and how it plays (PRD §7.6).
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Per-sound and output volumes go up to twice the file's level.
-pub const SOUNDPAD_MAX_VOLUME_PCT: f32 = 200.0;
+pub const SOUNDDECK_MAX_VOLUME_PCT: f32 = 200.0;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SoundpadOverlayView {
+pub enum SoundDeckOverlayView {
     #[default]
     Grid,
     List,
@@ -17,7 +17,7 @@ pub enum SoundpadOverlayView {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SoundpadOverlayControls {
+pub enum SoundDeckOverlayControls {
     #[default]
     Top,
     Bottom,
@@ -26,7 +26,7 @@ pub enum SoundpadOverlayControls {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct SoundpadConfig {
+pub struct SoundDeckConfig {
     /// Library folder; unset uses [`default_folder`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folder: Option<PathBuf>,
@@ -40,19 +40,19 @@ pub struct SoundpadConfig {
     pub monitor_device: Option<String>,
     pub show_in_overlay: bool,
     #[serde(default)]
-    pub overlay_view: SoundpadOverlayView,
+    pub overlay_view: SoundDeckOverlayView,
     #[serde(default)]
-    pub overlay_controls: SoundpadOverlayControls,
+    pub overlay_controls: SoundDeckOverlayControls,
     pub looping: bool,
     /// Output volumes are trims around the normalized level (owner request, 2026-10-18).
     /// Missing in older configs, whose volumes compensated for unnormalized sounds.
     #[serde(default)]
     pub normalized_levels: bool,
-    /// `[soundpad.sounds."Memes/airhorn.mp3"]`: only sounds with non-default settings.
+    /// `[sounddeck.sounds."Memes/airhorn.mp3"]`: only sounds with non-default settings.
     pub sounds: BTreeMap<String, SoundConfig>,
 }
 
-impl Default for SoundpadConfig {
+impl Default for SoundDeckConfig {
     fn default() -> Self {
         Self {
             folder: None,
@@ -63,8 +63,8 @@ impl Default for SoundpadConfig {
             mute_voice_while_playing: false,
             monitor_device: None,
             show_in_overlay: true,
-            overlay_view: SoundpadOverlayView::default(),
-            overlay_controls: SoundpadOverlayControls::default(),
+            overlay_view: SoundDeckOverlayView::default(),
+            overlay_controls: SoundDeckOverlayControls::default(),
             looping: false,
             normalized_levels: true,
             sounds: BTreeMap::new(),
@@ -96,7 +96,7 @@ impl SoundConfig {
     }
 }
 
-impl SoundpadConfig {
+impl SoundDeckConfig {
     pub fn folder(&self) -> PathBuf {
         self.folder.clone().unwrap_or_else(default_folder)
     }
@@ -141,7 +141,7 @@ impl SoundpadConfig {
 /// Out-of-range and non-finite volumes become the nearest valid one (100 % for NaN).
 pub fn clamp_volume(volume_pct: f32) -> f32 {
     if volume_pct.is_finite() {
-        volume_pct.clamp(0.0, SOUNDPAD_MAX_VOLUME_PCT)
+        volume_pct.clamp(0.0, SOUNDDECK_MAX_VOLUME_PCT)
     } else {
         100.0
     }
@@ -163,9 +163,9 @@ mod tests {
 
     #[test]
     fn sound_settings_drop_defaults_and_follow_renames() {
-        let mut config = SoundpadConfig::default();
+        let mut config = SoundDeckConfig::default();
         config.edit_sound("a.mp3", |sound| sound.volume_pct = 500.0);
-        assert_eq!(config.sound("a.mp3").volume_pct, SOUNDPAD_MAX_VOLUME_PCT);
+        assert_eq!(config.sound("a.mp3").volume_pct, SOUNDDECK_MAX_VOLUME_PCT);
         config.rename_sound("a.mp3", "Memes/b.mp3");
         assert_eq!(config.sound("Memes/b.mp3").volume_pct, 200.0);
         config.edit_sound("Memes/b.mp3", |sound| sound.volume_pct = 100.0);
@@ -174,18 +174,18 @@ mod tests {
 
     #[test]
     fn levels_from_before_normalization_reset_once() {
-        let mut old: SoundpadConfig = toml::from_str(
+        let mut old: SoundDeckConfig = toml::from_str(
             "headphones_volume_pct = 1.0
 microphone_volume_pct = 40.0
 ",
         )
-        .expect("old soundpad section");
+        .expect("old sounddeck section");
         assert!(old.normalize_levels());
         assert_eq!(old.headphones_volume_pct, 70.0);
         assert_eq!(old.microphone_volume_pct, 100.0);
         old.headphones_volume_pct = 5.0;
         assert!(!old.normalize_levels());
         assert_eq!(old.headphones_volume_pct, 5.0);
-        assert!(!SoundpadConfig::default().normalize_levels());
+        assert!(!SoundDeckConfig::default().normalize_levels());
     }
 }

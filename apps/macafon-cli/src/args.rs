@@ -134,10 +134,12 @@ pub(super) enum Ctl {
     /// Play the channels into this output (node.name); `default` follows the previous system
     /// default (OUT-001, OUT-003).
     Output { name: String },
-    /// List the soundpad's sounds, or play and stop them; for desktop hotkeys (HK-004).
-    Soundpad {
+    /// List the SoundDeck's sounds, or play and stop them; for desktop hotkeys (HK-004).
+    // `soundpad` is the name before 0.9.0, kept for existing desktop shortcuts.
+    #[command(name = "sounddeck", alias = "soundpad")]
+    SoundDeck {
         #[command(subcommand)]
-        command: Option<SoundpadCommand>,
+        command: Option<SoundDeckCommand>,
     },
     /// Run the self-checks (§9.6) and print them.
     Doctor,
@@ -193,7 +195,7 @@ pub(super) enum ChannelAction {
 }
 
 #[derive(Subcommand)]
-pub(super) enum SoundpadCommand {
+pub(super) enum SoundDeckCommand {
     List,
     /// Play a sound by id, `Memes/airhorn.mp3`.
     Play {

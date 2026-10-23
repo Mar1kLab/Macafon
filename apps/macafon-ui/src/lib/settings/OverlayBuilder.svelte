@@ -31,7 +31,7 @@
 
   const extra = $derived({
     dictation: daemon.dictation ? daemon.dictation.prefs.show_in_overlay : null,
-    sounds: daemon.soundpad ? daemon.soundpad.prefs.show_in_overlay : null,
+    sounds: daemon.sounddeck ? daemon.sounddeck.prefs.show_in_overlay : null,
     displays: daemon.displays !== null,
   });
   const available = (part: OverlayItem) =>
@@ -49,7 +49,7 @@
 
   function setShown(part: OverlayItem, on: boolean, patch: Partial<OverlayPrefs> = {}) {
     if (part === 'dictation') daemon.setDictationPrefs({ show_in_overlay: on });
-    else if (part === 'sounds') daemon.setSoundpadPrefs({ show_in_overlay: on });
+    else if (part === 'sounds') daemon.setSoundDeckPrefs({ show_in_overlay: on });
     else patch = { ...patch, [part]: on };
     if (Object.keys(patch).length) onchange(patch);
   }

@@ -56,7 +56,7 @@ pub(super) fn run(json: bool, command: Ctl) -> Result<()> {
         Ctl::Channel { id, action } if id == "master" => return master(client, action, json),
         Ctl::Channel { id, action } => return channel(client, id, action, json),
         Ctl::Apps { command } => return apps(client, command, json),
-        Ctl::Soundpad { command } => return soundpad(client, command, json),
+        Ctl::SoundDeck { command } => return sounddeck(client, command, json),
         Ctl::Doctor => return doctor(client, json),
         Ctl::Output { name } => {
             let request = Request::MixerSetOutput {
@@ -279,11 +279,12 @@ fn apps(client: &mut Client, command: Option<AppsCommand>, json: bool) -> Result
     Ok(())
 }
 
-fn soundpad(client: &mut Client, command: Option<SoundpadCommand>, json: bool) -> Result<()> {
+fn sounddeck(client: &mut Client, command: Option<SoundDeckCommand>, json: bool) -> Result<()> {
     let request = match command {
-        None | Some(SoundpadCommand::List) => {
-            let state: Option<macafon_ipc::SoundpadState> = client.call_as(Request::SoundpadGet)?;
-            let state = state.context("the soundpad is not available here")?;
+        None | Some(SoundDeckCommand::List) => {
+            let state: Option<macafon_ipc::SoundDeckState> =
+                client.call_as(Request::SoundDeckGet)?;
+            let state = state.context("the SoundDeck is not available here")?;
             if json {
                 return print_json(&state.sounds);
             }
@@ -292,10 +293,10 @@ fn soundpad(client: &mut Client, command: Option<SoundpadCommand>, json: bool) -
             }
             return Ok(());
         }
-        Some(SoundpadCommand::Play { id }) => Request::SoundpadPlay { id },
-        Some(SoundpadCommand::Random { category }) => Request::SoundpadPlayRandom { category },
-        Some(SoundpadCommand::Stop) => Request::SoundpadStop,
-        Some(SoundpadCommand::Pause) => Request::SoundpadSetPaused { paused: None },
+        Some(SoundDeckCommand::Play { id }) => Request::SoundDeckPlay { id },
+        Some(SoundDeckCommand::Random { category }) => Request::SoundDeckPlayRandom { category },
+        Some(SoundDeckCommand::Stop) => Request::SoundDeckStop,
+        Some(SoundDeckCommand::Pause) => Request::SoundDeckSetPaused { paused: None },
     };
     client.call(request)?;
     Ok(())

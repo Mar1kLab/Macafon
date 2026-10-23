@@ -12,7 +12,7 @@ use macafon_dsp::{ChannelTelemetry, Telemetry};
 use macafon_ipc::Endpoint;
 use macafon_ipc::{
     ErrorBody, ErrorCode, Event, FrameError, Hello, MAX_METER_HZ, Outcome, PROTOCOL_VERSION,
-    Platform, Request, Response, ServerMessage, SoundpadState, decode_request, encode,
+    Platform, Request, Response, ServerMessage, SoundDeckState, decode_request, encode,
     read_protocol_line,
 };
 use std::collections::{HashMap, HashSet};
@@ -52,22 +52,22 @@ pub struct Hub {
     /// Shared, so the meter pump takes it every tick without copying.
     mixer_telemetry: Mutex<MixerChannels>,
     next_id: AtomicU64,
-    soundpad_updates: mpsc::SyncSender<SoundpadState>,
+    sounddeck_updates: mpsc::SyncSender<SoundDeckState>,
 }
 
 impl Hub {
     pub fn new() -> Arc<Self> {
-        let (soundpad_updates, updates) = mpsc::sync_channel(1);
+        let (sounddeck_updates, updates) = mpsc::sync_channel(1);
         Arc::new_cyclic(|weak: &std::sync::Weak<Self>| {
             let weak = weak.clone();
             if let Err(error) = std::thread::Builder::new()
-                .name("macafon-soundpad-events".into())
+                .name("macafon-sounddeck-events".into())
                 .spawn(move || {
                     while let Ok(state) = updates.recv() {
                         let Some(hub) = weak.upgrade() else {
                             break;
                         };
-                        hub.broadcast(&Event::SoundpadChanged(state));
+                        hub.broadcast(&Event::SoundDeckChanged(state));
                     }
                 })
             {
@@ -79,7 +79,7 @@ impl Hub {
                 telemetry: Arc::default(),
                 mixer_telemetry: Mutex::default(),
                 next_id: AtomicU64::new(1),
-                soundpad_updates,
+                sounddeck_updates,
             }
         })
     }
@@ -139,8 +139,8 @@ impl Hub {
 
     /// Serialize large sound inventories away from the control loop. A full queue is retried
     /// from the latest daemon state on a later tick instead of accumulating stale snapshots.
-    pub fn broadcast_soundpad(&self, state: SoundpadState) -> bool {
-        self.soundpad_updates.try_send(state).is_ok()
+    pub fn broadcast_sounddeck(&self, state: SoundDeckState) -> bool {
+        self.sounddeck_updates.try_send(state).is_ok()
     }
 
     pub fn set_mixer_telemetry(&self, channels: Vec<(String, Arc<ChannelTelemetry>)>) {
@@ -569,7 +569,7 @@ mod tests {
         out.send("telemetry".into()).expect("fill queue");
         hub.clients().registered.insert(1, (out, None));
         hub.clients().ui.insert(1);
-        hub.broadcast_dictation(&Event::SoundpadPlayback(None));
+        hub.broadcast_dictation(&Event::SoundDeckPlayback(None));
         assert!(!hub.has_clients());
         assert!(!hub.ui_connected());
         assert_eq!(incoming.recv().expect("old frame"), "telemetry");
@@ -584,13 +584,13 @@ mod tests {
         let hub = Hub::new();
         let (out, incoming) = mpsc::sync_channel(1);
         hub.clients().registered.insert(1, (out, None));
-        let state = SoundpadState {
+        let state = SoundDeckState {
             folder: "sounds".into(),
             default_folder: false,
             categories: vec!["Empty".into()],
             sounds: Vec::new(),
             problem_sounds: Vec::new(),
-            prefs: macafon_ipc::SoundpadPrefs {
+            prefs: macafon_ipc::SoundDeckPrefs {
                 to_microphone: true,
                 to_headphones: true,
                 microphone_volume_pct: 100.0,
@@ -604,8 +604,8 @@ mod tests {
             playback: None,
             microphone_ready: false,
         };
-        let expected = encode(&Event::SoundpadChanged(state.clone())).expect("event");
-        assert!(hub.broadcast_soundpad(state.clone()));
+        let expected = encode(&Event::SoundDeckChanged(state.clone())).expect("event");
+        assert!(hub.broadcast_sounddeck(state.clone()));
         assert_eq!(
             incoming
                 .recv_timeout(Duration::from_secs(5))
@@ -616,7 +616,7 @@ mod tests {
         out.send("old event".into()).expect("fill queue");
         hub.clients().registered.clear();
         hub.clients().registered.insert(2, (out, None));
-        assert!(hub.broadcast_soundpad(state));
+        assert!(hub.broadcast_sounddeck(state));
         let deadline = Instant::now() + Duration::from_secs(5);
         while hub.has_clients() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(1));
@@ -629,7 +629,7 @@ mod tests {
     #[test]
     fn broadcast_preserves_event_wire_format() {
         let hub = Hub::new();
-        let event = Event::SoundpadPlayback(None);
+        let event = Event::SoundDeckPlayback(None);
         assert_no_alloc::assert_no_alloc(|| hub.broadcast(&event));
         let (out, incoming) = mpsc::sync_channel(1);
         hub.clients().registered.insert(1, (out, None));

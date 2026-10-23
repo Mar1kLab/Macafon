@@ -112,7 +112,7 @@ impl Endpoint {
                 .is_some_and(|t| now.saturating_duration_since(t) <= ALIVE)
     }
 }
-pub struct SoundpadControl {
+pub struct SoundDeckControl {
     outputs: [Arc<Settings>; 2],
     endpoints: [Option<Endpoint>; 2],
     retired: Vec<Endpoint>,
@@ -126,12 +126,12 @@ pub struct SoundpadControl {
     paused: bool,
     looping: bool,
 }
-impl Default for SoundpadControl {
+impl Default for SoundDeckControl {
     fn default() -> Self {
         Self::new()
     }
 }
-impl SoundpadControl {
+impl SoundDeckControl {
     pub fn new() -> Self {
         Self {
             outputs: std::array::from_fn(|_| Arc::new(Settings::new())),
@@ -149,7 +149,7 @@ impl SoundpadControl {
         }
     }
     /// Replaces the previous tap for this output. The old tap becomes silent on its next call.
-    pub fn tap(&mut self, output: Output) -> SoundpadTap {
+    pub fn tap(&mut self, output: Output) -> SoundDeckTap {
         let index = output.index();
         if let Some(old) = self.endpoints[index].take() {
             old.shared.active.store(false, Ordering::Release);
@@ -169,7 +169,7 @@ impl SoundpadControl {
             sent_revision: None,
         });
         self.flush();
-        SoundpadTap {
+        SoundDeckTap {
             commands: receiver,
             garbage,
             shared,
@@ -373,7 +373,7 @@ impl SoundpadControl {
 }
 // If teardown happens before the audio streams stop, retain leases on a non-RT
 // reaper until all taps are gone. Normal teardown (taps first) needs no thread.
-impl Drop for SoundpadControl {
+impl Drop for SoundDeckControl {
     fn drop(&mut self) {
         let mut endpoints = std::mem::take(&mut self.retired);
         endpoints.extend(self.endpoints.iter_mut().filter_map(Option::take));
@@ -391,7 +391,7 @@ impl Drop for SoundpadControl {
             .flat_map(|ep| ep.leases.iter().flatten().map(Arc::clone))
             .collect();
         if std::thread::Builder::new()
-            .name("macafon-soundpad-reaper".into())
+            .name("macafon-sounddeck-reaper".into())
             .spawn(move || {
                 while endpoints.iter().any(|ep| Arc::strong_count(&ep.shared) > 1) {
                     std::thread::sleep(Duration::from_millis(10));
@@ -466,7 +466,7 @@ impl Voice {
         self.last
     }
 }
-pub struct SoundpadTap {
+pub struct SoundDeckTap {
     commands: Consumer<Command>,
     garbage: Producer<Returned>,
     shared: Arc<Shared>,
@@ -486,7 +486,7 @@ pub struct SoundpadTap {
     voice_level: VoiceLevel,
     limiter: PeakLimiter,
 }
-impl SoundpadTap {
+impl SoundDeckTap {
     fn give_back(&mut self, sound: Arc<Sound>, lease: usize) {
         if let Err(rtrb::PushError::Full(returned)) = self.garbage.push(Returned { sound, lease }) {
             // This slot belongs exclusively to this reference until control receives
@@ -774,7 +774,7 @@ fn frames_to_ms(frames: usize) -> u32 {
     (frames as u64 * 1000 / u64::from(SAMPLE_RATE_HZ)).min(u64::from(u32::MAX)) as u32
 }
 
-impl Drop for SoundpadTap {
+impl Drop for SoundDeckTap {
     fn drop(&mut self) {
         // Return every PCM reference before Shared's final tap reference disappears.
         // Control-side leases also protect references still queued in either ring.
@@ -805,7 +805,7 @@ mod tests {
     fn constant(value: f32, frames: usize) -> Arc<Sound> {
         Arc::new(Sound::from_interleaved_stereo(vec![value; frames * 2]))
     }
-    fn render(tap: &mut SoundpadTap, frames: usize) -> Vec<f32> {
+    fn render(tap: &mut SoundDeckTap, frames: usize) -> Vec<f32> {
         let mut out = vec![0.0; frames * 2];
         assert_no_alloc(|| tap.mix(&mut out, 2));
         out
@@ -822,7 +822,7 @@ mod tests {
             let after = limiter.gain(0.0);
             assert!(after > before && after - before < 0.001);
         });
-        let mut control = SoundpadControl::new();
+        let mut control = SoundDeckControl::new();
         let mut tap = control.tap(Output::Microphone);
         control.set_output_gain(Output::Microphone, 2.0);
         control.play(constant(1.0, 48_000), 2.0, 0, true);
@@ -852,7 +852,7 @@ mod tests {
         });
         assert_eq!(level.target_rms_lin, held);
         // The microphone's 100% sound follows the processed voice reference.
-        let mut control = SoundpadControl::new();
+        let mut control = SoundDeckControl::new();
         let mut tap = control.tap(Output::Microphone);
         tap.voice_level = level;
         control.play(constant(0.5, 4800), 1.0, 0, false);
@@ -861,7 +861,7 @@ mod tests {
     }
     #[test]
     fn replace_stop_and_garbage_return_are_allocation_free() {
-        let mut control = SoundpadControl::new();
+        let mut control = SoundDeckControl::new();
         let mut tap = control.tap(Output::Monitor);
         let old = constant(0.5, 48_000);
         let weak = Arc::downgrade(&old);
@@ -889,7 +889,7 @@ mod tests {
     }
     #[test]
     fn independent_clocks_wait_for_both_outputs() {
-        let mut control = SoundpadControl::new();
+        let mut control = SoundDeckControl::new();
         let mut mic = control.tap(Output::Microphone);
         let mut monitor = control.tap(Output::Monitor);
         let sound = constant(0.25, 4800);
@@ -917,7 +917,7 @@ mod tests {
     }
     #[test]
     fn loop_pause_resume_seek_and_disabled_output_keep_position() {
-        let mut control = SoundpadControl::new();
+        let mut control = SoundDeckControl::new();
         let mut tap = control.tap(Output::Monitor);
         control.play(constant(0.25, 480), 1.0, 0, true);
         let out = render(&mut tap, 2000);
@@ -955,7 +955,7 @@ mod tests {
     }
     #[test]
     fn voice_duck_clamp_sanitize_and_channel_mapping() {
-        let mut control = SoundpadControl::new();
+        let mut control = SoundDeckControl::new();
         let mut tap = control.tap(Output::Microphone);
         control.play(constant(0.25, 48_000), 1.0, 0, false);
         control.set_duck_voice(true);
@@ -998,7 +998,7 @@ mod tests {
     }
     #[test]
     fn disabling_microphone_output_restores_voice_while_monitor_plays() {
-        let mut control = SoundpadControl::new();
+        let mut control = SoundDeckControl::new();
         let mut mic = control.tap(Output::Microphone);
         control.set_duck_voice(true);
         control.play(constant(0.25, 48_000), 1.0, 0, false);
@@ -1013,7 +1013,7 @@ mod tests {
     }
     #[test]
     fn reconnect_and_command_flood_preserve_rt_ownership() {
-        let mut control = SoundpadControl::new();
+        let mut control = SoundDeckControl::new();
         let mut old = control.tap(Output::Monitor);
         control.play(constant(0.2, 4800), 1.0, 0, true);
         render(&mut old, 500);
@@ -1046,7 +1046,7 @@ mod tests {
     }
     #[test]
     fn wall_clock_fallback_honors_pause_seek_and_dead_taps() {
-        let mut control = SoundpadControl::new();
+        let mut control = SoundDeckControl::new();
         control.play(constant(0.2, 48_000), 1.0, 0, false);
         control.set_paused(true);
         let now = control.anchor;

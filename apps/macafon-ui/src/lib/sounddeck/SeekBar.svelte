@@ -7,7 +7,7 @@
 
   let { compact = false }: { compact?: boolean } = $props();
 
-  const playback = $derived(daemon.soundpadPlayback);
+  const playback = $derived(daemon.sounddeckPlayback);
   const progress = $derived(playback && playback.duration_ms > 0 ? Math.min(playback.position_ms / playback.duration_ms, 1) : 0);
   const ticks = Array.from({ length: 21 }, (_, i) => i);
 
@@ -18,7 +18,7 @@
     if (!playback || !track) return;
     const rect = track.getBoundingClientRect();
     const fraction = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
-    void daemon.run(daemon.client.call('soundpad.seek', { position_ms: Math.round(fraction * playback.duration_ms) }));
+    void daemon.run(daemon.client.call('sounddeck.seek', { position_ms: Math.round(fraction * playback.duration_ms) }));
   }
 
   function onkeydown(event: KeyboardEvent) {
@@ -28,7 +28,7 @@
     if (target === null) return;
     event.preventDefault();
     const position_ms = Math.round(Math.min(Math.max(target, 0), playback.duration_ms));
-    void daemon.run(daemon.client.call('soundpad.seek', { position_ms }));
+    void daemon.run(daemon.client.call('sounddeck.seek', { position_ms }));
   }
 </script>
 
@@ -39,7 +39,7 @@
   bind:this={track}
   role="slider"
   tabindex={playback ? 0 : -1}
-  aria-label={t('soundpad.position')}
+  aria-label={t('sounddeck.position')}
   aria-valuemin={0}
   aria-valuemax={Math.round((playback?.duration_ms ?? 0) / 1000)}
   aria-valuenow={Math.round((playback?.position_ms ?? 0) / 1000)}

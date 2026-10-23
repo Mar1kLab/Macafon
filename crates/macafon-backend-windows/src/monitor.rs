@@ -1,10 +1,10 @@
-//! Soundpad monitor (PRD §7.6): one WASAPI stream that plays the soundpad into the user's
+//! SoundDeck monitor (PRD §7.6): one WASAPI stream that plays the SoundDeck into the user's
 //! headphones, next to the sound going into the cable.
 
 use crate::Error;
 use crate::com::ComGuard;
 use crate::wasapi::{ProAudioThread, RenderStream};
-use macafon_backend::SoundpadTap;
+use macafon_backend::SoundDeckTap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
@@ -19,16 +19,16 @@ pub struct Monitor {
 
 impl Monitor {
     /// Open `device_id` and start mixing `tap` into it; fails if the device cannot be opened.
-    pub fn start(device_id: String, mut tap: SoundpadTap) -> Result<Self, Error> {
+    pub fn start(device_id: String, mut tap: SoundDeckTap) -> Result<Self, Error> {
         let stop = Arc::new(AtomicBool::new(false));
         let (opened, result) = std::sync::mpsc::channel();
         let stopping = stop.clone();
         let thread = std::thread::Builder::new()
-            .name("macafon-soundpad-monitor".into())
+            .name("macafon-sounddeck-monitor".into())
             .spawn(move || {
                 let outcome = (|| {
                     let com = ComGuard::new()?;
-                    let stream = RenderStream::open_soundpad(&device_id)?;
+                    let stream = RenderStream::open_sounddeck(&device_id)?;
                     Ok::<_, Error>((com, stream))
                 })();
                 let (_com, stream) = match outcome {

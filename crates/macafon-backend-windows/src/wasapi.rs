@@ -21,7 +21,7 @@ const WAVE_FORMAT_EXTENSIBLE: u16 = 0xfffe;
 const KSDATAFORMAT_SUBTYPE_IEEE_FLOAT: GUID =
     GUID::from_u128(0x00000003_0000_0010_8000_00aa00389b71);
 pub(crate) const HNS_PER_SECOND: f64 = 10_000_000.0;
-pub(crate) const SOUNDPAD_SESSION: GUID = GUID::from_u128(0xf68b887a_4c27_47c6_9b66_e792fe401d75);
+pub(crate) const SOUNDDECK_SESSION: GUID = GUID::from_u128(0xf68b887a_4c27_47c6_9b66_e792fe401d75);
 
 /// Shared-mode engine periods a device supports at its mix format (IAudioClient3), in frames.
 #[derive(Debug, Clone, Copy)]
@@ -228,7 +228,7 @@ impl Drop for Stream {
     }
 }
 
-/// Stereo render stream shared by A/B playback and the soundpad monitor.
+/// Stereo render stream shared by A/B playback and the SoundDeck monitor.
 /// The caller initializes COM and retains its guard for this stream's lifetime.
 pub(crate) struct RenderStream {
     client: IAudioRenderClient,
@@ -248,18 +248,18 @@ impl RenderStream {
         Self::start(stream)
     }
 
-    pub(crate) fn open_soundpad(device_id: &str) -> Result<Self, Error> {
+    pub(crate) fn open_sounddeck(device_id: &str) -> Result<Self, Error> {
         let device = device_by_id(device_id)?;
         // SAFETY: COM is initialized on the opening thread. Create and label the session
         // before Initialize publishes its stream, so discovery cannot see an untagged one.
         let session = unsafe {
             let manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None)?;
-            let session = manager.GetAudioSessionControl(Some(&SOUNDPAD_SESSION), 0)?;
-            session.SetGroupingParam(&SOUNDPAD_SESSION, std::ptr::null())?;
+            let session = manager.GetAudioSessionControl(Some(&SOUNDDECK_SESSION), 0)?;
+            session.SetGroupingParam(&SOUNDDECK_SESSION, std::ptr::null())?;
             session.SetDisplayName(w!("SoundDeck"), std::ptr::null())?;
             session
         };
-        let stream = Stream::open_session(device_id, 2, 0, Some(&SOUNDPAD_SESSION))?;
+        let stream = Stream::open_session(device_id, 2, 0, Some(&SOUNDDECK_SESSION))?;
         let result = Self::start(stream);
         drop(session);
         result

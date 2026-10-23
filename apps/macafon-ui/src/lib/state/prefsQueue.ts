@@ -1,4 +1,4 @@
-// Optimistic preference patches (soundpad, dictation): one request in flight, later patches
+// Optimistic preference patches (sounddeck, dictation): one request in flight, later patches
 // merge into the next one, and the daemon's replies keep the fields still being edited local.
 
 type Patch = object;

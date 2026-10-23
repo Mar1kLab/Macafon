@@ -144,7 +144,7 @@ fn open_vb_cable_page() -> Result<(), BridgeError> {
         })
 }
 
-/// The system folder picker for the soundpad library (SND-001); any drive. `None` when the
+/// The system folder picker for the SoundDeck library (SND-001); any drive. `None` when the
 /// user cancels.
 #[tauri::command]
 async fn pick_folder(app: AppHandle, current: Option<String>) -> Option<String> {

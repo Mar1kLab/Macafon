@@ -497,7 +497,7 @@ const scenarios = {
   'dropdown-small-window': async (page) => {
     // The smallest window: the headphones device list opens upward inside the side panel.
     await page.setViewportSize({ width: 960, height: 640 });
-    await page.goto(`${base}?platform=windows&screen=soundpad`);
+    await page.goto(`${base}?platform=windows&screen=sounddeck`);
     await page.waitForSelector('.list');
     const height = () => page.evaluate(() => Math.max(document.documentElement.scrollHeight, document.body.scrollHeight));
     const closed = await height();
@@ -510,21 +510,21 @@ const scenarios = {
     if (!box || box.y < 0 || box.y + box.height > 640) throw new Error('the open list does not fit the window');
     await page.waitForTimeout(300);
   },
-  'soundpad-folder': async (page) => {
-    await page.goto(`${base}?platform=windows&screen=soundpad`);
+  'sounddeck-folder': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=sounddeck`);
     await page.waitForSelector('.list');
     await page.waitForTimeout(600);
   },
-  'settings-soundpad': async (page) => {
-    await page.goto(`${base}?platform=windows&screen=settings&section=soundpad`);
-    await page.waitForSelector('#settings-soundpad');
+  'settings-sounddeck': async (page) => {
+    await page.goto(`${base}?platform=windows&screen=settings&section=sounddeck`);
+    await page.waitForSelector('#settings-sounddeck');
     await page.getByRole('button', { name: 'Change folder' }).click();
     await page.locator('#prompt-input').fill('D:\\Audio\\Stream sounds');
     await page.getByRole('button', { name: 'Use folder' }).click();
     await page.waitForTimeout(900);
   },
-  soundpad: async (page) => {
-    await page.goto(`${base}?platform=windows&screen=soundpad`);
+  sounddeck: async (page) => {
+    await page.goto(`${base}?platform=windows&screen=sounddeck`);
     await page.waitForSelector('.page-header');
     await page.waitForTimeout(400);
   },

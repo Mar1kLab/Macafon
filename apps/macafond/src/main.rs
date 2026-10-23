@@ -20,7 +20,7 @@ mod output_controls;
 #[cfg_attr(windows, path = "platform/windows.rs")]
 mod platform;
 mod server;
-mod soundpad;
+mod sounddeck;
 mod tray;
 mod ui;
 

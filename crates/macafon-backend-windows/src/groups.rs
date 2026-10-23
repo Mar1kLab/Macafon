@@ -326,7 +326,7 @@ fn stream(id: u32, app: &App) -> PlaybackStream {
         serial: id.to_string(),
         node_name: app.exe.clone(),
         binary: named.then(|| stem.to_owned()),
-        app_name: Some(if app.exe == crate::mixer::SOUNDPAD {
+        app_name: Some(if app.exe == crate::mixer::SOUNDDECK {
             "SoundDeck".to_owned()
         } else if named {
             stem.to_owned()
@@ -346,11 +346,11 @@ fn stream(id: u32, app: &App) -> PlaybackStream {
 mod tests {
     use super::*;
     #[test]
-    fn soundpad_has_a_separate_movable_app_identity() {
-        let soundpad = stream(
+    fn sounddeck_has_a_separate_movable_app_identity() {
+        let sounddeck = stream(
             7,
             &App {
-                exe: crate::mixer::SOUNDPAD.into(),
+                exe: crate::mixer::SOUNDDECK.into(),
                 executable: Some("C:\\Macafon\\macafond.exe".into()),
                 active: true,
                 session_count: 1,
@@ -359,11 +359,11 @@ mod tests {
                 peak: 0.1,
             },
         );
-        assert_eq!(soundpad.app_name.as_deref(), Some("SoundDeck"));
-        assert!(soundpad.binary.is_none());
-        assert_eq!(soundpad.node_name, crate::mixer::SOUNDPAD);
-        assert!(soundpad.movable && soundpad.running);
-        assert!(soundpad.media_role.is_none());
+        assert_eq!(sounddeck.app_name.as_deref(), Some("SoundDeck"));
+        assert!(sounddeck.binary.is_none());
+        assert_eq!(sounddeck.node_name, crate::mixer::SOUNDDECK);
+        assert!(sounddeck.movable && sounddeck.running);
+        assert!(sounddeck.media_role.is_none());
     }
     #[test]
     fn an_app_muted_in_windows_stays_muted_unless_its_channel_explains_it() {

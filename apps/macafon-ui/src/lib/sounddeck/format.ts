@@ -1,4 +1,4 @@
-// Soundpad list helpers: times, sorting and filtering, kept out of the components to test them.
+// SoundDeck list helpers: times, sorting and filtering, kept out of the components to test them.
 import type { SoundInfo } from '../ipc/protocol';
 import { t } from '../i18n';
 
@@ -17,17 +17,17 @@ export function formatDuration(ms: number | null, tenths = false): string {
 export type SoundSort = 'newest' | 'oldest' | 'name' | 'plays' | 'duration' | 'category';
 export const SOUND_SORTS: readonly SoundSort[] = ['newest', 'oldest', 'name', 'plays', 'duration', 'category'];
 
-const SORT_KEY = 'macafon.soundpad.sort';
+const SORT_KEY = 'macafon.sounddeck.sort';
 
 /** The sort picker's options, in the order they are listed. */
 export function sortOptions(): { value: SoundSort; label: string }[] {
   return [
-    { value: 'newest', label: t('soundpad.sortNewest') },
-    { value: 'oldest', label: t('soundpad.sortOldest') },
-    { value: 'name', label: t('soundpad.sortName') },
-    { value: 'plays', label: t('soundpad.sortPlays') },
-    { value: 'duration', label: t('soundpad.sortDuration') },
-    { value: 'category', label: t('soundpad.sortCategory') },
+    { value: 'newest', label: t('sounddeck.sortNewest') },
+    { value: 'oldest', label: t('sounddeck.sortOldest') },
+    { value: 'name', label: t('sounddeck.sortName') },
+    { value: 'plays', label: t('sounddeck.sortPlays') },
+    { value: 'duration', label: t('sounddeck.sortDuration') },
+    { value: 'category', label: t('sounddeck.sortCategory') },
   ];
 }
 

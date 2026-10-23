@@ -162,7 +162,7 @@ The approved variant is **Retro**: a rounded microphone with five grille lines, 
 stand and an oval base. The master is `assets/branding/macafon.svg`.
 Export: `python3 tools/design/generate-logo.py` (Pillow, fontTools, system librsvg and Cairo; the UI
 dependencies must be installed locally to read Archivo).
-The ready SVG/PNG, ICO/ICNS, favicon, Linux hicolor and data for the UI/tray are stored in the repository;
+The ready SVG/PNG, ICO, favicon, Linux hicolor and data for the UI/tray are stored in the repository;
 the generator and its dependencies are not needed to build or run the application.
 
 The working position is upright, `--ink-strong`; mute/bypass — red `--danger`, and the whole microphone
@@ -174,7 +174,7 @@ have a transparent background. The launcher uses **Voice Ribbon** (owner request
 engraved off-white ribbon around a blue waveform, with a transparent background. Its approved raster
 master is `assets/branding/macafon-voice-ribbon.png`. `tools/design/generate-app-icons.py` exports
 the Tauri PNGs, a multi-resolution Windows ICO (16, 20, 24, 32, 40, 48, 64, 96, 128 and 256 px),
-ICNS, browser favicon and Linux hicolor PNGs up to 512 px. Exports preserve the complete artwork with
+a browser favicon and Linux hicolor PNGs up to 512 px. Exports preserve the complete artwork with
 transparent padding; the master is not a vector image. The Retro UI/tray mark and its state animation
 remain separate from this launcher artwork.
 

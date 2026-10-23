@@ -149,7 +149,6 @@ def main():
         for name, size in (("icon", 512), ("32x32", 32), ("128x128", 128), ("128x128@2x", 256)):
             images[size].save(ICONS / f"{name}.png")
         ico(images, ICONS / "icon.ico", tuple(size for size in SIZES if size <= 256))
-        images[1024].save(ICONS / "icon.icns", append_images=[images[s] for s in (16, 32, 64, 128, 256, 512)])
         public = ROOT / "apps/macafon-ui/public"
         images[32].save(public / "favicon.png")
         ico(images, public / "favicon.ico", (16, 32, 48))

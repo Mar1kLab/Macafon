@@ -49,11 +49,12 @@
     label={t('mic.preset')}
     {options}
     value={mic.preset}
-    width="180px"
+    width="200px"
     onchange={(id) => id && daemon.selectPreset(id)}
   >
     {#snippet button()}
       <span class="name">{current?.name ?? '—'}</span>
+      {#if mic.preset_modified}<span class="badge modified">{t('mic.modified')}</span>{/if}
     {/snippet}
     {#snippet option(item)}
       <span class="option-name">{item.label}</span>
@@ -76,7 +77,6 @@
   </Dropdown>
   <!-- Save appears only when there is something to save. -->
   {#if mic.preset_modified || !current}
-    {#if mic.preset_modified}<span class="badge modified">{t('mic.modified')}</span>{/if}
     <button class="btn" onclick={save}>
       {current && !current.builtin ? t('mic.save') : t('mic.saveAs')}
     </button>
@@ -104,11 +104,15 @@
 
   .name,
   .option-name {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
+  /* Inside the trigger: the name ellipsizes, the mark stays visible. */
   .modified {
+    flex-shrink: 0;
+    margin-left: auto;
     color: var(--app-amber-ink);
   }
 </style>

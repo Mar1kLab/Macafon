@@ -90,6 +90,17 @@
     align-items: center;
   }
 
+  /* A narrow card: Gate goes under the ratio slider instead of squeezing it. */
+  @container (max-width: 300px) {
+    .ratio {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .gate {
+      justify-self: end;
+    }
+  }
+
   .gate {
     display: flex;
     align-items: center;

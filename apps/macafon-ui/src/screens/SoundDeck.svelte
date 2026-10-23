@@ -388,7 +388,7 @@
           <div class="head hud-label" aria-hidden="true">
             <span></span>
             <span>{t('sounddeck.columns.name')}</span>
-            <span>{t('sounddeck.columns.category')}</span>
+            <span class="cat">{t('sounddeck.columns.category')}</span>
             <span class="right">{t('sounddeck.columns.length')}</span>
             <span>{t('sounddeck.columns.hotkey')}</span>
             <span></span>
@@ -560,13 +560,16 @@
   /* A narrow window keeps the toolbar on one line: its tools show only their icons. A container
      query, as media queries do not see the UI zoom. */
   @container sounddeck (max-width: 1176px) {
-    .tool .label {
+    .screen :global(.tool .label) {
       display: none;
     }
   }
 
+  /* Narrows before the header wraps onto a second row. */
   .screen :global(.search) {
-    width: 240px;
+    flex: 1 1 140px;
+    max-width: 240px;
+    min-width: 0;
   }
 
   .banner {
@@ -734,6 +737,20 @@
     grid-template-columns: 32px minmax(0, 1fr) minmax(0, 160px) 72px 120px 64px;
     align-items: center;
     column-gap: var(--space-3);
+  }
+
+  /* A narrow window gives the names the room: the category column goes (the sidebar filters
+     by category anyway) and the hotkey column narrows. */
+  @container sounddeck (max-width: 1040px) {
+    .head,
+    .row {
+      grid-template-columns: 32px minmax(0, 1fr) 72px 96px 64px;
+    }
+
+    .head .cat,
+    .row .cat {
+      display: none;
+    }
   }
 
   .head {

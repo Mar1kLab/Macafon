@@ -230,6 +230,15 @@
     grid-template-areas: 'name track value';
   }
 
+  /* A narrow card: the name and value go above the track, which keeps its full width. */
+  @container (max-width: 300px) {
+    .ruler.row {
+      grid-template-columns: 1fr auto;
+      grid-template-areas: 'name value' 'track track';
+      row-gap: var(--space-1);
+    }
+  }
+
   .ruler.compact {
     grid-template-columns: 1fr 46px;
     grid-template-areas: 'track value';

@@ -133,12 +133,13 @@
                   <LayoutSketch monitors={profileSketch(profile, displays.monitors)} height={84} />
                   {#if missing.length}<p class="warn">{t('displays.missing', { names: missing.join(', ') })}</p>{/if}
                   <div class="card-foot">
-                    {#if shortcut}<kbd>{displayShortcut(shortcut)}</kbd>{:else}<span class="faint" {@attach tip(t('displays.setShortcut'))}>{t('displays.noShortcut')}</span>{/if}
-                    <span class="spacer"></span>
-                    <button class="btn icon ghost" aria-label={`${t('displays.edit')}: ${profile.name}`} {@attach tip(t('displays.edit'))} onclick={() => (editing = profile)}><Pencil size={13} strokeWidth={1.5} /></button>
-                    <button class="btn icon ghost" aria-label={`${t('displays.recapture')}: ${profile.name}`} {@attach tip(t('displays.recapture'))} onclick={() => recapture(profile)}><RefreshCw size={13} strokeWidth={1.5} /></button>
-                    <button class="btn icon ghost" aria-label={`${t('displays.delete')}: ${profile.name}`} {@attach tip(t('displays.delete'))} onclick={() => (deleting = profile)}><Trash2 size={13} strokeWidth={1.5} /></button>
-                    <button class="btn" class:invert={!active} disabled={active || pending !== null} onclick={() => daemon.applyDisplayProfile(profile.id)}>{active ? t('displays.active') : t('displays.apply')}</button>
+                    {#if shortcut}<kbd {@attach tip(displayShortcut(shortcut))}>{displayShortcut(shortcut)}</kbd>{:else}<span class="faint" {@attach tip(t('displays.setShortcut'))}>{t('displays.noShortcut')}</span>{/if}
+                    <div class="tools">
+                      <button class="btn icon ghost" aria-label={`${t('displays.edit')}: ${profile.name}`} {@attach tip(t('displays.edit'))} onclick={() => (editing = profile)}><Pencil size={13} strokeWidth={1.5} /></button>
+                      <button class="btn icon ghost" aria-label={`${t('displays.recapture')}: ${profile.name}`} {@attach tip(t('displays.recapture'))} onclick={() => recapture(profile)}><RefreshCw size={13} strokeWidth={1.5} /></button>
+                      <button class="btn icon ghost" aria-label={`${t('displays.delete')}: ${profile.name}`} {@attach tip(t('displays.delete'))} onclick={() => (deleting = profile)}><Trash2 size={13} strokeWidth={1.5} /></button>
+                      <button class="btn" class:invert={!active} disabled={active || pending !== null} onclick={() => daemon.applyDisplayProfile(profile.id)}>{active ? t('displays.active') : t('displays.apply')}</button>
+                    </div>
                   </div>
                 </li>
               {/each}
@@ -201,12 +202,13 @@
   .count { font-family: var(--font-mono); color: var(--app-amber-ink); }
 
   .cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-3); }
-  .card { position: relative; display: flex; flex-direction: column; gap: var(--space-3); padding: 14px 16px; border: 1px solid var(--line); background: var(--bg-raised); transition: border-color var(--dur) var(--ease); }
+  .card { position: relative; min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); padding: 14px 16px; border: 1px solid var(--line); background: var(--bg-raised); transition: border-color var(--dur) var(--ease); }
   .card:hover { border-color: var(--line-strong); }
   .card.active { border-color: var(--accent); }
   .card.dragging { opacity: 0.5; }
   .card > .ticks { display: none; }
-  .card.active > .ticks, .card:focus-within > .ticks { display: block; }
+  /* contents: the ticks are absolute, the wrapper must not take a flex gap and shift the card. */
+  .card.active > .ticks, .card:focus-within > .ticks { display: contents; }
   .card-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
   .icon { display: inline-flex; color: var(--muted); }
   .active .icon { color: var(--accent-ink); }
@@ -215,7 +217,10 @@
   .badge { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent-ink); border: 1px solid var(--accent); padding: 2px 6px; }
   .warn { margin: 0; font-size: var(--text-sm); color: var(--app-amber-ink); }
   .grip { cursor: grab; color: var(--faint); }
-  .card-foot { display: flex; align-items: center; gap: var(--space-1); }
+  /* A long shortcut ellipsizes; on a narrow card the buttons wrap under it, right-aligned. */
+  .card-foot { margin-top: auto; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; }
+  .card-foot kbd { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tools { margin-left: auto; display: flex; align-items: center; gap: var(--space-1); }
   kbd { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); border: 1px solid var(--line); padding: 2px 6px; }
   .faint { font-size: var(--text-xs); color: var(--faint); }
   .current-sketch { border: 1px solid var(--line); background: var(--bg-raised); padding: 16px; }

@@ -22,6 +22,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { isTauri } from '../ipc/tauri';
 
+  const SIDE_PX = 464;
   let { onclose, opened = 0 }: { onclose: () => void; opened?: number } = $props();
   const mic = $derived(daemon.mic);
   const mixer = $derived(daemon.mixer);
@@ -52,7 +53,13 @@
   }
   /** What the overlay shows, where its side panels open and how it is placed (Settings). */
   const setup = $derived(daemon.prefs?.overlay ?? DEFAULT_OVERLAY);
-  const expand = $derived(setup.expand);
+  /** The main part's width, to tell whether a side panel fits next to it on this screen. */
+  let mainWidth = $state(0);
+  /** Sideways only while the overlay with its side panel (464 px, 32 px padding each side) fits
+   * the screen; otherwise the panel opens under the main part instead of being cut off. */
+  const expand = $derived(
+    setup.expand !== 'down' && mainWidth > 0 && mainWidth + SIDE_PX + 64 > window.screen.availWidth ? 'down' : setup.expand,
+  );
   const Flag = $derived(expand === 'left' ? ChevronLeft : expand === 'down' ? ChevronDown : ChevronRight);
   const playing = $derived(playback && sounddeck?.sounds.find((sound) => sound.id === playback.sound_id));
   const output = $derived(mixer?.outputs.find((item) => item.name === mixer.output) ?? null);
@@ -223,7 +230,7 @@
     <div class="body" class:left={expand === 'left'} class:down={expand === 'down'}>
       <div class="main-column">
       <!-- Anchored, the window keeps this part in place when a side panel opens (Panel.svelte). -->
-      <div class="main" class:controls-only={!setup.volumes} class:volumes-right={!volumesLeft} data-overlay-main data-overlay-centered={setup.placement === 'centered' ? '' : undefined}>
+      <div class="main" bind:clientWidth={mainWidth} class:controls-only={!setup.volumes} class:volumes-right={!volumesLeft} data-overlay-main data-overlay-centered={setup.placement === 'centered' ? '' : undefined}>
         {#if setup.volumes}
           <section class="volumes" aria-label={t('quick.mixer')}>
             {#if mixer?.enabled}

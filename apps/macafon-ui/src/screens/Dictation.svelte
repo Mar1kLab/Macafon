@@ -508,7 +508,10 @@
     padding-right: 2px;
   }
 
+  /* A long entry wraps inside its chip, the remove button stays in the chip. */
   .words li {
+    max-width: 100%;
+    min-width: 0;
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
@@ -519,7 +522,13 @@
     color: var(--ink);
   }
 
+  .words span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
   .words button {
+    flex: none;
     display: inline-flex;
     color: var(--faint);
   }

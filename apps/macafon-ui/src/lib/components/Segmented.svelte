@@ -69,6 +69,24 @@
     padding-top: 5px;
   }
 
+  /* A narrow card: the label goes above the options. */
+  @container (max-width: 300px) {
+    .segmented.row,
+    .segmented.row.wrap {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--space-1);
+    }
+
+    .segmented.row > .options {
+      justify-self: start;
+      max-width: 100%;
+    }
+
+    .segmented.row.wrap > .hud-label {
+      padding-top: 0;
+    }
+  }
+
   .wrap .options {
     display: flex;
     flex-wrap: wrap;
@@ -105,6 +123,8 @@
   }
 
   button {
+    flex-shrink: 0;
+    white-space: nowrap;
     height: 22px;
     padding: 0 10px;
     font-family: var(--font-mono);

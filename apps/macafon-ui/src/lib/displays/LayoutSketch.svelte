@@ -22,6 +22,7 @@
   // A to-scale sketch of a monitor layout (§9.10): the monitors that are on as frames in their
   // desktop positions, the main one marked; the ones that are off listed under it, dashed.
   import { t } from '../i18n';
+  import { tip } from '../components/tooltip.svelte';
 
   let { monitors, height = 96 }: { monitors: SketchMonitor[]; height?: number } = $props();
 
@@ -69,6 +70,7 @@
             class="monitor"
             class:primary={frame.layout.primary}
             class:missing={frame.monitors.every((monitor) => monitor.missing)}
+            {@attach tip(label(frame))}
             style:left="{((frame.layout.x - bounds.left) / bounds.width) * 100}%"
             style:top="{((frame.layout.y - bounds.top) / bounds.height) * 100}%"
             style:width="{(size.width / bounds.width) * 100}%"

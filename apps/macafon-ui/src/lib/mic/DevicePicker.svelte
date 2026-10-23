@@ -36,7 +36,7 @@
     label={t('mic.device')}
     {options}
     value={mic.device}
-    width="260px"
+    width="100%"
     onopen={opened}
     onclose={closed}
     onchange={(device) => daemon.setMic(daemon.client.call('mic.set_device', { device }), true)}
@@ -65,6 +65,13 @@
 </div>
 
 <style>
+  /* Shrinks (the name ellipsizes) before the header wraps onto a second row. */
+  .picker {
+    flex: 1 1 140px;
+    max-width: 260px;
+    min-width: 0;
+  }
+
   .name {
     overflow: hidden;
     text-overflow: ellipsis;

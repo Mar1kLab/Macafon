@@ -159,7 +159,9 @@
     border-color: color-mix(in srgb, var(--app-amber) 50%, transparent);
   }
 
+  /* Controls inside lay themselves out by the card's width (narrow windows, @container). */
   .content {
+    container-type: inline-size;
     display: flex;
     flex-direction: column;
     gap: var(--space-2);

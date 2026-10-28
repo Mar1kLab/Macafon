@@ -13,6 +13,7 @@ pub mod displays;
 mod groups;
 pub mod input_level;
 pub mod journal;
+mod lift;
 pub mod macaron;
 pub mod microphone;
 pub mod mixer;

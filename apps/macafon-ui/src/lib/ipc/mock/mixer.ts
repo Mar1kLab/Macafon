@@ -40,6 +40,18 @@ export class MockMixer {
       case 'mixer.set_auto_classify':
         this.state.auto_classify = Boolean(p.enabled);
         return this.changed();
+      case 'mixer.set_manage_system_volume':
+        this.state.manage_system_volume = Boolean(p.enabled);
+        return this.changed();
+      case 'mixer.set_volume_keys': {
+        const channel = (p.channel as string | null | undefined) ?? null;
+        if (channel !== null && channel !== 'master' && !this.state.channels.some((c) => c.id === channel)) {
+          throw new DaemonError('invalid_params', `unknown channel ${channel}`);
+        }
+        if (channel !== null) this.state.volume_keys_channel = channel;
+        if (typeof p.enabled === 'boolean') this.state.volume_keys = p.enabled;
+        return this.changed();
+      }
       case 'channel.create': {
         if (this.state.channels.length >= MAX_CHANNELS) throw new DaemonError('invalid_params', 'too many channels');
         let n = 1;
@@ -74,6 +86,8 @@ export class MockMixer {
         if (id === this.state.default_channel) throw new DaemonError('invalid_params', 'the default channel cannot be deleted');
         this.state.channels = this.state.channels.filter((c) => c.id !== id);
         this.state.apps.forEach((a) => a.channel === id && (a.channel = this.state.default_channel));
+        // Like the daemon: the volume keys fall back to the default channel.
+        if (this.state.volume_keys_channel === id) this.state.volume_keys_channel = this.state.default_channel;
         return this.changed();
       }
       case 'channel.set': {

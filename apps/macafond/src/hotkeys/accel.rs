@@ -36,7 +36,7 @@ pub struct Accel {
 }
 
 /// Named keys accepted besides letters, digits and F-keys.
-const NAMED: [&str; 16] = [
+const NAMED: [&str; 19] = [
     "Space",
     "Escape",
     "Insert",
@@ -54,7 +54,16 @@ const NAMED: [&str; 16] = [
     "PrintScreen",
     // The key left of 1 (`` ` `` on US layouts, `ё` on Russian ones).
     "Backquote",
+    // Keyboard and headset volume keys (HK-011).
+    "VolumeUp",
+    "VolumeDown",
+    "VolumeMute",
 ];
+
+/// The volume keys: RegisterHotKey cannot take them from the shell, the hook can.
+pub fn is_volume_key(key: &str) -> bool {
+    matches!(key, "VolumeUp" | "VolumeDown" | "VolumeMute")
+}
 
 /// Keys that type a character: alone they would steal typing.
 fn types(key: &str) -> bool {
@@ -85,6 +94,9 @@ fn canonical_key(raw: &str) -> Option<String> {
         "INS" => "Insert",
         "PRINT" => "PrintScreen",
         "`" | "GRAVE" => "Backquote",
+        "AUDIOVOLUMEUP" => "VolumeUp",
+        "AUDIOVOLUMEDOWN" => "VolumeDown",
+        "AUDIOVOLUMEMUTE" => "VolumeMute",
         _ => "",
     };
     if !alias.is_empty() {
@@ -146,6 +158,7 @@ impl Accel {
     pub fn sided(&self) -> bool {
         self.key.is_empty()
             || self.key == "Escape"
+            || is_volume_key(&self.key)
             || self.modifiers.ctrl_side != 0
             || self.modifiers.alt_side != 0
     }
@@ -196,6 +209,9 @@ impl Accel {
             "ArrowRight" => "Right".into(),
             "ScrollLock" => "Scroll_Lock".into(),
             "PrintScreen" => "Print".into(),
+            "VolumeUp" => "XF86AudioRaiseVolume".into(),
+            "VolumeDown" => "XF86AudioLowerVolume".into(),
+            "VolumeMute" => "XF86AudioMute".into(),
             "Backquote" => "grave".into(),
             other => other.to_owned(),
         };

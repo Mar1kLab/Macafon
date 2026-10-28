@@ -212,6 +212,10 @@ pub trait MixerHost {
     fn mixer_enabled(&self) -> bool {
         false
     }
+    /// Windows: Macafon manages the system volume (WIN-CH-013) instead of mirroring it.
+    fn manages_system_volume(&self) -> bool {
+        false
+    }
     /// The faders a just-appeared app gets until it is classified: the default channel's.
     /// `None` leaves new apps alone.
     fn new_app_mix(&self) -> Option<AppMix> {

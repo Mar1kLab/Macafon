@@ -2972,6 +2972,7 @@ dependencies = [
  "anyhow",
  "assert_no_alloc",
  "clap",
+ "embed-resource",
  "global-hotkey",
  "ksni",
  "macafon-apps",

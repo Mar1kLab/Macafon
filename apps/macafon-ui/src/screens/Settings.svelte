@@ -449,6 +449,44 @@
               onchange={(enabled) => daemon.setMixer(daemon.client.call('mixer.set_auto_classify', { enabled }))}
             />
           </div>
+          {#if daemon.windows}
+            <div class="row">
+              <div>
+                <p class="name">{t('settings.manageSystemVolume')}</p>
+                <p class="hint">{t('settings.manageSystemVolumeHint')}</p>
+              </div>
+              <Toggle
+                checked={mixer.manage_system_volume}
+                label={t('settings.manageSystemVolume')}
+                onchange={(enabled) => daemon.setMixer(daemon.client.call('mixer.set_manage_system_volume', { enabled }))}
+              />
+            </div>
+            <div class="row">
+              <div>
+                <p class="name">{t('settings.volumeKeys')}</p>
+                <p class="hint">{t('settings.volumeKeysHint')}</p>
+              </div>
+              <div class="volume-keys">
+                <Dropdown
+                  label={t('settings.volumeKeysChannel')}
+                  options={[
+                    ...mixer.channels.map((c) => ({ value: c.id, label: c.name })),
+                    { value: 'master', label: t('settings.volumeKeysMaster') },
+                  ]}
+                  value={mixer.volume_keys_channel}
+                  width="160px"
+                  disabled={!mixer.volume_keys}
+                  onchange={(channel) => daemon.setMixer(daemon.client.call('mixer.set_volume_keys', { enabled: null, channel }))}
+                />
+                <Toggle
+                  checked={mixer.volume_keys}
+                  label={t('settings.volumeKeys')}
+                  onchange={(enabled) =>
+                    daemon.setMixer(daemon.client.call('mixer.set_volume_keys', { enabled, channel: null }))}
+                />
+              </div>
+            </div>
+          {/if}
           <div class="row column">
             <p class="name">{t('settings.outputPriority')}</p>
             <ol class="priority">
@@ -724,6 +762,7 @@
 
 <style>
   .mode { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+  .volume-keys { display: flex; align-items: center; gap: var(--space-3); flex: none; }
 
   .overlay-setup {
     border-top: 1px solid var(--line);

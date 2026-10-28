@@ -35,13 +35,20 @@ pub(crate) struct VolumeGroups {
     output_journal: PathBuf,
     /// No output chosen: the system default is the user's (OUT-001 "Follow system default").
     following_system: bool,
+    /// The first tick ran.
+    started: bool,
+    /// WIN-CH-013 as last given to the watcher.
+    managed: Option<bool>,
 }
 
 impl VolumeGroups {
     /// Start watching sessions; this also finishes a restore left by a crash (WIN-CH-008).
     pub fn start(state_dir: &Path) -> Self {
         let output_journal = journal::journal_path(state_dir, DataFlow::Render);
-        if let Err(error) = journal::restore(&mut SystemDefaults, &output_journal) {
+        // Kept at logoff/shutdown: the output stays Macafon's, as do the volumes on it.
+        if crate::lift::kept(state_dir) {
+            tracing::info!("Taking over the volumes kept at logoff");
+        } else if let Err(error) = journal::restore(&mut SystemDefaults, &output_journal) {
             tracing::warn!(%error, "Cannot restore the previous default output yet");
         }
         let watcher = SessionWatcher::start(state_dir)
@@ -61,6 +68,8 @@ impl VolumeGroups {
             output: OutputPolicy::default(),
             output_journal,
             following_system: false,
+            started: false,
+            managed: None,
         }
     }
 
@@ -108,6 +117,20 @@ impl VolumeGroups {
                 }
             }
         }
+        // Before Master is read: the mode decides what Master means.
+        let managed = host.manages_system_volume();
+        if self.managed != Some(managed) {
+            match watcher.set_managed(managed) {
+                Ok(()) => {
+                    tracing::info!(managed, "System volume management");
+                    self.managed = Some(managed);
+                    // Master means another scale now: adopt it before writing any.
+                    self.master = None;
+                    self.polled_at = None;
+                }
+                Err(error) => tracing::warn!(%error, "Cannot switch system volume management"),
+            }
+        }
         // Live levels need fresh peaks every tick; otherwise reading every session over COM
         // ten times a second would be work nobody sees.
         let poll = host.mixer_watched()
@@ -139,9 +162,11 @@ impl VolumeGroups {
             }
         }
         let enabled = host.mixer_enabled();
-        if self.enabled && !enabled {
+        // Off at start: a lift an earlier run left (crash or logoff) goes back too.
+        if !enabled && (self.enabled || !self.started) {
             self.release(Some(watcher));
         }
+        self.started = true;
         self.enabled = enabled;
         let new_app = enabled
             .then(|| host.new_app_mix())
@@ -298,6 +323,23 @@ impl VolumeGroups {
         }
     }
 
+    /// Logoff/shutdown with the mixer on: app volumes, the system volume and the default
+    /// output stay, so the next logon is not louder than this one ended while Macafon is not
+    /// running yet. Everything stays journaled for a restore.
+    pub fn keep(&mut self) {
+        // Mirroring the Windows volume, Macafon gives everything back as before WIN-CH-013.
+        if !self.enabled || self.managed != Some(true) {
+            return self.stop();
+        }
+        let Some(watcher) = self.watcher.take() else {
+            return;
+        };
+        if let Err(error) = watcher.keep() {
+            tracing::warn!(%error, "Cannot keep the volumes for the next logon; restoring");
+            self.release(Some(&watcher));
+        }
+    }
+
     /// Quit: give everything back while the process is still allowed to run.
     pub fn stop(&mut self) {
         let watcher = self.watcher.take();
@@ -405,6 +447,8 @@ mod tests {
                 output: OutputPolicy::default(),
                 output_journal: PathBuf::new(),
                 following_system: false,
+                started: true,
+                managed: None,
             };
             groups.apps_changed(&mut Host { channel_muted }, vec![app("player.exe")]);
             assert_eq!(

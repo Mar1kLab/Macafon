@@ -58,6 +58,8 @@ function keyName(code: string): string | null {
   if (digit) return digit[1]!;
   const fn = /^F([0-9]{1,2})$/.exec(code);
   if (fn && Number(fn[1]) >= 1 && Number(fn[1]) <= 24) return code;
+  const volume = /^AudioVolume(Up|Down|Mute)$/.exec(code);
+  if (volume) return `Volume${volume[1]}`;
   return NAMED.has(code) ? code : null;
 }
 

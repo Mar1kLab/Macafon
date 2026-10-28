@@ -7,14 +7,15 @@ use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::Media::Audio::{
     AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
     AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, IAudioClient,
-    IAudioClient3, IAudioRenderClient, IAudioSessionManager2, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
+    IAudioClient3, IAudioRenderClient, IAudioSessionControl, IAudioSessionManager2, WAVEFORMATEX,
+    WAVEFORMATEXTENSIBLE,
 };
 use windows::Win32::System::Com::{CLSCTX_ALL, CoTaskMemFree};
 use windows::Win32::System::Threading::{
     AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW, CreateEventW,
     WaitForSingleObject,
 };
-use windows::core::{GUID, Interface, w};
+use windows::core::{GUID, HSTRING, Interface, PCWSTR, w};
 
 const WAVE_FORMAT_IEEE_FLOAT: u16 = 3;
 const WAVE_FORMAT_EXTENSIBLE: u16 = 0xfffe;
@@ -134,6 +135,7 @@ impl Stream {
             CoTaskMemFree(Some(format.cast()));
             let period_frames = result?;
             let client: IAudioClient = client.cast()?;
+            label(&client, w!("Macafon"));
             Self::from_initialized_client(
                 client,
                 channels,
@@ -182,6 +184,9 @@ impl Stream {
                 &format,
                 session.map(std::ptr::from_ref),
             )?;
+            if session.is_none() {
+                label(&client, w!("Macafon"));
+            }
             Self::from_initialized_client(client, channels, period_hns)
         }
     }
@@ -216,6 +221,28 @@ impl Stream {
         // SAFETY: the event handle is valid for the lifetime of `self`.
         unsafe { WaitForSingleObject(self.event, timeout_ms) == WAIT_OBJECT_0 }
     }
+}
+
+/// Name the process's default session (microphone, A/B player) after the app, with its icon:
+/// Windows volume settings would list it as `macafond.exe`. Cosmetic: failures are ignored.
+fn label(client: &IAudioClient, name: PCWSTR) {
+    // SAFETY: an initialized client on its COM thread; the name is a static string.
+    unsafe {
+        if let Ok(control) = client.GetService::<IAudioSessionControl>() {
+            let _ = control.SetDisplayName(name, std::ptr::null());
+            set_icon(&control);
+        }
+    }
+}
+
+/// The daemon's own icon (embedded by its build script) for a session.
+fn set_icon(control: &IAudioSessionControl) {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let icon = HSTRING::from(format!("{},0", exe.display()));
+    // SAFETY: a live session control on its COM thread; the HSTRING outlives the call.
+    let _ = unsafe { control.SetIconPath(&icon, std::ptr::null()) };
 }
 
 impl Drop for Stream {
@@ -256,7 +283,8 @@ impl RenderStream {
             let manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None)?;
             let session = manager.GetAudioSessionControl(Some(&SOUNDDECK_SESSION), 0)?;
             session.SetGroupingParam(&SOUNDDECK_SESSION, std::ptr::null())?;
-            session.SetDisplayName(w!("SoundDeck"), std::ptr::null())?;
+            session.SetDisplayName(w!("Macafon SoundDeck"), std::ptr::null())?;
+            set_icon(&session);
             session
         };
         let stream = Stream::open_session(device_id, 2, 0, Some(&SOUNDDECK_SESSION))?;

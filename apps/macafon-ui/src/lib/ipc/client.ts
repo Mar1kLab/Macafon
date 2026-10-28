@@ -82,6 +82,8 @@ interface Results {
   'mixer.set_output': MixerState;
   'mixer.set_output_priority': MixerState;
   'mixer.set_auto_classify': MixerState;
+  'mixer.set_manage_system_volume': MixerState;
+  'mixer.set_volume_keys': MixerState;
   'channel.create': MixerState;
   'channel.update': MixerState;
   'channel.delete': MixerState;

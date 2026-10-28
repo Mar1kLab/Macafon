@@ -432,6 +432,14 @@ export const en = {
     mixer: 'Mixer',
     autoClassify: 'Sort known apps',
     autoClassifyHint: 'Discord, Telegram, Zoom start in Voice; Spotify and other players in Music',
+    manageSystemVolume: 'Macafon controls Windows volume',
+    manageSystemVolumeHint:
+      'Apps keep their volume high and Macafon turns the system volume down instead, so Discord and OBS capture them at full level. Off: you set the Windows volume, and channels only turn apps down.',
+    volumeKeys: 'Volume keys control a channel',
+    volumeKeysHint:
+      'Keyboard and headset volume keys move this fader instead of the Windows volume while the mixer is on.',
+    volumeKeysChannel: 'Volume keys channel',
+    volumeKeysMaster: 'Master',
     outputPriority: 'Output priority',
     outputPriorityHint: 'The first connected device wins. Unplug it and Macafon switches to the next; plug it back and it returns.',
     priorityEmpty: 'System default',

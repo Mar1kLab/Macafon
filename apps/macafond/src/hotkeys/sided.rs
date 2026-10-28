@@ -80,7 +80,10 @@ unsafe extern "system" fn callback(code: i32, wparam: WPARAM, lparam: LPARAM) ->
     if code >= 0 {
         // SAFETY: WH_KEYBOARD_LL provides a KBDLLHOOKSTRUCT for nonnegative codes.
         let event = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
-        if event.flags.0 & LLKHF_INJECTED.0 != 0 {
+        // Vendor keyboard software sends its volume keys as injected input; Macafon never
+        // injects them itself.
+        let volume_key = (0xad..=0xaf).contains(&event.vkCode);
+        if event.flags.0 & LLKHF_INJECTED.0 != 0 && !volume_key {
             // SAFETY: synthetic text insertion is passed through without updating physical state.
             return unsafe { CallNextHookEx(None, code, wparam, lparam) };
         }
@@ -148,6 +151,11 @@ unsafe extern "system" fn callback(code: i32, wparam: WPARAM, lparam: LPARAM) ->
                         press(&state.control, &key.binding.action, false);
                         consumed |= key.vk != 0 && vk == key.vk;
                     } else if (vk == key.vk || key.vk == 0) && pressed && matches {
+                        if key.held && (0xad..=0xaf).contains(&key.vk) {
+                            // Autorepeat keeps a held volume key alive: if Windows ever drops
+                            // this hook, the release never arrives and the hold must expire.
+                            press(&state.control, &key.binding.action, true);
+                        }
                         if !key.held {
                             press(&state.control, &key.binding.action, true);
                             if key.vk == 0 {
@@ -215,6 +223,9 @@ pub(super) fn virtual_key(key: &str) -> Option<u32> {
         "Pause" => 0x13,
         "ScrollLock" => 0x91,
         "Backquote" => 0xc0,
+        "VolumeMute" => 0xad,
+        "VolumeDown" => 0xae,
+        "VolumeUp" => 0xaf,
         _ => return None,
     })
 }

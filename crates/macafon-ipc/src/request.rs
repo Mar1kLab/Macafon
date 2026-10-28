@@ -151,6 +151,18 @@ pub enum Request {
     /// APP-006: classify known apps on first sight.
     #[serde(rename = "mixer.set_auto_classify")]
     MixerSetAutoClassify { enabled: bool },
+    /// WIN-CH-013 (Windows): Macafon manages the system volume.
+    #[serde(rename = "mixer.set_manage_system_volume")]
+    MixerSetManageSystemVolume { enabled: bool },
+    /// HK-011 (Windows): the volume keys move a channel (or `master`) instead of the system
+    /// volume.
+    #[serde(rename = "mixer.set_volume_keys")]
+    MixerSetVolumeKeys {
+        #[serde(default)]
+        enabled: Option<bool>,
+        #[serde(default)]
+        channel: Option<String>,
+    },
     /// CH-002: a new channel with a free id; returns the mixer state.
     #[serde(rename = "channel.create")]
     ChannelCreate {

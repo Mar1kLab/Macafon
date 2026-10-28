@@ -33,8 +33,20 @@ pub struct MixerConfig {
     pub master_muted: bool,
     /// APP-006: classify known apps on first sight.
     pub auto_classify: bool,
+    /// WIN-CH-013 (Windows): Macafon manages the system volume: the loudest app plays at
+    /// full session volume and the device is turned down instead, so Discord/OBS capture apps
+    /// at full level. Off: the user sets the system volume and channels only lower sessions.
+    pub manage_system_volume: bool,
+    /// HK-011 (Windows): the keyboard volume keys move `volume_keys_channel` instead of the
+    /// system volume while the mixer is on.
+    pub volume_keys: bool,
+    /// A channel id or [`VOLUME_KEYS_MASTER`].
+    pub volume_keys_channel: String,
     pub channels: Vec<ChannelConfig>,
 }
+
+/// `volume_keys_channel` for the Master fader.
+pub const VOLUME_KEYS_MASTER: &str = "master";
 
 impl Default for MixerConfig {
     fn default() -> Self {
@@ -45,6 +57,9 @@ impl Default for MixerConfig {
             master_volume_pct: 100.0,
             master_muted: false,
             auto_classify: true,
+            manage_system_volume: true,
+            volume_keys: true,
+            volume_keys_channel: "main".into(),
             channels: vec![
                 ChannelConfig::new("main", "Main", "blue", "speaker", ChannelTemplate::Main),
                 ChannelConfig::new(
@@ -187,6 +202,17 @@ impl MixerConfig {
             0.0
         } else {
             macafon_dsp::channel::volume_gain(self.master_volume_pct)
+        }
+    }
+
+    /// What the volume keys move: the chosen channel or Master, else the default channel
+    /// (the chosen one was deleted).
+    pub fn volume_keys_target(&self) -> &str {
+        let chosen = self.volume_keys_channel.as_str();
+        if chosen == VOLUME_KEYS_MASTER || self.channel(chosen).is_some() {
+            chosen
+        } else {
+            &self.default_channel
         }
     }
 

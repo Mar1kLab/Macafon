@@ -51,4 +51,9 @@ describe('shortcut recording', () => {
     expect(recordShortcut(key('Backquote')).kind).toBe('needs_modifier');
     expect(displayShortcut('Ctrl+Alt+Backquote')).toBe('Ctrl+Alt+`');
   });
+
+  it('records the volume keys under the daemon names', () => {
+    expect(recordShortcut(key('AudioVolumeUp', { ctrl: true }))).toEqual({ kind: 'done', shortcut: 'Ctrl+VolumeUp' });
+    expect(recordShortcut(key('AudioVolumeMute'))).toEqual({ kind: 'done', shortcut: 'VolumeMute' });
+  });
 });

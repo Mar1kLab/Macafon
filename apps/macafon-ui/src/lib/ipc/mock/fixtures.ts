@@ -38,6 +38,9 @@ export function initialMixer(enabled: boolean): MixerState {
     master_volume_pct: 100,
     master_muted: false,
     auto_classify: true,
+    manage_system_volume: true,
+    volume_keys: true,
+    volume_keys_channel: 'main',
     channels: [
       channel('main', 'Main', 'blue', 'speaker', CHANNEL_TEMPLATES.main),
       channel('voice', 'Voice', 'violet', 'message', CHANNEL_TEMPLATES.voice),

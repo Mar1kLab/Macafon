@@ -175,6 +175,8 @@ impl DaemonHost {
             | Request::MixerSetOutput { .. }
             | Request::MixerSetOutputPriority { .. }
             | Request::MixerSetAutoClassify { .. }
+            | Request::MixerSetVolumeKeys { .. }
+            | Request::MixerSetManageSystemVolume { .. }
             | Request::ChannelCreate { .. }
             | Request::ChannelUpdate { .. }
             | Request::ChannelDelete { .. }

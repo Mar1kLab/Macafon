@@ -57,6 +57,14 @@ impl DaemonHost {
                 .iter()
                 .map(|channel| (&channel.id, &channel.name)));
         let changed = config != self.config;
+        let volume_keys = |mixer: &macafon_config::MixerConfig| {
+            (
+                mixer.enabled,
+                mixer.volume_keys,
+                mixer.volume_keys_target().to_owned(),
+            )
+        };
+        let volume_keys_changed = volume_keys(&config.mixer) != volume_keys(&self.config.mixer);
         if changed {
             self.config = config;
             self.changed_at = Some(Instant::now());
@@ -73,6 +81,8 @@ impl DaemonHost {
             if channels_changed {
                 self.rebind_hotkeys();
                 self.hotkeys_changed();
+            } else if volume_keys_changed {
+                self.rebind_hotkeys();
             }
             self.hub.broadcast(&Event::MixerChanged(state.clone()));
         }
@@ -118,6 +128,24 @@ impl DaemonHost {
             }),
             Request::MixerSetAutoClassify { enabled } => self.update_mixer(|config| {
                 config.mixer.auto_classify = enabled;
+                Ok(())
+            }),
+            Request::MixerSetManageSystemVolume { enabled } => self.update_mixer(|config| {
+                config.mixer.manage_system_volume = enabled;
+                Ok(())
+            }),
+            Request::MixerSetVolumeKeys { enabled, channel } => self.update_mixer(|config| {
+                if let Some(channel) = channel {
+                    if channel != macafon_config::mixer::VOLUME_KEYS_MASTER
+                        && config.mixer.channel(&channel).is_none()
+                    {
+                        return Err(invalid(format!("unknown channel {channel:?}")));
+                    }
+                    config.mixer.volume_keys_channel = channel;
+                }
+                if let Some(enabled) = enabled {
+                    config.mixer.volume_keys = enabled;
+                }
                 Ok(())
             }),
             Request::ChannelCreate { name, color, icon } => self.update_mixer(|config| {

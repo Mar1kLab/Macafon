@@ -105,6 +105,7 @@ unsafe extern "system" fn procedure(
         // Do not stop on QUERY: another application can cancel logoff.
         WM_QUERYENDSESSION => LRESULT(1),
         WM_ENDSESSION if wparam.0 != 0 => {
+            super::session_ending();
             super::wait_for_cleanup();
             LRESULT(0)
         }

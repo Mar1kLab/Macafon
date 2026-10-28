@@ -383,6 +383,9 @@ impl Mixer {
             master_volume_pct: mixer.master_volume_pct,
             master_muted: mixer.master_muted,
             auto_classify: mixer.auto_classify,
+            manage_system_volume: mixer.manage_system_volume,
+            volume_keys: mixer.volume_keys,
+            volume_keys_channel: mixer.volume_keys_target().to_owned(),
             channels: mixer
                 .channels
                 .iter()

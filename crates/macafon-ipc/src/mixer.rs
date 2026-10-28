@@ -55,6 +55,12 @@ pub struct MixerState {
     pub master_volume_pct: f32,
     pub master_muted: bool,
     pub auto_classify: bool,
+    /// WIN-CH-013 (Windows): Macafon manages the system volume for full-level app capture.
+    pub manage_system_volume: bool,
+    /// HK-011 (Windows): the volume keys move `volume_keys_channel` (a channel id or
+    /// `master`) instead of the system volume.
+    pub volume_keys: bool,
+    pub volume_keys_channel: String,
     pub channels: Vec<ChannelState>,
     pub apps: Vec<AppState>,
     /// Real output devices, Macafon's own channels excluded (OUT-004).

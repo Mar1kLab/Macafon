@@ -45,6 +45,8 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(4);
 mod session_shutdown;
 
 static STOP: AtomicBool = AtomicBool::new(false);
+/// Logoff or shutdown, not Quit: the volumes stay for the next logon.
+static ENDING: AtomicBool = AtomicBool::new(false);
 static FINISHED: AtomicBool = AtomicBool::new(false);
 
 pub struct ControlReceiver<T>(mpsc::Receiver<T>);
@@ -74,6 +76,7 @@ pub fn run_microphone<H: MicrophoneHost>(
     cleanup: impl FnOnce(),
 ) -> Result<(), Error> {
     STOP.store(false, Ordering::Release);
+    ENDING.store(false, Ordering::Release);
     FINISHED.store(false, Ordering::Release);
     let _shutdown = session_shutdown::Listener::spawn()
         .map_err(|error| Error::Platform(format!("Cannot listen for session shutdown: {error}")))?;
@@ -100,7 +103,11 @@ pub fn run_microphone<H: MicrophoneHost>(
     state.player = None;
     state.monitor = None;
     if let Some(groups) = &mut state.groups {
-        groups.stop();
+        if ENDING.load(Ordering::Acquire) {
+            groups.keep();
+        } else {
+            groups.stop();
+        }
     }
     if let Some(pipeline) = state.pipeline.take() {
         if let Err(error) = pipeline.stop() {
@@ -120,6 +127,9 @@ unsafe extern "system" fn console_handler(event: u32) -> BOOL {
             BOOL::from(true)
         }
         CTRL_CLOSE_EVENT | CTRL_LOGOFF_EVENT | CTRL_SHUTDOWN_EVENT => {
+            if event != CTRL_CLOSE_EVENT {
+                session_ending();
+            }
             STOP.store(true, Ordering::Release);
             // Returning ends the process: give the loop time to restore system defaults.
             wait_for_cleanup();
@@ -557,6 +567,10 @@ pub fn output_devices() -> Result<Vec<Node>, Error> {
         .filter(|endpoint| is_physical(endpoint, DataFlow::Render))
         .map(node)
         .collect())
+}
+
+fn session_ending() {
+    ENDING.store(true, Ordering::Release);
 }
 
 fn wait_for_cleanup() {

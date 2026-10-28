@@ -21,6 +21,9 @@ const HOLD_MAX_GAP: f32 = 0.1;
 const HOLD_SLOW: f32 = 8.0;
 pub(super) const HOLD_FAST: f32 = 40.0;
 const HOLD_RAMP_S: f32 = 1.6;
+/// A held volume key (HK-011) repeats its press while held; without one for this long its
+/// release was lost (the hook was dropped) and the hold ends.
+const HOLD_STALE: Duration = Duration::from_millis(1500);
 
 /// Volume up and down repeat while held; everything else acts once per press.
 fn is_volume_step(action: &HotkeyAction) -> bool {
@@ -39,6 +42,8 @@ struct VolumeHold {
     /// Seconds of motion already applied.
     applied_s: f32,
     next: Instant,
+    /// The last press of a volume key; `None` for shortcuts whose release always arrives.
+    refreshed: Option<Instant>,
 }
 
 /// Steps travelled after `moving_s` seconds of motion: the integral of a speed that eases
@@ -192,6 +197,8 @@ impl DaemonHost {
                 });
             }
         }
+        #[cfg(windows)]
+        self.volume_key_bindings(&mut bindings);
         if self.bound_hotkeys.as_ref() == Some(&bindings) {
             return;
         }
@@ -199,6 +206,60 @@ impl DaemonHost {
         self.volume_repeats.schedule();
         service.bind(bindings.clone());
         self.bound_hotkeys = Some(bindings);
+    }
+
+    /// HK-011: while the mixer is on, the bare volume keys move the chosen channel or Master
+    /// instead of the system volume. A shortcut the user put on a volume key wins.
+    #[cfg(windows)]
+    fn volume_key_bindings(&self, bindings: &mut Vec<crate::hotkeys::Binding>) {
+        let mixer = &self.config.mixer;
+        if !mixer.enabled || !mixer.volume_keys {
+            return;
+        }
+        let target = mixer.volume_keys_target();
+        let (name, actions) = if target == macafon_config::mixer::VOLUME_KEYS_MASTER {
+            (
+                "Master".to_owned(),
+                [
+                    HotkeyAction::MasterVolumeUp,
+                    HotkeyAction::MasterVolumeDown,
+                    HotkeyAction::MasterMute,
+                ],
+            )
+        } else {
+            let Some(channel) = mixer.channel(target) else {
+                return;
+            };
+            (
+                channel.name.clone(),
+                [
+                    HotkeyAction::ChannelVolumeUp(channel.id.clone()),
+                    HotkeyAction::ChannelVolumeDown(channel.id.clone()),
+                    HotkeyAction::ChannelMute(channel.id.clone()),
+                ],
+            )
+        };
+        let keys = [
+            ("VolumeUp", "volume up"),
+            ("VolumeDown", "volume down"),
+            ("VolumeMute", "mute"),
+        ];
+        for ((key, what), action) in keys.into_iter().zip(actions) {
+            let Ok(accel) = crate::hotkeys::accel::Accel::parse(key) else {
+                continue;
+            };
+            if bindings
+                .iter()
+                .any(|binding| binding.accel.overlaps(&accel))
+            {
+                continue;
+            }
+            bindings.push(crate::hotkeys::Binding {
+                action: format!("{}{VOLUME_KEYS}", action.id()),
+                description: format!("Volume keys: {name} {what}"),
+                accel,
+            });
+        }
     }
 
     pub(super) fn hotkeys_state(&self) -> HotkeysState {
@@ -311,6 +372,10 @@ impl DaemonHost {
     /// Run a hotkey action like the matching request (HK-001), then show what it changed
     /// (HK-006).
     pub(super) fn repeat_hotkeys(&mut self, now: Instant) {
+        self.volume_repeats.0.retain(|_, hold| {
+            hold.refreshed
+                .is_none_or(|at| now.saturating_duration_since(at) < HOLD_STALE)
+        });
         let due: Vec<(String, f32)> = self
             .volume_repeats
             .0
@@ -360,17 +425,22 @@ impl DaemonHost {
                 self.volume_repeats.schedule();
                 return;
             }
-            if let std::collections::hash_map::Entry::Vacant(entry) =
-                self.volume_repeats.0.entry(binding.clone())
-            {
-                entry.insert(VolumeHold {
-                    moving_from: now + HOLD_DELAY,
-                    applied_s: 0.0,
-                    next: now + HOLD_DELAY + HOLD_FRAME,
-                });
-                self.volume_repeats.schedule();
-            } else {
-                return;
+            match self.volume_repeats.0.entry(binding.clone()) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(VolumeHold {
+                        moving_from: now + HOLD_DELAY,
+                        applied_s: 0.0,
+                        next: now + HOLD_DELAY + HOLD_FRAME,
+                        refreshed: binding.ends_with(VOLUME_KEYS).then_some(now),
+                    });
+                    self.volume_repeats.schedule();
+                }
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    if let Some(refreshed) = &mut entry.get_mut().refreshed {
+                        *refreshed = now;
+                    }
+                    return;
+                }
             }
         }
         if action.held() {
@@ -567,8 +637,14 @@ impl DaemonHost {
 /// The action of a binding id: secondary shortcuts are stored as `<action>#secondary`. Sound
 /// ids may contain `#` themselves, so only that suffix is cut.
 pub(super) fn base_action(binding: &str) -> &str {
-    binding.strip_suffix("#secondary").unwrap_or(binding)
+    binding
+        .strip_suffix("#secondary")
+        .or_else(|| binding.strip_suffix(VOLUME_KEYS))
+        .unwrap_or(binding)
 }
+
+/// The binding suffix of the volume keys (HK-011), apart from the user's own shortcuts.
+const VOLUME_KEYS: &str = "#volume_keys";
 
 pub(super) fn osd_prefs(config: OsdConfig) -> OsdPrefs {
     OsdPrefs {

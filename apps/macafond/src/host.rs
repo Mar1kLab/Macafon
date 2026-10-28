@@ -367,6 +367,10 @@ impl MixerHost for DaemonHost {
         self.config.mixer.enabled
     }
 
+    fn manages_system_volume(&self) -> bool {
+        self.config.mixer.manage_system_volume
+    }
+
     fn app_mix(&self, stream: &PlaybackStream) -> Option<AppMix> {
         self.mixer.app_mix(&self.config, stream)
     }
@@ -1071,6 +1075,66 @@ mod tests {
             .map(|binding| binding.action)
             .collect();
         assert_eq!(actions, ["dictation_enable_toggle"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn volume_keys_move_the_chosen_channel_unless_the_user_bound_them() {
+        let (sender, _receiver) = crate::platform::control_channel();
+        let mut config = Config::default();
+        config.mixer.enabled = true;
+        config.mixer.channels[0].settings.volume_pct = 50.0;
+        let mut host = DaemonHost::new(
+            config,
+            None,
+            PresetStore::in_memory(),
+            unused_endpoint(),
+            sender,
+            false,
+        );
+        let (service, bound) = crate::hotkeys::Hotkeys::fake();
+        host.hotkeys = Some(service);
+        let bound_actions = |host: &mut DaemonHost| {
+            host.rebind_hotkeys();
+            bound
+                .try_iter()
+                .last()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|binding| binding.action)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            bound_actions(&mut host),
+            [
+                "channel_volume_up.main#volume_keys",
+                "channel_volume_down.main#volume_keys",
+                "channel_mute.main#volume_keys",
+            ]
+        );
+        host.hotkey("channel_volume_up.main#volume_keys", true);
+        host.hotkey("channel_volume_up.main#volume_keys", false);
+        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, 55.0);
+        // A held key whose release is lost (the hook was dropped) stops on its own.
+        let now = Instant::now();
+        let at = |ms| now + Duration::from_millis(ms);
+        host.hotkey_at("channel_volume_up.main#volume_keys", true, at(0));
+        host.repeat_hotkeys(at(1400));
+        let held = host.config.mixer.channels[0].settings.volume_pct;
+        assert!(held > 60.0, "it moves while held: {held}");
+        host.repeat_hotkeys(at(3000));
+        assert_eq!(host.config.mixer.channels[0].settings.volume_pct, held);
+        host.set_hotkey("master_volume_up", Some("VolumeUp".into()))
+            .expect("bare volume key");
+        let actions = bound_actions(&mut host);
+        assert!(actions.contains(&"master_volume_up".to_owned()));
+        assert!(!actions.contains(&"channel_volume_up.main#volume_keys".to_owned()));
+        // A deleted channel falls back to the default one (Main: nothing to rebind); off,
+        // Windows keeps its keys.
+        host.config.mixer.volume_keys_channel = "gone".into();
+        assert!(bound_actions(&mut host).is_empty());
+        host.config.mixer.volume_keys = false;
+        assert_eq!(bound_actions(&mut host), ["master_volume_up"]);
     }
 
     #[test]

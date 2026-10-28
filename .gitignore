@@ -5,4 +5,10 @@ dist/
 *.log
 .DS_Store
 __pycache__/
+/.claude/
+/.codex/
+.env
+.env.*
+!.env.example
+*.local
 /apps/macafon-ui/src-tauri/gen/

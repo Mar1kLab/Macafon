@@ -10,7 +10,11 @@ use macafon_ipc::{
 use std::mem::size_of;
 use windows::Win32::Devices::Display::*;
 use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, LUID, POINTL, WIN32_ERROR};
-use windows::Win32::Graphics::Gdi::{DEVMODEW, ENUM_DISPLAY_SETTINGS_MODE, EnumDisplaySettingsW};
+use windows::Win32::Graphics::Gdi::{
+    CDS_UPDATEREGISTRY, ChangeDisplaySettingsExW, DEVMODEW, DISP_CHANGE_SUCCESSFUL,
+    DM_DISPLAYFREQUENCY, DM_PELSHEIGHT, DM_PELSWIDTH, ENUM_CURRENT_SETTINGS,
+    ENUM_DISPLAY_SETTINGS_MODE, EnumDisplaySettingsW,
+};
 use windows::Win32::Graphics::Gdi::{
     DISPLAYCONFIG_PATH_ACTIVE, DISPLAYCONFIG_PATH_MODE_IDX_INVALID,
 };
@@ -163,6 +167,18 @@ fn preferred(path: &DISPLAYCONFIG_PATH_INFO) -> Option<DISPLAYCONFIG_TARGET_PREF
         ..Default::default()
     };
     // SAFETY: a correctly sized packet is provided for this request.
+    (unsafe { DisplayConfigGetDeviceInfo(&mut info.header) } == 0).then_some(info)
+}
+fn source_name(path: &DISPLAYCONFIG_PATH_INFO) -> Option<DISPLAYCONFIG_SOURCE_DEVICE_NAME> {
+    let mut info = DISPLAYCONFIG_SOURCE_DEVICE_NAME {
+        header: header::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>(
+            DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+            path.sourceInfo.adapterId,
+            path.sourceInfo.id,
+        ),
+        ..Default::default()
+    };
+    // SAFETY: correctly sized source-name packet.
     (unsafe { DisplayConfigGetDeviceInfo(&mut info.header) } == 0).then_some(info)
 }
 fn mhz(rate: DISPLAYCONFIG_RATIONAL) -> u32 {
@@ -403,16 +419,7 @@ fn inventory() -> Result<Inventory, DisplayError> {
                 mode.refresh_mhz = refresh;
             }
             modes.push(mode);
-            let mut source_name = DISPLAYCONFIG_SOURCE_DEVICE_NAME {
-                header: header::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>(
-                    DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
-                    p.sourceInfo.adapterId,
-                    p.sourceInfo.id,
-                ),
-                ..Default::default()
-            };
-            // SAFETY: correctly sized source-name packet.
-            if unsafe { DisplayConfigGetDeviceInfo(&mut source_name.header) } == 0 {
+            if let Some(source_name) = source_name(p) {
                 for index in 0..4096 {
                     let mut dm = DEVMODEW {
                         dmSize: size_of::<DEVMODEW>() as u16,
@@ -585,6 +592,9 @@ struct Plan {
     config: Snapshot,
     missing: Vec<String>,
     hdr: Vec<(LUID, u32, bool)>,
+    /// Targets without a known CCD timing for the requested refresh rate: CCD picks one for
+    /// the source size, then GDI selects the refresh rate from the driver's mode list.
+    refresh: Vec<(LUID, u32, u32)>,
 }
 
 /// Assign one unique source per extended group, a shared source within a mirror group.
@@ -673,6 +683,7 @@ fn build_plan(profile: &[ProfileMonitor], live: Inventory) -> Result<Plan, Displ
         hdr: Vec::new(),
     };
     let mut hdr = Vec::new();
+    let mut refresh = Vec::new();
     for (group, paths) in groups.iter().zip(selected) {
         let root = layouts[group[0]]
             .as_ref()
@@ -764,6 +775,16 @@ fn build_plan(profile: &[ProfileMonitor], live: Inventory) -> Result<Plan, Displ
                         .into(),
                 ));
             }
+            if target.is_none() {
+                // A path refresh rate without target timing is rejected (Win32 87) when CCD
+                // has no matching timing, e.g. 60 Hz on an inactive monitor preferring 144 Hz.
+                path.targetInfo.refreshRate = DISPLAYCONFIG_RATIONAL::default();
+                refresh.push((
+                    path.targetInfo.adapterId,
+                    path.targetInfo.id,
+                    l.mode.refresh_mhz,
+                ));
+            }
             if let Some(target) = target {
                 path.targetInfo.Anonymous.modeInfoIdx = config.modes.len() as u32;
                 config.modes.push(DISPLAYCONFIG_MODE_INFO {
@@ -781,7 +802,76 @@ fn build_plan(profile: &[ProfileMonitor], live: Inventory) -> Result<Plan, Displ
         config,
         missing,
         hdr,
+        refresh,
     })
+}
+/// Set an active target's refresh rate at its current desktop resolution through GDI,
+/// which resolves driver timings that CCD cannot synthesize.
+fn set_refresh(adapter: LUID, target: u32, refresh_mhz: u32) -> Result<(), DisplayError> {
+    let live = query(QDC_ONLY_ACTIVE_PATHS)?;
+    let path = live
+        .paths
+        .iter()
+        .find(|p| same_adapter(p.targetInfo.adapterId, adapter) && p.targetInfo.id == target)
+        .ok_or_else(|| DisplayError::Rejected("an enabled monitor disappeared".into()))?;
+    if mhz(path.targetInfo.refreshRate).abs_diff(refresh_mhz) <= 500 {
+        return Ok(());
+    }
+    let name = source_name(path)
+        .ok_or_else(|| DisplayError::Rejected("display source name is unavailable".into()))?;
+    let device = PCWSTR(name.viewGdiDeviceName.as_ptr());
+    let mut current = DEVMODEW {
+        dmSize: size_of::<DEVMODEW>() as u16,
+        ..Default::default()
+    };
+    // SAFETY: the GDI device name is null terminated, current has its required size.
+    if !unsafe { EnumDisplaySettingsW(device, ENUM_CURRENT_SETTINGS, &mut current) }.as_bool() {
+        return Err(DisplayError::Rejected(
+            "current display mode is unavailable".into(),
+        ));
+    }
+    let mut best: Option<u32> = None;
+    for index in 0..4096 {
+        let mut dm = DEVMODEW {
+            dmSize: size_of::<DEVMODEW>() as u16,
+            ..Default::default()
+        };
+        // SAFETY: as above.
+        if !unsafe { EnumDisplaySettingsW(device, ENUM_DISPLAY_SETTINGS_MODE(index), &mut dm) }
+            .as_bool()
+        {
+            break;
+        }
+        let distance = |hz: u32| hz.saturating_mul(1000).abs_diff(refresh_mhz);
+        if dm.dmPelsWidth == current.dmPelsWidth
+            && dm.dmPelsHeight == current.dmPelsHeight
+            && dm.dmDisplayFrequency > 1
+            && distance(dm.dmDisplayFrequency) <= 1000
+            && best.is_none_or(|hz| distance(dm.dmDisplayFrequency) < distance(hz))
+        {
+            best = Some(dm.dmDisplayFrequency);
+        }
+    }
+    let hz = best.ok_or_else(|| {
+        DisplayError::Rejected(format!(
+            "{} Hz is not available at {}x{}",
+            refresh_mhz.div_ceil(1000),
+            current.dmPelsWidth,
+            current.dmPelsHeight
+        ))
+    })?;
+    current.dmDisplayFrequency = hz;
+    current.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
+    // SAFETY: device name and mode packet stay alive for this synchronous call.
+    let result =
+        unsafe { ChangeDisplaySettingsExW(device, Some(&current), None, CDS_UPDATEREGISTRY, None) };
+    if result != DISP_CHANGE_SUCCESSFUL {
+        return Err(DisplayError::Rejected(format!(
+            "cannot set {hz} Hz (DISP_CHANGE {})",
+            result.0
+        )));
+    }
+    Ok(())
 }
 fn validate_plan(plan: &Plan) -> Result<(), DisplayError> {
     // SAFETY: all indices reference the supplied arrays or the documented invalid sentinel.
@@ -817,6 +907,9 @@ pub fn apply(profile: &[ProfileMonitor]) -> Result<Applied, DisplayError> {
             SDC_APPLY | SDC_USE_SUPPLIED_DISPLAY_CONFIG | SDC_SAVE_TO_DATABASE | SDC_ALLOW_CHANGES,
         )
     })?;
+    for (adapter, id, refresh_mhz) in plan.refresh {
+        set_refresh(adapter, id, refresh_mhz)?;
+    }
     for (adapter, id, enabled) in plan.hdr {
         let path = DISPLAYCONFIG_PATH_INFO {
             targetInfo: DISPLAYCONFIG_PATH_TARGET_INFO {
@@ -870,6 +963,63 @@ mod tests {
         chosen.clear();
         assert!(assign(&[vec![0, 1]], &candidates, 0, &mut chosen));
         assert!(same_source(&chosen[0][0], &chosen[0][1]));
+    }
+
+    #[test]
+    fn displays_plan_leaves_unknown_target_timing_to_ccd_and_refresh_to_gdi() {
+        // An inactive monitor: no current timing, and the fake target has no preferred mode.
+        let mut inactive = path(0, 7);
+        inactive.flags = 0;
+        inactive.sourceInfo.Anonymous.modeInfoIdx = DISPLAYCONFIG_PATH_MODE_IDX_INVALID;
+        inactive.targetInfo.Anonymous.modeInfoIdx = DISPLAYCONFIG_PATH_MODE_IDX_INVALID;
+        let identity = DisplayIdentity {
+            edid: "TEST7".into(),
+            serial: None,
+            path: "monitor7".into(),
+        };
+        let layout = DisplayLayout {
+            x: 0,
+            y: 0,
+            mode: DisplayMode {
+                width: 1920,
+                height: 1080,
+                refresh_mhz: 60000,
+            },
+            rotation: DisplayRotation::None,
+            primary: true,
+            mirror_of: None,
+            hdr: false,
+        };
+        let inventory = Inventory {
+            config: Snapshot {
+                paths: vec![inactive],
+                modes: Vec::new(),
+                hdr: Vec::new(),
+            },
+            monitors: vec![DisplayMonitor {
+                identity: identity.clone(),
+                name: "Monitor 7".into(),
+                built_in: false,
+                hdr_supported: false,
+                modes: Vec::new(),
+                layout: None,
+            }],
+            paths: vec![inactive],
+        };
+        let profile = [ProfileMonitor {
+            identity,
+            name: "Monitor 7".into(),
+            layout: Some(layout),
+        }];
+        let planned = build_plan(&profile, inventory).expect("plan");
+        let target = planned.config.paths[0].targetInfo;
+        assert_eq!(target.refreshRate.Numerator, 0);
+        // SAFETY: the planner writes legacy mode indices.
+        assert_eq!(
+            unsafe { target.Anonymous.modeInfoIdx },
+            DISPLAYCONFIG_PATH_MODE_IDX_INVALID
+        );
+        assert_eq!(planned.refresh, [(target.adapterId, 7, 60000)]);
     }
 
     #[test]

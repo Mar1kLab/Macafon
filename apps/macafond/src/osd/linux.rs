@@ -4,9 +4,9 @@
 //! edge of the active output (the compositor's choice) or of the primary one. The daemon draws
 //! it, so it works with the UI closed. Without layer-shell (GNOME, X11) `show` declines and the
 //! caller falls back to a replaceable notification.
+use super::Osd;
 use super::dictation::State as DictationState;
 use super::motion::{Layout, Motion, Step, edge_margin};
-use super::Osd;
 use macafon_config::{OsdConfig, OsdEdge};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, Region},
@@ -191,7 +191,10 @@ fn run(
                 Step::Hidden => popup.close(),
             }
         }
-        if popup.frame_pending.is_some_and(|at| now - at > FRAME_TIMEOUT) {
+        if popup
+            .frame_pending
+            .is_some_and(|at| now - at > FRAME_TIMEOUT)
+        {
             popup.frame_pending = None;
         }
         if popup.motion.visible && (moving || dirty || popup.redraw) {
@@ -255,7 +258,9 @@ fn wait(
 fn animations_enabled() -> bool {
     let config = std::env::var_os("XDG_CONFIG_HOME")
         .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| std::path::Path::new(&home).join(".config")));
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| std::path::Path::new(&home).join(".config"))
+        });
     let Some(text) = config.and_then(|dir| std::fs::read_to_string(dir.join("kdeglobals")).ok())
     else {
         return true;
@@ -271,7 +276,10 @@ fn kde_animations_off(kdeglobals: &str) -> bool {
         } else if group == "KDE"
             && let Some(value) = line.strip_prefix("AnimationDurationFactor=")
         {
-            return value.trim().parse::<f32>().is_ok_and(|factor| factor <= 0.0);
+            return value
+                .trim()
+                .parse::<f32>()
+                .is_ok_and(|factor| factor <= 0.0);
         }
     }
     false
@@ -414,11 +422,9 @@ impl Popup {
 
     /// The layout and the window's inset for an output's logical size (`None`: unknown yet).
     fn placement(setup: OsdConfig, dictation: bool, output: Option<(i32, i32)>) -> (Layout, i32) {
-        let across = output.map_or(0, |(w, h)| {
-            match setup.edge {
-                OsdEdge::Left | OsdEdge::Right => w,
-                OsdEdge::Top | OsdEdge::Bottom => h,
-            }
+        let across = output.map_or(0, |(w, h)| match setup.edge {
+            OsdEdge::Left | OsdEdge::Right => w,
+            OsdEdge::Top | OsdEdge::Bottom => h,
         });
         let offset = (across as f32 * setup.offset_pct / 100.0).round();
         let margin = edge_margin(dictation);
@@ -427,7 +433,12 @@ impl Popup {
         (layout, (offset + margin - layout.pad).round() as i32)
     }
 
-    fn open(&mut self, setup: OsdConfig, dictation: bool, qh: &QueueHandle<Self>) -> anyhow::Result<()> {
+    fn open(
+        &mut self,
+        setup: OsdConfig,
+        dictation: bool,
+        qh: &QueueHandle<Self>,
+    ) -> anyhow::Result<()> {
         self.close_surface();
         let output = if setup.primary_monitor {
             self.primary()
@@ -553,7 +564,8 @@ impl Popup {
         }
         self.painter.paint(&scene, self.layout, None);
         let hands_free = matches!(scene.view, Osd::Dictation(view) if view.hands_free && view.state == DictationState::Listening);
-        let panel = super::motion::panel_size(scene.view, self.layout.setup.style, scene.status_width);
+        let panel =
+            super::motion::panel_size(scene.view, self.layout.setup.style, scene.status_width);
         let opacity = (self.motion.enter.value * 1.4).clamp(0.0, 1.0);
         let (width, height) = (self.painter.width, self.painter.height);
         let Some(pixels) = self.painter.pixels() else {
@@ -567,7 +579,11 @@ impl Popup {
         if !reuse {
             surface.buffer = None;
         }
-        let canvas = match surface.buffer.as_ref().and_then(|b| b.canvas(&mut self.pool)) {
+        let canvas = match surface
+            .buffer
+            .as_ref()
+            .and_then(|b| b.canvas(&mut self.pool))
+        {
             Some(canvas) => canvas,
             None => {
                 let created = self.pool.create_buffer(
@@ -598,7 +614,12 @@ impl Popup {
                 let x = |at: f32| (at * p.sx + p.tx) as i32;
                 let top = ((b.top + 1.0) * p.sy + p.ty) as i32;
                 let bottom = ((b.top + 26.0) * p.sy + p.ty) as i32;
-                region.add(x(b.right - 48.0), top, x(b.right - 7.0) - x(b.right - 48.0), bottom - top);
+                region.add(
+                    x(b.right - 48.0),
+                    top,
+                    x(b.right - 7.0) - x(b.right - 48.0),
+                    bottom - top,
+                );
             }
             wl.set_input_region(Some(region.wl_region()));
         }
@@ -664,7 +685,12 @@ fn copy_bgra(source: &[u8], target: &mut [u8], opacity: f32) {
         if fade == 255 {
             to.copy_from_slice(&[from[2], from[1], from[0], from[3]]);
         } else {
-            to.copy_from_slice(&[scale(from[2]), scale(from[1]), scale(from[0]), scale(from[3])]);
+            to.copy_from_slice(&[
+                scale(from[2]),
+                scale(from[1]),
+                scale(from[0]),
+                scale(from[3]),
+            ]);
         }
     }
 }
@@ -808,7 +834,15 @@ impl PointerHandler for Popup {
                 .surface
                 .as_ref()
                 .is_some_and(|s| s.layer.wl_surface() == &event.surface);
-            if ours && matches!(event.kind, PointerEventKind::Release { button: BTN_LEFT, .. }) {
+            if ours
+                && matches!(
+                    event.kind,
+                    PointerEventKind::Release {
+                        button: BTN_LEFT,
+                        ..
+                    }
+                )
+            {
                 self.click(event.position.0, event.position.1);
             }
         }
@@ -873,7 +907,9 @@ mod tests {
     #[test]
     fn kde_animation_speed_zero_means_no_motion() {
         assert!(kde_animations_off("[KDE]\nAnimationDurationFactor=0\n"));
-        assert!(kde_animations_off("[General]\nx=1\n[KDE]\nAnimationDurationFactor=0.0"));
+        assert!(kde_animations_off(
+            "[General]\nx=1\n[KDE]\nAnimationDurationFactor=0.0"
+        ));
         assert!(!kde_animations_off("[KDE]\nAnimationDurationFactor=0.5\n"));
         assert!(!kde_animations_off("[Other]\nAnimationDurationFactor=0\n"));
         assert!(!kde_animations_off(""));
@@ -954,20 +990,76 @@ mod tests {
         use OsdLook::{Classic, Sketch};
         use OsdStyle::{Horizontal, Vertical};
         let cases = [
-            ("classic-vertical-music", volume("Music", "pink", "music", 67.0, false), setup(Classic, Vertical, Right, 0.0)),
-            ("classic-vertical-voice-muted", volume("Voice", "violet", "message", 40.0, true), setup(Classic, Vertical, Right, 0.0)),
-            ("sketch-vertical-left-game", volume("Game", "lime", "gamepad", 80.0, false), setup(Sketch, Vertical, Left, 0.0)),
-            ("classic-horizontal-master", volume("Master", "teal", "speaker", 52.0, false), setup(Classic, Horizontal, Bottom, 0.0)),
-            ("sketch-horizontal-top-music", volume("Music", "pink", "music", 67.0, false), setup(Sketch, Horizontal, Top, 0.0)),
-            ("classic-offset-music", volume("Music", "pink", "music", 30.0, false), setup(Classic, Vertical, Right, 10.0)),
-            ("classic-mic-muted", status(StatusIcon::MicOff, "Microphone", "Muted", true), setup(Classic, Vertical, Right, 0.0)),
-            ("classic-bypass", status(StatusIcon::Processing, "Processing", "Bypassed", true), setup(Classic, Horizontal, Bottom, 0.0)),
-            ("sketch-preset", status(StatusIcon::Preset, "Microphone preset", "Natural", false), setup(Sketch, Vertical, Right, 0.0)),
-            ("sketch-display", status(StatusIcon::Monitor, "Display", "Work", false), setup(Sketch, Horizontal, Bottom, 0.0)),
-            ("flow-listening-hands-free", dictation(Flow, State::Listening, true), dictation_setup),
-            ("flow-transcribing", dictation(Flow, State::Transcribing, false), dictation_setup),
-            ("flow-copied", dictation(Flow, State::Copied, false), dictation_setup),
-            ("analog-listening", dictation(Analog, State::Listening, false), dictation_setup),
+            (
+                "classic-vertical-music",
+                volume("Music", "pink", "music", 67.0, false),
+                setup(Classic, Vertical, Right, 0.0),
+            ),
+            (
+                "classic-vertical-voice-muted",
+                volume("Voice", "violet", "message", 40.0, true),
+                setup(Classic, Vertical, Right, 0.0),
+            ),
+            (
+                "sketch-vertical-left-game",
+                volume("Game", "lime", "gamepad", 80.0, false),
+                setup(Sketch, Vertical, Left, 0.0),
+            ),
+            (
+                "classic-horizontal-master",
+                volume("Master", "teal", "speaker", 52.0, false),
+                setup(Classic, Horizontal, Bottom, 0.0),
+            ),
+            (
+                "sketch-horizontal-top-music",
+                volume("Music", "pink", "music", 67.0, false),
+                setup(Sketch, Horizontal, Top, 0.0),
+            ),
+            (
+                "classic-offset-music",
+                volume("Music", "pink", "music", 30.0, false),
+                setup(Classic, Vertical, Right, 10.0),
+            ),
+            (
+                "classic-mic-muted",
+                status(StatusIcon::MicOff, "Microphone", "Muted", true),
+                setup(Classic, Vertical, Right, 0.0),
+            ),
+            (
+                "classic-bypass",
+                status(StatusIcon::Processing, "Processing", "Bypassed", true),
+                setup(Classic, Horizontal, Bottom, 0.0),
+            ),
+            (
+                "sketch-preset",
+                status(StatusIcon::Preset, "Microphone preset", "Natural", false),
+                setup(Sketch, Vertical, Right, 0.0),
+            ),
+            (
+                "sketch-display",
+                status(StatusIcon::Monitor, "Display", "Work", false),
+                setup(Sketch, Horizontal, Bottom, 0.0),
+            ),
+            (
+                "flow-listening-hands-free",
+                dictation(Flow, State::Listening, true),
+                dictation_setup,
+            ),
+            (
+                "flow-transcribing",
+                dictation(Flow, State::Transcribing, false),
+                dictation_setup,
+            ),
+            (
+                "flow-copied",
+                dictation(Flow, State::Copied, false),
+                dictation_setup,
+            ),
+            (
+                "analog-listening",
+                dictation(Analog, State::Listening, false),
+                dictation_setup,
+            ),
         ];
         for (name, view, setup) in cases {
             println!("POPUP {name}");

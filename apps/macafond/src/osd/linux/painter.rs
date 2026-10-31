@@ -1,10 +1,10 @@
 //! The Linux popup's pictures: the Windows painter (`popup/painter.rs`) redrawn with tiny-skia
 //! into a premultiplied RGBA pixmap, primitive for primitive and with the same geometry, so both
 //! platforms show the same Classic and Sketch looks and dictation states.
+use super::super::Osd;
 use super::super::dictation::{State as DictationState, View as DictationView};
 use super::super::icons::ICONS;
 use super::super::motion::*;
-use super::super::Osd;
 use super::text::{Family, Fonts, Format, format};
 use macafon_config::{OsdLook, OsdStyle};
 use std::collections::HashMap;
@@ -71,7 +71,13 @@ fn mix(from: Rgba, to: Rgba, t: f32) -> Rgba {
 
 impl Rgba {
     fn color(self) -> Color {
-        let c = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
+        let c = |v: f32| {
+            if v.is_finite() {
+                v.clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        };
         Color::from_rgba(c(self.r), c(self.g), c(self.b), c(self.a)).unwrap_or(Color::TRANSPARENT)
     }
 }
@@ -82,7 +88,10 @@ fn rect_path(b: Bounds) -> Option<Path> {
 
 /// A rounded rectangle; the radius is limited to half the shorter side, like Direct2D.
 fn rounded_path(b: Bounds, radius: f32) -> Option<Path> {
-    let r = radius.min((b.right - b.left) / 2.0).min((b.bottom - b.top) / 2.0).max(0.0);
+    let r = radius
+        .min((b.right - b.left) / 2.0)
+        .min((b.bottom - b.top) / 2.0)
+        .max(0.0);
     if r <= 0.0 {
         return rect_path(b);
     }
@@ -91,13 +100,41 @@ fn rounded_path(b: Bounds, radius: f32) -> Option<Path> {
     let mut p = PathBuilder::new();
     p.move_to(b.left + r, b.top);
     p.line_to(b.right - r, b.top);
-    p.cubic_to(b.right - r + k, b.top, b.right, b.top + r - k, b.right, b.top + r);
+    p.cubic_to(
+        b.right - r + k,
+        b.top,
+        b.right,
+        b.top + r - k,
+        b.right,
+        b.top + r,
+    );
     p.line_to(b.right, b.bottom - r);
-    p.cubic_to(b.right, b.bottom - r + k, b.right - r + k, b.bottom, b.right - r, b.bottom);
+    p.cubic_to(
+        b.right,
+        b.bottom - r + k,
+        b.right - r + k,
+        b.bottom,
+        b.right - r,
+        b.bottom,
+    );
     p.line_to(b.left + r, b.bottom);
-    p.cubic_to(b.left + r - k, b.bottom, b.left, b.bottom - r + k, b.left, b.bottom - r);
+    p.cubic_to(
+        b.left + r - k,
+        b.bottom,
+        b.left,
+        b.bottom - r + k,
+        b.left,
+        b.bottom - r,
+    );
     p.line_to(b.left, b.top + r);
-    p.cubic_to(b.left, b.top + r - k, b.left + r - k, b.top, b.left + r, b.top);
+    p.cubic_to(
+        b.left,
+        b.top + r - k,
+        b.left + r - k,
+        b.top,
+        b.left + r,
+        b.top,
+    );
     p.close();
     p.finish()
 }
@@ -259,15 +296,9 @@ impl Canvas<'_> {
         if let Some(tree) = self.icons.get(&cache) {
             let (left, top) = (x - size / 2.0, y - size / 2.0);
             let p = self.panel;
-            let at = Transform::from_row(
-                p.sx,
-                0.0,
-                0.0,
-                p.sy,
-                p.sx * left + p.tx,
-                p.sy * top + p.ty,
-            )
-            .post_scale(self.scale, self.scale);
+            let at =
+                Transform::from_row(p.sx, 0.0, 0.0, p.sy, p.sx * left + p.tx, p.sy * top + p.ty)
+                    .post_scale(self.scale, self.scale);
             resvg::render(tree, at, &mut self.pixmap);
         }
     }
@@ -477,7 +508,12 @@ fn sketch(c: &mut Canvas, scene: &Scene, b: Bounds, horizontal: bool) {
                 )
             } else {
                 (
-                    bounds(b.left + 4.0, b.bottom - 38.0, b.right - 4.0, b.bottom - 12.0),
+                    bounds(
+                        b.left + 4.0,
+                        b.bottom - 38.0,
+                        b.right - 4.0,
+                        b.bottom - 12.0,
+                    ),
                     bounds(b.left + 4.0, b.top + 12.0, b.right - 4.0, b.top + 36.0),
                     HUD_CENTER,
                 )
@@ -509,7 +545,12 @@ fn sketch(c: &mut Canvas, scene: &Scene, b: Bounds, horizontal: bool) {
             c.text(
                 value,
                 MONO,
-                bounds(b.left + STATUS_H, b.top + 29.0, b.right - 16.0, b.bottom - 8.0),
+                bounds(
+                    b.left + STATUS_H,
+                    b.top + 29.0,
+                    b.right - 16.0,
+                    b.bottom - 8.0,
+                ),
                 rgba(INK, 1.0),
             );
         }
@@ -567,7 +608,12 @@ fn volume(c: &mut Canvas, scene: &Scene, b: Bounds, name: &str, color: &str, ico
         track.bottom - thickness / 2.0,
         22.0,
     );
-    let caption = bounds(b.left + 6.0, b.bottom - 38.0, b.right - 6.0, b.bottom - 14.0);
+    let caption = bounds(
+        b.left + 6.0,
+        b.bottom - 38.0,
+        b.right - 6.0,
+        b.bottom - 14.0,
+    );
     c.text(name, NAME, caption, rgba(ink, 1.0));
 }
 
@@ -619,8 +665,9 @@ fn dictation(c: &mut Canvas, scene: &Scene, b: Bounds, view: &DictationView) {
             }
         } else if transcribing {
             for n in 0..3 {
-                let phase =
-                    (scene.shimmer * std::f32::consts::TAU / 0.9 - n as f32 * 0.8).sin() * 0.5 + 0.5;
+                let phase = (scene.shimmer * std::f32::consts::TAU / 0.9 - n as f32 * 0.8).sin()
+                    * 0.5
+                    + 0.5;
                 c.fill_ellipse(
                     (b.left + b.right) / 2.0 + (n as f32 - 1.0) * 14.0,
                     center_y,
@@ -637,7 +684,12 @@ fn dictation(c: &mut Canvas, scene: &Scene, b: Bounds, view: &DictationView) {
                     18.0
                 };
             c.line((x, center_y), (x + 5.0, center_y + 5.0), ink, 2.0);
-            c.line((x + 5.0, center_y + 5.0), (x + 15.0, center_y - 7.0), ink, 2.0);
+            c.line(
+                (x + 5.0, center_y + 5.0),
+                (x + 15.0, center_y - 7.0),
+                ink,
+                2.0,
+            );
             if view.state == DictationState::Copied {
                 c.text(
                     "Copied",
@@ -703,7 +755,13 @@ fn analog(c: &mut Canvas, scene: &Scene, b: Bounds, view: &DictationView, captio
         c.clip = mask;
         let strength = if listening { 0.05 + 0.16 * level } else { 0.04 };
         for (r, a) in [(38.0, 0.35), (26.0, 0.6), (15.0, 1.0)] {
-            c.fill_ellipse(center.0, center.1, r, r * 0.8, rgba(AMBER_DEEP, strength * a));
+            c.fill_ellipse(
+                center.0,
+                center.1,
+                r,
+                r * 0.8,
+                rgba(AMBER_DEEP, strength * a),
+            );
         }
         c.clip = None;
     }
@@ -745,7 +803,12 @@ fn analog(c: &mut Canvas, scene: &Scene, b: Bounds, view: &DictationView, captio
     c.text(
         "VU",
         DICTATION_SERIF,
-        bounds(center.0 - 30.0, center.1 - 16.0, center.0 - 10.0, center.1 - 1.0),
+        bounds(
+            center.0 - 30.0,
+            center.1 - 16.0,
+            center.0 - 10.0,
+            center.1 - 1.0,
+        ),
         rgba(INK, 0.35),
     );
     // Peak ghost, then the needle.
@@ -755,7 +818,12 @@ fn analog(c: &mut Canvas, scene: &Scene, b: Bounds, view: &DictationView, captio
         vu_travel(scene.vu)
     };
     if listening && scene.vu_peak > needle_travel + 0.02 {
-        c.line(center, point(scene.vu_peak, radius - 3.0), rgba(INK, 0.22), 1.0);
+        c.line(
+            center,
+            point(scene.vu_peak, radius - 3.0),
+            rgba(INK, 0.22),
+            1.0,
+        );
     }
     let white = rgba(WHITE, if done { 0.7 } else { 1.0 });
     c.line(center, point(needle_travel, radius - 3.0), white, 1.5);
@@ -836,7 +904,14 @@ fn bar(c: &mut Canvas, scene: &Scene, b: Bounds, name: &str, color: &str, icon: 
     let grey = rgba(INK, 0.32);
     let middle = (b.top + b.bottom) / 2.0;
     c.card(b, BAR_RADIUS);
-    c.icon(icon, ink, 1.0 - 0.5 * scene.mute, b.left + 30.0, middle, 22.0);
+    c.icon(
+        icon,
+        ink,
+        1.0 - 0.5 * scene.mute,
+        b.left + 30.0,
+        middle,
+        22.0,
+    );
     let (start, end) = (b.left + 56.0, b.right - 74.0);
     let caption = bounds(start, b.top + 9.0, end, b.top + 27.0);
     c.text(name, LABEL, caption, rgba(ink, 1.0));
@@ -844,7 +919,11 @@ fn bar(c: &mut Canvas, scene: &Scene, b: Bounds, name: &str, color: &str, icon: 
     c.fill_rounded(bounds(start, y - 2.0, end, y + 2.0), 2.0, rgba(INK, 0.18));
     let x = start + (end - start) * scene.level;
     let filled = mix(rgba(fill, 1.0), grey, scene.mute);
-    c.fill_rounded(bounds(start, y - 2.0, x.max(start + 4.0), y + 2.0), 2.0, filled);
+    c.fill_rounded(
+        bounds(start, y - 2.0, x.max(start + 4.0), y + 2.0),
+        2.0,
+        filled,
+    );
     let ring = mix(rgba(BG_RAISED, 1.0), rgba(INK, 1.0), 0.22);
     c.fill_ellipse(x, y, 10.0, 10.0, ring);
     c.fill_ellipse(x, y, 6.0, 6.0, filled);
@@ -891,16 +970,37 @@ mod tests {
         use macafon_ipc::DictationPopupLook::{Analog, Flow};
         vec![
             ("music", volume("Music", "pink", "music", 67.0, false)),
-            ("voice-muted", volume("Voice", "violet", "message", 40.0, true)),
-            ("mic-muted", status(StatusIcon::MicOff, "Microphone", "Muted", true)),
-            ("bypass", status(StatusIcon::Processing, "Processing", "Bypassed", true)),
-            ("preset", status(StatusIcon::Preset, "Microphone preset", "Natural", false)),
-            ("display", status(StatusIcon::Monitor, "Display", "Work", false)),
+            (
+                "voice-muted",
+                volume("Voice", "violet", "message", 40.0, true),
+            ),
+            (
+                "mic-muted",
+                status(StatusIcon::MicOff, "Microphone", "Muted", true),
+            ),
+            (
+                "bypass",
+                status(StatusIcon::Processing, "Processing", "Bypassed", true),
+            ),
+            (
+                "preset",
+                status(StatusIcon::Preset, "Microphone preset", "Natural", false),
+            ),
+            (
+                "display",
+                status(StatusIcon::Monitor, "Display", "Work", false),
+            ),
             ("flow-listening", dictation(Flow, State::Listening, true)),
-            ("flow-transcribing", dictation(Flow, State::Transcribing, false)),
+            (
+                "flow-transcribing",
+                dictation(Flow, State::Transcribing, false),
+            ),
             ("flow-copied", dictation(Flow, State::Copied, false)),
             ("flow-error", dictation(Flow, State::Error, false)),
-            ("analog-listening", dictation(Analog, State::Listening, false)),
+            (
+                "analog-listening",
+                dictation(Analog, State::Listening, false),
+            ),
             ("analog-done", dictation(Analog, State::Done, false)),
         ]
     }
@@ -909,7 +1009,12 @@ mod tests {
         let (level, mute, alert, status_width) = match view {
             Osd::Volume {
                 volume_pct, muted, ..
-            } => (volume_pct / 100.0, f32::from(u8::from(*muted)), 0.0, STATUS_MIN_W),
+            } => (
+                volume_pct / 100.0,
+                f32::from(u8::from(*muted)),
+                0.0,
+                STATUS_MIN_W,
+            ),
             Osd::Status {
                 title,
                 value,
@@ -980,7 +1085,10 @@ mod tests {
                         }
                     }
                     let area = ((b.right - b.left) * (b.bottom - b.top) * 2.25) as usize;
-                    assert!(inside > area / 2, "{look:?} {style:?} {label}: {inside} of {area}");
+                    assert!(
+                        inside > area / 2,
+                        "{look:?} {style:?} {label}: {inside} of {area}"
+                    );
                     assert_eq!(outside, 0, "{look:?} {style:?} {label}");
                 }
             }
@@ -996,7 +1104,10 @@ mod tests {
             StatusIcon::Preset,
             StatusIcon::Monitor,
         ] {
-            assert!(ICONS.iter().any(|(id, _)| *id == status_icon(icon)), "{icon:?}");
+            assert!(
+                ICONS.iter().any(|(id, _)| *id == status_icon(icon)),
+                "{icon:?}"
+            );
         }
     }
 

@@ -191,7 +191,11 @@ impl Layout {
 
     /// The panel in a window of `size`: its bounds, the middle of its edge side (it grows from
     /// there) and the direction it slides in from.
-    pub(super) fn place(&self, size: (f32, f32), panel: (f32, f32)) -> (Bounds, (f32, f32), (f32, f32)) {
+    pub(super) fn place(
+        &self,
+        size: (f32, f32),
+        panel: (f32, f32),
+    ) -> (Bounds, (f32, f32), (f32, f32)) {
         let ((w, h), (pw, ph), pad) = (size, panel, self.pad);
         match self.setup.edge {
             OsdEdge::Right => (
@@ -219,7 +223,12 @@ impl Layout {
 
     /// The panel's transform for `enter` as `(scale, dx, dy)`: it grows from its edge side and
     /// slides in from the screen edge; an overshoot of `enter` past 1 is the bounce.
-    pub(super) fn transform(&self, size: (f32, f32), panel: (f32, f32), enter: f32) -> (f32, f32, f32) {
+    pub(super) fn transform(
+        &self,
+        size: (f32, f32),
+        panel: (f32, f32),
+        enter: f32,
+    ) -> (f32, f32, f32) {
         let (_, (pivot_x, pivot_y), (toward_x, toward_y)) = self.place(size, panel);
         let scale = 0.86 + 0.14 * enter;
         (
@@ -573,7 +582,10 @@ mod tests {
         }
         assert!(!motion.visible);
         let shown = now - start;
-        assert!(shown >= HOLD && shown < HOLD + Duration::from_millis(700), "{shown:?}");
+        assert!(
+            shown >= HOLD && shown < HOLD + Duration::from_millis(700),
+            "{shown:?}"
+        );
         assert_eq!(motion.wait(now), None, "hidden waits forever");
     }
 

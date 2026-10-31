@@ -234,8 +234,7 @@ impl Popup {
         let same = self.motion.continues(&osd);
         // Settings changing the setup moves a visible popup right away, and a hotkey used
         // in an app on another monitor brings it there; dictation updates leave it in place.
-        if !self.motion.visible || setup != self.layout.setup || !matches!(osd, Osd::Dictation(_))
-        {
+        if !self.motion.visible || setup != self.layout.setup || !matches!(osd, Osd::Dictation(_)) {
             if let Err(error) = self.place(setup, matches!(osd, Osd::Dictation(_))) {
                 tracing::debug!(%error, "Cannot place hotkey popup");
                 return;

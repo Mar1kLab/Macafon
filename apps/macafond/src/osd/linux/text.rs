@@ -218,11 +218,18 @@ mod tests {
     fn weights_widen_and_long_text_is_trimmed() {
         let fonts = Fonts::new().expect("bundled fonts");
         let regular = fonts.width("Microphone preset", format(Family::Sans, 12.0, false), 0.0);
-        let strong = fonts.width("Microphone preset", format(Family::SansStrong, 12.0, false), 0.0);
+        let strong = fonts.width(
+            "Microphone preset",
+            format(Family::SansStrong, 12.0, false),
+            0.0,
+        );
         assert!(regular > 60.0 && strong > regular, "{regular} {strong}");
         // Mono: every character the same advance, plus the HUD spacing.
         let mono = format(Family::Mono, 11.0, false);
-        let (one, ten) = (fonts.width("A", mono, 1.65), fonts.width("AAAAAAAAAA", mono, 1.65));
+        let (one, ten) = (
+            fonts.width("A", mono, 1.65),
+            fonts.width("AAAAAAAAAA", mono, 1.65),
+        );
         assert!((ten - 10.0 * one).abs() < 0.01, "{one} {ten}");
         let mut pixmap = tiny_skia::Pixmap::new(80, 20).expect("pixmap");
         fonts.draw(

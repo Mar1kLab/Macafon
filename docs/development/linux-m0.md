@@ -171,6 +171,9 @@ subprocesses, using whisper-rs-sys 0.14.1's bundled CPU bindings: its bindgen ve
 misreads C struct layouts with libclang 23. Use the same prefix for direct Linux
 Cargo builds. Do not export this globally or set it in `.cargo/config.toml`:
 Windows Vulkan builds require generated bindings for their additional symbols.
+If this checkout already attempted a build with generated bindings, run
+`cargo clean -p whisper-rs-sys --release` once before rebuilding: upstream's build
+script does not track changes to `WHISPER_DONT_GENERATE_BINDINGS`.
 
 In the Dictation screen, download a model explicitly, enable dictation, and assign Hold and/or
 Hands-free in Hotkeys. Use a key-bearing shortcut such as `Ctrl+Super+F9`; pure modifier chords

@@ -100,8 +100,8 @@ pub const DEFAULT_HOTKEYS: [&[(&str, &str)]; 5] = [
 /// Linux defaults are Super+Alt chords (owner request, 2026-10-31): Ctrl+PageUp/PageDown
 /// switch tabs in browsers, terminals and editors, Linux has no left/right modifier split to
 /// keep them apart, and KDE flags them as conflicts. Applications almost never use Super, and
-/// KDE Plasma and GNOME leave Super+Alt with these keys free. Same order and letters as
-/// Windows; Voice adds Shift to Main's keys.
+/// KDE Plasma and GNOME leave Super+Alt with these keys free (KDE's Spectacle owns
+/// Super+Alt+R). Main uses PageUp/PageDown, Voice adds Shift and Music adds Ctrl.
 #[cfg(target_os = "linux")]
 pub const DEFAULT_HOTKEYS: [&[(&str, &str)]; 5] = [
     &[("quick_panel", "Alt+Super+Z")],
@@ -115,9 +115,15 @@ pub const DEFAULT_HOTKEYS: [&[(&str, &str)]; 5] = [
         ("channel_volume_down.voice", "Alt+Shift+Super+PageDown"),
     ],
     &[
-        ("channel_volume_up.music", "Alt+Super+R"),
-        ("channel_volume_down.music", "Alt+Super+F"),
+        ("channel_volume_up.music", "Ctrl+Alt+Super+PageUp"),
+        ("channel_volume_down.music", "Ctrl+Alt+Super+PageDown"),
     ],
+];
+/// Music's first Linux pair; Super+Alt+R starts KDE's screen recording.
+#[cfg(target_os = "linux")]
+const PREVIOUS_LINUX_MUSIC: [(&str, &str); 2] = [
+    ("channel_volume_up.music", "Alt+Super+R"),
+    ("channel_volume_down.music", "Alt+Super+F"),
 ];
 /// The Windows set Linux shipped until 0.11; an untouched copy moves to the Linux set.
 #[cfg(target_os = "linux")]
@@ -149,7 +155,7 @@ pub const DISPLAY_HOTKEYS: [(&str, &str); 2] = [
 #[cfg(not(target_os = "linux"))]
 pub const HOTKEY_DEFAULTS_REVISION: u32 = 5;
 #[cfg(target_os = "linux")]
-pub const HOTKEY_DEFAULTS_REVISION: u32 = 7;
+pub const HOTKEY_DEFAULTS_REVISION: u32 = 8;
 #[cfg(not(target_os = "linux"))]
 const DISPLAY_DEFAULTS_REVISION: u32 = 5;
 #[cfg(target_os = "linux")]
@@ -309,6 +315,8 @@ impl Config {
                     .is_some_and(|bound| bound == shortcut)
             });
         let previous_linux = self.untouched_previous_linux_hotkeys();
+        #[cfg(target_os = "linux")]
+        self.move_previous_linux_music();
         self.ui.hotkey_defaults = HOTKEY_DEFAULTS_REVISION;
         if offer_dictation {
             for (action, shortcut) in DICTATION_HOTKEYS {
@@ -389,6 +397,26 @@ impl Config {
                     .chain(DISPLAY_HOTKEYS.iter())
                     .any(|(id, default)| id == action && default == shortcut)
             })
+    }
+
+    /// Revision 7 bound Music to Super+Alt+R/F; an untouched pair moves to the new keys.
+    #[cfg(target_os = "linux")]
+    fn move_previous_linux_music(&mut self) {
+        let untouched = self.ui.hotkey_defaults == 7
+            && PREVIOUS_LINUX_MUSIC
+                .iter()
+                .all(|(action, shortcut)| self.hotkeys.get(*action).is_some_and(|s| s == shortcut));
+        let [_, _, _, _, music] = DEFAULT_HOTKEYS;
+        if untouched
+            && !music
+                .iter()
+                .any(|(_, shortcut)| self.hotkeys.values().any(|bound| bound == shortcut))
+        {
+            for (action, shortcut) in music {
+                self.hotkeys
+                    .insert((*action).to_owned(), (*shortcut).to_owned());
+            }
+        }
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -586,6 +614,10 @@ mod tests {
         assert!(old.offer_default_hotkeys(|_| true));
         assert_eq!(old.hotkeys["channel_volume_up.main"], "Alt+Super+PageUp");
         assert_eq!(old.hotkeys["quick_panel"], "Alt+Super+Z");
+        assert_eq!(
+            old.hotkeys["channel_volume_up.music"],
+            "Ctrl+Alt+Super+PageUp"
+        );
         assert_eq!(old.hotkeys["display_all_on"], "Ctrl+Alt+Shift+F12");
         assert!(!old.offer_default_hotkeys(|_| true));
 
@@ -595,6 +627,35 @@ mod tests {
         custom.hotkeys.insert("mic_mute_toggle".into(), "F9".into());
         let before = custom.hotkeys.clone();
         assert!(custom.offer_default_hotkeys(|_| true));
+        assert_eq!(custom.hotkeys, before);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn music_leaves_kde_screen_recording_shortcut() {
+        let mut config = Config::default();
+        config.ui.hotkey_defaults = 7;
+        config.hotkeys = PREVIOUS_LINUX_MUSIC
+            .iter()
+            .map(|(action, shortcut)| ((*action).into(), (*shortcut).into()))
+            .collect();
+        assert!(config.offer_default_hotkeys(|_| true));
+        assert_eq!(
+            config.hotkeys["channel_volume_up.music"],
+            "Ctrl+Alt+Super+PageUp"
+        );
+        assert_eq!(
+            config.hotkeys["channel_volume_down.music"],
+            "Ctrl+Alt+Super+PageDown"
+        );
+        let mut custom = Config::default();
+        custom.ui.hotkey_defaults = 7;
+        custom.hotkeys = BTreeMap::from([
+            ("channel_volume_up.music".into(), "Alt+Super+R".into()),
+            ("channel_volume_down.music".into(), "F8".into()),
+        ]);
+        let before = custom.hotkeys.clone();
+        custom.offer_default_hotkeys(|_| true);
         assert_eq!(custom.hotkeys, before);
     }
 

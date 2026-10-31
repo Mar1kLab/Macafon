@@ -14,7 +14,7 @@ pub struct Modifiers {
 impl Modifiers {
     /// Side masks: bit 0 is left, bit 1 is right. Windows synthesizes left Ctrl
     /// with AltGr: an explicitly right-Alt binding without Ctrl ignores that bit.
-    #[cfg(any(windows, test))]
+    #[cfg(windows)]
     pub fn matches(self, mut ctrl: u8, alt: u8, shift: bool, super_: bool) -> bool {
         if self.alt_side == 2 && !self.ctrl && alt == 2 {
             ctrl &= !1;
@@ -152,6 +152,11 @@ impl Accel {
         if !any_modifier && types(&key) {
             return Err(format!("{text:?} needs Ctrl, Alt or Super"));
         }
+        #[cfg(target_os = "linux")]
+        {
+            modifiers.ctrl_side = 0;
+            modifiers.alt_side = 0;
+        }
         Ok(Self { modifiers, key })
     }
 
@@ -285,22 +290,38 @@ mod tests {
     fn sided_modifiers_remain_distinct_and_generic_bindings_conflict() {
         let left = Accel::parse("LCtrl+LAlt+M").expect("left");
         let right = Accel::parse("RCtrl+RAlt+M").expect("right");
-        assert_eq!(left.to_string(), "LCtrl+LAlt+M");
-        assert_eq!(right.to_string(), "RCtrl+RAlt+M");
+        assert_eq!(
+            left.to_string(),
+            if cfg!(target_os = "linux") {
+                "Ctrl+Alt+M"
+            } else {
+                "LCtrl+LAlt+M"
+            }
+        );
+        assert_eq!(
+            right.to_string(),
+            if cfg!(target_os = "linux") {
+                "Ctrl+Alt+M"
+            } else {
+                "RCtrl+RAlt+M"
+            }
+        );
         assert_eq!(left.overlaps(&right), !cfg!(windows));
         assert!(left.overlaps(&Accel::parse("Ctrl+Alt+M").expect("either")));
-        let altgr = Accel::parse("RAlt+PageUp").expect("AltGr");
-        let m = altgr.modifiers;
-        assert!(m.matches(0, 2, false, false));
-        assert!(m.matches(1, 2, false, false));
-        assert!(!m.matches(1, 1, false, false));
-        assert!(!m.matches(2, 2, false, false));
-        let main = Accel::parse("RCtrl+PageUp").expect("Main");
-        assert!(main.modifiers.matches(2, 0, false, false));
-        assert!(!main.modifiers.matches(1, 0, false, false));
-        assert!(!main.overlaps(&altgr));
         #[cfg(windows)]
-        assert!(altgr.overlaps(&Accel::parse("Ctrl+Alt+PageUp").expect("generic")));
+        {
+            let altgr = Accel::parse("RAlt+PageUp").expect("AltGr");
+            let m = altgr.modifiers;
+            assert!(m.matches(0, 2, false, false));
+            assert!(m.matches(1, 2, false, false));
+            assert!(!m.matches(1, 1, false, false));
+            assert!(!m.matches(2, 2, false, false));
+            let main = Accel::parse("RCtrl+PageUp").expect("Main");
+            assert!(main.modifiers.matches(2, 0, false, false));
+            assert!(!main.modifiers.matches(1, 0, false, false));
+            assert!(!main.overlaps(&altgr));
+            assert!(altgr.overlaps(&Accel::parse("Ctrl+Alt+PageUp").expect("generic")));
+        }
         let defaults: Vec<_> = macafon_config::DEFAULT_HOTKEYS
             .into_iter()
             .flatten()

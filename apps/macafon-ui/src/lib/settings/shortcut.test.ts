@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { displayShortcut, indexShortcuts, recordShortcut } from './shortcut';
+import { sameShortcut, displayShortcut, indexShortcuts, recordShortcut } from './shortcut';
 
 it('indexes the first shortcut for each action, including unbound actions', () => {
   const shortcuts = indexShortcuts([
@@ -22,6 +22,16 @@ const key = (code: string, mods: { ctrl?: boolean; alt?: boolean; shift?: boolea
 
 describe('shortcut recording', () => {
   // The same canonical strings as Accel::to_string in macafond (HK-002).
+  it('compares desktop aliases without hiding a different assigned chord', () => {
+    expect(sameShortcut('Alt+Super+PageUp', 'Meta+Alt+PgUp')).toBe(true);
+    expect(sameShortcut('Alt+PageUp', 'Meta+Alt+PgUp')).toBe(false);
+  });
+
+  it('records generic Linux modifiers even when physical keys are sided', () => {
+    expect(recordShortcut(key('KeyZ', { ctrl: true, alt: true }))).toEqual({ kind: 'done', shortcut: 'Ctrl+Alt+Z' });
+    expect(recordShortcut(key('PageUp', { alt: true }))).toEqual({ kind: 'done', shortcut: 'Alt+PageUp' });
+  });
+
   it('produces the daemon canonical form', () => {
     expect(recordShortcut(key('KeyM', { ctrl: true, alt: true }))).toEqual({ kind: 'done', shortcut: 'Ctrl+Alt+M' });
     expect(recordShortcut(key('PageUp', { shift: true, meta: true }))).toEqual({

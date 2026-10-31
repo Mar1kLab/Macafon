@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("smoke", Path(__file__).with_name("pipewire-smoke.py"))
@@ -63,7 +64,11 @@ def main():
                                             f"org.macafon.Test.{method}", *arguments], env=env, text=True, timeout=8)
 
         def returned(text):
-            return json.loads(text.strip()[2:-3].encode().decode("unicode_escape"))
+            result = json.loads(text.strip()[2:-3].encode().decode("unicode_escape"))
+            for item in result:
+                if isinstance(item, dict) and "id" in item:
+                    item["id"] = item["id"].split("@")[0]
+            return result
 
         try:
             portal = spawn([sys.executable, Path(__file__).with_name("fake_portal.py")],
@@ -89,10 +94,25 @@ def main():
             conflict = subprocess.run([str(args.ctl), "ctl", "hotkeys", "set", "bypass_toggle", "Ctrl+Alt+M"],
                                       env=env, capture_output=True, text=True, timeout=8)
             assert conflict.returncode != 0 and "already used" in conflict.stderr, conflict
+            raw_bound = json.loads(test("Bound").strip()[2:-3].encode().decode("unicode_escape"))
+            old_id = next(b["id"] for b in raw_bound if b["id"].startswith("mic_mute_toggle@"))
+            ctl("hotkeys", "set", "mic_mute_toggle", "LCtrl+LAlt+K")
+            smoke.wait_for(lambda: mute_binding()["system_trigger"] == "CTRL+ALT+k", "changed trigger despite KDE cached IDs")
+            assert mute_binding()["shortcut"] == "Ctrl+Alt+K"
+            test("ChangeTrigger", "mic_mute_toggle", "Alt+K")
+            smoke.wait_for(lambda: mute_binding()["system_trigger"] == "Alt+K", "desktop trigger changes reach Settings")
+            assert mute_binding()["shortcut"] == "Ctrl+Alt+K", "desktop override does not rewrite preference"
+            before_stale = state("status")["settings"]["muted"]
+            test("Press", old_id)
+            time.sleep(0.1)
+            assert state("status")["settings"]["muted"] == before_stale, "stale ID ignored"
             print("hotkeys: portal binds the preferred trigger; duplicates are refused (HK-002, HK-003)")
 
             test("Press", "mic_mute_toggle")
             smoke.wait_for(lambda: state("status")["settings"]["muted"], "mute toggled by hotkey")
+            test("Press", "mic_mute_toggle")
+            time.sleep(0.1)
+            assert state("status")["settings"]["muted"], "duplicate activation must not repeat a toggle"
             test("Release", "mic_mute_toggle")
             test("Press", "mic_mute_toggle")
             smoke.wait_for(lambda: not state("status")["settings"]["muted"], "unmuted by hotkey")
@@ -116,6 +136,16 @@ def main():
             test("Press", "channel_volume_up.voice")
             smoke.wait_for(lambda: next(c for c in state("mixer")["channels"] if c["id"] == "voice")
                            ["settings"]["volume_pct"] == 55, "voice volume up")
+            smoke.wait_for(lambda: next(c for c in state("mixer")["channels"] if c["id"] == "voice")
+                           ["settings"]["volume_pct"] > 55, "held portal volume repeats")
+            test("Release", "channel_volume_up.voice")
+            released = next(c for c in state("mixer")["channels"] if c["id"] == "voice")["settings"]["volume_pct"]
+            time.sleep(0.2)
+            assert next(c for c in state("mixer")["channels"] if c["id"] == "voice")["settings"]["volume_pct"] == released
+            test("Press", "push_to_talk")
+            smoke.wait_for(lambda: not state("status")["settings"]["muted"], "talk held before rebind")
+            ctl("hotkeys", "set", "push_to_talk", "F10")
+            smoke.wait_for(lambda: state("status")["settings"]["muted"], "rebind releases held action")
             notes = smoke.wait_for(lambda: (lambda n: n if len(n) >= 2 else None)(returned(test("Notifications"))),
                                    "OSD notifications")
             assert any(note.startswith("Preset: ") for note in notes) and "Voice: 55%" in notes, notes

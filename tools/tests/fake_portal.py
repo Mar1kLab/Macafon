@@ -35,6 +35,7 @@ class Portal(dbus.service.Object):
         self.bus = bus
         self.session = None
         self.bound = []
+        self.saved_triggers = {}
         self.notifications = []
         self.registered = set()
 
@@ -81,6 +82,9 @@ class Portal(dbus.service.Object):
     def BindShortcuts(self, session, shortcuts, parent, options, sender=None):
         self.bound = [{"id": str(id_), "description": str(props.get("description", "")),
                        "trigger": str(props.get("preferred_trigger", ""))} for id_, props in shortcuts]
+        # Like KDE, an existing ID keeps its stored assignment despite a new preference.
+        for item in self.bound:
+            item["trigger"] = self.saved_triggers.setdefault(item["id"], item["trigger"])
         result = dbus.Array([dbus.Struct((dbus.String(item["id"]), dbus.Dictionary(
             {"description": dbus.String(item["description"]),
              "trigger_description": dbus.String(item["trigger"])}, signature="sv")))
@@ -95,13 +99,28 @@ class Portal(dbus.service.Object):
     def Deactivated(self, session, shortcut, timestamp, options):
         pass
 
+    @dbus.service.signal(PORTAL, signature="oa(sa{sv})")
+    def ShortcutsChanged(self, session, shortcuts):
+        pass
+
+    @dbus.service.method("org.macafon.Test", in_signature="ss", out_signature="")
+    def ChangeTrigger(self, action, trigger):
+        id_ = self.resolve(action)
+        self.ShortcutsChanged(dbus.ObjectPath(self.session_path), dbus.Array([
+            dbus.Struct((dbus.String(id_), dbus.Dictionary(
+                {"trigger_description": dbus.String(trigger)}, signature="sv")))
+        ], signature="(sa{sv})"))
+
+    def resolve(self, action):
+        return next((b["id"] for b in self.bound if b["id"].split("@")[0] == action), action)
+
     @dbus.service.method("org.macafon.Test", in_signature="s", out_signature="")
     def Press(self, shortcut):
-        self.Activated(dbus.ObjectPath(self.session_path), shortcut, dbus.UInt64(0), dbus.Dictionary({}, signature="sv"))
+        self.Activated(dbus.ObjectPath(self.session_path), self.resolve(shortcut), dbus.UInt64(0), dbus.Dictionary({}, signature="sv"))
 
     @dbus.service.method("org.macafon.Test", in_signature="s", out_signature="")
     def Release(self, shortcut):
-        self.Deactivated(dbus.ObjectPath(self.session_path), shortcut, dbus.UInt64(0), dbus.Dictionary({}, signature="sv"))
+        self.Deactivated(dbus.ObjectPath(self.session_path), self.resolve(shortcut), dbus.UInt64(0), dbus.Dictionary({}, signature="sv"))
 
     @dbus.service.method("org.macafon.Test", in_signature="", out_signature="s")
     def Bound(self):

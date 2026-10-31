@@ -8,7 +8,7 @@
   import { t, type MessageKey } from '../i18n';
   import { DaemonError } from '../ipc/client';
   import type { HotkeyBinding } from '../ipc/protocol';
-  import { displayShortcut, modifierChord, recordShortcut } from './shortcut';
+  import { displayShortcut, modifierChord, recordShortcut, sameShortcut } from './shortcut';
   import { tip } from '../components/tooltip.svelte';
 
   const hotkeys = $derived(daemon.hotkeys);
@@ -172,6 +172,8 @@
 
 {#if hotkeys}
   <div class="hotkeys">
+    {#if !daemon.windows}<p class="note">{t('settings.hotkeys.linuxModifiers')}</p>{/if}
+    {#if hotkeys.backend === 'portal'}<p class="note">{t('settings.hotkeys.portalHint')}</p>{/if}
     {#each groups as group (group.id)}
       <div class="group">
         <h3 class="hud-label">{group.title}</h3>
@@ -213,8 +215,12 @@
                 <p class="problem" id="hk-{action}">{problem}</p>
               {:else if recording === action}
                 <p class="note">{t('settings.hotkeys.recordHint')}</p>
-              {:else if binding.system_trigger && binding.system_trigger !== binding.shortcut}
-                <p class="note">{t('settings.hotkeys.assigned', { trigger: binding.system_trigger })}</p>
+              {:else if hotkeys.backend === 'portal' && binding.shortcut}
+                <p class="note">{t('settings.hotkeys.assigned', { trigger: binding.system_trigger ?? t('settings.hotkeys.pending') })}
+                  {#if binding.system_trigger && !sameShortcut(binding.shortcut, binding.system_trigger)}
+                    {t('settings.hotkeys.desktopDifferent')}
+                  {/if}
+                </p>
               {/if}
             </li>
           {/each}

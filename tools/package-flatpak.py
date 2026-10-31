@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Stage CI-built Linux binaries; Flatpak assembly performs no network access."""
-import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -38,6 +37,12 @@ def main():
                 soname, source = parts[0], Path(parts[2])
                 if soname not in available or soname.startswith(('libpipewire-', 'libspa-')):
                     shutil.copy2(source, libs / soname)
+                    owner = subprocess.check_output(['dpkg-query', '-S', str(source)], text=True).split(': ')[0].split(':')[0]
+                    copyright_file = Path('/usr/share/doc') / owner / 'copyright'
+                    if copyright_file.is_file():
+                        notices = APP / 'share/macafon/system-licenses'
+                        notices.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(copyright_file, notices / owner)
     for binary in [p for p in APP.rglob('*') if p.is_file() and p.read_bytes()[:4] == b'\x7fELF']:
         subprocess.run(['patchelf', '--set-rpath', '/app/lib/macafon', str(binary)], check=True)
     share = APP / 'share'

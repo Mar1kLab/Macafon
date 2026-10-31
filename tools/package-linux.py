@@ -8,13 +8,23 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def run(*command, cwd=ROOT):
-    subprocess.run([str(arg) for arg in command], cwd=cwd, check=True)
+def run(*command, cwd=ROOT, env=None):
+    subprocess.run([str(arg) for arg in command], cwd=cwd, env=env, check=True)
+
+
+def build_environment():
+    # whisper-rs-sys 0.14.1's bindgen misreads layouts with libclang 23.
+    # Linux uses CPU-only Whisper; its bundled bindings match this configuration.
+    # Keep this local to Linux build subprocesses: Windows needs generated Vulkan symbols.
+    environment = os.environ.copy()
+    environment["WHISPER_DONT_GENERATE_BINDINGS"] = "1"
+    return environment
 
 
 def notices(destination):
@@ -162,6 +172,7 @@ def configuration(stage, triple):
         "files": files,
         "desktopTemplate": str(ROOT / "packaging/linux/desktop.hbs"),
         "preRemoveScript": str(ROOT / "packaging/linux/prerm.sh"),
+        "postInstallScript": str(ROOT / "packaging/linux/postinst.sh"),
     }
     return {
         "bundle": {
@@ -196,25 +207,26 @@ def main():
     parser.add_argument("--bundle-only", action="store_true", help="use existing release binaries")
     parser.add_argument("--build-only", action="store_true", help="build release binaries without packages")
     args = parser.parse_args()
-    if os.name != "posix" or not shutil.which("pnpm"):
+    if sys.platform != "linux" or not shutil.which("pnpm"):
         parser.error("Linux and pnpm are required")
     if args.bundle_only and args.build_only:
         parser.error("choose either --bundle-only or --build-only")
     triple = next(line.split(": ", 1)[1] for line in subprocess.check_output(
         ["rustc", "-vV"], text=True).splitlines() if line.startswith("host:"))
+    environment = build_environment()
     stage = ROOT / "target/package-linux"
     stage.mkdir(parents=True, exist_ok=True)
     if not args.bundle_only:
-        run("cargo", "build", "--release", "--locked", "-p", "macafond", "-p", "macafon-cli", "-p", "macafon-stt-worker")
+        run("cargo", "build", "--release", "--locked", "-p", "macafond", "-p", "macafon-cli", "-p", "macafon-stt-worker", env=environment)
     notices(stage / "licenses")
     stt_notices(stage / "licenses")
     config = stage / "tauri-bundle.conf.json"
     config.write_text(json.dumps(configuration(stage, triple), indent=2) + "\n")
     ui = ROOT / "apps/macafon-ui"
     if not args.bundle_only:
-        run("pnpm", "tauri", "build", "--no-bundle", "--config", config, cwd=ui)
+        run("pnpm", "tauri", "build", "--no-bundle", "--config", config, cwd=ui, env=environment)
     if not args.build_only:
-        run("pnpm", "tauri", "bundle", "--bundles", args.bundles, "--config", config, cwd=ui)
+        run("pnpm", "tauri", "bundle", "--bundles", args.bundles, "--config", config, cwd=ui, env=environment)
         version = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"]
         for package in (ROOT / "target/release/bundle/deb").glob("*.deb"):
             recipe = ROOT / "target/package-linux/aur/macafon-bin"

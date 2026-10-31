@@ -160,12 +160,20 @@ autostart and packaging belong to M1 and are not done yet.
 ## Experimental Linux dictation
 
 Dictation now uses the shared STT worker on Linux (PRD §8.4.9, ADR-0005). Build both binaries
-with `cargo build --release -p macafond -p macafon-stt-worker` and keep `macafon-stt` beside
+with `WHISPER_DONT_GENERATE_BINDINGS=1 cargo build --release -p macafond -p macafon-stt-worker` and keep `macafon-stt` beside
 `macafond`. Native worker builds need CMake, a C/C++ toolchain and libclang; the sherpa-onnx
 build fetches its upstream Linux runtime archive. Ship its shared libraries beside the worker,
 including ONNX Runtime; the Linux worker searches its own directory through `$ORIGIN`
 without changing the user's loader environment. Linux defaults
 to CPU inference without a Vulkan SDK; the Windows feature set is unchanged.
+`tools/package-linux.py` sets `WHISPER_DONT_GENERATE_BINDINGS=1` for its build
+subprocesses, using whisper-rs-sys 0.14.1's bundled CPU bindings: its bindgen version
+misreads C struct layouts with libclang 23. Use the same prefix for direct Linux
+Cargo builds. Do not export this globally or set it in `.cargo/config.toml`:
+Windows Vulkan builds require generated bindings for their additional symbols.
+If this checkout already attempted a build with generated bindings, run
+`cargo clean -p whisper-rs-sys --release` once before rebuilding: upstream's build
+script does not track changes to `WHISPER_DONT_GENERATE_BINDINGS`.
 
 In the Dictation screen, download a model explicitly, enable dictation, and assign Hold and/or
 Hands-free in Hotkeys. Use a key-bearing shortcut such as `Ctrl+Super+F9`; pure modifier chords
@@ -268,7 +276,11 @@ Artifacts are in `target/release/bundle/`. Install the deb/rpm through the distr
 or make the AppImage executable and run it (`--appimage-extract-and-run` if FUSE is unavailable).
 Launch `macafon-ui`, or run `macafond run` and `macafon ctl status` for diagnostics. Installed packages
 include the systemd **user** unit; start it with `systemctl --user start macafond` only when no daemon is
-already running. Dictation launches the adjacent worker on demand. For a direct staged loader check:
+already running. Autostart stays opt-in. Deb/rpm post-install hooks reload logged-in
+users' systemd managers and restart only an already active `macafond.service`, so
+upgrades use the new daemon and worker without enabling a stopped service.
+Logged-out users load the new files on their next login. Dictation launches the adjacent worker on
+demand. For a direct staged loader check:
 
 ```sh
 env -u LD_LIBRARY_PATH target/package-linux/runtime/usr/bin/macafon-stt --help

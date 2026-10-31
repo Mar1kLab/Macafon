@@ -396,14 +396,19 @@ def main():
             def mic_latency():
                 return next(item["info"]["props"].get("node.latency") for item in json.loads(run("pw-dump"))
                             if item.get("info", {}).get("props", {}).get("node.name") == "macafon_mic")
-            assert request("prefs.get") == {"quantum_frames": 128, "close_action": "tray"}
+            prefs = request("prefs.get")
+            assert prefs["quantum_frames"] == 128 and prefs["close_action"] == "tray", prefs
             assert request("prefs.set", {"quantum_frames": 256})["quantum_frames"] == 256
             smoke.wait_for(lambda: mic_latency() == "256/48000", "node.latency 256")
             assert request("prefs.set", {"close_action": "quit"})["close_action"] == "quit"
             with socket.socket(socket.AF_UNIX) as window:
                 window.connect(str(runtime / "macafon" / "macafond.sock"))
                 window.sendall(b'{"id":1,"method":"hello","params":{"protocol":1,"client":"macafon-ui"}}\n')
-                window.makefile().readline()
+                reader = window.makefile()
+                reader.readline()
+                # The warm UI reports the closed window; a disconnect alone does not quit.
+                window.sendall(b'{"id":2,"method":"ui.window_closed"}\n')
+                reader.readline()
             daemon.wait(timeout=5)
             daemon = spawn([args.daemon, "run", "--no-tray"])
             smoke.wait_for(lambda: ports("macafon_mic", "out"), "virtual microphone after quit")

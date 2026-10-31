@@ -35,6 +35,11 @@ pub(super) fn run_session<H: MicrophoneHost + 'static>(
     let stream_bindings = Rc::new(RefCell::new(mixer::StreamBindings::new()));
     let metadata_state = Rc::new(RefCell::new(mixer::MetadataState::default()));
     let bound_metadata = Rc::new(RefCell::new(None::<mixer::BoundMetadata>));
+    let metadata_id = Rc::new(Cell::new(None));
+    let metadata_add = metadata_id.clone();
+    let metadata_remove = metadata_id;
+    let metadata_state_remove = metadata_state.clone();
+    let bound_metadata_remove = bound_metadata.clone();
     let bind_registry = registry.clone();
     let (bind_streams, bind_bindings) = (streams.clone(), stream_bindings.clone());
     let (bind_metadata_state, bind_metadata) = (metadata_state.clone(), bound_metadata.clone());
@@ -72,6 +77,7 @@ pub(super) fn run_session<H: MicrophoneHost + 'static>(
             {
                 *bind_metadata.borrow_mut() =
                     mixer::bind_metadata(&bind_registry, global, &bind_metadata_state);
+                metadata_add.set(Some(global.id));
             }
             if global.type_ == ObjectType::Port {
                 if let Some(props) = global.props {
@@ -87,6 +93,19 @@ pub(super) fn run_session<H: MicrophoneHost + 'static>(
             }
         })
         .global_remove(move |id| {
+            if metadata_remove.get() == Some(id) {
+                metadata_remove.set(None);
+                bound_metadata_remove.replace(None);
+                // WirePlumber may restart without restarting PipeWire. Its metadata and
+                // every cached write against that metadata must be acquired again.
+                let mut state = metadata_state_remove.borrow_mut();
+                state.invalidated = true;
+                state.targets.clear();
+                state.default_sink = None;
+                state.default_source = None;
+                state.default_changed = true;
+                state.source_changed = true;
+            }
             if profiler_remove
                 .get()
                 .is_some_and(|(global, _)| global == id)

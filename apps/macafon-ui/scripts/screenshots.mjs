@@ -329,6 +329,11 @@ const scenarios = {
     await page.waitForSelector('section');
     await page.waitForTimeout(600);
   },
+  'settings-popup-linux': async (page) => {
+    await page.goto(`${base}?screen=settings&section=popup`);
+    await page.waitForSelector('#settings-popup');
+    await page.waitForTimeout(900);
+  },
   'settings-popup': async (page) => {
     await page.goto(`${base}?platform=windows&screen=settings&section=popup`);
     await page.waitForSelector('#settings-popup');

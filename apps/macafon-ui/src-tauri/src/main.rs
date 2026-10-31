@@ -6,6 +6,8 @@
 
 mod bridge;
 mod quick_panel;
+#[cfg(target_os = "linux")]
+mod quick_panel_layer;
 
 use bridge::{Bridge, BridgeError, Sink, Status};
 use serde_json::Value;

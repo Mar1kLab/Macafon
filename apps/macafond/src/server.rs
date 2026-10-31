@@ -480,6 +480,7 @@ fn serve(
                     #[cfg(target_os = "linux")]
                     let capabilities = {
                         let mut capabilities = Platform::current().capabilities();
+                        capabilities.hotkey_popup = crate::osd::popup_supported();
                         capabilities.displays =
                             macafon_displays_linux::detected_backend().is_some();
                         capabilities

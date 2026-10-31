@@ -479,7 +479,7 @@ export class MockTransport implements Transport {
             stereo_option: !this.windows,
             channel_fx: !this.windows,
             graph_quantum: !this.windows,
-            hotkey_popup: this.windows,
+            hotkey_popup: this.query.get('layer-shell') !== 'off',
             sounddeck: true,
             dictation: true,
             dictation_layout: this.windows,

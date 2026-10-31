@@ -26,13 +26,13 @@ pub struct View {
 }
 
 /// Linear amplitude drives the needle, with an underdamped movement calibrated to 300 ms.
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 #[derive(Default)]
 pub struct Vu {
     pub value: f32,
     velocity: f32,
 }
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 impl Vu {
     pub fn step(&mut self, rms_dbfs: f32, dt: f32) {
         let target = 10.0f32.powf((rms_dbfs + 18.0) / 20.0).clamp(0.0, 1.6);

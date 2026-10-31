@@ -1,19 +1,23 @@
-//! What a hotkey changed (HK-006). Windows: Macafon's own popup on the right edge of the active
-//! monitor, drawn by the daemon so it shows at once and with the window closed; it replaces the
-//! system notifications, which piled up while a volume key was held. Linux keeps a replaceable
-//! desktop notification for presets and volumes: Wayland gives no way to place an overlay.
+//! What a hotkey changed (HK-006) and the dictation popup (§9.9.3), drawn by the daemon so they
+//! show at once and with the window closed. Windows: Macafon's own popup (Direct2D in a layered
+//! window); it replaces the system notifications, which piled up while a volume key was held.
+//! Linux: the same popup in a wlr-layer-shell overlay, a replaceable notification without one.
 
 pub mod dictation;
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(any(windows, target_os = "linux"))]
+mod motion;
 
 #[cfg(windows)]
 mod fonts;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 mod icons;
 #[cfg(windows)]
 mod popup;
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 pub enum Osd {
     Dictation(dictation::View),
     /// A channel volume or mute: a vertical slider in the channel's color, icon and name.
@@ -36,7 +40,7 @@ pub enum Osd {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 pub enum StatusIcon {
     Mic,
     MicOff,
@@ -50,9 +54,21 @@ pub fn show(osd: Osd, setup: macafon_config::OsdConfig) {
     popup::show(osd, setup);
 }
 
-/// Desktop notifications have no look or place to set up.
+/// Linux: the same popup in a layer-shell overlay; where the compositor has none (GNOME,
+/// X11) a replaceable desktop notification for the volumes, presets and display profiles.
 #[cfg(not(windows))]
-pub fn show(osd: Osd, _setup: macafon_config::OsdConfig) {
+pub fn show(osd: Osd, setup: macafon_config::OsdConfig) {
+    #[cfg(target_os = "linux")]
+    let Some(osd) = linux::show(osd, setup) else {
+        return;
+    };
+    #[cfg(not(target_os = "linux"))]
+    let _ = setup;
+    notification(osd);
+}
+
+#[cfg(not(windows))]
+fn notification(osd: Osd) {
     match osd {
         Osd::Dictation(view) => {
             #[cfg(target_os = "linux")]
@@ -71,6 +87,12 @@ pub fn show(osd: Osd, _setup: macafon_config::OsdConfig) {
             value,
             ..
         } => crate::notify::osd(format!("Preset: {value}")),
+        Osd::Status {
+            icon: StatusIcon::Monitor,
+            value,
+            ..
+        } => crate::notify::osd(format!("Display: {value}")),
+        // Push-to-talk toggles these on every press: a notification each time is in the way.
         Osd::Status { .. } => {}
     }
 }
@@ -81,7 +103,7 @@ static DICTATION_CONTROL: std::sync::OnceLock<
 pub fn set_dictation_control(control: macafon_backend::ControlSender<crate::host::ControlMessage>) {
     let _ = DICTATION_CONTROL.set(control);
 }
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub fn dictation_click(cancel: bool) {
     if let Some(control) = DICTATION_CONTROL.get() {
         let (reply, _) = std::sync::mpsc::channel();
@@ -99,4 +121,10 @@ pub fn dictation_click(cancel: bool) {
 #[cfg(windows)]
 pub fn clipboard_owner() -> Option<windows::Win32::Foundation::HWND> {
     popup::clipboard_owner()
+}
+
+/// Whether the hotkey popup and its Settings apply here (`Capabilities::hotkey_popup`).
+#[cfg(target_os = "linux")]
+pub fn popup_supported() -> bool {
+    linux::supported()
 }

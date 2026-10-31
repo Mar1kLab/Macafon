@@ -111,3 +111,43 @@ Test machine: Windows 11 25H2, HyperX SoloCast, VB-CABLE 3.3.1.7. Details —
 | One-hour soak | `spike run --seconds 3600` | Not run |
 | §19.1 matrix: USB/Realtek/Bluetooth; Discord, OBS, Zoom, Teams, Telegram, games with anti-cheats | Manual run | Not run |
 | Authenticode signing (SignPath) | — | Not configured |
+
+## Linux feature release gate
+
+Run these checks against installed deb/rpm, source/binary AUR and an extracted or mounted AppImage,
+with no build checkout or developer `LD_LIBRARY_PATH`. Record the distribution, desktop, session type
+and helper versions. The entries below are required manual checks, not claims of passed validation.
+
+| Check | Method / expected result | Status |
+|---|---|---|
+| Worker layout and loader, STT-007/009 | Worker beside daemon; private sherpa-onnx/ONNX Runtime libraries present. `readelf -d` shows relative runpaths; `ldd` has no missing libraries. `macafon-stt --help` works without the build tree or `LD_LIBRARY_PATH`, including after relocating an extracted AppImage | Pending target-package run |
+| SoundDeck library, SND-001 | Set a localized XDG music directory before first launch; default is its `Macafon Sounds` subfolder. Missing/malformed user-dirs config falls back to `~/Music`; explicit folder overrides it. Scan/import/play a supported file and use Open folder with `xdg-utils` | Pending desktop run |
+| SoundDeck playback, SND-002/003/007/008 | Monitor and virtual microphone hear the selected sound; verify independent gains, stop/pause/seek/repeat, voice duck and mute/bypass behavior without clicks; check no callback allocations/xruns | Pending PipeWire/audio run |
+| Dictation lifecycle, STT-001/007/009/013 | Off starts no worker. Import/download a model explicitly, enable, transcribe with Whisper and Parakeet, then verify timeout unload, cancel and worker crash recovery without audio interruption. Models are absent from package contents | Pending model/audio run |
+| Insertion and clipboard, STT-012/015/021 | On X11 and supported Wayland desktops exercise configured Paste/Type/Copy, focus targeting, clipboard restoration, last result and CLI dictation. Missing helpers report an actionable error; no privilege escalation | Pending X11/Wayland run |
+| CPU feature selection, STT-020 | Linux worker builds without Vulkan and completes CPU transcription; document GPU acceleration as unavailable in this Linux package | Pending model inference |
+| Display profiles, DISP-001/002/004/005/007 | With KDE/wlroots/X11 helpers, capture/apply profiles through UI and CLI, verify missing-output handling, reject all-off layouts, exercise confirmation timeout rollback and recovery actions on spare/test displays | Pending physical displays |
+| Optional helpers and removal | Inspect AUR optdepends/deb/rpm Recommends. Remove desktop helpers and confirm basic audio still starts with feature errors surfaced. Uninstall stops the daemon/restores audio and removes worker/private libraries while preserving user sounds/models | Pending clean VMs |
+
+Do not test display switching on an unattended primary workstation. GNOME/other unsupported compositor
+protocols and missing helpers must be recorded separately from package loader failures.
+
+
+Local packaging smoke check, 2026-10-31 (prepared unprivileged sysroot):
+
+- `cargo fmt`, `cargo clippy -p macafon-config --all-targets -- -D warnings` and
+  `cargo test -p macafon-config sounddeck` passed (four tests, including the XDG parser).
+- `cargo build --release --locked -p macafon-stt-worker` and
+  `python3 tools/package-linux.py --build-only` passed. Vulkan initially failed because its
+  headers/library and `glslc` were missing; the Linux worker uses CPU inference.
+- deb/rpm built with the packaging script. AppImage built with `pnpm -C apps/macafon-ui tauri bundle
+  -vv --bundles appimage --config target/package-linux/tauri-bundle.conf.json` (use an absolute config
+  path), after setting the GTK/tool/libproxy sysroot paths described in the Linux build instructions.
+  Without those paths linuxdeploy's GTK plugin failed to find its immodules cache/libproxy backend.
+- Staged, relocated, source-AUR `package()` and extracted-deb/AppImage workers started with
+  `LD_LIBRARY_PATH` unset. `ldd` resolved inference libraries from each package tree; `readelf -d`
+  showed relative runpaths. deb/rpm contents and recommendations were inspected; the generated
+  binary-AUR recipe's deb checksum and helper list matched, and its shell syntax passed.
+- Clean VM install/uninstall, an actual Arch `makepkg` build, live SoundDeck audio, model inference,
+  desktop insertion/clipboard and physical display safety checks were not run. Repeated bundling
+  emitted Tauri's existing `__TAURI_BUNDLE_TYPE` marker warning; no updater verification was performed.

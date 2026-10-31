@@ -12,18 +12,21 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
-macafon-stt = { workspace = true, features = ["whisper", "parakeet"] }
 serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 hound = "3.5"
 clap = { version = "4", features = ["derive"] }
 
+# Linux release packages use CPU inference; Vulkan requires an additional SDK.
 [target.'cfg(target_os = "linux")'.dependencies]
+macafon-stt = { workspace = true, features = ["whisper", "parakeet"] }
 libc = "0.2"
 
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+macafon-stt = { workspace = true, features = ["whisper", "parakeet", "vulkan"] }
+
 [target.'cfg(windows)'.dependencies]
-macafon-stt = { workspace = true, features = ["vulkan"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_ProcessStatus"] }
 
 [lints]

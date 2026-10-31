@@ -234,3 +234,71 @@ The parser fixtures, identity resolution, mirrored command plans, all-off reject
 variant round trip run without a GUI. This host has no compositor; live apply/Keep/timeout/revert,
 hotplug, notification actions, tray rendering, HDR and persistence still need a desktop hardware
 check. No display e2e, cloud workflow or Windows build is added.
+
+## Linux feature packages
+
+The historical M0 notes above describe the initial prototype. The current Linux package also ships
+SoundDeck (§7.6), dictation (§8.4) and display profiles (§8.5), with desktop support depending on the
+session/compositor. Build locally with stable Rust, C/C++, CMake, libclang, pkg-config, patchelf,
+Node/pnpm and the PipeWire, GTK 3, WebKitGTK 4.1 development packages:
+
+```sh
+# On the prepared development host, load its unprivileged sysroot first:
+source ~/.cache/macafon-sysroot/env.sh
+export PATH="$HOME/.local/bin:$PATH"
+# linuxdeploy's GTK plugin also needs the sysroot's tools and private libproxy runtime:
+export LD_GTK_LIBRARY_PATH="$HOME/.cache/macafon-sysroot/root/usr/lib/x86_64-linux-gnu"
+export PATH="$LD_GTK_LIBRARY_PATH/libgtk-3-0t64:$PATH"
+export LD_LIBRARY_PATH="$LD_GTK_LIBRARY_PATH/libproxy:$LD_LIBRARY_PATH"
+pnpm -C apps/macafon-ui install --frozen-lockfile
+python3 tools/package-linux.py --build-only
+python3 tools/package-linux.py --bundle-only --bundles deb,rpm,appimage
+```
+
+Without the prepared sysroot, use the distribution's development packages. `--build-only` builds the
+UI, daemon, CLI and `macafon-stt-worker` (binary `macafon-stt`), then stages the worker under
+`target/package-linux/runtime/usr/bin/` and inference libraries under `runtime/usr/lib/macafon/`.
+The worker's `$ORIGIN/../lib/macafon:$ORIGIN` runpath and the libraries' `$ORIGIN` runpaths allow relocation;
+packaging fails if `ldd` finds an unresolved dependency. Do not copy only the worker executable.
+`patchelf` changes staged files only. Tauri also copies the staged worker into `target/release`;
+the second runpath entry lets that development copy find the adjacent Cargo runtime libraries. A source
+AUR build installs this same staged runtime tree. AppImage also carries the private tree;
+linuxdeploy may additionally place its dependency copies in `usr/lib` and rewrite the worker's runpath
+to `$ORIGIN/../lib`. Both layouts use relative paths inside the image.
+No `LD_LIBRARY_PATH` modification or separate systemd worker service is needed.
+
+Linux builds enable Whisper and Parakeet CPU inference. The Vulkan build was tried on the prepared
+host and failed because Vulkan headers/library and `glslc` were unavailable; Linux target dependency
+selection therefore omits `vulkan`. Windows retains its existing Vulkan features. This is a Linux
+limitation of STT-020; a GPU selection cannot provide GPU acceleration with this worker.
+
+Artifacts are in `target/release/bundle/`. Install the deb/rpm through the distribution package manager,
+or make the AppImage executable and run it (`--appimage-extract-and-run` if FUSE is unavailable).
+Launch `macafon-ui`, or run `macafond run` and `macafon ctl status` for diagnostics. Installed packages
+include the systemd **user** unit; start it with `systemctl --user start macafond` only when no daemon is
+already running. Dictation launches the adjacent worker on demand. For a direct staged loader check:
+
+```sh
+env -u LD_LIBRARY_PATH target/package-linux/runtime/usr/bin/macafon-stt --help
+readelf -d target/package-linux/runtime/usr/bin/macafon-stt
+```
+
+Models are not in the package: import an existing verified local model or explicitly download one in
+Dictation. SoundDeck defaults to `Macafon Sounds` inside `XDG_MUSIC_DIR`, read from
+`$XDG_CONFIG_HOME/user-dirs.dirs` (normally `~/.config/user-dirs.dirs`), with `~/Music` as the fallback.
+An explicit SoundDeck folder setting continues to take precedence.
+
+Optional helpers (install only those appropriate for the desktop):
+
+- Dictation insertion: `wtype` for compatible Wayland compositors, `xdotool` for X11, or `ydotool`
+  with its separately configured service and input-device permissions. Macafon does not elevate itself
+  or configure that service.
+- Clipboard: `wl-clipboard` on Wayland or `xclip` on X11.
+- Displays: `kscreen-doctor` from `kscreen` on KDE, `wlr-randr` on compatible wlroots compositors,
+  or `xrandr` (`xorg-xrandr` on Arch, `x11-xserver-utils` on Debian) on X11. Other compositors may not
+  expose the protocols these helpers need.
+- SoundDeck Open folder: `xdg-open` from `xdg-utils`.
+
+These are AUR optdepends and deb/rpm recommendations, not hard dependencies. Packaging does not change
+system audio/display settings or grant input-device permissions. Run the Linux feature checks in the
+[release checklist](../qa/release-checklist.md#linux-feature-release-gate) on the target desktops.

@@ -54,16 +54,107 @@ def notices(destination):
     (destination / "INDEX.txt").write_text("\n".join(rows) + "\n")
 
 
+def stt_notices(destination):
+    """Native runtimes are not separate Cargo packages; include their notices too."""
+    destination.mkdir(parents=True, exist_ok=True)
+    metadata = json.loads(subprocess.check_output(
+        ["cargo", "metadata", "--locked", "--format-version", "1"], cwd=ROOT, text=True))
+    whisper_sys = next(p for p in metadata["packages"] if p["name"] == "whisper-rs-sys")
+    source = Path(whisper_sys["manifest_path"]).parent / "whisper.cpp/LICENSE"
+    shutil.copyfile(source, destination / "whisper.cpp-LICENSE.txt")
+    # https://github.com/microsoft/onnxruntime/blob/main/LICENSE (MIT).
+    (destination / "onnxruntime-LICENSE.txt").write_text("""MIT License
+
+Copyright (c) Microsoft Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+""", encoding="utf-8")
+    (destination / "dictation-models.txt").write_text("""Models are downloaded separately, never bundled.
+Whisper: OpenAI, MIT; ggml conversion/quantization by whisper.cpp contributors.
+https://huggingface.co/ggerganov/whisper.cpp
+Silero VAD: Silero Team, MIT; GGML conversion by whisper.cpp contributors.
+https://github.com/snakers4/silero-vad
+Parakeet TDT 0.6B v3: NVIDIA, CC-BY-4.0.
+https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+https://creativecommons.org/licenses/by/4.0/
+ONNX export and int8 quantization by the sherpa-onnx contributors:
+https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8
+""", encoding="utf-8")
+
+
+def stage_worker(stage):
+    """Stage a relocatable worker and its shared inference runtimes, without host rpaths."""
+    if not shutil.which("patchelf"):
+        raise RuntimeError("patchelf is required to package the Linux dictation worker")
+    runtime = stage / "runtime"
+    if runtime.exists():
+        shutil.rmtree(runtime)
+    binaries = runtime / "usr/bin"
+    libraries = runtime / "usr/lib/macafon"
+    binaries.mkdir(parents=True)
+    libraries.mkdir(parents=True)
+    worker = binaries / "macafon-stt"
+    shutil.copy2(ROOT / "target/release/macafon-stt", worker)
+    # sherpa-onnx-sys copies its runtime libraries (including SONAME aliases) here.
+    sources = [p for p in (ROOT / "target/release").glob("*.so*")
+               if p.name.startswith(("libsherpa-onnx", "libonnxruntime"))]
+    if not any(p.name.startswith("libsherpa-onnx-c-api.so") for p in sources):
+        raise RuntimeError("missing sherpa-onnx shared libraries; rebuild macafon-stt-worker")
+    for source in sources:
+        target = libraries / source.name
+        shutil.copy2(source, target)
+        run("patchelf", "--set-rpath", "$ORIGIN", target)
+        # Some upstream archives omit a versioned symlink required by DT_NEEDED.
+        soname = subprocess.check_output(["patchelf", "--print-soname", target], text=True).strip()
+        if soname and soname != target.name:
+            if Path(soname).name != soname:
+                raise RuntimeError(f"invalid runtime SONAME: {soname}")
+            shutil.copy2(target, libraries / soname)
+    # tauri-build also copies this sidecar into target/release; the second entry
+    # lets that development copy find sherpa-onnx-sys's adjacent runtime files.
+    run("patchelf", "--set-rpath", "$ORIGIN/../lib/macafon:$ORIGIN", worker)
+    # Resolve with the private directory, not a developer's LD_LIBRARY_PATH.
+    environment = {key: value for key, value in os.environ.items() if key != "LD_LIBRARY_PATH"}
+    for binary in (worker, *libraries.iterdir()):
+        result = subprocess.run(["ldd", str(binary)], env=environment, text=True,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True)
+        if "not found" in result.stdout:
+            raise RuntimeError(f"unresolved packaged runtime dependencies for {binary}:\n{result.stdout}")
+    return worker, libraries
+
+
+def aur_optdepends():
+    return (ROOT / "packaging/aur/optdepends.sh").read_text().strip()
+
+
 def configuration(stage, triple):
     sidecars = []
-    for name in ("macafond", "macafon"):
-        shutil.copy2(ROOT / "target/release" / name, stage / f"{name}-{triple}")
+    worker, libraries = stage_worker(stage)
+    for name in ("macafond", "macafon", "macafon-stt"):
+        source = worker if name == "macafon-stt" else ROOT / "target/release" / name
+        shutil.copy2(source, stage / f"{name}-{triple}")
         sidecars.append(str(stage / name))
     files = {
         "/usr/lib/systemd/user/macafond.service": str(ROOT / "packaging/systemd/macafond.service"),
         "/usr/share/macafon/cleanup-user-sessions.sh": str(ROOT / "packaging/linux/cleanup-user-sessions.sh"),
         "/usr/share/doc/macafon/LICENSE": str(ROOT / "LICENSE"),
     }
+    runtime_files = {f"/usr/lib/macafon/{lib.name}": str(lib) for lib in libraries.iterdir()}
+    files.update(runtime_files)
     for icon in (ROOT / "packaging/icons/hicolor").rglob("*"):
         if icon.is_file():
             files[f'/usr/share/icons/hicolor/{icon.relative_to(ROOT / "packaging/icons/hicolor")}'] = str(icon)
@@ -85,10 +176,15 @@ def configuration(stage, triple):
             "externalBin": sidecars,
             "resources": {str(stage / "licenses"): "licenses"},
             "linux": {
-                "deb": {**common, "section": "sound", "depends": [
-                    "pipewire (>= 1.0)", "wireplumber (>= 0.5)", "libwebkit2gtk-4.1-0", "libgtk-3-0"]},
-                "rpm": {**common, "depends": ["pipewire >= 1.0", "wireplumber >= 0.5", "webkit2gtk4.1", "gtk3"]},
-                "appimage": {"bundleMediaFramework": False},
+                "deb": {**common, "section": "sound", "recommends": [
+                    "wtype", "xdotool", "ydotool", "wl-clipboard", "xclip",
+                    "kscreen", "wlr-randr", "x11-xserver-utils", "xdg-utils"], "depends": [
+                    "pipewire (>= 1.0)", "wireplumber (>= 0.5)", "libwebkit2gtk-4.1-0", "libgtk-3-0", "libstdc++6"]},
+                "rpm": {**common, "recommends": [
+                    "wtype", "xdotool", "ydotool", "wl-clipboard", "xclip",
+                    "kscreen", "wlr-randr", "xrandr", "xdg-utils"], "depends": ["pipewire >= 1.0", "wireplumber >= 0.5", "webkit2gtk4.1", "gtk3", "libstdc++"]},
+                "appimage": {"bundleMediaFramework": False,
+                             "files": {key.lstrip("/"): value for key, value in runtime_files.items()}},
             },
         }
     }
@@ -109,8 +205,9 @@ def main():
     stage = ROOT / "target/package-linux"
     stage.mkdir(parents=True, exist_ok=True)
     if not args.bundle_only:
-        run("cargo", "build", "--release", "--locked", "-p", "macafond", "-p", "macafon-cli")
+        run("cargo", "build", "--release", "--locked", "-p", "macafond", "-p", "macafon-cli", "-p", "macafon-stt-worker")
     notices(stage / "licenses")
+    stt_notices(stage / "licenses")
     config = stage / "tauri-bundle.conf.json"
     config.write_text(json.dumps(configuration(stage, triple), indent=2) + "\n")
     ui = ROOT / "apps/macafon-ui"
@@ -132,7 +229,8 @@ pkgdesc='Microphone processing with a virtual microphone'
 arch=('x86_64')
 url='https://github.com/Mar1kLab/Macafon'
 license=('GPL-3.0-only')
-depends=('pipewire>=1.0' 'wireplumber>=0.5' 'webkit2gtk-4.1' 'gtk3' 'libsoup3')
+depends=('pipewire>=1.0' 'wireplumber>=0.5' 'webkit2gtk-4.1' 'gtk3' 'libsoup3' 'gcc-libs')
+{aur_optdepends()}
 makedepends=('libarchive')
 provides=('macafon')
 conflicts=('macafon')

@@ -6,6 +6,7 @@ PartOf=graphical-session.target
 After=graphical-session.target pipewire.service wireplumber.service
 
 [Service]
+# Dictation starts /usr/bin/macafon-stt on demand; its rpath finds /usr/lib/macafon.
 ExecStart=/usr/bin/macafond run
 # A crash restarts within 2 s (NFR-S6); Quit from the tray exits cleanly and stays stopped.
 Restart=on-failure

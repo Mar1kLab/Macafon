@@ -15,6 +15,7 @@ pub type Results = HashMap<String, OwnedValue>;
 pub struct Portal {
     connection: Connection,
     session: Option<OwnedObjectPath>,
+    app_id: &'static str,
 }
 
 /// One shortcut of a bind request: id, description, preferred trigger.
@@ -34,6 +35,7 @@ impl Portal {
     pub fn connect() -> Option<Self> {
         let connection = Connection::session().ok()?;
         // Newer portals identify host apps by a registered id (GNOME 48); older ones ignore it.
+        let mut registered_id = "Macafon";
         if let Ok(registry) = Proxy::new(
             &connection,
             DESTINATION,
@@ -47,7 +49,10 @@ impl Portal {
             // the connection unregistered, so try the other packaging variant.
             for app_id in ["Macafon", "macafon"] {
                 match registry.call::<_, _, ()>("Register", &(app_id, &options)) {
-                    Ok(()) => break,
+                    Ok(()) => {
+                        registered_id = app_id;
+                        break;
+                    }
                     Err(error) => {
                         tracing::debug!(app_id, %error, "Cannot register hotkey portal identity");
                     }
@@ -60,7 +65,12 @@ impl Portal {
         Some(Self {
             connection,
             session: None,
+            app_id: registered_id,
         })
+    }
+
+    pub fn session(&self) -> Option<&OwnedObjectPath> {
+        self.session.as_ref()
     }
 
     pub fn connection(&self) -> &Connection {
@@ -117,8 +127,8 @@ impl Portal {
         self.close();
         let results = self.request("CreateSession", |token| {
             let mut options: HashMap<&str, Value> = HashMap::new();
-            options.insert("handle_token", Value::from(token));
-            options.insert("session_handle_token", Value::from("macafon"));
+            options.insert("handle_token", Value::from(token.clone()));
+            options.insert("session_handle_token", Value::from(token));
             (options,)
         })?;
         let session: String = results
@@ -128,6 +138,7 @@ impl Portal {
         let session = OwnedObjectPath::try_from(session).map_err(|error| error.to_string())?;
         self.session = Some(session.clone());
         if shortcuts.is_empty() {
+            self.clean_inactive();
             return Ok(HashMap::new());
         }
         let list: Vec<(String, HashMap<&str, Value>)> = shortcuts
@@ -144,7 +155,21 @@ impl Portal {
             options.insert("handle_token", Value::from(token));
             (session.clone(), list, "", options)
         })?;
+        self.clean_inactive();
         Ok(triggers(results.get("shortcuts")))
+    }
+
+    /// Purge only inactive IDs after the replacement set is present. KDE keeps desktop
+    /// overrides for unchanged, present IDs. This is best effort on other desktops.
+    fn clean_inactive(&self) {
+        if let Ok(proxy) = Proxy::new(
+            &self.connection,
+            "org.kde.kglobalaccel",
+            format!("/component/{}", self.app_id),
+            "org.kde.kglobalaccel.Component",
+        ) {
+            let _: Result<bool, _> = proxy.call("cleanUp", &());
+        }
     }
 
     fn close(&mut self) {

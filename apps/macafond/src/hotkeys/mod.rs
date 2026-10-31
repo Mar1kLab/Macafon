@@ -142,6 +142,27 @@ fn run_other(receiver: mpsc::Receiver<Vec<Binding>>, control: ControlSender<Cont
     while receiver.recv().is_ok() {}
 }
 
+/// Stable, collision-free trigger identity: changing a preference must create a new portal
+/// shortcut because KDE retains its previous assignment for an existing ID.
+#[cfg(target_os = "linux")]
+fn portal_id(action: &str, trigger: &str) -> String {
+    use std::fmt::Write;
+    let mut id = format!("{action}@");
+    for byte in trigger.bytes() {
+        let _ = write!(id, "{byte:02x}");
+    }
+    id
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct PortalEvents {
+    session: Option<zbus::zvariant::OwnedObjectPath>,
+    actions: HashMap<String, String>,
+    held: std::collections::HashSet<String>,
+    triggers: HashMap<String, String>,
+}
+
 #[cfg(target_os = "linux")]
 fn run_portal(
     mut portal: portal::Portal,
@@ -156,9 +177,13 @@ fn run_portal(
             errors: HashMap::new(),
         },
     );
-    // Activated/Deactivated arrive on their own thread; ids are action ids.
+    // Serialize registration and event dispatch, including releases from a replaced session.
+    let events = Arc::new(Mutex::new(PortalEvents::default()));
+    let listening = events.clone();
+    // Subscribe before accepting the first binding, so an immediate press cannot be lost.
     let connection = portal.connection().clone();
     let signals = control.clone();
+    let (ready, started) = mpsc::channel();
     let listener = std::thread::Builder::new()
         .name("macafon-hotkey-signals".into())
         .spawn(move || {
@@ -173,11 +198,40 @@ fn run_portal(
             let Ok(messages) = proxy.receive_all_signals() else {
                 return;
             };
+            let _ = ready.send(());
             for message in messages {
                 let header = message.header();
                 let Some(member) = header.member() else {
                     continue;
                 };
+                let mut events = listening.lock().unwrap_or_else(|p| p.into_inner());
+                if member.as_str() == "ShortcutsChanged" {
+                    type Changed = (
+                        zbus::zvariant::OwnedObjectPath,
+                        Vec<(String, HashMap<String, zbus::zvariant::OwnedValue>)>,
+                    );
+                    if let Ok((session, shortcuts)) = message.body().deserialize::<Changed>()
+                        && events.session.as_ref() == Some(&session)
+                    {
+                        for (id, props) in shortcuts {
+                            if let Some(action) = events.actions.get(&id).cloned()
+                                && let Some(trigger) = props.get("trigger_description")
+                                && let Ok(trigger) = String::try_from(trigger.clone())
+                            {
+                                events.triggers.insert(action, trigger);
+                            }
+                        }
+                        status(
+                            &signals,
+                            Status {
+                                backend: HotkeyBackend::Portal,
+                                triggers: events.triggers.clone(),
+                                errors: HashMap::new(),
+                            },
+                        );
+                    }
+                    continue;
+                }
                 let pressed = match member.as_str() {
                     "Activated" => true,
                     "Deactivated" => false,
@@ -189,14 +243,25 @@ fn run_portal(
                     u64,
                     HashMap<String, zbus::zvariant::OwnedValue>,
                 );
-                if let Ok((_, id, _, _)) = message.body().deserialize::<Body>() {
-                    press(&signals, &id, pressed);
+                if let Ok((session, id, _, _)) = message.body().deserialize::<Body>()
+                    && events.session.as_ref() == Some(&session)
+                    && let Some(action) = events.actions.get(&id).cloned()
+                {
+                    let changed = if pressed {
+                        events.held.insert(action.clone())
+                    } else {
+                        events.held.remove(&action)
+                    };
+                    if changed {
+                        press(&signals, &action, pressed);
+                    }
                 }
             }
         });
     if let Err(error) = listener {
         tracing::warn!(%error, "Cannot listen to shortcut signals");
     }
+    let _ = started.recv();
     while let Ok(mut bindings) = receiver.recv() {
         // Only the latest set matters; the portal may show a dialog for each bind.
         while let Ok(newer) = receiver.try_recv() {
@@ -205,13 +270,34 @@ fn run_portal(
         let shortcuts: Vec<portal::Shortcut> = bindings
             .iter()
             .map(|binding| portal::Shortcut {
-                id: binding.action.clone(),
+                id: portal_id(&binding.action, &binding.accel.portal_trigger()),
                 description: binding.description.clone(),
                 trigger: binding.accel.portal_trigger(),
             })
             .collect();
+        let mut events = events.lock().unwrap_or_else(|p| p.into_inner());
+        for action in events.held.drain() {
+            press(&control, &action, false);
+        }
+        events.session = None;
+        events.actions = shortcuts
+            .iter()
+            .zip(&bindings)
+            .map(|(s, b)| (s.id.clone(), b.action.clone()))
+            .collect();
         let (triggers, errors) = match portal.bind(&shortcuts) {
-            Ok(triggers) => (triggers, HashMap::new()),
+            Ok(triggers) => (
+                triggers
+                    .into_iter()
+                    .filter_map(|(id, trigger)| {
+                        events
+                            .actions
+                            .get(&id)
+                            .map(|action| (action.clone(), trigger))
+                    })
+                    .collect(),
+                HashMap::new(),
+            ),
             Err(error) => {
                 tracing::warn!(%error, "Portal did not bind the shortcuts");
                 let errors = bindings
@@ -221,6 +307,8 @@ fn run_portal(
                 (HashMap::new(), errors)
             }
         };
+        events.session = portal.session().cloned();
+        events.triggers = triggers.clone();
         status(
             &control,
             Status {

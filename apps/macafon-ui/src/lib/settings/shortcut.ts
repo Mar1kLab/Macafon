@@ -95,3 +95,12 @@ export function recordShortcut(event: KeyLike, sides?: ReadonlySet<string>): Rec
   }
   return { kind: 'done', shortcut };
 }
+
+/** Portal descriptions use desktop-specific modifier order and key aliases. */
+export function sameShortcut(requested: string, assigned: string): boolean {
+  const canonical = (value: string) => value.toLowerCase().split('+').map((part) => {
+    const key = part.trim();
+    return ({ meta: 'super', logo: 'super', win: 'super', control: 'ctrl', pgup: 'pageup', prior: 'pageup', pgdown: 'pagedown', pgdn: 'pagedown', next: 'pagedown' } as Record<string, string>)[key] ?? key;
+  }).sort().join('+');
+  return canonical(requested) === canonical(assigned);
+}

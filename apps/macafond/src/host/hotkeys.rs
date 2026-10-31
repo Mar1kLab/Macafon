@@ -165,6 +165,12 @@ impl DaemonHost {
     /// Register the shortcuts again only when they changed: rebinding releases held actions,
     /// so a fader moved during push-to-talk would mute the microphone.
     pub(super) fn rebind_hotkeys(&mut self) {
+        #[cfg(target_os = "linux")]
+        for shortcut in self.config.hotkeys.values_mut() {
+            if let Ok(accel) = crate::hotkeys::accel::Accel::parse(shortcut) {
+                *shortcut = accel.to_string();
+            }
+        }
         let Some(service) = &self.hotkeys else { return };
         let mut bindings = Vec::new();
         for (action, description) in self.hotkey_actions() {

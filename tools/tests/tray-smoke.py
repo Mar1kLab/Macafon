@@ -3,6 +3,7 @@
 
 import argparse
 import array
+import ctypes
 import importlib.util
 import json
 import math
@@ -10,11 +11,13 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import socket
 import struct
 import subprocess
 import sys
 import tempfile
+import time
 import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -34,10 +37,45 @@ def png(width, height, argb):
             + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
 
 
+def close_window(window):
+    """Send the WM close request; xdotool windowclose destroys GTK's X window directly."""
+    class Message(ctypes.Structure):
+        _fields_ = [("type", ctypes.c_int), ("serial", ctypes.c_ulong),
+                    ("send_event", ctypes.c_int), ("display", ctypes.c_void_p),
+                    ("window", ctypes.c_ulong), ("message_type", ctypes.c_ulong),
+                    ("format", ctypes.c_int), ("data", ctypes.c_long * 5)]
+
+    class Event(ctypes.Union):
+        _fields_ = [("message", Message), ("padding", ctypes.c_long * 24)]
+
+    x11 = ctypes.CDLL("libX11.so.6")
+    x11.XOpenDisplay.restype = ctypes.c_void_p
+    x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+    x11.XInternAtom.restype = ctypes.c_ulong
+    x11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+    x11.XSendEvent.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int,
+                              ctypes.c_long, ctypes.POINTER(Event)]
+    x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+    display = x11.XOpenDisplay(None)
+    assert display, "X11 display unavailable"
+    try:
+        event = Event()
+        event.message.type = 33  # ClientMessage
+        event.message.display = display
+        event.message.window = int(window)
+        event.message.message_type = x11.XInternAtom(display, b"WM_PROTOCOLS", False)
+        event.message.format = 32
+        event.message.data[0] = x11.XInternAtom(display, b"WM_DELETE_WINDOW", False)
+        assert x11.XSendEvent(display, int(window), False, 0, ctypes.byref(event))
+    finally:
+        x11.XCloseDisplay(display)  # Also flushes the request.
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--daemon", type=Path, default=ROOT / "target/release/macafond")
     parser.add_argument("--ctl", type=Path, default=ROOT / "target/release/macafon")
+    parser.add_argument("--ui", type=Path, help="also check the Linux UI close lifecycle (requires X11 and xdotool)")
     parser.add_argument("--icons", type=Path, help="save the 48 px icon of each state as PNG here")
     parser.add_argument("--private-session", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -46,8 +84,12 @@ def main():
             parser.error(f"{command} missing")
     if not args.daemon.is_file() or not args.ctl.is_file():
         parser.error("build first: cargo build --release -p macafond -p macafon-cli")
+    if args.ui and (not args.ui.is_file() or not shutil.which("xdotool")):
+        parser.error("--ui needs a built UI and xdotool")
     if not args.private_session:
         extra = ["--icons", str(args.icons.resolve())] if args.icons else []
+        if args.ui:
+            extra += ["--ui", str(args.ui.resolve())]
         return subprocess.call(["dbus-run-session", "--", sys.executable, str(Path(__file__).resolve()),
                                 "--private-session", "--daemon", str(args.daemon.resolve()),
                                 "--ctl", str(args.ctl.resolve()), *extra])
@@ -57,7 +99,8 @@ def main():
         runtime = directory / "runtime"
         runtime.mkdir(mode=0o700)
         env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime), PIPEWIRE_RUNTIME_DIR=str(runtime),
-                   XDG_CONFIG_HOME=str(directory / "config"), XDG_STATE_HOME=str(directory / "state"))
+                   XDG_CONFIG_HOME=str(directory / "config"), XDG_STATE_HOME=str(directory / "state"),
+                   XDG_CACHE_HOME=str(directory / "cache"), XDG_DATA_HOME=str(directory / "data"))
         config = directory / "test.conf"
         config.write_text(smoke.CONFIG)
 
@@ -103,14 +146,19 @@ def main():
 
         def settled_icon(name, rgb):
             """Wait for the transition's final colour before comparing or saving."""
+            previous, stable_since = None, 0.0
+
             def ready():
+                nonlocal previous, stable_since
                 result = icon(name)
+                if result != previous:
+                    previous, stable_since = result, time.monotonic()
                 data = result[2]
                 # The logo has a dark keyline and a slight metal shade toward --ink; its fill
                 # is every opaque light pixel.
                 fill = [data[i + 1:i + 4] for i in range(0, len(data), 4)
                         if data[i] == 255 and sum(data[i + 1:i + 4]) > 300]
-                return result if fill and all(
+                return result if time.monotonic() - stable_since >= 0.2 and fill and all(
                     abs(a - b) <= 16 for pixel in fill for a, b in zip(pixel, rgb)) else None
             return smoke.wait_for(ready, "settled tray animation")
 
@@ -129,7 +177,7 @@ def main():
         try:
             spawn(["pipewire", "-c", config])
             smoke.wait_for(lambda: (runtime / "pipewire-0").exists(), "private PipeWire server")
-            tone = array.array("f", [0.1 * math.sin(2 * math.pi * 440 * n / 48000) for n in range(48000 * 30)])
+            tone = array.array("f", [0.1 * math.sin(2 * math.pi * 440 * n / 48000) for n in range(48000)]) * (120 if args.ui else 30)
             (directory / "tone.raw").write_bytes(tone.tobytes())
             spawn(["pw-cat", "--playback", "--raw", "--format", "f32", "--channels", "1",
                    "--channel-map", "MONO", "--target", "0", "--latency", "128", "--properties",
@@ -158,7 +206,7 @@ def main():
             save_icon(name, "muted")
             call(name, "/StatusNotifierItem", "org.kde.StatusNotifierItem.SecondaryActivate", "0", "0")
             smoke.wait_for(lambda: not status()["settings"]["muted"], "middle click unmutes")
-            assert settled_icon(name, [255, 255, 255]) == normal, "unmute did not restore the upright logo"
+            smoke.wait_for(lambda: icon(name) == normal, "unmute restores the upright logo")
 
             click(name, "Bypass processing")
             smoke.wait_for(lambda: status()["settings"]["bypass"], "bypass from the tray")
@@ -197,10 +245,40 @@ def main():
                 reader.readline()
                 client.close()
 
+            if args.ui:
+                run(args.ctl, "ctl", "device", "test_microphone")
+                smoke.wait_for(lambda: status()["input_connected"], "microphone restored for UI check")
+                ui = spawn([args.ui])
+
+                def main_window(title="^Macafon$"):
+                    found = subprocess.run(
+                        ["xdotool", "search", "--onlyvisible", "--pid", str(ui.pid), "--name", title],
+                        env=env, capture_output=True, text=True, timeout=5)
+                    for window in found.stdout.split():
+                        geometry = run("xdotool", "getwindowgeometry", "--shell", window)
+                        # GTK also owns a 10x10 helper with the same title.
+                        width = re.search(r"^WIDTH=(\d+)$", geometry, re.MULTILINE)
+                        if width and int(width[1]) >= 300:
+                            return window
+                    return None
+
+                window = smoke.wait_for(main_window, "real UI main window")
+                run(args.ui)  # A second launch must reuse the first process.
+                assert ui.poll() is None and main_window() == window, "single instance lost"
+                close_window(window)
+                assert ui.wait(timeout=15) == 0, "Linux UI stayed warm after close"
+                assert daemon.poll() is None and status()["input_connected"], "close stopped audio"
+                print("UI: single instance, close exits UI while daemon keeps processing (BG-001, BG-006)")
+                ui = spawn([args.ui, "--quick-panel"])
+                panel = smoke.wait_for(lambda: main_window("^Macafon quick panel$"), "quick panel")
+                close_window(panel)
+                assert ui.wait(timeout=15) == 0, "Linux panel stayed warm after close"
+                assert daemon.poll() is None, "panel close stopped daemon"
+                print("UI: closing the standalone Linux quick panel exits its process")
+
             ui_session()
             smoke.wait_for(lambda: "keeps running in the tray" in monitor_log.read_text(), "first-close notification")
             ui_session()
-            import time
             time.sleep(1)
             assert monitor_log.read_text().count("keeps running in the tray") == 1, "notification repeated"
             print("notification: first window close announces the tray once (BG-001)")
@@ -232,6 +310,17 @@ def main():
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait()
+            # D-Bus activation can leave portal/kscreen helpers behind. Only reap
+            # processes carrying this harness's private XDG config directory.
+            marker = f"XDG_CONFIG_HOME={directory / 'config'}".encode() + b"\0"
+            for proc in Path("/proc").iterdir():
+                if not proc.name.isdigit():
+                    continue
+                try:
+                    if marker in (proc / "environ").read_bytes():
+                        os.kill(int(proc.name), signal.SIGTERM)
+                except OSError:
+                    pass
             for log in logs:
                 log.close()
     return 0

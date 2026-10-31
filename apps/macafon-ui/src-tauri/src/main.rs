@@ -1,7 +1,5 @@
-//! Macafon UI (Tauri v2). The daemon keeps this process warm in the background with the
-//! hidden quick panel (owner decision 2026-10-17, against NFR-R5), so panels open at once;
-//! closing the main window keeps the process, the daemon going away ends it. A second launch
-//! shows the main window (BG-006) or toggles a panel (`--quick-panel`, `--overlay`).
+//! Macafon UI (Tauri v2). Windows keeps a hidden quick panel warm; Linux exits when
+//! its windows close (NFR-R5). A second launch shows the main window or toggles a panel.
 
 // Release builds on Windows open no console window next to the UI.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -256,9 +254,8 @@ fn foreground_main(window: &tauri::WebviewWindow) {
     let _ = window.set_focus();
 }
 
-/// The process stays warm without the main window: stop what only the window wanted (meters,
-/// device levels; NFR-R7) and tell the daemon, which may quit or show its tray hint. With no
-/// daemon to talk to there is nothing to stay warm for.
+/// Stop the main window subscriptions and report its close before Linux exits. Windows
+/// retains the hidden panel while the daemon is available.
 fn main_closed(app: &AppHandle) {
     let bridge = app.state::<Bridge>().inner().clone();
     if !matches!(bridge.status(), Status::Connected { .. }) {
@@ -272,6 +269,8 @@ fn main_closed(app: &AppHandle) {
         labels.remove("main");
         !labels.is_empty()
     };
+    #[cfg(target_os = "linux")]
+    let app = app.clone();
     std::thread::spawn(move || {
         let meters = (!others_metering).then_some("meters.unsubscribe");
         for method in meters
@@ -282,6 +281,9 @@ fn main_closed(app: &AppHandle) {
                 tracing::debug!(method, error = %error.message, "after the window closed");
             }
         }
+        // Finish the close notification before dropping the bridge connection.
+        #[cfg(target_os = "linux")]
+        app.exit(0);
     });
 }
 
@@ -291,10 +293,8 @@ fn open_requested(app: &AppHandle, request: Option<Option<quick_panel::Mode>>) {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || match request {
         Some(Some(mode)) => quick_panel::toggle(&app, mode),
-        Some(None) => {
-            quick_panel::hide(&app);
-            show_main(&app);
-        }
+        Some(None) if show_main(&app) => quick_panel::hide(&app),
+        Some(None) => {}
         // `--background`: only the hidden panel, already there.
         None => {}
     });
@@ -346,6 +346,7 @@ fn main() {
             app.manage(bridge);
             app.manage(quick_panel::PanelState::default());
             // The panel page loads now, so `ui.show` later only has to show it.
+            #[cfg(windows)]
             quick_panel::prewarm(app.handle());
             open_requested(app.handle(), request_from_args(&args));
             Ok(())
@@ -363,7 +364,8 @@ fn main() {
         ])
         .build(tauri::generate_context!());
     match result {
-        // Closing the last window keeps the process warm; it ends with the daemon or on Quit.
+        // main_closed finishes the daemon notification before Linux exits explicitly.
+        // Windows keeps the hidden panel warm until the daemon exits.
         Ok(app) => app.run(|_, event| {
             if let tauri::RunEvent::ExitRequested {
                 code: None, api, ..

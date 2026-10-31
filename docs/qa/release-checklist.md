@@ -133,7 +133,7 @@ Do not test display switching on an unattended primary workstation. GNOME/other 
 protocols and missing helpers must be recorded separately from package loader failures.
 
 
-Local packaging smoke check, 2026-10-31 (prepared unprivileged sysroot):
+Local packaging smoke check, 2026-10-31:
 
 - `cargo fmt`, `cargo clippy -p macafon-config --all-targets -- -D warnings` and
   `cargo test -p macafon-config sounddeck` passed (four tests, including the XDG parser).
@@ -142,8 +142,8 @@ Local packaging smoke check, 2026-10-31 (prepared unprivileged sysroot):
   headers/library and `glslc` were missing; the Linux worker uses CPU inference.
 - deb/rpm built with the packaging script. AppImage built with `pnpm -C apps/macafon-ui tauri bundle
   -vv --bundles appimage --config target/package-linux/tauri-bundle.conf.json` (use an absolute config
-  path), after setting the GTK/tool/libproxy sysroot paths described in the Linux build instructions.
-  Without those paths linuxdeploy's GTK plugin failed to find its immodules cache/libproxy backend.
+  path). linuxdeploy's GTK plugin needs the GTK immodules cache and the libproxy backend on the
+  library path of the build machine.
 - Staged, relocated, source-AUR `package()` and extracted-deb/AppImage workers started with
   `LD_LIBRARY_PATH` unset. `ldd` resolved inference libraries from each package tree; `readelf -d`
   showed relative runpaths. deb/rpm contents and recommendations were inspected; the generated

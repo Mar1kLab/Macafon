@@ -219,10 +219,9 @@ Keep / Revert actions are optional: the daemon always owns the 15 s auto-revert 
 the recovery snapshot if restore fails. The browser mock and existing UI need no Linux-specific
 components or duplicated protocol types.
 
-Targeted local checks (source the sysroot environment on the headless development host):
+Targeted local checks:
 
 ```sh
-source ~/.cache/macafon-sysroot/env.sh
 cargo fmt
 cargo clippy -p macafon-displays-linux -p macafond -p macafon-cli --all-targets -- -D warnings
 cargo test -p macafon-displays-linux
@@ -231,7 +230,7 @@ cargo test -p macafon-config display_defaults
 ```
 
 The parser fixtures, identity resolution, mirrored command plans, all-off rejection and Mutter
-variant round trip run without a GUI. This host has no compositor; live apply/Keep/timeout/revert,
+variant round trip run without a GUI. Live apply/Keep/timeout/revert,
 hotplug, notification actions, tray rendering, HDR and persistence still need a desktop hardware
 check. No display e2e, cloud workflow or Windows build is added.
 
@@ -243,19 +242,12 @@ session/compositor. Build locally with stable Rust, C/C++, CMake, libclang, pkg-
 Node/pnpm and the PipeWire, GTK 3, WebKitGTK 4.1 development packages:
 
 ```sh
-# On the prepared development host, load its unprivileged sysroot first:
-source ~/.cache/macafon-sysroot/env.sh
-export PATH="$HOME/.local/bin:$PATH"
-# linuxdeploy's GTK plugin also needs the sysroot's tools and private libproxy runtime:
-export LD_GTK_LIBRARY_PATH="$HOME/.cache/macafon-sysroot/root/usr/lib/x86_64-linux-gnu"
-export PATH="$LD_GTK_LIBRARY_PATH/libgtk-3-0t64:$PATH"
-export LD_LIBRARY_PATH="$LD_GTK_LIBRARY_PATH/libproxy:$LD_LIBRARY_PATH"
 pnpm -C apps/macafon-ui install --frozen-lockfile
 python3 tools/package-linux.py --build-only
 python3 tools/package-linux.py --bundle-only --bundles deb,rpm,appimage
 ```
 
-Without the prepared sysroot, use the distribution's development packages. `--build-only` builds the
+Use the distribution's development packages. `--build-only` builds the
 UI, daemon, CLI and `macafon-stt-worker` (binary `macafon-stt`), then stages the worker under
 `target/package-linux/runtime/usr/bin/` and inference libraries under `runtime/usr/lib/macafon/`.
 The worker's `$ORIGIN/../lib/macafon:$ORIGIN` runpath and the libraries' `$ORIGIN` runpaths allow relocation;

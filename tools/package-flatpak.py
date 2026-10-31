@@ -35,6 +35,9 @@ def main():
             parts = line.split()
             if len(parts) >= 3 and parts[1] == '=>' and parts[2].startswith('/'):
                 soname, source = parts[0], Path(parts[2])
+                # Already staged with Macafon's own runtime (found through its runpath).
+                if source.resolve().is_relative_to(APP.resolve()):
+                    continue
                 if soname not in available or soname.startswith(('libpipewire-', 'libspa-')):
                     shutil.copy2(source, libs / soname)
                     ownership = subprocess.run(['dpkg-query', '-S', str(source)], text=True, capture_output=True)

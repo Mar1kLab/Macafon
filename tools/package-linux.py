@@ -172,6 +172,7 @@ def configuration(stage, triple):
         "files": files,
         "desktopTemplate": str(ROOT / "packaging/linux/desktop.hbs"),
         "preRemoveScript": str(ROOT / "packaging/linux/prerm.sh"),
+        "postInstallScript": str(ROOT / "packaging/linux/postinst.sh"),
     }
     return {
         "bundle": {

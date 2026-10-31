@@ -273,7 +273,11 @@ Artifacts are in `target/release/bundle/`. Install the deb/rpm through the distr
 or make the AppImage executable and run it (`--appimage-extract-and-run` if FUSE is unavailable).
 Launch `macafon-ui`, or run `macafond run` and `macafon ctl status` for diagnostics. Installed packages
 include the systemd **user** unit; start it with `systemctl --user start macafond` only when no daemon is
-already running. Dictation launches the adjacent worker on demand. For a direct staged loader check:
+already running. Autostart stays opt-in. Deb/rpm post-install hooks reload logged-in
+users' systemd managers and restart only an already active `macafond.service`, so
+upgrades use the new daemon and worker without enabling a stopped service.
+Logged-out users load the new files on their next login. Dictation launches the adjacent worker on
+demand. For a direct staged loader check:
 
 ```sh
 env -u LD_LIBRARY_PATH target/package-linux/runtime/usr/bin/macafon-stt --help

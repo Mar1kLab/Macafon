@@ -6,8 +6,19 @@ pkgdesc='Microphone processing with a virtual microphone'
 arch=('x86_64')
 url='https://github.com/Mar1kLab/Macafon'
 license=('GPL-3.0-only')
-depends=('pipewire>=1.0' 'wireplumber>=0.5' 'webkit2gtk-4.1' 'gtk3' 'libsoup3')
-makedepends=('rust' 'clang' 'pkgconf' 'pnpm' 'python' 'git')
+depends=('pipewire>=1.0' 'wireplumber>=0.5' 'webkit2gtk-4.1' 'gtk3' 'libsoup3' 'gcc-libs')
+optdepends=(
+    'wtype: dictation text insertion on compatible Wayland compositors'
+    'xdotool: dictation text insertion on X11'
+    'ydotool: dictation text insertion with a configured ydotool service'
+    'wl-clipboard: dictation clipboard access on Wayland'
+    'xclip: dictation clipboard access on X11'
+    'kscreen: display profiles on KDE (kscreen-doctor)'
+    'wlr-randr: display profiles on wlroots compositors'
+    'xorg-xrandr: display profiles on X11'
+    'xdg-utils: open the SoundDeck library folder'
+)
+makedepends=('rust' 'clang' 'cmake' 'patchelf' 'pkgconf' 'pnpm' 'python' 'git')
 conflicts=('macafon-bin')
 install=macafon.install
 source=("macafon::git+$url.git#tag=v$pkgver" 'macafon.install')
@@ -24,6 +35,9 @@ package() {
     for binary in macafon macafond macafon-ui; do
         install -Dm755 "target/release/$binary" "$pkgdir/usr/bin/$binary"
     done
+    install -Dm755 target/package-linux/runtime/usr/bin/macafon-stt "$pkgdir/usr/bin/macafon-stt"
+    mkdir -p "$pkgdir/usr/lib/macafon"
+    cp -a target/package-linux/runtime/usr/lib/macafon/. "$pkgdir/usr/lib/macafon/"
     install -Dm644 packaging/systemd/macafond.service "$pkgdir/usr/lib/systemd/user/macafond.service"
     install -Dm644 packaging/linux/macafon.desktop "$pkgdir/usr/share/applications/macafon.desktop"
     install -Dm755 packaging/linux/cleanup-user-sessions.sh "$pkgdir/usr/share/macafon/cleanup-user-sessions.sh"

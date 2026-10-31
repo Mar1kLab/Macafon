@@ -41,7 +41,18 @@ impl Portal {
             "org.freedesktop.host.portal.Registry",
         ) {
             let options: HashMap<&str, Value> = HashMap::new();
-            let _: Result<(), _> = registry.call("Register", &("macafon", options));
+            // Tauri deb/rpm/AppImage bundles install `Macafon.desktop`; the AUR
+            // package installs `macafon.desktop`. Portal IDs are case-sensitive and
+            // must name an installed desktop entry. A failed registration leaves
+            // the connection unregistered, so try the other packaging variant.
+            for app_id in ["Macafon", "macafon"] {
+                match registry.call::<_, _, ()>("Register", &(app_id, &options)) {
+                    Ok(()) => break,
+                    Err(error) => {
+                        tracing::debug!(app_id, %error, "Cannot register hotkey portal identity");
+                    }
+                }
+            }
         }
         let proxy = Proxy::new(&connection, DESTINATION, PATH, INTERFACE).ok()?;
         let version: u32 = proxy.get_property("version").ok()?;

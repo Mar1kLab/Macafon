@@ -2854,6 +2854,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "macafon-displays-linux"
+version = "0.10.1"
+dependencies = [
+ "macafon-ipc",
+ "serde_json",
+ "thiserror 2.0.21",
+ "zbus",
+]
+
+[[package]]
 name = "macafon-dsp"
 version = "0.10.1"
 dependencies = [
@@ -2980,6 +2990,7 @@ dependencies = [
  "macafon-backend-pipewire",
  "macafon-backend-windows",
  "macafon-config",
+ "macafon-displays-linux",
  "macafon-dsp",
  "macafon-engine",
  "macafon-ipc",

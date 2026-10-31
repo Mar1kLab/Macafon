@@ -320,6 +320,25 @@ impl MixerHost for DaemonHost {
         self.mixer.take_requests()
     }
 
+    #[cfg(target_os = "linux")]
+    fn channel_volume(&self, id: &str) -> Option<(f32, bool)> {
+        let settings = &self.config.mixer.channel(id)?.settings;
+        Some((settings.volume_pct, settings.muted))
+    }
+
+    #[cfg(target_os = "linux")]
+    fn channel_volume_changed(&mut self, id: &str, volume_pct: f32, muted: bool) {
+        if let Err(error) = self.update_mixer(|config| {
+            if let Some(channel) = config.mixer.channels.iter_mut().find(|c| c.id == id) {
+                channel.settings.volume_pct = volume_pct;
+                channel.settings.muted = muted;
+            }
+            Ok(())
+        }) {
+            tracing::warn!(?error, channel = id, "Cannot apply desktop channel volume");
+        }
+    }
+
     fn outputs_changed(&mut self, outputs: &[Node]) {
         self.mixer.outputs_changed(outputs);
         self.mixer_changed();

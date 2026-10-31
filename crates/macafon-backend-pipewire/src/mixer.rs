@@ -237,6 +237,16 @@ impl MixerSession {
                 tracing::warn!(%error, "Cannot change channel node");
             }
         }
+        for node in &mut self.channels {
+            if let Some((volume_pct, muted)) = node.take_volume_change() {
+                host.channel_volume_changed(&node.id, volume_pct, muted);
+            }
+            if let Some((volume_pct, muted)) = host.channel_volume(&node.id)
+                && let Err(error) = node.set_volume(volume_pct, muted)
+            {
+                tracing::warn!(%error, channel = %node.id, "Cannot publish channel volume");
+            }
+        }
         if std::mem::take(&mut graph.outputs_changed) {
             self.outputs = graph
                 .nodes

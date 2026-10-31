@@ -40,7 +40,7 @@ pub(crate) struct ChannelNode {
     hook: Box<pw::spa::sys::spa_hook>,
     _control_events: Box<pw::sys::pw_filter_events>,
     control_hook: Box<pw::spa::sys::spa_hook>,
-    _control_state: Box<ControlState>,
+    control_state: Box<ChannelControlState>,
     pub id: String,
     reported_latency: u32,
     clock: Arc<[AtomicU32; 2]>,
@@ -107,7 +107,7 @@ impl ChannelNode {
         let mut control_events: Box<pw::sys::pw_filter_events> =
             Box::new(unsafe { std::mem::zeroed() });
         control_events.version = pw::sys::PW_VERSION_FILTER_EVENTS;
-        control_events.param_changed = Some(param_changed);
+        control_events.param_changed = Some(channel_param_changed);
         control_events.io_changed = Some(io_changed);
         control_events.add_buffer = Some(add_buffer);
         // SAFETY: a zeroed hook is the documented initial listener state.
@@ -119,10 +119,15 @@ impl ChannelNode {
             hook,
             _control_events: control_events,
             control_hook,
-            _control_state: Box::new(ControlState {
-                filter: pointer.as_ptr(),
-                stereo: true,
-                fixed_volume: false,
+            control_state: Box::new(ChannelControlState {
+                common: ControlState {
+                    filter: pointer.as_ptr(),
+                    stereo: true,
+                    fixed_volume: false,
+                },
+                volume_pct: 100.0,
+                muted: false,
+                pending: false,
             }),
             id: id.to_owned(),
             reported_latency: latency,
@@ -141,15 +146,32 @@ impl ChannelNode {
                 node.pointer(),
                 &mut *node.control_hook,
                 &*node._control_events,
-                (&mut *node._control_state as *mut ControlState).cast(),
+                (&mut *node.control_state as *mut ChannelControlState).cast(),
             );
         }
         node.state.input_left = node.add_port(pw::sys::PW_DIRECTION_INPUT, "playback_FL", "FL")?;
         node.state.input_right = node.add_port(pw::sys::PW_DIRECTION_INPUT, "playback_FR", "FR")?;
         node.state.output_left = node.add_port(pw::sys::PW_DIRECTION_OUTPUT, "output_FL", "FL")?;
         node.state.output_right = node.add_port(pw::sys::PW_DIRECTION_OUTPUT, "output_FR", "FR")?;
+        publish_volume(&node.control_state)?;
         node.connect(latency)?;
         Ok(node)
+    }
+
+    /// Control loop only: consume desktop requests before publishing the accepted state.
+    pub fn take_volume_change(&mut self) -> Option<(f32, bool)> {
+        let state = &mut self.control_state;
+        std::mem::take(&mut state.pending).then_some((state.volume_pct, state.muted))
+    }
+
+    pub fn set_volume(&mut self, volume_pct: f32, muted: bool) -> Result<(), Error> {
+        let state = &mut self.control_state;
+        if (state.volume_pct - volume_pct).abs() < 0.0001 && state.muted == muted {
+            return Ok(());
+        }
+        state.volume_pct = volume_pct;
+        state.muted = muted;
+        publish_volume(state)
     }
 
     /// `(rate, quantum)` of the last processed cycle; zeros before the first one.
@@ -270,6 +292,154 @@ impl ChannelNode {
             );
         }
     }
+}
+
+// This state belongs exclusively to PipeWire's control loop, never the RT callback.
+struct ChannelControlState {
+    common: ControlState,
+    volume_pct: f32,
+    muted: bool,
+    pending: bool,
+}
+
+fn volume_props(volume_pct: f32, muted: bool) -> Result<Vec<u8>, Error> {
+    use pw::spa::pod::{
+        Object, Property, PropertyFlags, Value, ValueArray, serialize::PodSerializer,
+    };
+    use pw::spa::sys;
+    let gain = macafon_dsp::channel::volume_gain(volume_pct);
+    let properties = [
+        (sys::SPA_PROP_volume, Value::Float(1.0)),
+        (sys::SPA_PROP_mute, Value::Bool(muted)),
+        (
+            sys::SPA_PROP_channelVolumes,
+            Value::ValueArray(ValueArray::Float(vec![gain; 2])),
+        ),
+        (
+            sys::SPA_PROP_softVolumes,
+            Value::ValueArray(ValueArray::Float(vec![1.0; 2])),
+        ),
+        (
+            sys::SPA_PROP_channelMap,
+            Value::ValueArray(ValueArray::Id(vec![
+                pw::spa::utils::Id(sys::SPA_AUDIO_CHANNEL_FL),
+                pw::spa::utils::Id(sys::SPA_AUDIO_CHANNEL_FR),
+            ])),
+        ),
+    ]
+    .into_iter()
+    .map(|(key, value)| Property {
+        key,
+        flags: PropertyFlags::empty(),
+        value,
+    })
+    .collect();
+    PodSerializer::serialize(
+        std::io::Cursor::new(Vec::new()),
+        &Value::Object(Object {
+            type_: sys::SPA_TYPE_OBJECT_Props,
+            id: sys::SPA_PARAM_Props,
+            properties,
+        }),
+    )
+    .map(|(bytes, _)| bytes.into_inner())
+    .map_err(|error| Error::Message(format!("Cannot serialize channel volume: {error:?}")))
+}
+
+fn publish_volume(state: &ChannelControlState) -> Result<(), Error> {
+    let bytes = volume_props(state.volume_pct, state.muted)?;
+    let pod = pw::spa::pod::Pod::from_bytes(&bytes)
+        .ok_or_else(|| Error::Message("Invalid channel volume pod".into()))?;
+    let mut params = [pod.as_raw_ptr().cast_const()];
+    // SAFETY: control-loop-owned filter and pod remain live throughout this call.
+    let result = unsafe {
+        pw::sys::pw_filter_update_params(
+            state.common.filter,
+            ptr::null_mut(),
+            params.as_mut_ptr(),
+            1,
+        )
+    };
+    if result < 0 {
+        return Err(Error::Message(format!(
+            "Cannot publish channel volume: {result}"
+        )));
+    }
+    Ok(())
+}
+
+unsafe extern "C" fn channel_param_changed(
+    data: *mut c_void,
+    port: *mut c_void,
+    id: u32,
+    param: *const pw::spa::sys::spa_pod,
+) {
+    use pw::spa::{
+        pod::{Pod, Value, ValueArray, deserialize::PodDeserializer},
+        sys,
+    };
+    if data.is_null() {
+        return;
+    }
+    // SAFETY: listener storage lives until filter destruction; callbacks run on the control loop.
+    let state = unsafe { &mut *data.cast::<ChannelControlState>() };
+    if id != sys::SPA_PARAM_Props || !port.is_null() {
+        // SAFETY: delegate with the common listener state and original PipeWire arguments.
+        unsafe {
+            param_changed(
+                (&mut state.common as *mut ControlState).cast(),
+                port,
+                id,
+                param,
+            )
+        };
+        // Format activation also publishes the channel map; restore the complete volume props.
+        if port.is_null() && id == sys::SPA_PARAM_Format {
+            let _ = publish_volume(state);
+        }
+        return;
+    }
+    if param.is_null() {
+        return;
+    }
+    // SAFETY: PipeWire supplies a valid pod for the duration of this callback.
+    let pod = unsafe { Pod::from_raw(param) };
+    let Ok((_, Value::Object(object))) = PodDeserializer::deserialize_any_from(pod.as_bytes())
+    else {
+        return;
+    };
+    let mut gain = None;
+    let mut factor = None;
+    let mut muted = state.muted;
+    for property in object.properties {
+        match (property.key, property.value) {
+            (sys::SPA_PROP_channelVolumes, Value::ValueArray(ValueArray::Float(values))) => {
+                // Macafon has one stereo fader: retain the loudest channel, no balance control.
+                gain = values
+                    .into_iter()
+                    .filter(|v| v.is_finite())
+                    .reduce(f32::max);
+            }
+            (sys::SPA_PROP_volume, Value::Float(value)) if value.is_finite() => {
+                factor = Some(value)
+            }
+            (sys::SPA_PROP_mute, Value::Bool(value)) => muted = value,
+            _ => {}
+        }
+    }
+    // channelVolumes is linear amplitude; desktop percentages and our fader are cubic.
+    let volume_pct = gain
+        .map(|gain| gain * factor.unwrap_or(1.0))
+        .or(factor)
+        .map(|g| g.clamp(0.0, 1.0).cbrt() * 100.0)
+        .unwrap_or(state.volume_pct);
+    if (volume_pct - state.volume_pct).abs() > 0.001 || muted != state.muted {
+        state.volume_pct = volume_pct;
+        state.muted = muted;
+        state.pending = true;
+    }
+    // Normalize balance, over-amplification and scalar volume without applying gain twice.
+    let _ = publish_volume(state);
 }
 
 impl Drop for ChannelNode {

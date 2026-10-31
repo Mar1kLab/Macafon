@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("smoke", Path(__file__).with_name("pipewire-smoke.py"))
@@ -63,6 +64,7 @@ class Client:
         self.socket.settimeout(7)
         self.socket.connect(str(path))
         self.reader = self.socket.makefile("r")
+        self.events = []
         self.sequence = 0
         self.request("hello", {"protocol": 1, "client": "macafon-cli"})
 
@@ -76,6 +78,8 @@ class Client:
             line = self.reader.readline()
             assert line, "daemon closed the connection"
             reply = json.loads(line)
+            if "event" in reply:
+                self.events.append(reply)
             if reply.get("id") == self.sequence:
                 if error:
                     assert "error" in reply, reply
@@ -90,7 +94,7 @@ def main():
     parser.add_argument("--ctl", type=Path, default=ROOT / "target/release/macafon")
     parser.add_argument("--private-session", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
-    for command in ("dbus-run-session", "pipewire", "wireplumber", "pw-cat", "pw-dump", "pw-loopback"):
+    for command in ("dbus-run-session", "pipewire", "wireplumber", "pw-cat", "pw-dump", "pw-loopback", "pipewire-pulse", "wpctl", "pactl"):
         if not shutil.which(command):
             parser.error(f"{command} missing")
     if not args.daemon.is_file() or not args.ctl.is_file():
@@ -114,7 +118,8 @@ def main():
         (config_directory / "wireplumber.conf").write_text(default_config.read_text() + PROFILE)
         env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime), PIPEWIRE_RUNTIME_DIR=str(runtime),
                    XDG_CONFIG_HOME=str(config_directory), XDG_STATE_HOME=str(directory / "state"),
-                   WIREPLUMBER_CONFIG_DIR=str(config_directory))
+                   WIREPLUMBER_CONFIG_DIR=str(config_directory),
+                   PULSE_SERVER=f"unix:{runtime}/pulse/native")
         config = directory / "pipewire.conf"
         config.write_text(smoke.CONFIG.replace(
             '    { factory = metadata args = { metadata.name = default } }\n', ""
@@ -170,11 +175,13 @@ def main():
             wp = spawn(["wireplumber", "--profile", "macafon-test"])
             smoke.wait_for(lambda: any(item.get("props", {}).get("metadata.name") == "default"
                                       for item in objects()), "WirePlumber policy")
+            spawn(["pipewire-pulse"])
+            smoke.wait_for(lambda: (runtime / "pulse/native").exists(), "private PulseAudio socket")
             run("pw-metadata", "-n", "default", "0", "default.configured.audio.sink",
                 json.dumps({"name": "test_speakers"}), "Spa:String:JSON")
             smoke.wait_for(lambda: default_sink() == "test_speakers", "initial default output")
             audio = directory / "audio.raw"
-            samples = array.array("f", [0.0]) * (48000 * 2 * 30)
+            samples = array.array("f", [0.0]) * (48000 * 2 * 120)
             for index in range(0, len(samples), 2):
                 samples[index] = samples[index + 1] = 0.5 if (index // 2) % 96 < 48 else -0.5
             if sys.byteorder != "little":
@@ -201,6 +208,113 @@ def main():
                 smoke.wait_for(lambda: targets(node["id"]) == {speakers}, f"{channel} linked to the output")
             smoke.wait_for(lambda: default_sink() == "macafon_ch_main", "default output is Main")
             print("mixer: three channel sinks linked to the output; default output is Macafon Main")
+
+            def channel_settings(channel):
+                return next(c["settings"] for c in client.request("mixer.get")["channels"]
+                            if c["id"] == channel)
+
+            def channel_is(channel, pct, muted):
+                settings = channel_settings(channel)
+                return abs(settings["volume_pct"] - pct) < 0.02 and settings["muted"] == muted
+
+            def sink_is(channel, pct, muted):
+                sinks = json.loads(run("pactl", "--format=json", "list", "sinks"))
+                sink = next(s for s in sinks if s["name"] == f"macafon_ch_{channel}")
+                return sink["mute"] == muted and all(
+                    abs(float(v["value_percent"].rstrip("%")) - pct) < 1.1
+                    for v in sink["volume"].values())
+
+            def saved_channel_is(channel, pct, muted):
+                path = config_directory / "macafon/config.toml"
+                if not path.exists():
+                    return False
+                saved = tomllib.loads(path.read_text())
+                settings = next(c for c in saved["mixer"]["channels"] if c["id"] == channel)
+                return abs(settings["volume_pct"] - pct) < 0.02 and settings["muted"] == muted
+
+            master = client.request("mixer.get")["master_volume_pct"]
+            for channel in ("main", "voice", "music"):
+                node_id = nodes()[f"macafon_ch_{channel}"]["id"]
+                smoke.wait_for(lambda: sink_is(channel, channel_settings(channel)["volume_pct"], False),
+                               f"{channel} initial desktop volume")
+                run("wpctl", "set-volume", node_id, "0")
+                smoke.wait_for(lambda: channel_is(channel, 0, False) and sink_is(channel, 0, False),
+                               f"{channel} zero volume")
+                for pct in (5, 10):
+                    run("wpctl", "set-volume", node_id, "5%+")
+                    smoke.wait_for(lambda: channel_is(channel, pct, False), f"{channel} volume key step")
+                client.events.clear()
+                run("wpctl", "set-volume", node_id, "0.35")
+                smoke.wait_for(lambda: channel_is(channel, 35, False), f"{channel} wpctl volume")
+                client.events.clear()
+                for _ in range(3):
+                    run("wpctl", "set-volume", node_id, "0.35")
+                    time.sleep(0.15)
+                    assert channel_is(channel, 35, False), "volume drifted on echo"
+                assert not any(e.get("event") == "mixer.changed" for e in client.events), "volume feedback loop"
+                run("wpctl", "set-mute", node_id, "1")
+                smoke.wait_for(lambda: channel_is(channel, 35, True), f"{channel} wpctl mute")
+                run("pactl", "set-sink-volume", f"macafon_ch_{channel}", "65%")
+                smoke.wait_for(lambda: channel_is(channel, 65, True), f"{channel} pactl volume")
+                run("pactl", "set-sink-mute", f"macafon_ch_{channel}", "0")
+                smoke.wait_for(lambda: channel_is(channel, 65, False), f"{channel} pactl unmute")
+                smoke.wait_for(lambda: saved_channel_is(channel, 65, False),
+                               f"{channel} desktop change persisted")
+                assert any(e.get("event") == "mixer.changed" for e in client.events), "UI event missing"
+                run("pactl", "set-sink-volume", f"macafon_ch_{channel}", "150%")
+                smoke.wait_for(lambda: channel_is(channel, 100, False) and sink_is(channel, 100, False),
+                               f"{channel} amplification clamped")
+                settings = channel_settings(channel)
+                client.request("channel.set", {"id": channel, "settings": {
+                    **settings, "volume_pct": 50, "muted": True}})
+                smoke.wait_for(lambda: sink_is(channel, 50, True), f"{channel} UI to desktop")
+                assert "0.50" in run("wpctl", "get-volume", node_id), "wpctl did not follow UI"
+                client.request("channel.set", {"id": channel, "settings": {
+                    **settings, "volume_pct": 50, "muted": False}})
+                smoke.wait_for(lambda: sink_is(channel, 50, False), f"{channel} UI unmute")
+            assert client.request("mixer.get")["master_volume_pct"] == master, "desktop changed Master"
+            print("desktop: wpctl/pactl volume and mute synchronize each channel, persist, broadcast, clamp at 100%, preserve Master")
+
+            def output_peak(label):
+                capture = directory / f"{label}.raw"
+                recorder = spawn(["pw-cat", "--record", "--raw", "--format", "f32", "--channels", "2",
+                                  "--target", "test_speakers", "--latency", "128", "--properties",
+                                  "stream.capture.sink=true", capture])
+                time.sleep(0.6)
+                stop(recorder)
+                data = capture.read_bytes()
+                captured = array.array("f")
+                captured.frombytes(data[:len(data) // 4 * 4])
+                if sys.byteorder != "little":
+                    captured.byteswap()
+                return max((abs(v) for v in captured[len(captured) // 2:]), default=0)
+
+            for channel in ("main", "voice", "music"):
+                source = spawn(["pw-cat", "--playback", "--raw", "--format", "f32", "--channels", "2",
+                                "--target", f"macafon_ch_{channel}", "--properties",
+                                "node.name=volume_probe application.name=volume_probe "
+                                "application.process.binary=volume_probe", audio])
+                probe = smoke.wait_for(lambda: nodes().get("volume_probe"), "volume probe")
+                smoke.wait_for(lambda: any(a["key"] == "bin:volume_probe"
+                                          for a in client.request("mixer.get")["apps"]), "probe app")
+                client.request("apps.move", {"app_key": "bin:volume_probe", "channel": channel})
+                sink_id = nodes()[f"macafon_ch_{channel}"]["id"]
+                smoke.wait_for(lambda: targets(probe["id"]) == {sink_id}, "probe routed")
+                run("pactl", "set-sink-volume", f"macafon_ch_{channel}", "100%")
+                smoke.wait_for(lambda: channel_is(channel, 100, False), "probe full volume")
+                full = output_peak(f"{channel}-full")
+                run("wpctl", "set-volume", nodes()[f"macafon_ch_{channel}"]["id"], "0.50")
+                smoke.wait_for(lambda: channel_is(channel, 50, False), "probe half volume")
+                half = output_peak(f"{channel}-half")
+                assert full > 0.01 and abs(half / full - 0.125) < 0.02, (channel, full, half)
+                run("pactl", "set-sink-mute", f"macafon_ch_{channel}", "1")
+                smoke.wait_for(lambda: channel_is(channel, 50, True), "probe muted")
+                assert output_peak(f"{channel}-muted") < 1e-5, f"{channel} mute leaked audio"
+                run("pactl", "set-sink-mute", f"macafon_ch_{channel}", "0")
+                smoke.wait_for(lambda: channel_is(channel, 50, False), "probe unmuted")
+                stop(source)
+                smoke.wait_for(lambda: "volume_probe" not in nodes(), "probe stopped")
+            print("audio: desktop changes apply cubic gain once and mute every channel")
 
             voice_node = nodes()["macafon_ch_voice"]["id"]
             main_node = nodes()["macafon_ch_main"]["id"]

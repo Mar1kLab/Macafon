@@ -175,6 +175,13 @@ pub trait MixerHost {
     fn channel_requests(&mut self) -> Vec<ChannelRequest> {
         Vec::new()
     }
+    /// Linux virtual sink volume, separate from Master. Control loop only.
+    #[cfg(target_os = "linux")]
+    fn channel_volume(&self, _id: &str) -> Option<(f32, bool)> {
+        None
+    }
+    #[cfg(target_os = "linux")]
+    fn channel_volume_changed(&mut self, _id: &str, _volume_pct: f32, _muted: bool) {}
     /// Real output devices (not ours) changed (OUT-001, OUT-004).
     fn outputs_changed(&mut self, _outputs: &[Node]) {}
     /// The default output changed; `None` when unset.

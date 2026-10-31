@@ -395,7 +395,7 @@ Cider ─────► Macafon Music ──────►│ Music: vol 70%  
 | CH-001 | When the mixer is first enabled, 3 channels are created: **Main** (blue, default), **Voice** (violet), **Music** (pink) | P0 |
 | CH-002 | The user can create a channel (up to 8 in total, on Windows too — WIN-CH-005), rename it, choose a color (a palette of 7) and an icon, delete it (except the default channel; the deleted channel's applications move to the default) | P0 |
 | CH-003 | Any channel can be made the default channel | P1 |
-| CH-004 | A volume fader 0–100% (shown in % and dB, a cubic volume curve as in PulseAudio/PipeWire), mute, solo (P1) | P0 |
+| CH-004 | A volume fader 0–100% (shown in % and dB, a cubic volume curve as in PulseAudio/PipeWire), mute, solo (P1). On Linux each channel sink exposes that channel’s volume/mute bidirectionally to desktop controls: `channelVolumes = (percent / 100)^3`, scalar `volume = 1`, unity `softVolumes`; desktop linear gains map back by cube root and clamp to 0–100%. Stereo balance requests use the louder side for the single channel fader. Changes persist and update the UI like its fader; Master remains separate | P0 |
 | CH-005 | A channel meter (stereo, peak) | P0 |
 | CH-006 | Master: fader, mute, meter, output device selection | P0 |
 | CH-007 | Reordering channels by dragging | P1 |

@@ -1655,6 +1655,15 @@ Steam + a Proton game, a native game (SDL), mpv, OBS (as a consumer of the virtu
 | Windows: a per-user installer (no administrator rights) | P0 (M3) | Authenticode signing through SignPath Foundation (free for OSS); the user installs VB-CABLE themselves |
 | Auto-update | P1 | Only a new-version notification (opt-in); updating through the package manager / installer |
 
+Linux packages include `macafon-ui`, `macafond`, `macafon` and the on-demand `macafon-stt`
+worker. The worker sits beside the daemon; sherpa-onnx/ONNX Runtime shared libraries live in the private
+`usr/lib/macafon` directory, resolved through relative rpaths. AppImage linuxdeploy may also place
+dependency copies in `usr/lib` with a relative runpath. Linux builds use
+CPU Whisper and Parakeet; Vulkan acceleration (STT-020) remains available in the Windows build.
+Models are imported or explicitly downloaded by the user, never bundled. Desktop text/clipboard,
+display and open-folder helpers are optional package recommendations; see
+[Linux build instructions](development/linux-m0.md#linux-feature-packages).
+
 Windows 11 is the working platform; Linux remains experimental (owner decision, 2026-10-17).
 The manual `Windows 11 build` GitHub Actions workflow builds the x64 per-user NSIS installer and uploads
 it with SHA-256 checksums as a 30-day artifact. It uses the existing Windows packaging script; no driver,

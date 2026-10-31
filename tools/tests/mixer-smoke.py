@@ -143,12 +143,12 @@ def main():
                     if item["type"] == "PipeWire:Interface:Link"
                     and item["info"]["output-node-id"] == node_id}
 
-        def default_sink():
+        def default_sink(kind="sink"):
             for item in objects():
                 if item["type"] == "PipeWire:Interface:Metadata" and \
                         item.get("props", {}).get("metadata.name") == "default":
                     for entry in item.get("metadata", []):
-                        if entry["subject"] == 0 and entry["key"] == "default.configured.audio.sink":
+                        if entry["subject"] == 0 and entry["key"] == f"default.configured.audio.{kind}":
                             value = entry["value"]
                             return (json.loads(value) if isinstance(value, str) else value).get("name")
             return None
@@ -302,6 +302,34 @@ def main():
 
             client.request("mixer.set_enabled", {"enabled": True})
             smoke.wait_for(lambda: default_sink() == "macafon_ch_main", "default output taken again")
+
+            # NFR-S8 also covers a session-manager restart without restarting PipeWire.
+            client.request("mic.set_default_source", {"confirmed": True})
+            smoke.wait_for(lambda: client.request("mic.get")["is_default_source"], "default microphone taken")
+            journals = {path: path.read_bytes() for path in
+                        (directory / "state/macafon").glob("default-*.json")}
+            assert len(journals) == 2, "default-device journals missing"
+            mic_serial = nodes()["macafon_mic"]["info"]["props"]["object.serial"]
+            stop(wp)
+            smoke.wait_for(lambda: not any(item.get("props", {}).get("metadata.name") == "default"
+                                          for item in objects()), "old WirePlumber metadata removed")
+            wp = spawn(["wireplumber", "--profile", "macafon-test"])
+            smoke.wait_for(lambda: default_sink() == "macafon_ch_main",
+                           "default output after WirePlumber restart")
+
+            def browser_in_music():
+                current = nodes()
+                music = current.get("macafon_ch_music")
+                return music and targets(browser["id"]) == {music["id"]}
+
+            smoke.wait_for(browser_in_music, "app rule restored after WirePlumber restart")
+            smoke.wait_for(lambda: default_sink("source") == "macafon_mic" and
+                           client.request("mic.get")["is_default_source"],
+                           "default microphone after WirePlumber restart")
+            assert nodes()["macafon_mic"]["info"]["props"]["object.serial"] == mic_serial, "microphone recreated"
+            assert all(path.read_bytes() == data for path, data in journals.items()), "original defaults lost"
+            assert firefox.poll() is None and discord.poll() is None, "apps exited during recovery"
+            print("restart: app rules and the default output survive a WirePlumber restart")
 
             # NFR-S8: the channels come back after the audio server restarts.
             stop(wp)

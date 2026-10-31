@@ -17,6 +17,9 @@ pub(crate) type SharedStreams = Rc<RefCell<StreamInfo>>;
 /// Metadata state shared with the registry and metadata listeners.
 #[derive(Default)]
 pub(crate) struct MetadataState {
+    pub invalidated: bool,
+    pub configured_sink: Option<String>,
+    pub configured_source: Option<String>,
     pub targets: HashMap<u32, String>,
     pub default_sink: Option<String>,
     pub default_changed: bool,
@@ -105,6 +108,12 @@ pub(crate) fn bind_metadata(
                         None => state.targets.remove(&subject),
                     };
                 }
+                Some("default.configured.audio.sink") if subject == 0 => {
+                    state.configured_sink = value.and_then(json_name);
+                }
+                Some("default.configured.audio.source") if subject == 0 => {
+                    state.configured_source = value.and_then(json_name);
+                }
                 Some("default.audio.sink") if subject == 0 => {
                     let name = value.and_then(json_name);
                     if state.default_sink != name {
@@ -121,12 +130,50 @@ pub(crate) fn bind_metadata(
                 }
                 None => {
                     state.targets.remove(&subject);
+                    if subject == 0 {
+                        state.configured_sink = None;
+                        state.configured_source = None;
+                        state.default_sink = None;
+                        state.default_source = None;
+                        state.default_changed = true;
+                        state.source_changed = true;
+                    }
                 }
                 _ => {}
             }
             0
         })
         .register();
+    // A replacement metadata object has lost WirePlumber's configured defaults.
+    // Reassert only choices Macafon owned, without replacing the recovery journal
+    // with WirePlumber's temporary fallback device on the same PipeWire server.
+    let previous = state.borrow();
+    for (kind, name) in [
+        (
+            "sink",
+            previous
+                .configured_sink
+                .as_deref()
+                .filter(|name| name.starts_with(crate::CHANNEL_PREFIX)),
+        ),
+        (
+            "source",
+            previous
+                .configured_source
+                .as_deref()
+                .filter(|name| *name == crate::VIRTUAL_MIC_NAME),
+        ),
+    ] {
+        if let Some(name) = name {
+            let value = serde_json::json!({ "name": name }).to_string();
+            for key in [
+                format!("default.configured.audio.{kind}"),
+                format!("default.audio.{kind}"),
+            ] {
+                metadata.set_property(0, &key, Some("Spa:String:JSON"), Some(&value));
+            }
+        }
+    }
     Some(BoundMetadata {
         metadata,
         _listener: listener,
@@ -204,6 +251,9 @@ impl MixerSession {
         }
         {
             let mut state = metadata.borrow_mut();
+            if std::mem::take(&mut state.invalidated) {
+                self.routed.clear();
+            }
             let sink =
                 std::mem::take(&mut state.default_changed).then(|| state.default_sink.clone());
             let source =

@@ -23,6 +23,29 @@ fn available(name: &str) -> bool {
     })
 }
 
+/// Match ydotool's default and explicit override without connecting or sending input.
+fn ydotool_socket_ready(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::FileTypeExt;
+    std::fs::metadata(path).is_ok_and(|metadata| metadata.file_type().is_socket())
+}
+
+fn injection_available(name: &str) -> bool {
+    if !available(name) {
+        return false;
+    }
+    if name == "ydotool" {
+        let path = std::env::var_os("YDOTOOL_SOCKET")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| "/tmp/.ydotool_socket".into());
+        if !ydotool_socket_ready(&path) {
+            tracing::warn!(socket = %path.display(),
+                "Dictation will copy if keyboard injection is unavailable: ydotoold socket missing. Check ydotool.service, /dev/uinput permissions and YDOTOOL_SOCKET; Macafon does not grant input access");
+            return false;
+        }
+    }
+    true
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Injector {
     Wtype,
@@ -249,7 +272,7 @@ pub fn insert(
         if prefs.trailing_space { " " } else { "" }
     );
     let wayland = wayland();
-    let injector = Injector::select(wayland, available);
+    let injector = Injector::select(wayland, injection_available);
     if must_copy(wayland, target.window, active_window(), copy, injector) {
         copy_text(&text)?;
         return Ok(DictationOutcome::Copied);
@@ -261,6 +284,7 @@ pub fn insert(
         if injector != Injector::Ydotool && injector.inject(&text, false) {
             return Ok(DictationOutcome::Inserted);
         }
+        tracing::warn!("Dictation typing unavailable; text copied for manual paste");
         copy_text(&text)?;
         return Ok(DictationOutcome::Copied);
     }
@@ -280,9 +304,12 @@ pub fn insert(
         )
         || !(injector.inject("", true)
             || (injector != Injector::Ydotool
-                && available("ydotool")
+                && injection_available("ydotool")
                 && Injector::Ydotool.inject("", true)))
     {
+        tracing::warn!(
+            "Dictation paste unavailable or clipboard snapshot unreadable; text copied for manual paste"
+        );
         return Ok(DictationOutcome::Copied);
     }
     super::track_restore(
@@ -306,6 +333,23 @@ pub fn insert(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ydotool_requires_a_socket_not_just_an_installed_executable() {
+        let directory =
+            std::env::temp_dir().join(format!("macafon-ydotool-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("socket");
+        assert!(!ydotool_socket_ready(&path));
+        std::fs::write(&path, b"not a socket").unwrap();
+        assert!(!ydotool_socket_ready(&path));
+        std::fs::remove_file(&path).unwrap();
+        let socket = std::os::unix::net::UnixDatagram::bind(&path).unwrap();
+        assert!(ydotool_socket_ready(&path));
+        assert_eq!(Injector::select(true, |_| false), None);
+        drop(socket);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
     #[test]
     fn dictation_tools_follow_the_session_and_keep_transcripts_off_arguments() {
         let has = |_: &str| true;

@@ -180,7 +180,13 @@ Hands-free in Hotkeys. Use a key-bearing shortcut such as `Ctrl+Super+F9`; pure 
 are Windows-specific. Portal press/release signals and X11 grabs share the daemon's hold logic.
 Wayland requires `wtype` (if supported by the compositor) and `wl-clipboard`; X11 uses `xdotool`
 and `xclip` or `xsel`. Optional `ydotool` can inject Ctrl+V through an existing accessible socket;
-Macafon does not set up ydotoold or request root. Missing/blocked injection falls back to copying;
+Macafon checks `YDOTOOL_SOCKET` (default `/tmp/.ydotool_socket`) before selecting ydotool;
+missing sockets and failed injection produce a daemon log hint and keep the result copied.
+Macafon does not set up ydotoold or request root. On Debian, the packaged `ydotool.service` is a
+user unit but still needs access to `/dev/uinput`; installing the recommended package or enabling
+its unit alone does not grant that access. Check `systemctl --user status ydotool.service` and the
+distribution's `/usr/share/doc/ydotool/README.Debian` before configuring permissions. Macafon never
+enables that service or changes input-device permissions. Missing/blocked injection falls back to copying;
 without a clipboard utility, it reports an insertion error. Fixed and Auto are the supported
 language policies. No game detection is available, so select copy-only dictation for games.
 

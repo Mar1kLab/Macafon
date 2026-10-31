@@ -532,7 +532,17 @@ impl DaemonHost {
             self.stop_dictation_audio();
             self.dictation.phase = DictationPhase::Error;
             self.dictation.popup_state = crate::osd::dictation::State::Error;
-            self.dictation.error = Some("dictation audio overflowed".into());
+            // The audio thread also sets `failed` for resampling and worker-channel failures.
+            #[cfg(target_os = "linux")]
+            {
+                self.dictation.error = Some(
+                    "dictation audio stream failed (buffer overflow, resampling failure or worker disconnected); try recording again".into(),
+                );
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                self.dictation.error = Some("dictation audio overflowed".into());
+            }
             self.show_dictation_popup();
         }
         let (models_changed, moved) = self.dictation.models.poll();

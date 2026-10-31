@@ -316,6 +316,21 @@ fn doctor(client: &mut Client, json: bool) -> Result<()> {
         };
         println!("{status:<8} {:?}{values}", check.id);
     }
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::FileTypeExt;
+        let socket = std::env::var_os("YDOTOOL_SOCKET")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| "/tmp/.ydotool_socket".into());
+        if std::env::var("XDG_SESSION_TYPE").is_ok_and(|value| value == "wayland")
+            && !std::fs::metadata(&socket).is_ok_and(|m| m.file_type().is_socket())
+        {
+            println!(
+                "info     Dictation: ydotoold socket absent ({}); if wtype is unsupported, results are copied for manual paste. Check ydotool.service, /dev/uinput access and YDOTOOL_SOCKET. Macafon does not configure input permissions.",
+                socket.display()
+            );
+        }
+    }
     Ok(())
 }
 

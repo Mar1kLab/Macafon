@@ -4,7 +4,7 @@ use crate::graph::{Graph, Port};
 use crate::nodes::{enrich_node, hardware, is_physical_input, node};
 use crate::{
     Connection, DEFAULT_QUANTUM_FRAMES, Error, MicrophoneHost, Node, PlayerRequest, filter, meter,
-    mixer, player, profiler,
+    mixer, player, profiler, sounddeck_monitor,
 };
 use pipewire::{self as pw, types::ObjectType};
 use std::{
@@ -20,10 +20,14 @@ pub(super) fn run_session<H: MicrophoneHost + 'static>(
 ) -> Result<(), Error> {
     let connection = Connection::with_mainloop(mainloop.clone(), true)?;
     let processor = host.borrow_mut().start_session()?;
+    let sounddeck = host
+        .borrow_mut()
+        .sounddeck_tap(macafon_backend::SoundDeckOutput::Microphone);
     let filter = Rc::new(filter::Filter::new(
         &connection,
         processor,
         host.borrow().stereo(),
+        sounddeck,
     )?);
     let registry = connection.core.get_registry_rc()?;
     let graph = Rc::new(RefCell::new(Graph::default()));
@@ -125,6 +129,8 @@ pub(super) fn run_session<H: MicrophoneHost + 'static>(
     let connected = Cell::new(None);
     // Dropped with the timer, before the connection.
     let player = RefCell::new(None);
+    let monitor = RefCell::new(None::<sounddeck_monitor::Monitor>);
+    let monitor_retry_at = Cell::new(None::<std::time::Instant>);
     let meters = RefCell::new(Vec::<(String, meter::Meter)>::new());
     let profiler_available = connection.profiler_available;
     let profiling = RefCell::new(None::<((u32, u32), profiler::Profiler)>);
@@ -215,6 +221,51 @@ pub(super) fn run_session<H: MicrophoneHost + 'static>(
                 player.replace(None);
             }
             None => {}
+        }
+        // The SoundDeck monitor follows the output the host wants (SND-002); a chosen device
+        // that is not connected falls back to the default output.
+        match host.sounddeck_monitor() {
+            None => {
+                monitor.replace(None);
+                monitor_retry_at.set(None);
+            }
+            Some(device) => {
+                let target = device.filter(|name| {
+                    graph
+                        .borrow()
+                        .nodes
+                        .iter()
+                        .any(|node| &node.name == name && mixer::is_output_device(node))
+                });
+                let current = monitor
+                    .borrow()
+                    .as_ref()
+                    .map(|m| (m.target.clone(), m.failed()));
+                let reopen = match current {
+                    Some((current, failed)) => failed || current != target,
+                    None => true,
+                };
+                let retry_due = monitor_retry_at
+                    .get()
+                    .is_none_or(|at| std::time::Instant::now() >= at);
+                if reopen && retry_due {
+                    monitor.replace(None);
+                    if let Some(tap) = host.sounddeck_tap(macafon_backend::SoundDeckOutput::Monitor)
+                    {
+                        match sounddeck_monitor::Monitor::new(&core, tap, target) {
+                            Ok(started) => {
+                                monitor.replace(Some(started));
+                                monitor_retry_at.set(None);
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, "Cannot open the SoundDeck monitor");
+                                monitor_retry_at
+                                    .set(Some(std::time::Instant::now() + Duration::from_secs(1)));
+                            }
+                        }
+                    }
+                }
+            }
         }
         let quantum = filter
             .graph_quantum

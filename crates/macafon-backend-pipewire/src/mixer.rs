@@ -73,6 +73,12 @@ pub(crate) fn bind_stream(
                     .get("application.process.id")
                     .and_then(|pid| pid.parse().ok());
                 entry.movable = !flag("node.dont-move") && !flag("node.dont-reconnect");
+                if entry.node_name == crate::sounddeck_monitor::SOUNDDECK_NODE {
+                    // Its own app, not the daemon's binary: movable between channels (SND-002).
+                    entry.binary = None;
+                    entry.process_id = None;
+                    entry.app_name = Some(crate::sounddeck_monitor::SOUNDDECK_APP.to_owned());
+                }
             }
             let changed = *entry != previous;
             state.changed |= changed;

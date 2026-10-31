@@ -13,6 +13,9 @@ use std::sync::Arc;
 /// Linux; on Windows the backend reports `CABLE Output` under this name.
 pub const VIRTUAL_MIC_NAME: &str = "macafon_mic";
 
+/// `node.name` of the Linux SoundDeck monitor stream (§7.6).
+pub const SOUNDDECK_MONITOR_NODE: &str = "macafon_sounddeck";
+
 /// `node.latency` every Macafon node is created with: 128 frames = 2.7 ms (§9.5).
 pub const DEFAULT_QUANTUM_FRAMES: u32 = 128;
 
@@ -144,13 +147,15 @@ pub struct PlaybackStream {
 }
 
 impl PlaybackStream {
-    /// Macafon's own streams (the A/B player) are never routed through channels.
+    /// Macafon's own streams (the A/B player) are never routed through channels; the
+    /// SoundDeck monitor is, as its own app (SND-002).
     pub fn ours(&self) -> bool {
-        self.node_name.starts_with("macafon")
-            || self
-                .binary
-                .as_deref()
-                .is_some_and(|binary| binary.starts_with("macafon"))
+        self.node_name != SOUNDDECK_MONITOR_NODE
+            && (self.node_name.starts_with("macafon")
+                || self
+                    .binary
+                    .as_deref()
+                    .is_some_and(|binary| binary.starts_with("macafon")))
     }
 }
 

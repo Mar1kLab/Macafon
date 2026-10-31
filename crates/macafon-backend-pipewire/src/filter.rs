@@ -1,4 +1,5 @@
 use crate::{Connection, Error};
+use macafon_backend::SoundDeckTap;
 use macafon_engine::MicRt;
 use pipewire::{self as pw, properties::properties};
 use std::{
@@ -32,6 +33,9 @@ struct RtState {
     graph_quantum: Arc<AtomicU32>,
     keep_processing: Arc<AtomicBool>,
     scratch: Box<[f32]>,
+    /// SoundDeck sounds mixed after the chain (§7.6), with interleaved space for the mix.
+    sounddeck: Option<SoundDeckTap>,
+    mix_scratch: Box<[f32]>,
 }
 
 pub(crate) struct ControlState {
@@ -56,7 +60,14 @@ pub(crate) struct Filter {
 }
 
 impl Filter {
-    pub fn new(connection: &Connection, processor: MicRt, stereo: bool) -> Result<Self, Error> {
+    /// SoundDeck sounds (§7.6) are mixed into the virtual microphone after the chain by
+    /// `sounddeck`, so mute and bypass of the voice do not affect them.
+    pub fn new(
+        connection: &Connection,
+        processor: MicRt,
+        stereo: bool,
+        sounddeck: Option<SoundDeckTap>,
+    ) -> Result<Self, Error> {
         let graph_rate_hz = Arc::new(AtomicU32::new(0));
         let graph_quantum = Arc::new(AtomicU32::new(0));
         let keep_processing = Arc::new(AtomicBool::new(false));
@@ -75,6 +86,12 @@ impl Filter {
             graph_quantum: graph_quantum.clone(),
             keep_processing: keep_processing.clone(),
             scratch: vec![0.0; SCRATCH_SAMPLES].into_boxed_slice(),
+            mix_scratch: if sounddeck.is_some() {
+                vec![0.0; SCRATCH_SAMPLES * 2].into_boxed_slice()
+            } else {
+                Box::default()
+            },
+            sounddeck,
         });
         // SAFETY: pw_filter_events is a C struct of integers and optional function pointers;
         // zero is a valid value for each field.
@@ -478,6 +495,54 @@ unsafe fn process_inner(data: *mut c_void, position: *mut pw::spa::sys::spa_io_p
             supported_rate,
         );
     }
+    if let Some(tap) = &mut state.sounddeck {
+        // SAFETY: as above; the scratch buffers are distinct from the port buffers.
+        unsafe {
+            mix_sounddeck(
+                tap,
+                left,
+                right,
+                !state.output_right.is_null(),
+                count as usize,
+                &mut state.scratch,
+                &mut state.mix_scratch,
+            );
+        }
+    }
+}
+
+/// Mix the SoundDeck over the processed voice on the linked output ports; the voice is
+/// already duplicated into both ports, so the primary one is the voice.
+unsafe fn mix_sounddeck(
+    tap: &mut SoundDeckTap,
+    left: *mut f32,
+    right: *mut f32,
+    stereo: bool,
+    count: usize,
+    voice: &mut [f32],
+    mix: &mut [f32],
+) {
+    let channels = if stereo { 2 } else { 1 };
+    let primary = if left.is_null() { right } else { left };
+    if primary.is_null() || count > voice.len() || count * channels > mix.len() {
+        return;
+    }
+    let (voice, mix) = (&mut voice[..count], &mut mix[..count * channels]);
+    // SAFETY: callers provide count samples on each non-null port; scratch never aliases them.
+    unsafe {
+        voice.copy_from_slice(std::slice::from_raw_parts(primary, count));
+    }
+    tap.mix_with_voice(voice, mix, channels);
+    for (channel, port) in [left, right].into_iter().enumerate().take(channels) {
+        if port.is_null() {
+            continue;
+        }
+        // SAFETY: a linked port provides count writable samples, disjoint from the scratch.
+        let port = unsafe { std::slice::from_raw_parts_mut(port, count) };
+        for (sample, frame) in port.iter_mut().zip(mix.chunks_exact(channels)) {
+            *sample = frame[channel];
+        }
+    }
 }
 
 unsafe fn select_channel(
@@ -723,6 +788,57 @@ mod tests {
                 );
             }
         });
+    }
+
+    #[test]
+    fn sounddeck_mixes_over_the_voice_on_every_linked_port_without_allocating() {
+        use macafon_sounddeck::{decode::Sound, rt::Output};
+        let mut deck = macafon_sounddeck::rt::SoundDeckControl::new();
+        let mut tap = deck.tap(Output::Microphone);
+        let sound = Arc::new(Sound::from_interleaved_stereo(vec![0.25; 48_000 * 2]));
+        deck.play(sound, 1.0, 0, true);
+        let (mut voice, mut mix) = (vec![0.0; 256], vec![0.0; 512]);
+        let mut right = [0.1_f32; 256];
+        let mut mono = [0.1_f32; 256];
+        assert_no_alloc(|| {
+            // SAFETY: the port arrays provide 256 samples and never alias the scratch.
+            unsafe {
+                // Stereo with only FR linked: the sound lands on FR.
+                for _ in 0..8 {
+                    mix_sounddeck(
+                        &mut tap,
+                        ptr::null_mut(),
+                        right.as_mut_ptr(),
+                        true,
+                        256,
+                        &mut voice,
+                        &mut mix,
+                    );
+                    right.fill(0.1);
+                }
+                mix_sounddeck(
+                    &mut tap,
+                    ptr::null_mut(),
+                    right.as_mut_ptr(),
+                    true,
+                    256,
+                    &mut voice,
+                    &mut mix,
+                );
+                mix_sounddeck(
+                    &mut tap,
+                    mono.as_mut_ptr(),
+                    ptr::null_mut(),
+                    false,
+                    256,
+                    &mut voice,
+                    &mut mix,
+                );
+            }
+        });
+        assert!(right.iter().all(|s| s.is_finite()));
+        assert!(right[255] > 0.15, "sound mixed into FR: {}", right[255]);
+        assert!(mono[255] > 0.15, "sound mixed into MONO: {}", mono[255]);
     }
 
     #[test]

@@ -17,6 +17,7 @@ mod meter;
 mod player;
 mod profiler;
 mod routing;
+mod sounddeck_monitor;
 
 pub use channel_node::{CHANNEL_PREFIX, channel_node_name};
 pub use inspect::inspect;

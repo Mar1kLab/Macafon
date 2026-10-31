@@ -270,7 +270,7 @@ export const en = {
     listen: 'Listen A/B',
     fineTune: 'Fine-tune',
     failed: {
-      clipped: 'The microphone clipped. Lower its level in system settings or on your interface, then try again.',
+      clipped: 'The microphone is too loud and Macafon could not lower it far enough. Lower its level in system settings or on your interface until speech peaks stay below −15 dBFS, then try again.',
       no_speech: 'No speech was detected. Check the microphone and speak during the second step.',
       disconnected: 'The microphone disconnected during calibration.',
       stalled: 'No sound arrives from the microphone.',

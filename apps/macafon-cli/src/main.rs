@@ -34,7 +34,12 @@ fn restore_defaults() -> Result<()> {
     let journal = macafon_backend_pipewire::default_source_journal()?;
     macafon_backend_pipewire::restore_default_source(&journal)?;
     let journal = macafon_backend_pipewire::default_sink_journal()?;
-    macafon_backend_pipewire::restore_default_sink(&journal)?;
+    let sink = macafon_backend_pipewire::restore_default_sink(&journal);
+    // CAL-005: calibrated capture levels go back with the other system settings.
+    let journal = macafon_backend_pipewire::capture_level_journal()?;
+    let input_levels = macafon_backend_pipewire::restore_capture_levels(&journal);
+    sink?;
+    input_levels?;
     Ok(())
 }
 

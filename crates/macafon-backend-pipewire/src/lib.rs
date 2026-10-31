@@ -5,6 +5,7 @@ mod connection;
 mod default_source;
 mod filter;
 mod graph;
+mod input_level;
 mod inspect;
 mod mixer;
 mod nodes;
@@ -20,6 +21,7 @@ mod routing;
 mod sounddeck_monitor;
 
 pub use channel_node::{CHANNEL_PREFIX, channel_node_name};
+pub use input_level::{capture_level_journal, lower as lower_input_level, restore_capture_levels};
 pub use inspect::inspect;
 
 pub use routing::route_stream;

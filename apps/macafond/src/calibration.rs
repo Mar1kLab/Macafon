@@ -14,13 +14,13 @@ const HOT_INPUT: &str = "Microphone input is too hot. Lower its level in system 
 pub struct Recording {
     samples: Vec<f32>,
     last_sample_at: Instant,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub input_device: Option<String>,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     adjustments: u8,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     settle_until: Option<Instant>,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     validation_samples: usize,
 }
 
@@ -36,13 +36,13 @@ impl Recording {
         Self {
             samples: Vec::with_capacity(SILENCE_SAMPLES + SPEECH_SAMPLES + SAMPLE_RATE_HZ as usize),
             last_sample_at: Instant::now(),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             input_device: None,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             adjustments: 0,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             settle_until: None,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             validation_samples: 0,
         }
     }
@@ -69,7 +69,7 @@ impl Recording {
                 "no audio is arriving from the microphone",
             );
         }
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         {
             if self
                 .settle_until
@@ -92,18 +92,13 @@ impl Recording {
                 .fold(0.0f32, |peak, sample| peak.max(sample.abs()));
             let peak_dbfs = 20.0 * peak.max(1e-6).log10();
             if peak_dbfs > RAW_SPEECH_PEAK_DBFS {
-                #[cfg(windows)]
+                #[cfg(any(windows, target_os = "linux"))]
                 if self.adjustments < 12 {
-                    let adjustment = (|| {
-                        let device = self
-                            .input_device
-                            .as_deref()
-                            .ok_or_else(|| anyhow::anyhow!("no selected capture endpoint"))?;
-                        let state_dir = macafon_config::state_dir()?;
-                        Ok::<_, anyhow::Error>(macafon_backend_windows::input_level::lower(
-                            &state_dir, device, peak_dbfs,
-                        )?)
-                    })();
+                    let adjustment = self
+                        .input_device
+                        .as_deref()
+                        .ok_or_else(|| anyhow::anyhow!("no selected capture endpoint"))
+                        .and_then(|device| lower_input_level(device, peak_dbfs));
                     match adjustment {
                         Ok(change_db) => {
                             self.adjustments += 1;
@@ -134,7 +129,7 @@ impl Recording {
                 return Poll::Failed(CalibrationFailure::Clipped, HOT_INPUT);
             }
         }
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if self.validation_samples > 0 {
             return Poll::Measuring(measuring(self.samples.len()));
         }
@@ -144,6 +139,23 @@ impl Recording {
         }
         Poll::Measuring(measuring(self.samples.len()))
     }
+}
+
+/// CAL-005: one downward step of the selected capture endpoint; returns the dB change.
+#[cfg(windows)]
+fn lower_input_level(device: &str, peak_dbfs: f32) -> anyhow::Result<f32> {
+    let state_dir = macafon_config::state_dir()?;
+    Ok(macafon_backend_windows::input_level::lower(
+        &state_dir, device, peak_dbfs,
+    )?)
+}
+
+/// CAL-005 on Linux: the selected PipeWire source, through WirePlumber's volume control.
+#[cfg(target_os = "linux")]
+fn lower_input_level(device: &str, peak_dbfs: f32) -> anyhow::Result<f32> {
+    Ok(macafon_backend_pipewire::lower_input_level(
+        device, peak_dbfs,
+    )?)
 }
 
 fn measuring(samples: usize) -> CalibrationState {

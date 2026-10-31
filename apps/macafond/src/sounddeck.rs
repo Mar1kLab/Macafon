@@ -510,6 +510,14 @@ impl SoundDeck {
             self.preload_pending = None;
         }
         self.loader.invalidate(from);
+        // The cancelled decode of a sound waiting to play continues under its new id; a later
+        // scan sees an unchanged library and would not request it again.
+        if self.pending.as_deref() == Some(to)
+            && let Some(entry) = self.entry_index.get(to).and_then(|&i| self.entries.get(i))
+        {
+            self.loader
+                .request(&entry.id, &entry.path, entry.modified_unix_ms);
+        }
         if let Some(duration) = self.durations.remove(from) {
             self.durations.insert(to.to_owned(), duration);
         }

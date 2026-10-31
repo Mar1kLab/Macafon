@@ -160,6 +160,10 @@ impl RunArgs {
 }
 
 fn run(args: RunArgs) -> Result<()> {
+    // Before any helper thread exists (the IPC hub, hotkey timers), so every thread inherits
+    // the mask and only the control loop handles SIGINT/SIGTERM (BG-005).
+    #[cfg(target_os = "linux")]
+    platform::block_termination_signals()?;
     let store = match &args.config {
         Some(path) => Some(Store::new(path)),
         None => Store::default_location()

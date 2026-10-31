@@ -16,6 +16,26 @@ pub fn endpoint() -> Result<Endpoint> {
     Endpoint::for_current_user().context("XDG_RUNTIME_DIR is not set")
 }
 
+/// Block SIGINT/SIGTERM in the calling thread; threads spawned later inherit the mask. The
+/// PipeWire control loop receives them through a signalfd, which needs them blocked anyway.
+pub fn block_termination_signals() -> Result<()> {
+    // SAFETY: the set is initialised by sigemptyset before use and only read by
+    // pthread_sigmask; a null old-set pointer is allowed.
+    let result = unsafe {
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        libc::sigaddset(&mut set, libc::SIGINT);
+        libc::sigaddset(&mut set, libc::SIGTERM);
+        libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut())
+    };
+    anyhow::ensure!(
+        result == 0,
+        "Cannot block termination signals: {}",
+        std::io::Error::from_raw_os_error(result)
+    );
+    Ok(())
+}
+
 /// Run the virtual microphone until SIGINT/SIGTERM or Quit. Defaults left over from a crash are
 /// restored before start and Macafon's own changes after it.
 pub fn run<H: MicrophoneHost + 'static>(

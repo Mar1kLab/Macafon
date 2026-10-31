@@ -37,7 +37,12 @@ def main():
                 soname, source = parts[0], Path(parts[2])
                 if soname not in available or soname.startswith(('libpipewire-', 'libspa-')):
                     shutil.copy2(source, libs / soname)
-                    owner = subprocess.check_output(['dpkg-query', '-S', str(source)], text=True).split(': ')[0].split(':')[0]
+                    ownership = subprocess.run(['dpkg-query', '-S', str(source)], text=True, capture_output=True)
+                    if ownership.returncode:
+                        ownership = subprocess.run(['dpkg-query', '-S', str(source.resolve())], text=True, capture_output=True)
+                    if ownership.returncode:
+                        raise RuntimeError(f'Cannot locate copyright owner for {source}')
+                    owner = ownership.stdout.split(': ')[0].split(':')[0]
                     copyright_file = Path('/usr/share/doc') / owner / 'copyright'
                     if copyright_file.is_file():
                         notices = APP / 'share/macafon/system-licenses'

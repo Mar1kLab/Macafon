@@ -350,7 +350,7 @@ Sandbox integration and limits:
   revocation in desktop settings is not observable through Background's API.
 - StatusNotifierWatcher is allowed for the tray. A desktop tray extension may be needed.
 - Network sharing supports only the existing opt-in update check and user-initiated pinned
-  Hugging Face downloads (STT-020, PRD §8.4.6); it does not enable telemetry or automatic downloads.
+  Hugging Face downloads (STT-013, PRD §8.4.6); it does not enable telemetry or automatic downloads.
 - Music directory access supports SoundDeck. Other folders/models must be selected through a
   portal or explicitly granted by the user; the host home and host executables are not exposed.
 - `wpctl` is not bundled: hardware input-level calibration (CAL-005) reports unavailable; adjust
@@ -359,7 +359,7 @@ Sandbox integration and limits:
   display profiles are unavailable in this sandbox (PRD §8.5). Use host display settings or deb.
 - `ydotool`/`wtype`/clipboard helpers are not bundled and host input sockets are not exposed:
   dictation inference works, but automatic text insertion and helper-based clipboard copying
-  are unavailable (STT-006). Retrieve text from the UI/history or use the deb with optional helpers.
+  are unavailable (STT-012). Retrieve text from the UI/history or use the deb with optional helpers.
   No host command escape or elevated permissions are granted to work around these restrictions.
 
 `Release packages` (`.github/workflows/release.yml`) calls the unchanged Windows build steps and

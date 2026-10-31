@@ -20,11 +20,12 @@
       : t('quick.dictationUnloaded'),
   );
 
-  const policies: { value: DictationLanguagePolicy; label: string }[] = [
+  const allPolicies: { value: DictationLanguagePolicy; label: string }[] = [
     { value: 'layout', label: t('dictation.language.layout') },
     { value: 'fixed', label: t('dictation.language.fixed') },
     { value: 'auto', label: t('dictation.language.auto') },
   ];
+  const policies = $derived(allPolicies.filter((policy) => policy.value !== 'layout' || daemon.hello?.capabilities.dictation_layout));
   /** The user's keyboard layout languages; others are picked on the Dictation screen. */
   const languages = $derived(layoutLanguageOptions(dictation ?? null));
   const engines: { value: DictationEngine; label: string }[] = [
@@ -50,7 +51,7 @@
   <section class="dictation" id="overlay-dictation" aria-label={t('quick.dictation')}>
     <header>
       <h2 class="hud-label">{t('quick.dictation')}</h2>
-      <span class="badge">{model.toUpperCase()} · {prefs.gpu && !parakeet ? 'GPU' : 'CPU'}</span>
+      <span class="badge">{model.toUpperCase()} · {daemon.hello?.capabilities.dictation_gpu && prefs.gpu && !parakeet ? 'GPU' : 'CPU'}</span>
       <span class="memory" class:loaded role="status" {@attach tip(loaded ? t('quick.dictationLoadedHint') : t('quick.dictationUnloadedHint'))}><i aria-hidden="true"></i>{memory}</span>
     </header>
 
@@ -58,7 +59,9 @@
       {@render chips(t('dictation.language.label'), policies, parakeet ? 'auto' : prefs.language, (language) => daemon.setDictationPrefs({ language }), parakeet)}
       {@render chips(t('dictation.language.fixedLanguage'), languages, prefs.fixed_language, (fixed_language) => daemon.setDictationPrefs({ fixed_language, language: 'fixed' }), parakeet)}
       {@render chips(t('dictation.engine.label'), engines.map((engine) => ({ ...engine, disabled: !engineReady(engine.value) })), prefs.engine, (engine) => daemon.setDictationPrefs({ engine }))}
+      {#if daemon.hello?.capabilities.dictation_gpu}
       {@render chips(t('dictation.performance.device'), [{ value: true, label: t('dictation.performance.gpu') }, { value: false, label: t('dictation.performance.cpu') }], parakeet ? false : prefs.gpu, (gpu) => daemon.setDictationPrefs({ gpu }), parakeet)}
+      {/if}
     </div>
 
   </section>

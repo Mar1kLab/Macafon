@@ -63,7 +63,7 @@
       <section class="step" in:fly={{ x: 24 * direction, ...reveal() }} aria-live="polite">
         <span class="icon"><current.icon size={28} strokeWidth={1.25} /></span>
         <h3>{t(`dictation.onboarding.${current.id}.title`)}</h3>
-        <p>{t(`dictation.onboarding.${current.id}.body`)}</p>
+        <p>{current.id === 'languages' && !daemon.hello?.capabilities.dictation_layout ? t('dictation.language.fixedAutoBody') : t(`dictation.onboarding.${current.id}.body`)}</p>
 
         {#if current.id === 'local'}
           <ul class="facts">

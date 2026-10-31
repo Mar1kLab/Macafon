@@ -1,6 +1,14 @@
 //! Read-only target/layout capture and local Unicode insertion. Never changes a keyboard layout.
+#[cfg(any(not(target_os = "linux"), test))]
 use anyhow::Result;
-use macafon_ipc::{DictationGamePolicy, DictationInsert, DictationOutcome, DictationPrefs};
+#[cfg(windows)]
+use macafon_ipc::{DictationGamePolicy, DictationInsert};
+#[cfg(not(target_os = "linux"))]
+use macafon_ipc::{DictationOutcome, DictationPrefs};
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::{copy_text, insert};
 use macafon_stt::protocol::Language;
 
 #[derive(Default)]
@@ -9,13 +17,14 @@ pub struct Target {
     pub layout: Option<Language>,
 }
 
+#[cfg(any(windows, test))]
 pub fn layout_language(lang_id: usize) -> Option<Language> {
     macafon_ipc::dictation_layout_language(lang_id)
 }
 
 static RESTORES: std::sync::OnceLock<std::sync::Mutex<Vec<std::thread::JoinHandle<()>>>> =
     std::sync::OnceLock::new();
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn track_restore(thread: std::thread::JoinHandle<()>) {
     let mut threads = RESTORES
         .get_or_init(Default::default)
@@ -77,7 +86,7 @@ impl Target {
         }
     }
 }
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 impl Target {
     pub fn capture() -> Self {
         Self::default()
@@ -100,6 +109,7 @@ pub fn game_active() -> bool {
     false
 }
 
+#[cfg(not(target_os = "linux"))]
 pub fn copy_text(text: &str) -> Result<()> {
     #[cfg(windows)]
     {
@@ -158,7 +168,7 @@ pub fn insert(
         Ok(DictationOutcome::Copied)
     }
 }
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub fn insert(
     _: &Target,
     _: &str,

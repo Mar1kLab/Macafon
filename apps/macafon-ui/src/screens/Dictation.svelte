@@ -50,11 +50,12 @@
     return t(`dictation.phase.${phase}`);
   });
 
-  const policies: { value: DictationLanguagePolicy; label: string }[] = [
+  const allPolicies: { value: DictationLanguagePolicy; label: string }[] = [
     { value: 'layout', label: t('dictation.language.layout') },
     { value: 'fixed', label: t('dictation.language.fixed') },
     { value: 'auto', label: t('dictation.language.auto') },
   ];
+  const policies = $derived(allPolicies.filter((policy) => policy.value !== 'layout' || daemon.hello?.capabilities.dictation_layout));
   /** The user's keyboard layout languages as chips; any other Whisper language from a list. */
   const languages = $derived(layoutLanguageOptions(dictation ?? null));
   const otherLanguages = $derived([{ value: '', label: t('dictation.language.other') }, ...otherLanguageOptions(dictation ?? null)]);
@@ -150,7 +151,7 @@
           <span class="hud-label">{t('dictation.toggle')}</span>
           <Toggle checked={prefs.enabled} label={t('dictation.toggle')} disabled={!hasModel} onchange={(enabled) => daemon.setDictationPrefs({ enabled })} />
         </span>
-        <SettingsLink section="dictation" />
+        {#if daemon.hello?.capabilities.hotkey_popup}<SettingsLink section="dictation" />{/if}
       {/snippet}
     </PageHeader>
 
@@ -174,7 +175,7 @@
 
         <div class="stack">
           <Card number="02" title={t('dictation.language.title')} hint={t('dictation.language.hint')} color="violet" dimmed={parakeet} badge={parakeet ? t('dictation.language.autoOnly') : undefined}>
-            <Segmented wrap label={t('dictation.language.label')} options={policies} value={prefs.language} disabled={parakeet} hint={parakeet ? t('dictation.language.parakeetBody') : languageBody} onchange={(language) => daemon.setDictationPrefs({ language })} />
+            <Segmented wrap label={t('dictation.language.label')} options={policies} value={prefs.language} disabled={parakeet} hint={parakeet ? t('dictation.language.parakeetBody') : !daemon.hello?.capabilities.dictation_layout ? t('dictation.language.fixedAutoBody') : languageBody} onchange={(language) => daemon.setDictationPrefs({ language })} />
             {#if prefs.language === 'fixed' && !parakeet}
               <Segmented wrap label={t('dictation.language.fixedLanguage')} options={languages} value={prefs.fixed_language} onchange={(fixed_language) => daemon.setDictationPrefs({ fixed_language })} />
               {#if otherLanguages.length > 1}
@@ -231,7 +232,9 @@
 
         <Card number="05" title={t('dictation.output.title')} hint={t('dictation.output.hint')} color="pink">
           <Segmented label={t('dictation.output.insert')} options={inserts} value={prefs.insert} color="pink" hint={t('dictation.output.insertHint')} onchange={(insert) => daemon.setDictationPrefs({ insert })} />
+          {#if daemon.hello?.capabilities.dictation_game_mode}
           <Segmented label={t('dictation.output.games')} options={gamePolicies} value={prefs.fullscreen_games} color="pink" hint={t('dictation.output.gamesHint')} onchange={(fullscreen_games) => daemon.setDictationPrefs({ fullscreen_games })} />
+          {/if}
           <label class="row">
             <span>{t('dictation.output.trailingSpace')}</span>
             <Toggle checked={prefs.trailing_space} label={t('dictation.output.trailingSpace')} color="pink" onchange={(trailing_space) => daemon.setDictationPrefs({ trailing_space })} />
@@ -251,12 +254,16 @@
 
         <Card number="07" title={t('dictation.performance.title')} hint={t('dictation.performance.hint')} color="amber" class="performance">
           <div class="perf">
+            {#if daemon.hello?.capabilities.dictation_gpu}
             <Segmented label={t('dictation.performance.device')} options={devices} value={parakeet ? 'cpu' : prefs.gpu ? 'gpu' : 'cpu'} color="amber" disabled={parakeet} hint={parakeet ? t('dictation.performance.deviceParakeet') : t('dictation.performance.deviceHint')} onchange={(device) => daemon.setDictationPrefs({ gpu: device === 'gpu' })} />
+            {/if}
             <Segmented label={t('dictation.performance.unload')} options={unloads} value={prefs.unload_after_s} color="amber" hint={t('dictation.performance.unloadHint')} onchange={(unload_after_s) => daemon.setDictationPrefs({ unload_after_s })} />
+            {#if daemon.hello?.capabilities.dictation_game_mode}
             <label class="row" {@attach tip(t('dictation.performance.gameModeHint'))}>
               <span>{t('dictation.performance.gameMode')}</span>
               <Toggle checked={prefs.game_mode} label={t('dictation.performance.gameMode')} color="amber" onchange={(game_mode) => daemon.setDictationPrefs({ game_mode })} />
             </label>
+            {/if}
             <RulerSlider
               compact
               label={t('dictation.performance.threads')}
@@ -273,7 +280,7 @@
           {#snippet footer()}
             {t('dictation.performance.worker')} ·
             {dictation.worker_ram_bytes
-              ? t('dictation.performance.loaded', { ram: formatBytes(dictation.worker_ram_bytes), device: prefs.gpu && !parakeet ? 'GPU' : 'CPU', threads: dictation.worker_threads ?? '—' })
+              ? t('dictation.performance.loaded', { ram: formatBytes(dictation.worker_ram_bytes), device: daemon.hello?.capabilities.dictation_gpu && prefs.gpu && !parakeet ? 'GPU' : 'CPU', threads: dictation.worker_threads ?? '—' })
               : t('dictation.performance.unloaded')}
           {/snippet}
         </Card>

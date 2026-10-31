@@ -54,12 +54,13 @@ export class MockDictation {
   constructor(
     private readonly emit: (event: Event) => void,
     mode: string | null,
+    private readonly windows = true,
   ) {
     const prefs: DictationPrefs = {
       enabled: false,
       engine: 'whisper',
       model: null,
-      language: 'layout',
+      language: windows ? 'layout' : 'fixed',
       fixed_language: 'en',
       tap: 'clean',
       mute_mic_while_dictating: true,
@@ -68,8 +69,8 @@ export class MockDictation {
       fullscreen_games: 'copy',
       unload_after_s: 180,
       threads: 0,
-      game_mode: true,
-      gpu: true,
+      game_mode: windows,
+      gpu: windows,
       pre_roll: true,
       keep_history: true,
       save_history: false,
@@ -91,14 +92,14 @@ export class MockDictation {
       default_threads: DEFAULT_THREADS,
       logical_cores: LOGICAL_CORES,
       models: manifest(),
-      storage: { folder: DEFAULT_FOLDER, default_folder: true, free_bytes: 212 * 1024 * MB, used_bytes: 0, rotational: false, moving: null },
+      storage: { folder: this.defaultFolder, default_folder: true, free_bytes: 212 * 1024 * MB, used_bytes: 0, rotational: false, moving: null },
       history: [],
       // The keyboard layouts of a plausible machine and a few of Whisper's languages.
-      layout_languages: [
+      layout_languages: windows ? [
         { code: 'en', name: 'English' },
         { code: 'uk', name: 'Ukrainian' },
         { code: 'de', name: 'German' },
-      ],
+      ] : [],
       supported_languages: [
         ['en', 'English'], ['uk', 'Ukrainian'], ['de', 'German'], ['ru', 'Russian'], ['fr', 'French'], ['es', 'Spanish'],
         ['it', 'Italian'], ['pl', 'Polish'], ['pt', 'Portuguese'], ['nl', 'Dutch'], ['cs', 'Czech'], ['tr', 'Turkish'],
@@ -122,6 +123,8 @@ export class MockDictation {
     }
     if (mode === 'downloading') this.download('whisper-large-v3-turbo-q5_0', 0.42);
   }
+
+  private get defaultFolder() { return this.windows ? DEFAULT_FOLDER : '/home/you/.local/share/macafon/models/stt'; }
 
   private changed(): DictationState {
     this.emit({ event: 'dictation.changed', data: clone(this.state) });
@@ -268,6 +271,12 @@ export class MockDictation {
         for (const [key, value] of Object.entries(patch)) {
           if (value !== undefined && value !== null) (prefs as Record<string, unknown>)[key] = clone(value);
         }
+        if (!this.windows) {
+          if (prefs.language === 'layout') prefs.language = 'fixed';
+          if (prefs.engine === 'parakeet') prefs.language = 'auto';
+          prefs.gpu = false;
+          prefs.game_mode = false;
+        }
         if (patch.engine) {
           // Switching engines unloads the worker and picks a downloaded model of that engine.
           const current = prefs.model ? this.model(prefs.model) : null;
@@ -324,12 +333,12 @@ export class MockDictation {
       case 'dictation.import_model':
         throw new DaemonError('invalid_params', 'the file does not match any model of the manifest');
       case 'dictation.set_models_dir': {
-        const folder = (p.folder as string | null) ?? DEFAULT_FOLDER;
+        const folder = (p.folder as string | null) ?? this.defaultFolder;
         const total = this.usedBytes();
         const storage = this.state.storage;
         if (total === 0) {
           storage.folder = folder;
-          storage.default_folder = folder === DEFAULT_FOLDER;
+          storage.default_folder = folder === this.defaultFolder;
           storage.rotational = /^D:/i.test(folder);
           return this.changed();
         }
@@ -342,7 +351,7 @@ export class MockDictation {
           if (moving.done_bytes >= moving.total_bytes) {
             clearInterval(this.moveTimer);
             storage.folder = moving.to;
-            storage.default_folder = moving.to === DEFAULT_FOLDER;
+            storage.default_folder = moving.to === this.defaultFolder;
             storage.rotational = /^D:/i.test(moving.to);
             storage.moving = null;
           }

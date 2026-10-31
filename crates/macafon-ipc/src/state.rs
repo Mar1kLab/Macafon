@@ -214,6 +214,15 @@ pub struct Capabilities {
     /// Local speech to text (§8.4).
     #[serde(default)]
     pub dictation: bool,
+    /// Dictation can read the target window's keyboard layout.
+    #[serde(default)]
+    pub dictation_layout: bool,
+    /// Dictation detects full-screen games and supports game scheduling policies.
+    #[serde(default)]
+    pub dictation_game_mode: bool,
+    /// The shipped dictation worker supports Vulkan inference.
+    #[serde(default)]
+    pub dictation_gpu: bool,
     /// Saved monitor layouts (§8.5).
     #[serde(default)]
     pub displays: bool,
@@ -230,7 +239,10 @@ impl Capabilities {
         graph_quantum: true,
         hotkey_popup: false,
         sounddeck: false,
-        dictation: false,
+        dictation: true,
+        dictation_layout: false,
+        dictation_game_mode: false,
+        dictation_gpu: false,
         displays: false,
         input_channel: true,
     };
@@ -242,6 +254,9 @@ impl Capabilities {
         hotkey_popup: true,
         sounddeck: true,
         dictation: true,
+        dictation_layout: true,
+        dictation_game_mode: true,
+        dictation_gpu: true,
         displays: true,
         input_channel: false,
     };

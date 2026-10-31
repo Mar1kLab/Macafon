@@ -54,7 +54,12 @@ pub fn show(osd: Osd, setup: macafon_config::OsdConfig) {
 #[cfg(not(windows))]
 pub fn show(osd: Osd, _setup: macafon_config::OsdConfig) {
     match osd {
-        Osd::Dictation(_) => {}
+        Osd::Dictation(view) => {
+            #[cfg(target_os = "linux")]
+            crate::notify::dictation(&view);
+            #[cfg(not(target_os = "linux"))]
+            let _ = view;
+        }
         Osd::Volume {
             name, muted: true, ..
         } => crate::notify::osd(format!("{name}: muted")),

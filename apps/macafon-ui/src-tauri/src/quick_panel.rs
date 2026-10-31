@@ -99,6 +99,13 @@ pub fn prewarm(app: &AppHandle) {
             memory_target(&window, true);
             let handle = window.clone();
             window.on_window_event(move |event| {
+                #[cfg(target_os = "linux")]
+                if matches!(event, WindowEvent::Destroyed)
+                    && handle.app_handle().get_webview_window("main").is_none()
+                {
+                    handle.app_handle().exit(0);
+                    return;
+                }
                 if let WindowEvent::Focused(focused) = event {
                     if *focused {
                         if handle.is_visible().unwrap_or(false) {
@@ -172,6 +179,11 @@ pub fn toggle(app: &AppHandle, mode: Mode) {
 }
 
 pub fn hide(app: &AppHandle) {
+    #[cfg(target_os = "linux")]
+    if app.get_webview_window("main").is_none() {
+        app.exit(0);
+        return;
+    }
     app.state::<PanelState>().with(|panel| {
         if let Some(panel) = panel {
             panel.wanted = false;
@@ -451,8 +463,8 @@ pub fn quick_panel_close(app: AppHandle) {
 #[tauri::command]
 pub async fn open_main(app: AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        hide(&app);
         if crate::show_main(&app) {
+            hide(&app);
             Ok(())
         } else {
             Err("cannot open the main window".to_owned())

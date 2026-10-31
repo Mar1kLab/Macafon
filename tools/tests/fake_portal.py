@@ -6,6 +6,7 @@ Notifications() -> JSON list of notification summaries.
 """
 
 import json
+import os
 
 import dbus
 import dbus.service
@@ -35,6 +36,7 @@ class Portal(dbus.service.Object):
         self.session = None
         self.bound = []
         self.notifications = []
+        self.registered = set()
 
     def respond(self, sender, options, results):
         token = str(options["handle_token"])
@@ -51,8 +53,20 @@ class Portal(dbus.service.Object):
     def GetAll(self, interface):
         return {"version": dbus.UInt32(1)}
 
+    @dbus.service.method("org.freedesktop.host.portal.Registry", in_signature="sa{sv}",
+                         out_signature="", sender_keyword="sender")
+    def Register(self, app_id, options, sender=None):
+        # Default to the Tauri bundle ID; the override exercises the AUR fallback.
+        if app_id != os.environ.get("MACAFON_TEST_PORTAL_APP_ID", "Macafon"):
+            raise dbus.exceptions.DBusException(
+                "Desktop entry not found", name="org.freedesktop.portal.Error.InvalidArgument")
+        self.registered.add(sender)
+
     @dbus.service.method(PORTAL, in_signature="a{sv}", out_signature="o", sender_keyword="sender")
     def CreateSession(self, options, sender=None):
+        if sender not in self.registered:
+            raise dbus.exceptions.DBusException(
+                "An app id is required", name="org.freedesktop.portal.Error.NotAllowed")
         path = f"/org/freedesktop/portal/desktop/session/{sender[1:].replace('.', '_')}/{options['session_handle_token']}"
         if self.session:
             try:

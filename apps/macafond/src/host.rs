@@ -80,6 +80,8 @@ pub struct DaemonHost {
     /// The mixer configuration changed since the backend last asked (`take_mix_changed`).
     mix_changed: bool,
     control: Option<MicControl>,
+    #[cfg(target_os = "linux")]
+    pipewire_session_started: bool,
     telemetry: Arc<Telemetry>,
     inputs: Vec<Device>,
     input_connected: bool,
@@ -150,6 +152,8 @@ impl DaemonHost {
             changed_at: None,
             mix_changed: false,
             control: None,
+            #[cfg(target_os = "linux")]
+            pipewire_session_started: false,
             telemetry: hub.telemetry(),
             #[cfg(windows)]
             output_controls: crate::output_controls::Manager::new(hub.clone()),
@@ -481,7 +485,13 @@ impl MicrophoneHost for DaemonHost {
     }
 
     fn start_session(&mut self) -> Result<MicRt, Error> {
-        if let Err(error) = crate::platform::restore_default_source() {
+        // Retry startup crash recovery when PipeWire was initially unavailable,
+        // but do not discard an active choice on subsequent server reconnects.
+        #[cfg(target_os = "linux")]
+        let recover_defaults = !self.pipewire_session_started;
+        #[cfg(not(target_os = "linux"))]
+        let recover_defaults = true;
+        if recover_defaults && let Err(error) = crate::platform::restore_default_source() {
             tracing::warn!(%error, "Cannot recover previous default microphone yet");
         }
         let (control, rt) =
@@ -490,6 +500,10 @@ impl MicrophoneHost for DaemonHost {
         self.ensure_dictation_audio();
         self.mixer.start_session(&self.config.mixer)?;
         self.mixer_telemetry_changed();
+        #[cfg(target_os = "linux")]
+        {
+            self.pipewire_session_started = true;
+        }
         Ok(rt)
     }
 

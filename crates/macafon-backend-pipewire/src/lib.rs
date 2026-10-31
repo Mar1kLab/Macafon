@@ -134,10 +134,11 @@ pub fn run_microphone<H: MicrophoneHost + 'static>(
         .into_result()
         .map_err(|error| Error::Message(error.to_string()))?;
     let waiting = Rc::new(Cell::new(false));
+    let defaults = Rc::new(RefCell::new(mixer::MetadataState::default()));
     while !stopping.get() {
         // Rebuild all DSP and graph storage on the control thread. run_session drops
         // its filter (and joins RT processing) before returning to the retry loop.
-        let result = run_session(&mainloop, &host, waiting.clone());
+        let result = run_session(&mainloop, &host, waiting.clone(), defaults.clone());
         host.borrow_mut().end_session();
         match result {
             Ok(()) => return Ok(()),

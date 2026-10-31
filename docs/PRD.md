@@ -451,7 +451,14 @@ by default, except those set by the channel template.
 
 Owner request, 2026-10-18: a soundboard with parity to the classic [Soundpad](https://www.leppsoft.com/soundpad/en/).
 Sounds play into Macafon Microphone (the voice chat hears them) and into the user's headphones at
-the same time. Windows only for now (`Capabilities::sounddeck`); Linux reports it unavailable.
+the same time, on Windows and Linux (`Capabilities::sounddeck`).
+
+On Linux the sound is mixed into Macafon Microphone after the chain inside the virtual microphone
+filter, and the headphones monitor is a PipeWire playback stream `macafon_sounddeck`. On the default
+output it is an ordinary app named **SoundDeck** in the mixer, so it goes through a channel with its
+EQ and effects and moves between channels like any app; a chosen headphones device pins the stream to
+that device instead (`node.dont-move`). The library defaults to `~/Music/Macafon Sounds`; Open folder
+uses `xdg-open`.
 
 ```
 library folder -> decoder (48 kHz stereo, loudness/peak cache) -> SoundDeckControl

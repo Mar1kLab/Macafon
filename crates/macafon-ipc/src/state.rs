@@ -229,7 +229,7 @@ impl Capabilities {
         channel_fx: true,
         graph_quantum: true,
         hotkey_popup: false,
-        sounddeck: false,
+        sounddeck: true,
         dictation: false,
         displays: false,
         input_channel: true,

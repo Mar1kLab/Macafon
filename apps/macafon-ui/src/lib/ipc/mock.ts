@@ -347,7 +347,7 @@ export class MockTransport implements Transport {
     const actions = [
       ...GLOBAL_HOTKEYS, 'master_volume_up', 'master_volume_down', 'master_mute',
       ...this.mixer.state.channels.flatMap((c) => [`channel_volume_up.${c.id}`, `channel_volume_down.${c.id}`, `channel_mute.${c.id}`]),
-      ...(this.windows ? [...SOUNDDECK_HOTKEYS, ...this.sounddeck.state.sounds.map((x) => `sounddeck_play.${x.id}`)] : []),
+      ...SOUNDDECK_HOTKEYS, ...this.sounddeck.state.sounds.map((x) => `sounddeck_play.${x.id}`),
       ...(this.windows ? DICTATION_HOTKEYS : []),
       ...(this.windows ? [...DISPLAY_HOTKEYS, ...this.displays.ids.map((id) => `display_profile.${id}`)] : []),
     ];
@@ -414,7 +414,6 @@ export class MockTransport implements Transport {
       return this.mixer.call(method, p);
     }
     if (method.startsWith('sounddeck.')) {
-      if (!this.windows) throw new DaemonError('bad_request', 'the SoundDeck is not available on this platform');
       const result = this.sounddeck.call(method, p);
       // Renamed and moved sounds take their hotkeys along, as in the daemon.
       if (method === 'sounddeck.rename' || method === 'sounddeck.move' || method === 'sounddeck.delete' || method.endsWith('_category')) {
@@ -480,7 +479,7 @@ export class MockTransport implements Transport {
             channel_fx: !this.windows,
             graph_quantum: !this.windows,
             hotkey_popup: this.windows,
-            sounddeck: this.windows,
+            sounddeck: true,
             dictation: this.windows,
             displays: this.windows,
             input_channel: !this.windows,

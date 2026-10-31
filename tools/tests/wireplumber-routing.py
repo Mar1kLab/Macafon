@@ -158,6 +158,33 @@ def main():
                 print("routing: disabled stream moving detected; previous Voice target restored")
             microphone = spawn([args.daemon, "run", "--no-tray", "--input", "test_microphone", "--preset", "raw"])
             virtual = smoke.wait_for(lambda: nodes().get("macafon_mic"), "virtual microphone with WirePlumber")
+            # The pw_filter source owns gain in its DSP chain. Desktop controls must
+            # see fixed unity/unmuted rather than invent a silent software volume.
+            def unity_props():
+                props = nodes()["macafon_mic"]["info"]["params"].get("Props", [])
+                return props and props[0].get("channelVolumes") == [1.0] and not props[0].get("mute")
+
+            smoke.wait_for(unity_props, "virtual source unity Props")
+            run("wpctl", "set-volume", str(virtual["id"]), "0.25")
+            run("wpctl", "set-mute", str(virtual["id"]), "1")
+            smoke.wait_for(unity_props, "unity after desktop control attempts")
+            assert "1.00" in run("wpctl", "get-volume", str(virtual["id"])), "desktop volume drifted"
+            if shutil.which("pipewire-pulse") and shutil.which("pactl"):
+                pulse = spawn(["pipewire-pulse"])
+                smoke.wait_for(lambda: (runtime / "pulse/native").exists(), "private Pulse server")
+                def pulse_unity():
+                    sources = json.loads(run("pactl", "--format=json", "list", "sources"))
+                    mic = next((source for source in sources if source["name"] == "macafon_mic"), None)
+                    return mic and not mic["mute"] and all(
+                        channel["value_percent"] == "100%" for channel in mic["volume"].values())
+                smoke.wait_for(pulse_unity, "Pulse microphone at 100% unmuted")
+                run("pactl", "set-source-volume", "macafon_mic", "25%")
+                run("pactl", "set-source-mute", "macafon_mic", "1")
+                smoke.wait_for(pulse_unity, "Pulse volume/mute attempts reset to unity")
+                stop(pulse)
+                print("volume: pactl and wpctl show fixed 100%/unmuted, including after set attempts")
+            else:
+                print("volume: wpctl unity verified; Pulse tools unavailable")
             source = spawn(["pw-cat", "--playback", "--raw", "--format", "f32", "--channels", "1",
                             "--channel-map", "MONO", "--target", "0", "--latency", "128",
                             "--properties", "node.name=test_microphone media.class=Audio/Source adapter.auto-port-config={ mode=dsp position=preserve }", source_file])

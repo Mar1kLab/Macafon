@@ -122,6 +122,7 @@ impl ChannelNode {
             _control_state: Box::new(ControlState {
                 filter: pointer.as_ptr(),
                 stereo: true,
+                fixed_volume: false,
             }),
             id: id.to_owned(),
             reported_latency: latency,

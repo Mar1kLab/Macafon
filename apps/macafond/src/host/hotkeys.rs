@@ -188,6 +188,9 @@ impl DaemonHost {
                 }
             }
         }
+        // The Windows hook passes Esc through unless dictation is recording. A portal or X11
+        // grab would take Esc from every application, so Linux has no cancel shortcut.
+        #[cfg(windows)]
         if self.config.dictation.enabled {
             if let Ok(accel) = crate::hotkeys::accel::Accel::parse("Escape") {
                 bindings.push(crate::hotkeys::Binding {

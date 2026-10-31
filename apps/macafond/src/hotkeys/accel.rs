@@ -370,4 +370,30 @@ mod tests {
         assert!(Accel::parse("Ctrl+M+N").is_err());
         assert!(Accel::parse("Ctrl+Banana").is_err());
     }
+
+    #[test]
+    fn default_shortcuts_are_canonical_and_distinct() {
+        let defaults: Vec<&str> = macafon_config::DEFAULT_HOTKEYS
+            .iter()
+            .flat_map(|group| group.iter().map(|(_, shortcut)| *shortcut))
+            .collect();
+        for (index, shortcut) in defaults.iter().enumerate() {
+            let accel = Accel::parse(shortcut).expect("default parses");
+            // Config migration compares strings, so defaults must already be canonical.
+            assert_eq!(accel.to_string(), *shortcut);
+            for other in &defaults[index + 1..] {
+                assert!(
+                    !accel.overlaps(&Accel::parse(other).expect("default")),
+                    "{shortcut} {other}"
+                );
+            }
+        }
+        #[cfg(target_os = "linux")]
+        assert_eq!(
+            Accel::parse("Alt+Shift+Super+PageUp")
+                .expect("Voice")
+                .portal_trigger(),
+            "ALT+SHIFT+LOGO+Prior"
+        );
+    }
 }

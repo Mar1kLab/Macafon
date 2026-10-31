@@ -80,6 +80,7 @@ impl Default for UiConfig {
 }
 
 /// Defaults are offered as whole groups, only for channels that still exist.
+#[cfg(not(target_os = "linux"))]
 pub const DEFAULT_HOTKEYS: [&[(&str, &str)]; 5] = [
     &[("quick_panel", "LCtrl+LAlt+Z")],
     &[("mic_mute_toggle", "Ctrl+Alt+Q")],
@@ -95,6 +96,40 @@ pub const DEFAULT_HOTKEYS: [&[(&str, &str)]; 5] = [
         ("channel_volume_up.music", "Ctrl+Alt+R"),
         ("channel_volume_down.music", "Ctrl+Alt+F"),
     ],
+];
+/// Linux defaults are Super+Alt chords (owner request, 2026-10-31): Ctrl+PageUp/PageDown
+/// switch tabs in browsers, terminals and editors, Linux has no left/right modifier split to
+/// keep them apart, and KDE flags them as conflicts. Applications almost never use Super, and
+/// KDE Plasma and GNOME leave Super+Alt with these keys free. Same order and letters as
+/// Windows; Voice adds Shift to Main's keys.
+#[cfg(target_os = "linux")]
+pub const DEFAULT_HOTKEYS: [&[(&str, &str)]; 5] = [
+    &[("quick_panel", "Alt+Super+Z")],
+    &[("mic_mute_toggle", "Alt+Super+Q")],
+    &[
+        ("channel_volume_up.main", "Alt+Super+PageUp"),
+        ("channel_volume_down.main", "Alt+Super+PageDown"),
+    ],
+    &[
+        ("channel_volume_up.voice", "Alt+Shift+Super+PageUp"),
+        ("channel_volume_down.voice", "Alt+Shift+Super+PageDown"),
+    ],
+    &[
+        ("channel_volume_up.music", "Alt+Super+R"),
+        ("channel_volume_down.music", "Alt+Super+F"),
+    ],
+];
+/// The Windows set Linux shipped until 0.11; an untouched copy moves to the Linux set.
+#[cfg(target_os = "linux")]
+const PREVIOUS_LINUX_HOTKEYS: [(&str, &str); 8] = [
+    ("quick_panel", "LCtrl+LAlt+Z"),
+    ("mic_mute_toggle", "Ctrl+Alt+Q"),
+    ("channel_volume_up.main", "RCtrl+PageUp"),
+    ("channel_volume_down.main", "RCtrl+PageDown"),
+    ("channel_volume_up.voice", "RAlt+PageUp"),
+    ("channel_volume_down.voice", "RAlt+PageDown"),
+    ("channel_volume_up.music", "Ctrl+Alt+R"),
+    ("channel_volume_down.music", "Ctrl+Alt+F"),
 ];
 /// Offered once on Windows, one action at a time: an action that has no shortcut gets its
 /// default when that shortcut is free, also in customized maps — the actions are new, so
@@ -114,7 +149,7 @@ pub const DISPLAY_HOTKEYS: [(&str, &str); 2] = [
 #[cfg(not(target_os = "linux"))]
 pub const HOTKEY_DEFAULTS_REVISION: u32 = 5;
 #[cfg(target_os = "linux")]
-pub const HOTKEY_DEFAULTS_REVISION: u32 = 6;
+pub const HOTKEY_DEFAULTS_REVISION: u32 = 7;
 #[cfg(not(target_os = "linux"))]
 const DISPLAY_DEFAULTS_REVISION: u32 = 5;
 #[cfg(target_os = "linux")]
@@ -273,6 +308,7 @@ impl Config {
                     .get(*action)
                     .is_some_and(|bound| bound == shortcut)
             });
+        let previous_linux = self.untouched_previous_linux_hotkeys();
         self.ui.hotkey_defaults = HOTKEY_DEFAULTS_REVISION;
         if offer_dictation {
             for (action, shortcut) in DICTATION_HOTKEYS {
@@ -294,9 +330,23 @@ impl Config {
                 }
             }
         }
-        if !(fresh || legacy || previous) {
+        if !(fresh || legacy || previous || previous_linux) {
             return true;
         }
+        #[cfg(target_os = "linux")]
+        if previous_linux {
+            for (action, _) in PREVIOUS_LINUX_HOTKEYS {
+                self.hotkeys.remove(action);
+            }
+        }
+        // Linux defaults differ in every group, so the whole legacy set moves.
+        #[cfg(target_os = "linux")]
+        if legacy {
+            for (action, _) in LEGACY_HOTKEYS {
+                self.hotkeys.remove(action);
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
         if legacy {
             for (action, _) in DEFAULT_HOTKEYS[0]
                 .iter()
@@ -322,6 +372,28 @@ impl Config {
             }
         }
         true
+    }
+}
+
+impl Config {
+    /// Exactly the previous Linux defaults, plus untouched display defaults at most.
+    #[cfg(target_os = "linux")]
+    fn untouched_previous_linux_hotkeys(&self) -> bool {
+        self.ui.hotkey_defaults < HOTKEY_DEFAULTS_REVISION
+            && PREVIOUS_LINUX_HOTKEYS
+                .iter()
+                .all(|(action, shortcut)| self.hotkeys.get(*action).is_some_and(|s| s == shortcut))
+            && self.hotkeys.iter().all(|(action, shortcut)| {
+                PREVIOUS_LINUX_HOTKEYS
+                    .iter()
+                    .chain(DISPLAY_HOTKEYS.iter())
+                    .any(|(id, default)| id == action && default == shortcut)
+            })
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn untouched_previous_linux_hotkeys(&self) -> bool {
+        false
     }
 }
 
@@ -443,11 +515,9 @@ mod tests {
     fn default_hotkeys_migrate_only_fresh_or_exact_legacy_maps() {
         let mut config = Config::default();
         assert!(config.offer_default_hotkeys(|_| true));
-        assert_eq!(config.hotkeys["quick_panel"], "LCtrl+LAlt+Z");
-        assert_eq!(config.hotkeys["channel_volume_up.main"], "RCtrl+PageUp");
-        assert_eq!(config.hotkeys["channel_volume_down.voice"], "RAlt+PageDown");
-        assert_eq!(config.hotkeys["mic_mute_toggle"], "Ctrl+Alt+Q");
-        assert_eq!(config.hotkeys["channel_volume_down.music"], "Ctrl+Alt+F");
+        for (action, shortcut) in DEFAULT_HOTKEYS.iter().flat_map(|group| group.iter()) {
+            assert_eq!(config.hotkeys[*action], *shortcut);
+        }
         let expected = config.hotkeys.clone();
         config.hotkeys.remove("mic_mute_toggle");
         assert!(!config.offer_default_hotkeys(|_| true));
@@ -496,9 +566,36 @@ mod tests {
             .mixer
             .channels
             .retain(|channel| channel.id != "voice");
-        missing.offer_default_hotkeys(|shortcut| shortcut != "RCtrl+PageUp");
+        let main_up = DEFAULT_HOTKEYS[2][0].1;
+        missing.offer_default_hotkeys(|shortcut| shortcut != main_up);
         assert!(!missing.hotkeys.contains_key("channel_volume_down.main"));
         assert!(!missing.hotkeys.contains_key("channel_volume_down.voice"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn untouched_previous_linux_defaults_move_to_super_alt() {
+        let previous: BTreeMap<String, String> = PREVIOUS_LINUX_HOTKEYS
+            .iter()
+            .chain(DISPLAY_HOTKEYS.iter())
+            .map(|(action, shortcut)| ((*action).into(), (*shortcut).into()))
+            .collect();
+        let mut old = Config::default();
+        old.ui.hotkey_defaults = 6;
+        old.hotkeys = previous.clone();
+        assert!(old.offer_default_hotkeys(|_| true));
+        assert_eq!(old.hotkeys["channel_volume_up.main"], "Alt+Super+PageUp");
+        assert_eq!(old.hotkeys["quick_panel"], "Alt+Super+Z");
+        assert_eq!(old.hotkeys["display_all_on"], "Ctrl+Alt+Shift+F12");
+        assert!(!old.offer_default_hotkeys(|_| true));
+
+        let mut custom = Config::default();
+        custom.ui.hotkey_defaults = 6;
+        custom.hotkeys = previous;
+        custom.hotkeys.insert("mic_mute_toggle".into(), "F9".into());
+        let before = custom.hotkeys.clone();
+        assert!(custom.offer_default_hotkeys(|_| true));
+        assert_eq!(custom.hotkeys, before);
     }
 
     #[cfg(windows)]

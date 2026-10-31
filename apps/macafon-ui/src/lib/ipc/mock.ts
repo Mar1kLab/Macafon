@@ -146,15 +146,15 @@ export class MockTransport implements Transport {
   private autostart: AutostartState = { enabled: true, method: this.windows ? 'windows_run' : 'systemd' };
   private shortcuts = new Map<string, string>([
     // The daemon's defaults (DEFAULT_HOTKEYS in macafon-config) plus push to talk.
-    ['quick_panel', 'LCtrl+LAlt+Z'],
-    ['mic_mute_toggle', 'Ctrl+Alt+Q'],
+    ['quick_panel', this.windows ? 'LCtrl+LAlt+Z' : 'Alt+Super+Z'],
+    ['mic_mute_toggle', this.windows ? 'Ctrl+Alt+Q' : 'Alt+Super+Q'],
     ['push_to_talk', 'F9'],
-    ['channel_volume_up.main', 'RCtrl+PageUp'],
-    ['channel_volume_down.main', 'RCtrl+PageDown'],
-    ['channel_volume_up.voice', 'RAlt+PageUp'],
-    ['channel_volume_down.voice', 'RAlt+PageDown'],
-    ['channel_volume_up.music', 'Ctrl+Alt+R'],
-    ['channel_volume_down.music', 'Ctrl+Alt+F'],
+    ['channel_volume_up.main', this.windows ? 'RCtrl+PageUp' : 'Alt+Super+PageUp'],
+    ['channel_volume_down.main', this.windows ? 'RCtrl+PageDown' : 'Alt+Super+PageDown'],
+    ['channel_volume_up.voice', this.windows ? 'RAlt+PageUp' : 'Alt+Shift+Super+PageUp'],
+    ['channel_volume_down.voice', this.windows ? 'RAlt+PageDown' : 'Alt+Shift+Super+PageDown'],
+    ['channel_volume_up.music', this.windows ? 'Ctrl+Alt+R' : 'Alt+Super+R'],
+    ['channel_volume_down.music', this.windows ? 'Ctrl+Alt+F' : 'Alt+Super+F'],
     ['sounddeck_stop', 'Ctrl+Alt+X'],
     ['sounddeck_play.Air horn.mp3', 'Ctrl+Alt+1'],
     ['sounddeck_play.Memes/Bruh.mp3', 'Ctrl+Alt+2'],

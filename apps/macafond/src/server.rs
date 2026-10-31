@@ -477,10 +477,20 @@ fn serve(
                         drop(clients);
                         tracing::debug!(client, id, "IPC client connected");
                     }
+                    #[cfg(target_os = "linux")]
+                    let capabilities = {
+                        let mut capabilities = Platform::current().capabilities();
+                        capabilities.displays =
+                            macafon_displays_linux::detected_backend().is_some();
+                        capabilities
+                    };
                     serde_json::to_value(Hello {
                         protocol: PROTOCOL_VERSION,
                         daemon_version: env!("CARGO_PKG_VERSION").into(),
                         platform: Platform::current(),
+                        #[cfg(target_os = "linux")]
+                        capabilities,
+                        #[cfg(not(target_os = "linux"))]
                         capabilities: Platform::current().capabilities(),
                     })
                     .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))

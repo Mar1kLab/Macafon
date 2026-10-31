@@ -15,10 +15,14 @@ use std::sync::mpsc;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TrayState {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub displays: Vec<(String, String)>,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     pub active_display: Option<String>,
+    #[cfg(target_os = "linux")]
+    pub displays_available: bool,
+    #[cfg(target_os = "linux")]
+    pub can_revert_display: bool,
     pub muted: bool,
     pub bypass: bool,
     pub dictation: bool,
@@ -42,6 +46,44 @@ struct MicTray {
 
 #[cfg(target_os = "linux")]
 impl MicTray {
+    fn display_menu(&self) -> Vec<ksni::MenuItem<Self>> {
+        use ksni::menu::*;
+        let mut menu: Vec<ksni::MenuItem<Self>> = self
+            .state
+            .displays
+            .iter()
+            .map(|(id, name)| {
+                let id = id.clone();
+                CheckmarkItem {
+                    label: name.clone(),
+                    checked: self.state.active_display.as_ref() == Some(&id),
+                    activate: Box::new(move |tray: &mut Self| {
+                        tray.send(Request::DisplaysApply { id: id.clone() })
+                    }),
+                    ..Default::default()
+                }
+                .into()
+            })
+            .collect();
+        menu.extend([
+            ksni::MenuItem::Separator,
+            StandardItem {
+                label: "All monitors on".into(),
+                activate: Box::new(|tray: &mut Self| tray.send(Request::DisplaysAllOn)),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: "Previous layout".into(),
+                enabled: self.state.can_revert_display,
+                activate: Box::new(|tray: &mut Self| tray.send(Request::DisplaysRevert)),
+                ..Default::default()
+            }
+            .into(),
+        ]);
+        menu
+    }
+
     fn send(&self, request: Request) {
         // Nobody waits for the reply; the new state comes back through `Tray::update`.
         let (reply, _) = mpsc::channel();
@@ -179,6 +221,13 @@ impl ksni::Tray for MicTray {
                     }
                     .into(),
                 ],
+                ..Default::default()
+            }
+            .into(),
+            SubMenu {
+                label: "Display profile".into(),
+                enabled: self.state.displays_available,
+                submenu: self.display_menu(),
                 ..Default::default()
             }
             .into(),

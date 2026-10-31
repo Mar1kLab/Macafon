@@ -80,8 +80,12 @@ def main():
             # The default shortcuts (HK-008) are bound next to the one set here.
             wanted = {"id": "mic_mute_toggle", "description": "Toggle microphone mute", "trigger": "CTRL+ALT+m"}
             smoke.wait_for(lambda: wanted in returned(test("Bound")), "shortcuts bound")
-            binding = next(b for b in state("hotkeys")["bindings"] if b["action"] == "mic_mute_toggle")
-            assert binding["shortcut"] == "Ctrl+Alt+M" and binding["system_trigger"] == "CTRL+ALT+m", binding
+            # The daemon learns the assigned trigger from the portal reply after the bind.
+            def mute_binding():
+                return next(b for b in state("hotkeys")["bindings"] if b["action"] == "mic_mute_toggle")
+            smoke.wait_for(lambda: mute_binding()["system_trigger"] == "CTRL+ALT+m", "assigned trigger")
+            binding = mute_binding()
+            assert binding["shortcut"] == "Ctrl+Alt+M", binding
             conflict = subprocess.run([str(args.ctl), "ctl", "hotkeys", "set", "bypass_toggle", "Ctrl+Alt+M"],
                                       env=env, capture_output=True, text=True, timeout=8)
             assert conflict.returncode != 0 and "already used" in conflict.stderr, conflict

@@ -5,24 +5,31 @@ use macafon_ipc::{ErrorBody, ErrorCode, Request};
 
 impl DaemonHost {
     pub(super) fn displays_available(&self) -> bool {
-        cfg!(windows)
+        #[cfg(target_os = "linux")]
+        {
+            macafon_displays_linux::detected_backend().is_some()
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            cfg!(windows)
+        }
     }
 
     pub(super) fn next_display_profile(&self) -> Option<String> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         {
             next_profile(
                 &self.config.displays.profiles,
                 self.displays_state().active.as_deref(),
             )
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             None
         }
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     pub(super) fn respond_displays(
         &mut self,
         _request: Request,
@@ -34,10 +41,10 @@ impl DaemonHost {
     }
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 use macafon_ipc::{DisplayMonitor, DisplayProfile, ProfileMonitor};
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 fn next_profile(profiles: &[DisplayProfile], active: Option<&str>) -> Option<String> {
     if profiles.is_empty() {
         return None;
@@ -76,7 +83,7 @@ fn missing_monitors(profile: &[ProfileMonitor], connected: &[DisplayMonitor]) ->
         .collect()
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 fn validate_profile(
     profile: &mut DisplayProfile,
     profiles: &[DisplayProfile],
@@ -107,7 +114,7 @@ fn validate_profile(
     Ok(())
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 fn delete_profile(config: &mut macafon_config::Config, id: &str) {
     config.displays.profiles.retain(|profile| profile.id != id);
     config.displays.confirmed.remove(id);
@@ -116,12 +123,12 @@ fn delete_profile(config: &mut macafon_config::Config, id: &str) {
     config.hotkeys.remove(&format!("{action}#secondary"));
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 fn needs_confirmation(config: &macafon_config::DisplaysConfig, id: &str, set_key: &str) -> bool {
     !config.is_confirmed(id, set_key)
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", test))]
 fn apply_with_rollback<S, E>(
     previous: &mut Option<S>,
     apply: impl FnOnce() -> Result<(), E>,
@@ -137,6 +144,13 @@ fn apply_with_rollback<S, E>(
     }
     Ok(())
 }
+
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+mod linux_native;
+#[cfg(target_os = "linux")]
+pub(crate) use linux::Runtime;
 
 #[cfg(windows)]
 mod native;

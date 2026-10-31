@@ -39,9 +39,9 @@ const SAVE_RETRY: Duration = Duration::from_secs(5);
 
 #[allow(clippy::large_enum_variant)] // One transient request; settings are already bounded by the protocol.
 pub enum ControlMessage {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     DisplaysChanged,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     DisplayDecision {
         generation: u64,
         keep: bool,
@@ -67,7 +67,7 @@ pub enum ControlMessage {
 const UI_PREWARM_AT_LOGIN: std::time::Duration = std::time::Duration::from_secs(20);
 
 pub struct DaemonHost {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     displays: displays::Runtime,
     #[cfg(windows)]
     output_controls: crate::output_controls::Manager,
@@ -137,7 +137,7 @@ impl DaemonHost {
         }
         let selected_device = config.mic.device.clone();
         Self {
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             displays: displays::Runtime::default(),
             dictation: crate::dictation::Dictation::new(&config.dictation),
             selected_device,
@@ -194,7 +194,7 @@ impl DaemonHost {
 
     /// Persist pending changes now (shutdown).
     pub fn flush(&mut self) {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         self.stop_displays();
         if self.changed_at.is_some() && self.save() {
             self.changed_at = None;
@@ -239,15 +239,19 @@ impl DaemonHost {
                 .map(|output| (output.name, output.description))
                 .collect(),
             output: mixer.output,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             displays: self
                 .displays_state()
                 .profiles
                 .into_iter()
                 .map(|info| (info.profile.id, info.profile.name))
                 .collect(),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             active_display: self.displays_state().active,
+            #[cfg(target_os = "linux")]
+            displays_available: self.displays_available(),
+            #[cfg(target_os = "linux")]
+            can_revert_display: self.displays_state().can_revert,
         };
         if let Some(tray) = &mut self.tray {
             tray.update(tray_state);
@@ -424,7 +428,7 @@ impl MicrophoneHost for DaemonHost {
 
     fn started(&mut self) -> Result<(), Error> {
         if let Some((endpoint, control)) = self.server.take() {
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             self.start_displays(control.clone());
             if self.tray_wanted {
                 // Spawned after signals are blocked, like the IPC threads.
@@ -628,9 +632,9 @@ impl MicrophoneHost for DaemonHost {
 
     fn handle(&mut self, message: ControlMessage) {
         let message = match message {
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             ControlMessage::DisplaysChanged => return self.refresh_displays(),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             ControlMessage::DisplayDecision { generation, keep } => {
                 return self.display_decision(generation, keep);
             }
@@ -696,7 +700,7 @@ impl MicrophoneHost for DaemonHost {
     }
 
     fn tick(&mut self) {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         self.tick_displays();
         self.tick_dictation();
         self.tick_sounddeck(Instant::now());

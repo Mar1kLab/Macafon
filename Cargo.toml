@@ -11,6 +11,7 @@ members = [
     "crates/macafon-backend",
     "crates/macafon-backend-pipewire",
     "crates/macafon-backend-windows",
+    "crates/macafon-displays-linux",
     "apps/macafond",
     "apps/macafon-stt",
     "apps/macafon-cli",
@@ -46,6 +47,7 @@ macafon-stt = { path = "crates/macafon-stt" }
 macafon-backend = { path = "crates/macafon-backend" }
 macafon-backend-windows = { path = "crates/macafon-backend-windows" }
 macafon-backend-pipewire = { path = "crates/macafon-backend-pipewire" }
+macafon-displays-linux = { path = "crates/macafon-displays-linux" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

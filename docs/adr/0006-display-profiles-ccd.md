@@ -49,9 +49,45 @@ settings on purpose and persist after Macafon quits; nothing is restored on quit
   their layouts swap.
 - Some drivers accept a layout in validation and still fail to light a monitor; the countdown
   covers it.
-- Windows only; Linux compositors have no common API (`Capabilities::displays` is false there).
+- Linux compositors have no common API; their separate adapters have different optional capabilities.
+
+### Linux (2026-10-31)
+
+The owner requested Linux parity. `macafon-displays-linux` is separate from the audio backend and
+from CCD; all its code and dependencies are Linux-only. A successful read of the running desktop
+selects Mutter DisplayConfig, KScreen, wlr-randr or native XRandR, in that order (KScreen is probed
+in Plasma; XRandR is excluded on Wayland). The daemon overrides only the Linux hello's display
+capability; the static fallback stays false and Windows capabilities stay unchanged. Backend
+selection is cached until the daemon restarts.
+
+Profiles retain ADR-0006 identity precedence. Connector-matched `/sys/class/drm/*/edid` supplies
+manufacturer/product/serial where available; ambiguous DRM connectors are not guessed. Mutter's
+vendor/product/serial and wlroots make/model/serial are fallbacks when raw EDID is inaccessible.
+CLI commands use argv without a shell, fixed locale, bounded output and a 2 s timeout. Mutter uses
+bounded blocking zbus calls. Display signals/polls and notification actions run on helper threads;
+the existing control loop remains responsible for apply, rollback and the deadline.
+
+Mutter method 1 previews the layout, method 0 verifies it, and method 2 requests persistence on Keep.
+Mutter's current implementation requests GNOME Shell confirmation for method 2; there is no public
+DisplayConfig method to answer it. A second Shell confirmation may therefore be needed to save
+across logins, including on a previously confirmed profile. This is an explicit Linux limitation,
+not an undocumented Shell API dependency. Rollback restores exact Mutter scale/transform/color
+settings using a fresh serial. CLI snapshots retain the layout and existing scales. A freedesktop
+notification supplies Keep / Revert and a countdown even without the window; missing notification
+support falls back to the daemon's automatic rollback.
+
+Optional fields are applied only where supported: primary on Mutter/KScreen/XRandR, mirroring on
+Mutter/XRandR and KScreen versions advertising `.mirror.`, HDR on Mutter color modes/KScreen HDR.
+wlroots has neither primary, mirroring nor HDR through this protocol. Scaling remains outside
+profiles. CLI layouts are session changes; login persistence is desktop-dependent. Unsupported
+compositors stay hidden by capability detection. Live desktop/hardware validation is still pending.
+
+API references: [Mutter DisplayConfig](https://github.com/GNOME/mutter/blob/main/data/dbus-interfaces/org.gnome.Mutter.DisplayConfig.xml),
+[Mutter confirmation handling](https://github.com/GNOME/mutter/blob/main/src/backends/meta-monitor-manager.c),
+[KScreen doctor](https://invent.kde.org/plasma/libkscreen/-/tree/master/src/doctor),
+[wlr-randr](https://gitlab.freedesktop.org/emersion/wlr-randr).
 
 ## When to revisit
 
 If Windows documents per-monitor scaling, if users ask for automatic switching on dock connection
-(DISP-011), or if Linux support is requested (KDE/GNOME/wlroots each need their own backend).
+(DISP-011), or when Linux compositors expose additional primary/mirror/HDR or persistence APIs.

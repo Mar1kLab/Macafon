@@ -754,14 +754,16 @@ verification, history and hold/hands-free state machine. Windows behavior is unc
 ### 8.5 Display profiles
 
 Owner request, 2026-10-21: switch saved monitor setups quickly — by hotkey, from the tray, the
-overlay and the window — as a Windows feature outside the milestone order (`Capabilities::displays`;
-Linux reports it unavailable). Scenarios: "Work" with three monitors, "Game" with only the main
+overlay and the window — as a Windows feature outside the milestone order. Linux support was
+requested on 2026-10-31: `Capabilities::displays` is enabled at runtime only after a usable session
+backend is detected (Mutter DisplayConfig on GNOME, `kscreen-doctor` on KDE, `wlr-randr` on compatible
+Wayland compositors, `xrandr` on X11). Scenarios: "Work" with three monitors, "Game" with only the main
 monitor at 165 Hz with HDR, "Movie" with only the TV and the sound on HDMI, "Laptop" with the built-in
 panel alone. Architecture decision: [ADR-0006](adr/0006-display-profiles-ccd.md).
 
 A profile stores, per monitor: on/off, primary, position, resolution, refresh rate, rotation,
 duplicate (mirror) or extend, HDR. Out of scope: per-monitor scaling (DPI, owner decision), a drag
-editor for the arrangement (layouts are captured from Windows Settings), automatic switching by
+editor for the arrangement (layouts are captured from the desktop display settings), automatic switching by
 application, color profiles, window positions.
 
 | ID | Requirement | Priority |
@@ -779,7 +781,26 @@ application, color profiles, window positions.
 | DISP-011 | Apply a profile automatically when its set of monitors connects (docking) — not now (owner decision, 2026-10-21) | P2 |
 
 Profiles change system settings on purpose and stay after Macafon quits; nothing is restored on
-quit or uninstall. No administrator rights are needed.
+quit or uninstall. Unconfirmed layouts are restored on shutdown. No administrator rights are needed.
+
+Linux uses the same saved profiles, CLI, hotkeys, tray submenu, UI and overlay (§9.10), including
+Macafon's 15 s confirmation deadline. When the window is closed, a freedesktop notification offers
+Keep / Revert and updates the countdown; absent actions or a notification server, the deadline
+still restores the snapshot. Mutter verifies with method 0, previews with method 1, and requests
+persistence with method 2 on Keep (or immediately for an already confirmed profile). GNOME Shell
+may require its own additional confirmation before saving across logins; rejecting that dialog
+can undo the kept layout. CLI backends use compositor validation/dry-run where available; KScreen
+has only local mode/topology validation before its apply operation. Changes are watched through
+Mutter's `MonitorsChanged` signal or a 2 s inventory poll for CLI backends.
+
+Primary is unsupported by the wlroots output-management protocol; mirroring is supported by Mutter,
+XRandR and versions of `kscreen-doctor` that advertise `.mirror.`. Older KScreen and wlroots ignore
+mirror requests. HDR is supported only when Mutter color modes or KScreen's HDR capability are
+reported; other backends ignore it. Existing scaling is preserved, not saved or edited as part of
+a profile. CLI changes persist in the current session; persistence across logins depends on the
+desktop's own configuration. Xwayland is never used as a fallback on Wayland; an unsupported
+compositor (including Hyprland versions without wlr-output-management) reports displays unavailable.
+See [Linux development notes](development/linux-m0.md#display-profiles).
 
 ---
 
@@ -1831,6 +1852,12 @@ in a working, committable state.
 | **DS3 · Quick access** | Per-profile hotkeys and Next, the tray submenu, the HK-006 card, the CLI | Switching by hotkey with the window closed |
 | **DS4 · Screen, onboarding, overlay** | §9.10 and the §9.9.2 Displays part | Mock-mode screenshots of the empty, onboarding, profiles, pending and edit states |
 | **DS5 · Hardware check** | Laptop + external monitor; 2–3 monitors on NVIDIA, AMD and Intel; an HDR monitor; a TV over HDMI; sleep and wake; a monitor switched off by its button | Checklist passes on Windows 11 |
+
+Linux implementation (2026-10-31): DS1–DS3 use the runtime-selected compositor adapters in
+`macafon-displays-linux`, the Linux daemon confirmation worker and the ksni submenu. DS0 / DS4 reuse
+the existing capability-gated UI, overlay and protocol. Parser/identity/command tests run headlessly;
+DS5 remains pending on GNOME X11/Wayland, Plasma X11/Wayland, a compatible wlroots compositor and
+native X11 hardware. Desktop limitations and the GNOME persistence confirmation are listed in §8.5.
 
 ### 19.4 Visual polish plan
 

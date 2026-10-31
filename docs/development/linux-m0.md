@@ -186,3 +186,51 @@ Browser development remains `pnpm -C apps/macafon-ui dev`; open
 `?screen=dictation&dictation=ready` for the Linux fixture and add `platform=windows` to compare.
 Desktop utilities are optional build dependencies; command selection, focus fallback and
 clipboard restore decisions are unit tested without a desktop session.
+
+## Display profiles
+
+The Linux-only `macafon-displays-linux` crate implements §8.5 / §9.10 independently of PipeWire.
+Launch the daemon inside the graphical user's session, with its D-Bus, Wayland/X11 environment
+and the relevant CLI in `PATH`. No privileged helper, installed driver or additional Rust
+runtime dependency is required: zbus 5, serde_json and thiserror are already used in the workspace.
+The daemon advertises `hello.capabilities.displays` only after a real inventory query succeeds.
+Detection is cached for the run; restart after installing a helper or changing desktops.
+
+| Desktop | Backend | Optional fields / limits |
+|---|---|---|
+| GNOME, X11 or Wayland | `org.gnome.Mutter.DisplayConfig` over the session bus | Primary, logical-monitor mirrors and HDR color mode where advertised. Verify 0 → temporary 1 → persistent 2 on Keep. GNOME Shell can ask for a second confirmation before saving to disk. |
+| Plasma, X11 or Wayland | `kscreen-doctor -j` | Primary and HDR where advertised; mirror control only when `--help` advertises `.mirror.`. No CLI dry-run: validate connected modes and topology locally, then rely on rollback if the compositor rejects the apply. |
+| Compatible wlroots compositor | `wlr-randr --json` | Resolution/refresh, position, rotation, enable; `--dryrun` before apply. No primary/mirror/HDR. Sway works only with the output-management protocol exposed; Hyprland versions without that protocol are unavailable. |
+| Native X11 fallback | `xrandr --verbose` | EDID, physical mode/refresh, primary, rotation, clone/extend, enable; `--dryrun` before apply. HDR ignored. Never selected for Xwayland on a Wayland session. |
+
+Raw DRM EDID is matched only by an unambiguous connector (including HDMI-A/HDMI name differences).
+Without raw EDID, Mutter's or wlroots' reported identity is used; KScreen/XRandR can fall back to
+connector-only identity. Identical monitors without serials retain the ADR-0006 port ambiguity.
+Scaling is preserved where reported and remains outside profile editing. Reflections, custom
+color profiles, VRR and compositor-specific features are outside the profile contract. CLI apply
+persistence across logins depends on the desktop. Display inventory polling is every 2 s for CLI
+backends; Mutter uses `MonitorsChanged`.
+
+`macafon ctl display` uses the existing IPC commands. The ksni tray has Display profile, All monitors
+on and Previous layout. All monitors on uses preferred modes and stays temporary on Mutter to
+avoid a second compositor confirmation in the emergency path. Safety shortcuts are offered once on Linux (defaults revision 6), preserving
+custom/cleared bindings and avoiding conflicts. Unsupported sessions hide the actions. Notification
+Keep / Revert actions are optional: the daemon always owns the 15 s auto-revert deadline and keeps
+the recovery snapshot if restore fails. The browser mock and existing UI need no Linux-specific
+components or duplicated protocol types.
+
+Targeted local checks (source the sysroot environment on the headless development host):
+
+```sh
+source ~/.cache/macafon-sysroot/env.sh
+cargo fmt
+cargo clippy -p macafon-displays-linux -p macafond -p macafon-cli --all-targets -- -D warnings
+cargo test -p macafon-displays-linux
+cargo test -p macafond displays
+cargo test -p macafon-config display_defaults
+```
+
+The parser fixtures, identity resolution, mirrored command plans, all-off rejection and Mutter
+variant round trip run without a GUI. This host has no compositor; live apply/Keep/timeout/revert,
+hotplug, notification actions, tray rendering, HDR and persistence still need a desktop hardware
+check. No display e2e, cloud workflow or Windows build is added.

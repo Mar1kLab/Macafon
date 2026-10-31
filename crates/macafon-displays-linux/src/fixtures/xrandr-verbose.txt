@@ -1,0 +1,14 @@
+Screen 0: minimum 8 x 8, current 3000 x 1920, maximum 32767 x 32767
+DP-1 connected primary 1080x1920+0+0 (0x46) left (normal left inverted right x axis y axis) 520mm x 290mm
+	Identifier: 0x42
+  1920x1080 (0x46) 148.500MHz +HSync +VSync *current +preferred
+        h: width  1920 start 2008 end 2052 total 2200 skew 0 clock 67.50KHz
+        v: height 1080 start 1084 end 1089 total 1125           clock 60.00Hz
+  1280x720 (0x47) 74.176MHz +HSync +VSync
+        h: width  1280 start 1390 end 1430 total 1650 skew 0 clock 44.96KHz
+        v: height 720 start 725 end 730 total 750            clock 59.94Hz
+HDMI-1 connected (normal left inverted right x axis y axis)
+  1920x1080 (0x48) 148.500MHz +HSync +VSync +preferred
+        h: width  1920 start 2008 end 2052 total 2200 skew 0 clock 67.50KHz
+        v: height 1080 start 1084 end 1089 total 1125           clock 60.00Hz
+DP-2 disconnected (normal left inverted right x axis y axis)

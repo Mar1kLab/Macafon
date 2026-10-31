@@ -106,13 +106,19 @@ pub const DICTATION_HOTKEYS: [(&str, &str); 5] = [
     ("dictation_copy_last", "Shift+Alt+X"),
     ("dictation_hold_copy", "Ctrl+Win+Shift"),
 ];
-/// Offered once on Windows without replacing customized shortcuts.
+/// Offered once on supported display platforms without replacing customized shortcuts.
 pub const DISPLAY_HOTKEYS: [(&str, &str); 2] = [
     ("display_all_on", "Ctrl+Alt+Shift+F12"),
     ("display_revert", "Ctrl+Alt+Shift+F11"),
 ];
+#[cfg(not(target_os = "linux"))]
 pub const HOTKEY_DEFAULTS_REVISION: u32 = 5;
+#[cfg(target_os = "linux")]
+pub const HOTKEY_DEFAULTS_REVISION: u32 = 6;
+#[cfg(not(target_os = "linux"))]
 const DISPLAY_DEFAULTS_REVISION: u32 = 5;
+#[cfg(target_os = "linux")]
+const DISPLAY_DEFAULTS_REVISION: u32 = 6;
 /// The revision that first offered `DICTATION_HOTKEYS` to every map.
 const DICTATION_DEFAULTS_REVISION: u32 = 4;
 
@@ -248,7 +254,8 @@ impl Config {
         }
         let offer_dictation =
             cfg!(windows) && self.ui.hotkey_defaults < DICTATION_DEFAULTS_REVISION;
-        let offer_displays = cfg!(windows) && self.ui.hotkey_defaults < DISPLAY_DEFAULTS_REVISION;
+        let offer_displays = cfg!(any(windows, target_os = "linux"))
+            && self.ui.hotkey_defaults < DISPLAY_DEFAULTS_REVISION;
         let fresh = self.ui.hotkey_defaults == 0 && self.hotkeys.is_empty();
         let previous = self.ui.hotkey_defaults == 2
             && self.hotkeys.len()
@@ -412,11 +419,14 @@ mod tests {
     #[test]
     fn display_defaults_are_offered_once_without_overwriting_bindings() {
         let mut config = Config::default();
-        config.ui.hotkey_defaults = 4;
+        config.ui.hotkey_defaults = if cfg!(target_os = "linux") { 5 } else { 4 };
         config.hotkeys.insert("display_revert".into(), "F7".into());
         config.offer_default_hotkeys(|_| true);
         assert_eq!(config.hotkeys["display_revert"], "F7");
-        assert_eq!(config.hotkeys.contains_key("display_all_on"), cfg!(windows));
+        assert_eq!(
+            config.hotkeys.contains_key("display_all_on"),
+            cfg!(any(windows, target_os = "linux"))
+        );
         config.hotkeys.remove("display_all_on");
         assert!(!config.offer_default_hotkeys(|_| true));
         assert!(!config.hotkeys.contains_key("display_all_on"));

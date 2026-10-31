@@ -2,20 +2,6 @@
 //! popups into a WIC bitmap, which `present` copies into the layered window's DIB.
 use super::*;
 
-/// One frame: `enter` 0 → 1 (springs may overshoot), the rest in 0..=1 except `stretch`.
-pub(super) struct Scene<'a> {
-    pub(super) vu: f32,
-    pub(super) vu_peak: f32,
-    pub(super) shimmer: f32,
-    pub(super) view: &'a Osd,
-    pub(super) enter: f32,
-    pub(super) level: f32,
-    pub(super) mute: f32,
-    pub(super) alert: f32,
-    pub(super) stretch: f32,
-    pub(super) status_width: f32,
-}
-
 pub(super) fn rgba(hex: u32, a: f32) -> D2D1_COLOR_F {
     let channel = |shift: u32| ((hex >> shift) & 0xff) as f32 / 255.0;
     D2D1_COLOR_F {
@@ -286,22 +272,17 @@ impl Painter {
             return Ok(());
         };
         let horizontal = layout.setup.style == OsdStyle::Horizontal;
-        let panel = match scene.view {
-            Osd::Volume { .. } if horizontal => (BAR_W, BAR_H),
-            Osd::Volume { .. } => (VOLUME_W, VOLUME_H),
-            Osd::Status { .. } => (scene.status_width, STATUS_H),
-            Osd::Dictation(view) => dictation_size(view),
-        };
-        let (bounds, (pivot_x, pivot_y), (toward_x, toward_y)) = layout.place(self.size, panel);
+        let panel = panel_size(scene.view, layout.setup.style, scene.status_width);
+        let (b, _, _) = layout.place(self.size, panel);
+        let bounds = rect(b.left, b.top, b.right, b.bottom);
         // Grow from the panel's edge side and slide in from the screen edge; an overshoot of
         // `enter` past 1 is the bounce.
-        let e = scene.enter;
-        let scale = 0.86 + 0.14 * e;
+        let (scale, dx, dy) = layout.transform(self.size, panel, scene.enter);
         self.panel = Matrix3x2 {
             M11: scale,
             M22: scale,
-            M31: (1.0 - scale) * pivot_x + (1.0 - e) * SLIDE * toward_x,
-            M32: (1.0 - scale) * pivot_y + (1.0 - e) * SLIDE * toward_y,
+            M31: dx,
+            M32: dy,
             ..IDENTITY
         };
         // SAFETY: drawing on this thread's render target between BeginDraw and EndDraw.

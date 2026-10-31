@@ -94,6 +94,8 @@ pub fn prewarm(app: &AppHandle) {
     .build();
     match built {
         Ok(window) => {
+            #[cfg(target_os = "linux")]
+            crate::quick_panel_layer::init(&window);
             // A hidden window's WebView2 keeps rendering until its controller is hidden too.
             let _ = window.as_ref().hide();
             memory_target(&window, true);
@@ -272,6 +274,21 @@ fn place(
     height: f64,
     anchor: Option<(f64, f64)>,
 ) -> tauri::Result<()> {
+    #[cfg(target_os = "linux")]
+    if crate::quick_panel_layer::place(
+        window,
+        mode,
+        width,
+        height,
+        window
+            .app_handle()
+            .state::<crate::Bridge>()
+            .call("prefs.get", None)
+            .ok()
+            .is_some_and(|prefs| prefs["osd"]["primary_monitor"] == true),
+    ) {
+        return Ok(());
+    }
     let scale = monitor.scale_factor();
     let area = monitor.work_area();
     let margin = (MARGIN * scale).round() as i32;

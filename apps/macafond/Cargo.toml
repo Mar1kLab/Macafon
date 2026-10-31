@@ -29,6 +29,14 @@ tracing-subscriber.workspace = true
 assert_no_alloc = { version = "1.1.2", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# The HK-006 popup on wlr-layer-shell compositors, painted in software (`osd::linux`).
+resvg = { version = "0.45", default-features = false }
+rustybuzz = "0.20"
+smithay-client-toolkit = { version = "0.19", default-features = false }
+tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+wayland-protocols-plasma = { version = "0.3", features = ["client"] }
 ksni = { version = "0.3.6", default-features = false, features = ["async-io", "blocking"] }
 libc = "0.2"
 macafon-backend-pipewire.workspace = true

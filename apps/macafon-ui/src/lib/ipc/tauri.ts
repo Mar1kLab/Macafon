@@ -15,6 +15,8 @@ function isBridgeError(value: unknown): value is BridgeError {
 }
 
 export function isTauri(): boolean {
+  // Private native-window visual QA can use fixtures without connecting to a live daemon.
+  if (import.meta.env.DEV && new URLSearchParams(location.search).get('mock') === '1') return false;
   return '__TAURI_INTERNALS__' in window;
 }
 

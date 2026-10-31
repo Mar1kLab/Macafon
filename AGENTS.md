@@ -151,6 +151,7 @@ target/release/macafon ctl status                   # control the daemon
 python3 tools/tests/pipewire-smoke.py             # private PipeWire: latency, mute, restarts
 python3 tools/tests/wireplumber-routing.py        # private WirePlumber: routing
 python3 tools/tests/mixer-smoke.py                # private WirePlumber: channels, apps, outputs
+python3 tools/tests/sounddeck-smoke.py            # private WirePlumber: SoundDeck into the mic and a channel
 python3 tools/tests/hotkeys-smoke.py              # fake GlobalShortcuts portal: hotkeys, OSD
 python3 tools/tests/control-smoke.py              # live control, config, protocol
 python3 tools/tests/tray-smoke.py                 # tray over a private D-Bus session

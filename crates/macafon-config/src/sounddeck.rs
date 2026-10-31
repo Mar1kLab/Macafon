@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Per-sound and output volumes go up to twice the file's level.
 pub const SOUNDDECK_MAX_VOLUME_PCT: f32 = 200.0;
@@ -147,19 +147,105 @@ pub fn clamp_volume(volume_pct: f32) -> f32 {
     }
 }
 
-/// `Music\Macafon Sounds` in the user's profile: easy to find and to fill from the file
-/// manager.
+/// `Macafon Sounds` in the music directory (XDG user directory on Linux).
 pub fn default_folder() -> PathBuf {
     let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    Path::new(&home).join("Music").join("Macafon Sounds")
+    #[cfg(windows)]
+    let music = home.join("Music");
+    #[cfg(not(windows))]
+    let music = {
+        let config = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .unwrap_or_else(|| home.join(".config"));
+        std::fs::read_to_string(config.join("user-dirs.dirs"))
+            .ok()
+            .and_then(|contents| xdg_music_dir(&contents, &home))
+            .unwrap_or_else(|| home.join("Music"))
+    };
+    music.join("Macafon Sounds")
+}
+
+/// Read the quoted XDG assignment without evaluating shell code or other variables.
+#[cfg(not(windows))]
+fn xdg_music_dir(contents: &str, home: &std::path::Path) -> Option<PathBuf> {
+    for line in contents.lines() {
+        let Some((key, value)) = line.trim().split_once('=') else {
+            continue;
+        };
+        if key.trim() != "XDG_MUSIC_DIR" {
+            continue;
+        }
+        let value = value.trim().strip_prefix('"')?.strip_suffix('"')?;
+        if value == "$HOME" {
+            return Some(home.to_path_buf());
+        }
+        let mut chars = value.chars();
+        let mut decoded = String::new();
+        let mut expand_home = false;
+        while let Some(ch) = chars.next() {
+            match ch {
+                '\\' => match chars.next()? {
+                    escaped @ ('"' | '\\' | '$' | '`') => decoded.push(escaped),
+                    other => {
+                        decoded.push('\\');
+                        decoded.push(other);
+                    }
+                },
+                '$' if decoded.is_empty() && value.starts_with("$HOME/") => {
+                    for _ in 0..4 {
+                        chars.next()?;
+                    }
+                    expand_home = true;
+                }
+                '$' | '`' | '"' => return None,
+                other => decoded.push(other),
+            }
+        }
+        let path = if expand_home {
+            home.join(decoded.trim_start_matches('/'))
+        } else {
+            PathBuf::from(decoded)
+        };
+        return path.is_absolute().then_some(path);
+    }
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(windows))]
+    #[test]
+    fn sounddeck_xdg_music_parser() {
+        let home = std::path::Path::new("/home/listener");
+        for (value, expected) in [
+            (
+                r#"# ignored
+XDG_DOWNLOAD_DIR="$HOME/Downloads"
+XDG_MUSIC_DIR="$HOME/My Music""#,
+                Some("/home/listener/My Music"),
+            ),
+            (r#"XDG_MUSIC_DIR="/media/Music""#, Some("/media/Music")),
+            (r#"XDG_MUSIC_DIR="$HOME""#, Some("/home/listener")),
+            (r#"XDG_MUSIC_DIR="/media/\$Music""#, Some("/media/$Music")),
+            (r#"XDG_MUSIC_DIR="relative""#, None),
+            (r#"XDG_MUSIC_DIR="$OTHER/Music""#, None),
+            (r#"XDG_MUSIC_DIR="$(touch /tmp/unsafe)""#, None),
+            (r#"XDG_MUSIC_DIR=unquoted"#, None),
+            ("", None),
+        ] {
+            assert_eq!(
+                xdg_music_dir(value, home),
+                expected.map(PathBuf::from),
+                "{value}"
+            );
+        }
+    }
 
     #[test]
     fn sound_settings_drop_defaults_and_follow_renames() {

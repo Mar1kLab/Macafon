@@ -21,10 +21,11 @@ features without a direct request, but keep things extensible where the PRD expl
 
 ## 2. Process
 
-- **GitHub Actions scope.** The owner authorized a manual Windows 11 x64 installer build on
-  2026-10-17 (`.github/workflows/windows-build.yml`). On 2026-10-31 the owner also authorized manual Linux deb/Flatpak builds and publishing
-  these alongside the Windows installer on GitHub releases. Keep other checks local; additional
-  cloud CI needs explicit owner authorization.
+- **GitHub Actions.** Workflows are allowed (owner decision, 2026-10-31) when they are useful
+  and kept green: today `windows-build.yml` (Windows installer), `linux-build.yml` (deb and
+  Flatpak) and `release.yml` (publishes all of them on a GitHub release). Add a workflow only
+  for a real need; fix or delete one that fails routinely instead of leaving it red and
+  ignored. Pin actions to commit SHAs and keep permissions minimal.
 - **No bureaucracy.** No issue/PR templates, CHANGELOG ceremonies, extra READMEs in every folder or
   documents "for the future". Write an ADR only for real architecture decisions (choosing an approach
   that is hard to roll back) — short, following `docs/adr/0001-*.md`.
@@ -34,6 +35,10 @@ features without a direct request, but keep things extensible where the PRD expl
 - **Git.** Conventional Commits in English (`feat(dsp): add de-esser`, `fix(pw): …`, `docs: …`).
   Small, logical commits. Commit and push when the owner asks or the task says so.
   Do not rewrite published history.
+- **No direct pushes to `main` for code** (owner rule, 2026-10-31). Work in a feature branch,
+  run both `windows-build.yml` and `linux-build.yml` on it (`gh workflow run <file> --ref
+  <branch>`), and merge into `main` only when both are green. Both platforms share one branch;
+  platform code stays in its crates or behind `cfg`. Docs-only changes may go to `main` directly.
 - **Versions.** Every push to `main` that changes code (Rust, UI, packaging, build scripts) bumps
   the app version in the same push, as the last commit (`chore: release X.Y.Z`), with
   `python tools/bump-version.py patch|minor`:
@@ -130,8 +135,7 @@ Short:
 
 ## 8. Forbidden without the owner's explicit permission
 
-- Cloud CI beyond the authorized manual Windows installer, Linux deb/Flatpak build and
-  release publishing workflows (owner authorization, 2026-10-31).
+- Workflows that do not serve a current need, or that are left failing (§2).
 - Telemetry, analytics, network requests (except the opt-in update check from the PRD and
   user-initiated dictation model downloads from pinned Hugging Face URLs, PRD §8.4.6 — owner
   authorization, 2026-10-19).

@@ -1,0 +1,20 @@
+{
+  "app-id": "dev.macafon.ui",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "49",
+  "sdk": "org.gnome.Sdk",
+  "command": "macafon",
+  "finish-args": [
+    "--socket=wayland", "--socket=fallback-x11", "--share=ipc", "--device=dri",
+    "--filesystem=xdg-run/pipewire-0", "--talk-name=org.kde.StatusNotifierWatcher",
+    "--share=network", "--filesystem=xdg-music",
+    "--env=PIPEWIRE_MODULE_DIR=/app/lib/pipewire-0.3",
+    "--env=SPA_PLUGIN_DIR=/app/lib/spa-0.2"
+  ],
+  "modules": [{
+    "name": "macafon",
+    "buildsystem": "simple",
+    "build-commands": ["cp -a payload/. /app/"],
+    "sources": [{"type": "dir", "path": "../../target/flatpak-payload", "dest": "payload"}]
+  }]
+}

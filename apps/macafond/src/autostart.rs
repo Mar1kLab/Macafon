@@ -22,6 +22,9 @@ fn succeeds(args: &[&str]) -> bool {
 }
 
 fn systemd_usable() -> bool {
+    if Path::new("/.flatpak-info").exists() {
+        return false;
+    }
     std::env::var_os("APPIMAGE").is_none_or(|value| value.is_empty())
         && std::env::var_os("MACAFON_NO_SYSTEMD")
             .is_none_or(|value| value.is_empty() || value == "0")
@@ -77,6 +80,9 @@ fn desktop_entry(executable: &Path, appimage: bool) -> String {
 }
 
 pub fn state() -> AutostartState {
+    if Path::new("/.flatpak-info").exists() {
+        return flatpak_state();
+    }
     let method = if systemd_usable() {
         AutostartMethod::Systemd
     } else {
@@ -88,6 +94,9 @@ pub fn state() -> AutostartState {
 }
 
 pub fn set(enabled: bool) -> Result<AutostartState, String> {
+    if Path::new("/.flatpak-info").exists() {
+        return flatpak_set(enabled);
+    }
     let systemd = systemd_usable();
     let desktop = desktop_path()?;
     if enabled && systemd {
@@ -114,6 +123,88 @@ pub fn set(enabled: bool) -> Result<AutostartState, String> {
             .map_err(|error| format!("{}: {error}", desktop.display()))?;
     }
     Ok(state())
+}
+
+// The portal owns the host entry. This marker records the last confirmed request;
+// revocation in the desktop permission settings is not observable through Background.
+fn flatpak_marker() -> Result<PathBuf, String> {
+    macafon_config::config_dir()
+        .map(|path| path.join("background-autostart"))
+        .map_err(|error| error.to_string())
+}
+
+fn flatpak_state() -> AutostartState {
+    AutostartState {
+        enabled: flatpak_marker().is_ok_and(|path| path.is_file()),
+        method: AutostartMethod::XdgAutostart,
+    }
+}
+
+fn flatpak_set(enabled: bool) -> Result<AutostartState, String> {
+    use std::collections::HashMap;
+    use zbus::blocking::{Connection, Proxy};
+    use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
+
+    let request = || -> zbus::Result<bool> {
+        let connection = Connection::session()?;
+        let destination = "org.freedesktop.portal.Desktop";
+        let root = "/org/freedesktop/portal/desktop";
+        let token = "macafon_background";
+        let sender = connection
+            .unique_name()
+            .expect("session connection has a unique name")
+            .trim_start_matches(':')
+            .replace('.', "_");
+        let response = Proxy::new(
+            &connection,
+            destination,
+            format!("{root}/request/{sender}/{token}"),
+            "org.freedesktop.portal.Request",
+        )?;
+        let mut responses = response.receive_signal("Response")?;
+        let portal = Proxy::new(
+            &connection,
+            destination,
+            root,
+            "org.freedesktop.portal.Background",
+        )?;
+        let options: HashMap<&str, Value> = HashMap::from([
+            ("handle_token", Value::from(token)),
+            (
+                "reason",
+                Value::from("Start the Macafon audio daemon at login"),
+            ),
+            ("autostart", Value::from(enabled)),
+            (
+                "commandline",
+                Value::from(vec!["macafond", "run", "--autostart"]),
+            ),
+            ("dbus-activatable", Value::from(false)),
+        ]);
+        let _: OwnedObjectPath = portal.call("RequestBackground", &("", options))?;
+        let Some(message) = responses.next() else {
+            return Ok(false);
+        };
+        let (code, results): (u32, HashMap<String, OwnedValue>) = message.body().deserialize()?;
+        Ok(code == 0
+            && results
+                .get("autostart")
+                .and_then(|value| bool::try_from(value).ok())
+                == Some(enabled))
+    };
+    if !request().map_err(|error| format!("Background portal: {error}"))? {
+        return Err("The desktop did not confirm the autostart change".into());
+    }
+    let marker = flatpak_marker()?;
+    if enabled {
+        if let Some(parent) = marker.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        std::fs::write(marker, b"enabled").map_err(|error| error.to_string())?;
+    } else if marker.exists() {
+        std::fs::remove_file(marker).map_err(|error| error.to_string())?;
+    }
+    Ok(flatpak_state())
 }
 
 fn run(args: &[&str]) -> Result<(), String> {

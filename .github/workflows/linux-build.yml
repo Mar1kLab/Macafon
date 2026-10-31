@@ -1,0 +1,75 @@
+name: Linux build
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  packages:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_TERM_COLOR: always
+      RUSTUP_TOOLCHAIN: 1.99.0
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libclang-dev cmake patchelf libpipewire-0.3-dev libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev flatpak flatpak-builder
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+          npm install --global --force corepack@0.35.0
+          corepack enable
+          corepack prepare pnpm@12.11.2 --activate
+      - name: Install frontend dependencies
+        run: corepack pnpm -C apps/macafon-ui install --frozen-lockfile
+      - name: Check frontend
+        run: corepack pnpm -C apps/macafon-ui check
+      - name: Build Linux binaries
+        run: python3 tools/package-linux.py --build-only
+      - name: Bundle deb
+        run: python3 tools/package-linux.py --bundle-only --bundles deb
+      - name: Install Flatpak SDK
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive flathub org.gnome.Platform//49 org.gnome.Sdk//49
+      - name: Stage and build Flatpak offline
+        run: |
+          python3 tools/package-flatpak.py
+          flatpak-builder --user --force-clean --disable-download --repo=target/flatpak-repo target/flatpak-build packaging/flatpak/dev.macafon.ui.json
+          flatpak-builder --run target/flatpak-build packaging/flatpak/dev.macafon.ui.json sh /app/share/macafon/check-runtime.sh
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          mkdir -p target/linux-download
+          flatpak build-bundle target/flatpak-repo "target/linux-download/Macafon-$version-x86_64.flatpak" dev.macafon.ui --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+      - name: Verify and prepare downloads
+        run: |
+          cp target/release/bundle/deb/*.deb target/linux-download/
+          dpkg-deb -I target/linux-download/*.deb
+          dpkg-deb -c target/linux-download/*.deb
+          cd target/linux-download
+          sha256sum *.deb *.flatpak > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Macafon-Linux-x86_64
+          path: target/linux-download/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

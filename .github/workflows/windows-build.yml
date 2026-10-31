@@ -1,106 +1,97 @@
-name: Windows 11 build
+name: Release packages
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version matching this source (for example 0.12.0, without v)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Validate all assets without publishing a release'
+        default: true
+        type: boolean
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-build-${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  installer:
-    name: Windows 11 x64 installer
-    runs-on: windows-2025
-    timeout-minutes: 90
-    defaults:
-      run:
-        shell: pwsh
-    env:
-      CARGO_INCREMENTAL: '0'
-      CARGO_BUILD_JOBS: '2'
-      CARGO_TERM_COLOR: always
-      RUSTUP_TOOLCHAIN: 1.99.0
-      PYTHONUTF8: '1'
-
+  validate:
+    runs-on: ubuntu-24.04
     steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - name: Validate version and publishing ref
+        env:
+          VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          python3 - <<'PY'
+          import os, re, tomllib
+          version = os.environ['VERSION']
+          assert re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version), 'Expected X.Y.Z'
+          assert version == tomllib.load(open('Cargo.toml', 'rb'))['workspace']['package']['version']
+          assert os.environ['DRY_RUN'] == 'true' or os.environ['GITHUB_REF'] == 'refs/tags/v' + version, 'Publish only from the matching release tag'
+          PY
+  windows:
+    needs: validate
+    uses: ./.github/workflows/windows-installer-test.yml
+  linux:
+    needs: validate
+    uses: ./.github/workflows/linux-build.yml
+  publish:
+    needs: [windows, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
-          node-version: '24'
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.12'
-
-      - name: Set up Rust
-        run: rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal
-
-      - name: Set up pnpm
+          pattern: Macafon-*
+          path: downloads
+      - name: Verify and collect assets
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          npm install --global --force corepack@0.35.0
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          corepack enable
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          corepack prepare pnpm@12.11.2 --activate
-
-      - name: Install frontend dependencies
-        run: corepack pnpm -C apps/macafon-ui install --frozen-lockfile
-
-      - name: Check frontend
-        run: corepack pnpm -C apps/macafon-ui check
-
-      - name: Set up GPU dictation build tools
+          for directory in downloads/*; do (cd "$directory" && sha256sum -c SHA256SUMS.txt); done
+          mkdir assets
+          find downloads -type f \( -name '*.exe' -o -name '*.deb' -o -name '*.flatpak' \) -exec cp '{}' assets/ \;
+          test -f "assets/Macafon_${VERSION}_x64-setup.exe"
+          test -f "assets/Macafon-${VERSION}-x86_64.flatpak"
+          test "$(find assets -name '*.deb' | wc -l)" -eq 1
+          cd assets
+          sha256sum *.exe *.deb *.flatpak > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+      - name: Publish release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
         run: |
-          $installer = Join-Path $env:RUNNER_TEMP 'vulkan-sdk.exe'
-          $sdk = Join-Path $env:RUNNER_TEMP 'vulkan-sdk'
-          Invoke-WebRequest -Uri 'https://sdk.lunarg.com/sdk/download/1.4.321.0/windows/vulkan_sdk.exe' -OutFile $installer
-          $expected = '14ebc56ef981e03a292adadd2559fbbfcd0289ec157bfd0f0d5f9fdcb40042a9'
-          if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
-            throw 'Vulkan SDK checksum mismatch'
-          }
-          $process = Start-Process -FilePath $installer -ArgumentList @('--root', $sdk, '--accept-licenses', '--default-answer', '--confirm-command', 'install', 'copy_only=1') -WindowStyle Hidden -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "Vulkan SDK installer failed: $($process.ExitCode)" }
-          if (-not (Test-Path -LiteralPath (Join-Path $sdk 'Bin/glslc.exe'))) { throw 'Vulkan shader compiler missing' }
-          $clang = 'C:\Program Files\LLVM\bin'
-          if (-not (Test-Path -LiteralPath (Join-Path $clang 'libclang.dll'))) { throw 'libclang missing' }
-          "VULKAN_SDK=$sdk" | Add-Content -LiteralPath $env:GITHUB_ENV
-          "LIBCLANG_PATH=$clang" | Add-Content -LiteralPath $env:GITHUB_ENV
+          cat > notes.md <<'NOTES'
+          ## Changes
+          - Package Macafon for Windows 11 x64 and experimental Linux x86_64 (deb and Flatpak).
 
-      - name: Build Windows installer
-        run: python tools/package-windows.py
-
-      - name: Prepare download
-        run: |
-          $installers = @(Get-ChildItem -LiteralPath target/release/bundle/nsis -Filter '*_x64-setup.exe' -File)
-          if ($installers.Count -ne 1) { throw 'Expected exactly one Windows x64 installer' }
-          $installer = $installers[0]
-          $checksum = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          $download = New-Item -ItemType Directory -Path target/windows-download -Force
-          Copy-Item -LiteralPath $installer.FullName -Destination $download.FullName
-          "$checksum  $($installer.Name)" | Set-Content -LiteralPath (Join-Path $download.FullName 'SHA256SUMS.txt') -Encoding ascii
-          @"
-          ## Windows 11 x64
-          - Installer: ``$($installer.Name)``
-          - Source: ``$env:GITHUB_SHA``
-          - SHA-256: ``$checksum``
-          - Download **Macafon-Windows11-x64** from this run's **Artifacts** section.
-          - VB-CABLE is installed separately; it is not bundled.
-          "@ | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
-
-      - name: Upload installer
+          Download the package for your platform and verify it with SHA256SUMS.txt.
+          VB-CABLE is installed separately and is not bundled. Linux desktop integration depends on the compositor and portal support; see docs/development/linux-m0.md.
+          NOTES
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release upload "v$VERSION" assets/* --clobber
+          else
+            gh release create "v$VERSION" assets/* --verify-tag --title "Macafon $VERSION" --notes-file notes.md
+          fi
+      - name: Save verified release assets
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: Macafon-Windows11-x64
-          path: target/windows-download/*
+          name: release-assets
+          path: assets/*
           if-no-files-found: error
           compression-level: 0
           retention-days: 30

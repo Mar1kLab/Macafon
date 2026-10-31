@@ -312,3 +312,61 @@ Optional helpers (install only those appropriate for the desktop):
 These are AUR optdepends and deb/rpm recommendations, not hard dependencies. Packaging does not change
 system audio/display settings or grant input-device permissions. Run the Linux feature checks in the
 [release checklist](../qa/release-checklist.md#linux-feature-release-gate) on the target desktops.
+
+## Manual Linux CI and releases (2026-10-31)
+
+The owner authorized Linux deb/Flatpak builds and release uploads on 2026-10-31.
+`Linux build` (`.github/workflows/linux-build.yml`) runs manually on Ubuntu 24.04 x86_64,
+with pinned Actions, Node/Corepack/pnpm and Rust matching the Windows build. It runs
+`package-linux.py --build-only`, then `--bundle-only --bundles deb`. The deb requires
+PipeWire >= 1.0, WirePlumber >= 0.5 and WebKitGTK 4.1. Ubuntu 24.04 supplies the build ABI
+(glibc 2.39), but its stock WirePlumber is older than the package requirement: install on a
+newer supported distribution or supply WirePlumber >= 0.5 separately. Do not force dependencies.
+
+The same job stages the already-built binaries, worker and private inference libraries into
+`target/flatpak-payload`, supplements libraries absent from GNOME Platform 49, and includes the
+matching PipeWire client/SPA modules. `packaging/flatpak/dev.macafon.ui.json` consumes only that
+local directory. SDK installation and Cargo/pnpm/native dependency fetching happen before assembly;
+`flatpak-builder --disable-download` assembles without network access or vendoring Rust/JS again.
+This is a prebuilt-binary distribution manifest, not a Flathub source-build submission. The GNOME
+runtime supplies GTK/WebKit/glibc; staging never replaces its libraries. CI runs `ldd` and both
+CLI help commands inside the sandbox before exporting `Macafon-<version>-x86_64.flatpak`.
+
+Install with `flatpak install --user ./Macafon-<version>-x86_64.flatpak` (Flathub must be configured
+for the runtime). Launch `flatpak run dev.macafon.ui`. Diagnostics use
+`flatpak run --command=macafond dev.macafon.ui run` or
+`flatpak run --command=macafon dev.macafon.ui ctl status`. The CLI is a real packaged binary
+beside the UI, not a host symlink. The UI starts the adjacent daemon inside the same sandbox.
+Do not start a second daemon while one is running.
+
+Sandbox integration and limits:
+
+- Wayland/fallback X11, IPC and DRI are allowed. The PipeWire socket provides microphone/mixer
+  access; the host still needs compatible PipeWire/WirePlumber and policy allowing routing.
+- GlobalShortcuts and Background use the desktop portal (available through Flatpak's standard
+  portal bus access). Opt-in autostart requests Background with `macafond run --autostart`;
+  no host systemd unit or private, ineffective XDG entry is installed. A missing/refused portal
+  returns an error. The displayed state records the last confirmed portal response; external
+  revocation in desktop settings is not observable through Background's API.
+- StatusNotifierWatcher is allowed for the tray. A desktop tray extension may be needed.
+- Network sharing supports only the existing opt-in update check and user-initiated pinned
+  Hugging Face downloads (STT-013, PRD §8.4.6); it does not enable telemetry or automatic downloads.
+- Music directory access supports SoundDeck. Other folders/models must be selected through a
+  portal or explicitly granted by the user; the host home and host executables are not exposed.
+- `wpctl` is not bundled: hardware input-level calibration (CAL-005) reports unavailable; adjust
+  the host microphone level manually. DSP calibration remains available. The deb supports wpctl.
+- `kscreen-doctor`, `wlr-randr`, `xrandr` and Mutter's direct display bus are not exposed:
+  display profiles are unavailable in this sandbox (PRD §8.5). Use host display settings or deb.
+- `ydotool`/`wtype`/clipboard helpers are not bundled and host input sockets are not exposed:
+  dictation inference works, but automatic text insertion and helper-based clipboard copying
+  are unavailable (STT-012). Retrieve text from the UI/history or use the deb with optional helpers.
+  No host command escape or elevated permissions are granted to work around these restrictions.
+
+`Release packages` (`.github/workflows/release.yml`) calls the unchanged Windows build steps and
+Linux workflow, verifies each artifact's hashes, then produces one combined `SHA256SUMS.txt`.
+Run it first with version `X.Y.Z` and `dry_run=true` to collect all three verified assets without
+publishing. To publish, merge the workflows, make the normal main version bump, create/push
+`vX.Y.Z` pointing at that version, and dispatch **on that tag** with `dry_run=false` and the matching
+version. Publishing is rejected from a branch or mismatched tag/version. It creates a brief release
+or replaces assets on the existing release without overwriting its notes. Only the publishing job
+has `contents: write`; builds have read-only permissions. No release is scheduled automatically.

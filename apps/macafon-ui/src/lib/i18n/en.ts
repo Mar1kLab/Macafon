@@ -1115,6 +1115,7 @@ export const en = {
       fixed: 'Fixed',
       auto: 'Auto',
       layoutBody: 'Uses the keyboard layout of the window you dictate into.',
+      fixedAutoBody: 'Choose a fixed language or automatic detection. Per-window keyboard layout is unavailable.',
       fixedBody: 'Always transcribes in the language below.',
       autoBody: 'Whisper picks the language by itself among the ones of your keyboard layouts.',
       autoOnly: 'Auto only',

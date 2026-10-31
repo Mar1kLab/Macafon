@@ -158,11 +158,11 @@ export class MockTransport implements Transport {
     ['sounddeck_play.Memes/Bruh.mp3', 'Ctrl+Alt+2'],
     ['sounddeck_play.Memes/Vine boom.wav', 'Ctrl+Alt+3'],
     // STT-003: Wispr Flow's Windows defaults plus copy and clipboard-only dictation.
-    ['dictation_hold', 'Ctrl+Win'],
+    ['dictation_hold', this.windows ? 'Ctrl+Win' : 'Ctrl+Super+F9'],
     ['dictation_toggle', 'Ctrl+Win+Space'],
     ['dictation_paste_last', 'Shift+Alt+Z'],
     ['dictation_copy_last', 'Shift+Alt+X'],
-    ['dictation_hold_copy', 'Ctrl+Win+Shift'],
+    ['dictation_hold_copy', this.windows ? 'Ctrl+Win+Shift' : 'Ctrl+Super+Shift+F9'],
     // DISP-005: the way back, and the profiles of the mock.
     ['display_all_on', 'Ctrl+Alt+Shift+F12'],
     ['display_revert', 'Ctrl+Alt+Shift+F11'],
@@ -176,7 +176,7 @@ export class MockTransport implements Transport {
   private started = performance.now();
   private mixer = new MockMixer(this.query.get('mixer') !== 'off', this.started, (event) => this.emit(event));
   private sounddeck = new MockSoundDeck((event) => this.emit(event), this.windows);
-  private dictation = new MockDictation((event) => this.emit(event), this.query.get('dictation'));
+  private dictation = new MockDictation((event) => this.emit(event), this.query.get('dictation'), this.windows);
   private displays = new MockDisplays((event) => this.emit(event), this.query.get('displays'));
   private outputControls: OutputControl[] = [];
   private hardwareVolume = 83;
@@ -348,7 +348,7 @@ export class MockTransport implements Transport {
       ...GLOBAL_HOTKEYS, 'master_volume_up', 'master_volume_down', 'master_mute',
       ...this.mixer.state.channels.flatMap((c) => [`channel_volume_up.${c.id}`, `channel_volume_down.${c.id}`, `channel_mute.${c.id}`]),
       ...SOUNDDECK_HOTKEYS, ...this.sounddeck.state.sounds.map((x) => `sounddeck_play.${x.id}`),
-      ...(this.windows ? DICTATION_HOTKEYS : []),
+      ...DICTATION_HOTKEYS,
       ...(this.windows ? [...DISPLAY_HOTKEYS, ...this.displays.ids.map((id) => `display_profile.${id}`)] : []),
     ];
     const portal = this.query.get('hotkeys') !== 'unavailable';
@@ -435,7 +435,6 @@ export class MockTransport implements Transport {
       return result;
     }
     if (method.startsWith('dictation.')) {
-      if (!this.windows) throw new DaemonError('bad_request', 'dictation is not available on this platform');
       return this.dictation.call(method, p);
     }
     switch (method) {
@@ -480,7 +479,10 @@ export class MockTransport implements Transport {
             graph_quantum: !this.windows,
             hotkey_popup: this.windows,
             sounddeck: true,
-            dictation: this.windows,
+            dictation: true,
+            dictation_layout: this.windows,
+            dictation_game_mode: this.windows,
+            dictation_gpu: this.windows,
             displays: this.windows,
             input_channel: !this.windows,
           },

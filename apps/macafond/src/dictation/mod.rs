@@ -29,6 +29,8 @@ pub struct Dictation {
     pub test: bool,
     pub copy_only: bool,
     pub target: target::Target,
+    #[cfg(target_os = "linux")]
+    pub pressed_target: Option<target::Target>,
     pub game: bool,
     pub hands_free: bool,
     /// The last short tap of a hold shortcut (released before the hold delay): a second tap
@@ -71,6 +73,11 @@ impl Drop for Audio {
 }
 
 /// STT-015: the saved history, when the user keeps it across restarts.
+#[cfg(target_os = "linux")]
+fn history_file() -> Option<std::path::PathBuf> {
+    Some(models::data_folder().join("dictation-history.json"))
+}
+#[cfg(not(target_os = "linux"))]
 fn history_file() -> Option<std::path::PathBuf> {
     let base = std::env::var_os("LOCALAPPDATA")?;
     Some(
@@ -167,7 +174,7 @@ impl Dictation {
             .min(logical_cores as usize) as u16;
         Self {
             models: models::Manager::new(&config.models_dir),
-            phase: if config.enabled && cfg!(windows) {
+            phase: if config.enabled && cfg!(any(windows, target_os = "linux")) {
                 DictationPhase::Unloaded
             } else {
                 DictationPhase::Off
@@ -199,6 +206,8 @@ impl Dictation {
             test: false,
             copy_only: false,
             target: target::Target::default(),
+            #[cfg(target_os = "linux")]
+            pressed_target: None,
             game: false,
             hands_free: false,
             last_press: None,
@@ -209,6 +218,8 @@ impl Dictation {
         }
     }
     pub fn state(&self, prefs: DictationPrefs) -> DictationState {
+        #[cfg(target_os = "linux")]
+        let prefs = linux_prefs(prefs);
         DictationState {
             prefs,
             layout_languages: macafon_ipc::installed_dictation_languages(),
@@ -266,7 +277,19 @@ impl Dictation {
             .audio
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("microphone is not connected"))?;
-        self.target = target::Target::capture();
+        #[cfg(not(target_os = "linux"))]
+        {
+            self.target = target::Target::capture();
+        }
+        #[cfg(target_os = "linux")]
+        {
+            self.target = self
+                .pressed_target
+                .take()
+                .unwrap_or_else(target::Target::capture);
+        }
+        #[cfg(target_os = "linux")]
+        let prefs = &linux_prefs(prefs.clone());
         self.game = target::game_active();
         self.language = LanguageInput {
             policy: match prefs.language {
@@ -355,6 +378,10 @@ impl Dictation {
         Ok(())
     }
     pub fn cancel(&mut self, enabled: bool) {
+        #[cfg(target_os = "linux")]
+        {
+            self.pressed_target = None;
+        }
         self.popup_state = crate::osd::dictation::State::Cancelled;
         if let Some(audio) = &self.audio {
             audio
@@ -733,6 +760,24 @@ fn band_energies(samples: &[f32]) -> [f32; 15] {
             / samples.len().max(1) as f32;
         ((20.0 * amplitude.max(1e-6).log10() + 60.0) / 60.0).clamp(0.0, 1.0)
     })
+}
+/// Linux cannot discover a per-window layout or full-screen game reliably. CPU inference
+/// matches the worker built without a Vulkan SDK; normalize old/imported Windows preferences.
+#[cfg(target_os = "linux")]
+pub fn linux_prefs(mut prefs: DictationPrefs) -> DictationPrefs {
+    if prefs.engine == DictationEngine::Parakeet {
+        prefs.language = DictationLanguagePolicy::Auto;
+    } else if prefs.language == DictationLanguagePolicy::Layout {
+        prefs.language = DictationLanguagePolicy::Fixed;
+    }
+    prefs.game_mode = false;
+    prefs.gpu = false;
+    prefs
+}
+
+#[cfg(target_os = "linux")]
+pub fn capture_target(dictation: &mut Dictation) {
+    dictation.pressed_target = Some(target::Target::capture());
 }
 
 #[cfg(test)]

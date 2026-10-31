@@ -271,6 +271,18 @@ sounddeck: boolean,
  */
 dictation: boolean,
 /**
+ * Dictation can read the target window's keyboard layout.
+ */
+dictation_layout: boolean,
+/**
+ * Dictation detects full-screen games and supports game scheduling policies.
+ */
+dictation_game_mode: boolean,
+/**
+ * The shipped dictation worker supports Vulkan inference.
+ */
+dictation_gpu: boolean,
+/**
  * Saved monitor layouts (§8.5).
  */
 displays: boolean,

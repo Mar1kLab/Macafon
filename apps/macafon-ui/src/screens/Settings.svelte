@@ -202,7 +202,7 @@
         ['hotkeys', t('settings.hotkeys.title'), !!daemon.hotkeys],
         ['popup', t('settings.osd.title'), !!prefs && !!daemon.hello?.capabilities.hotkey_popup],
         ['overlay', t('settings.overlay.title'), !!prefs],
-        ['dictation', t('settings.dictationPopup.title'), !!daemon.dictation],
+        ['dictation', t('settings.dictationPopup.title'), !!daemon.dictation && !!daemon.hello?.capabilities.hotkey_popup],
         ['doctor', t('settings.doctor'), true],
         ['about', t('settings.about'), true],
       ] as [SectionId, string, boolean][]
@@ -662,7 +662,7 @@
         </section>
       {/if}
 
-      {#if daemon.dictation}
+      {#if daemon.dictation && daemon.hello?.capabilities.hotkey_popup}
         {@const dictation = daemon.dictation.prefs}
         <section id="settings-dictation">
           <span class="ticks"><Ticks /></span>

@@ -15,6 +15,21 @@ impl DaemonHost {
         if !self.config.dictation.enabled && action != HotkeyAction::DictationEnableToggle {
             return;
         }
+        #[cfg(target_os = "linux")]
+        if pressed
+            && !matches!(
+                self.dictation.phase,
+                DictationPhase::Listening | DictationPhase::Transcribing
+            )
+            && matches!(
+                action,
+                HotkeyAction::DictationHold
+                    | HotkeyAction::DictationHoldCopy
+                    | HotkeyAction::DictationToggle
+            )
+        {
+            crate::dictation::capture_target(&mut self.dictation);
+        }
         let result = match action {
             HotkeyAction::DictationHold | HotkeyAction::DictationHoldCopy => {
                 let copy = action == HotkeyAction::DictationHoldCopy;
@@ -76,6 +91,8 @@ impl DaemonHost {
                 .map(|_| ()),
             HotkeyAction::DictationLanguageCycle => {
                 let prefs = &mut self.config.dictation;
+                #[cfg(target_os = "linux")]
+                let previous_language = prefs.language;
                 if prefs.engine == DictationEngine::Parakeet {
                     prefs.language = DictationLanguagePolicy::Auto;
                 } else {
@@ -96,6 +113,16 @@ impl DaemonHost {
                     } else {
                         prefs.language = DictationLanguagePolicy::Layout;
                     }
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    prefs.language = if prefs.engine == DictationEngine::Parakeet
+                        || previous_language == DictationLanguagePolicy::Fixed
+                    {
+                        DictationLanguagePolicy::Auto
+                    } else {
+                        DictationLanguagePolicy::Fixed
+                    };
                 }
                 self.changed_at = Some(Instant::now());
                 self.dictation_changed();
@@ -196,7 +223,7 @@ impl DaemonHost {
     ) -> Result<serde_json::Value, ErrorBody> {
         let invalid =
             |error: anyhow::Error| ErrorBody::new(ErrorCode::InvalidParams, error.to_string());
-        if !cfg!(windows) && !matches!(request, Request::DictationGet) {
+        if !cfg!(any(windows, target_os = "linux")) && !matches!(request, Request::DictationGet) {
             return Err(ErrorBody::new(
                 ErrorCode::BadRequest,
                 "dictation is available on Windows only",
@@ -207,6 +234,11 @@ impl DaemonHost {
                 self.dictation.models.ensure_scanned();
             }
             Request::DictationSetPrefs { patch } => {
+                #[cfg(target_os = "linux")]
+                let was_active = matches!(
+                    self.dictation.phase,
+                    DictationPhase::Listening | DictationPhase::Transcribing
+                );
                 let previous = self.config.dictation.prefs();
                 let mut value = serde_json::to_value(&previous).map_err(super::backend_error)?;
                 let patch = serde_json::to_value(patch).map_err(super::backend_error)?;
@@ -230,6 +262,10 @@ impl DaemonHost {
                 }
                 if prefs.engine == DictationEngine::Parakeet {
                     prefs.language = DictationLanguagePolicy::Auto;
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    prefs = crate::dictation::linux_prefs(prefs);
                 }
                 if prefs.enabled {
                     let valid = prefs.model.as_deref().is_some_and(|id| {
@@ -295,6 +331,15 @@ impl DaemonHost {
                 self.ensure_dictation_audio();
                 self.rebind_hotkeys();
                 self.hotkeys_changed();
+                #[cfg(target_os = "linux")]
+                if was_active
+                    && !matches!(
+                        self.dictation.phase,
+                        DictationPhase::Listening | DictationPhase::Transcribing
+                    )
+                {
+                    self.show_dictation_popup();
+                }
                 self.dictation_changed();
             }
             Request::DictationDownload { model } => {
@@ -365,7 +410,10 @@ impl DaemonHost {
     }
 
     pub(super) fn ensure_dictation_audio(&mut self) {
-        if !cfg!(windows) || !self.config.dictation.enabled || self.dictation.audio.is_some() {
+        if !cfg!(any(windows, target_os = "linux"))
+            || !self.config.dictation.enabled
+            || self.dictation.audio.is_some()
+        {
             return;
         }
         self.dictation.models.ensure_scanned();
@@ -449,6 +497,8 @@ impl DaemonHost {
     pub(super) fn cancel_dictation(&mut self) {
         self.dictation.cancel(self.config.dictation.enabled);
         self.release_dictation_input();
+        #[cfg(target_os = "linux")]
+        self.show_dictation_popup();
         self.dictation_changed();
     }
     /// After any cancel: the microphone is heard again and the hotkeys leave recording mode.
@@ -536,5 +586,65 @@ impl DaemonHost {
             }
             self.dictation_changed();
         }
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_tests {
+    use super::*;
+
+    fn host() -> DaemonHost {
+        let (sender, _receiver) = crate::platform::control_channel();
+        let mut config = macafon_config::Config::default();
+        config.dictation.enabled = true;
+        DaemonHost::new(
+            config,
+            None,
+            macafon_config::presets::PresetStore::in_memory(),
+            macafon_ipc::Endpoint::socket("unused-dictation"),
+            sender,
+            false,
+        )
+    }
+
+    #[test]
+    fn dictation_linux_press_release_and_hands_free_use_the_shared_hotkey_path() {
+        let mut host = host();
+        host.hotkey("dictation_hold", true);
+        assert!(host.dictation.pending_hold.is_some());
+        host.hotkey("dictation_hold", false);
+        assert!(host.dictation.pending_hold.is_none());
+        assert!(host.dictation.last_press.is_some());
+        // Simulate an already-running recording without needing a microphone or model.
+        host.dictation.last_press = None;
+        host.dictation.phase = DictationPhase::Listening;
+        host.dictation.started = Some(Instant::now() - Duration::from_secs(1));
+        host.hotkey("dictation_hold", false);
+        assert_eq!(host.dictation.phase, DictationPhase::Transcribing);
+        host.dictation.phase = DictationPhase::Listening;
+        host.dictation.hands_free = true;
+        host.dictation.started = Some(Instant::now() - Duration::from_secs(1));
+        host.hotkey("dictation_hold", true);
+        assert_eq!(host.dictation.phase, DictationPhase::Transcribing);
+    }
+
+    #[test]
+    fn dictation_linux_requests_normalize_unsupported_policies() {
+        let mut host = host();
+        host.config.dictation.enabled = false;
+        let reply = host
+            .respond_dictation(Request::DictationSetPrefs {
+                patch: DictationPrefsPatch {
+                    language: Some(DictationLanguagePolicy::Layout),
+                    gpu: Some(true),
+                    game_mode: Some(true),
+                    ..Default::default()
+                },
+            })
+            .expect("Linux dictation accepts settings");
+        let state: DictationState = serde_json::from_value(reply).expect("state");
+        assert_eq!(state.prefs.language, DictationLanguagePolicy::Fixed);
+        assert!(!state.prefs.gpu);
+        assert!(!state.prefs.game_mode);
     }
 }

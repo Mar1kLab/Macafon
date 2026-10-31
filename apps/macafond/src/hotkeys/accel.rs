@@ -61,6 +61,7 @@ const NAMED: [&str; 19] = [
 ];
 
 /// The volume keys: RegisterHotKey cannot take them from the shell, the hook can.
+#[cfg(windows)]
 pub fn is_volume_key(key: &str) -> bool {
     matches!(key, "VolumeUp" | "VolumeDown" | "VolumeMute")
 }

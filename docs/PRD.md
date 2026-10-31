@@ -550,7 +550,7 @@ Owner request, 2026-10-19: Wispr Flow-like dictation that is **free and fully lo
 shortcut, speak, release: the text appears in the window that had focus. Required languages:
 English, Ukrainian, Russian. Both engines below are implemented and the user picks one; no separate
 engine benchmark gates the work. Model downloads from Hugging Face are authorized by the owner
-(2026-10-19). Windows first (`Capabilities::dictation`); Linux reports it unavailable until §8.4.9.
+(2026-10-19). Available on Windows and experimental Linux (`Capabilities::dictation`); Linux integration and limitations are in §8.4.9.
 Architecture decision: [ADR-0005](adr/0005-local-dictation-worker.md).
 
 ```
@@ -586,10 +586,10 @@ CC-BY-4.0 and the runtime licenses appears in Settings → About.
 | STT-004 | Audio tap (AGENTS §4.1): the RT thread checks one `AtomicBool`; while recording it copies the block into a preallocated `rtrb` (2 s at 48 kHz mono, allocated when the feature turns on, freed when it turns off). A daemon STT thread drains it, resamples 48 → 16 kHz mono (`rubato`, outside RT) and streams 16 kHz chunks to the worker during recording, so audio never waits for the release. Tap point: **Clean** (after noise suppression, before expander/compressor — default), **Raw** (after Gain) or **Processed** (chain output) | P0 |
 | STT-005 | Pre-roll: while the feature is on, the tap keeps the last 300 ms in a small ring so the first syllable said together with the key press is not cut. It costs one copy of each block and nothing else. Can be turned off in Performance | P1 |
 | STT-006 | "Mute my microphone while dictating" (default on): the virtual microphone output is muted for the recording and restored to its previous state afterwards (an existing mute stays). The voice chat does not hear the dictation. SoundDeck playback is not affected | P0 |
-| STT-007 | Worker lifecycle: the key press starts recording **and** spawns `macafon-stt`, which loads the model in parallel (typical 0.5–2 s from SSD), hidden behind speech time. One worker at most. It is unloaded (process exits) after the **unload timeout**: Immediately / 1 / 3 (default) / 10 min / Never. The worker exits when its stdin closes and lives in a Job object with `KILL_ON_JOB_CLOSE`, so a daemon crash never leaves it running. A worker crash shows the error state in the popup and never affects audio | P0 |
+| STT-007 | Worker lifecycle: the key press starts recording **and** spawns `macafon-stt`, which loads the model in parallel (typical 0.5–2 s from SSD), hidden behind speech time. One worker at most. It is unloaded (process exits) after the **unload timeout**: Immediately / 1 / 3 (default) / 10 min / Never. The worker exits when its stdin closes; Windows uses a Job object with `KILL_ON_JOB_CLOSE`, Linux uses `PR_SET_PDEATHSIG` with `SIGKILL`, so a daemon crash never leaves it running. A worker crash shows the error state in the popup and never affects audio | P0 |
 | STT-008 | Low system impact: the worker runs at `BELOW_NORMAL_PRIORITY_CLASS` (EcoQoS only in game mode: on hybrid CPUs it parks the worker on efficiency cores, measured 13 s instead of 1 s for Parakeet), CPU by default, threads = max(2, physical cores / 2), adjustable 1..logical cores. **Game mode** (default on): when `SHQueryUserNotificationState` reports a full-screen D3D app or busy state at the key press, the job uses CPU even if GPU is chosen, keeps the thread limit, and the worker unloads right after the result regardless of the timeout | P0 |
 | STT-009 | Two engines (§8.4.1), switchable in the UI; switching unloads the current worker. Engine-specific options are hidden for the other engine (language forcing and vocabulary are Whisper-only) | P0 |
-| STT-010 | Language policy (§8.4.4): **By keyboard layout** (default), **Fixed** any Whisper-supported language, **Auto**. The layout is read from the target window at the key press. Parakeet supports only Auto; the UI says so | P0 |
+| STT-010 | Language policy (§8.4.4): **By keyboard layout** (Windows default), **Fixed** any Whisper-supported language (Linux default), **Auto**. The layout is read from the target window at the key press. Parakeet supports only Auto; the UI says so | P0 |
 | STT-011 | Silence and hallucination guard: VAD trims leading/trailing silence and long pauses before inference. If VAD finds under 200 ms of speech, nothing is inserted and the popup shows "No speech". Whisper runs with `no_speech` suppression; a whole-output match against a short list of known Whisper hallucinations ("Thank you for watching", "Продолжение следует…", "Дякую за перегляд" and similar) is dropped | P0 |
 | STT-012 | Text insertion (§8.4.5): into the window captured at the key press; **Paste** (default, clipboard + `Ctrl+V`, clipboard restored) or **Type** (`SendInput` with `KEYEVENTF_UNICODE`). Options: trailing space (default on), what to do in full-screen games (Insert / Copy only (default) / Ignore) | P0 |
 | STT-013 | Model manager (§8.4.6): list, download with progress, cancel, resume, SHA-256 verification, delete, disk-space check, import a local file that matches a manifest hash. Downloads start only from an explicit user action | P0 |
@@ -708,10 +708,48 @@ Windows animations.
 Numbers are estimates for the NFR-R1 reference CPU and are replaced by measurements in D1/D2
 (NFR-R9…R10, NFR-L7).
 
-#### 8.4.9 Linux (later)
+#### 8.4.9 Linux (experimental)
 
-Linux reports `dictation = false` in 1.0. Later: the same worker, text insertion through the
-RemoteDesktop portal or `wtype`/`xdotool`, no per-window layout on Wayland (only Fixed and Auto).
+Linux reports `dictation = true` and uses the same local worker, audio tap, model manifest,
+verification, history and hold/hands-free state machine. Windows behavior is unchanged.
+
+- The worker runs at nice 10, inherits a parent-death `SIGKILL` before exec (including a check
+  for a parent that died during spawn), and reports resident RAM from `/proc/self/statm`.
+  Both Whisper and Parakeet run on CPU. Linux builds do not require Vulkan headers or `glslc`;
+  Windows retains Vulkan. `dictation_gpu = false` hides the GPU selector on Linux.
+- Models default to `$XDG_DATA_HOME/macafon/models/stt`, or
+  `$HOME/.local/share/macafon/models/stt`. Saved history lives beside `models` as
+  `dictation-history.json`. `statvfs` checks available space plus the 10 percent reserve;
+  known network filesystems, FUSE mounts (local/remote cannot be distinguished reliably) and
+  sysfs-identified removable disks are refused. Rotational disks are detected through sysfs
+  where the filesystem exposes a block device.
+- X11 captures `_NET_ACTIVE_WINDOW` at the shortcut press using `xprop` or `xdotool` and checks
+  it again before insertion. A changed or unknown target gets **Copied — press Ctrl+V**.
+  Wayland exposes no portable window identity: insertion goes to whichever window has focus
+  when the result is ready, including after a focus change.
+- Type uses `wtype` on Wayland or `xdotool type` on X11. Paste uses `wl-copy`/`wl-paste` on
+  Wayland, `xclip` or `xsel` on X11, plus a simulated Ctrl+V. `ydotool key` is a fallback
+  when the session's primary injector is absent or paste injection fails; it requires an already configured,
+  user-accessible ydotoold socket. Macafon never starts a privileged service or requests root.
+  Tools are detected at runtime and invoked without a shell; transcripts travel over stdin.
+- Paste snapshots plain text and restores it after about 300 ms only if the current text
+  still equals the dictation. This comparison cannot detect a new copy of identical text.
+  Rich clipboard formats and clipboard-history exclusion cannot be preserved by these CLI
+  tools. An unreadable/non-text snapshot, absent injector, changed target, or failed injection
+  leaves the transcript copied instead. With no clipboard tool, insertion reports an error;
+  history still follows the existing result/error handling. Desktop tool calls have a timeout.
+- **Fixed** and **Auto** are offered on both Linux sessions (`dictation_layout = false`): no
+  portable per-window layout reader is implemented. Imported Layout preferences normalize to
+  Fixed. Parakeet remains Auto only. Full-screen-game policies and EcoQoS are Windows-only
+  (`dictation_game_mode = false`); Linux cannot automatically protect game targets.
+- Portal Activated/Deactivated and X11 key press/release feed the existing hold/release and
+  hands-free handlers. Assign a shortcut with a non-modifier key in Hotkeys (for example
+  `Ctrl+Super+F9` for Hold); Windows modifier-only defaults are not installed on Linux.
+  Global cancellation depends on the desktop allowing the Escape shortcut registration.
+- A separate replaceable freedesktop notification reports Listening, Transcribing, Done,
+  Copied, No speech, Error, Cancelled and the 4:30 warning. It carries no transcript. The
+  notification server controls placement, appearance and timeout; custom popup controls
+  follow `hotkey_popup = false` and are hidden on Linux. A notification server is optional.
 
 ### 8.5 Display profiles
 
@@ -894,7 +932,7 @@ A self-check with clear one-click fixes (like One-Click Fix in Sonar, but transp
 ### 9.9 Dictation screen and popups
 
 Requirements: §8.4. A sidebar item **Dictation** (Lucide `Speech`) after SoundDeck, shown when
-`Capabilities::dictation` is true. All settings of the feature live on this screen; Settings has a
+`Capabilities::dictation` is true. Linux uses the capability flags described in §8.4.9 to hide unsupported settings. All settings of the feature live on this screen; Settings has a
 "Dictation" row linking to it. The mock daemon simulates models, downloads, worker states, levels and
 transcripts (AGENTS §5).
 

@@ -2926,6 +2926,7 @@ dependencies = [
  "anyhow",
  "clap",
  "hound",
+ "libc",
  "macafon-stt",
  "serde_json",
  "tracing",

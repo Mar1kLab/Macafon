@@ -61,11 +61,11 @@ pub fn ram_bytes() -> u64 {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub fn scheduling(_efficiency: bool, _normal_priority: bool) -> anyhow::Result<()> {
     Ok(())
 }
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub fn ram_bytes() -> u64 {
     0
 }
@@ -76,6 +76,30 @@ pub fn thread_budget(requested: u16, logical: u16, efficiency: bool) -> u16 {
     } else {
         threads
     }
+}
+
+#[cfg(target_os = "linux")]
+pub fn scheduling(_efficiency: bool, normal_priority: bool) -> anyhow::Result<()> {
+    if !normal_priority {
+        // SAFETY: changes only this worker's scheduling; no privilege is needed to lower it.
+        anyhow::ensure!(
+            unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, 10) } == 0,
+            "cannot lower worker priority: {}",
+            std::io::Error::last_os_error()
+        );
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub fn ram_bytes() -> u64 {
+    let resident = std::fs::read_to_string("/proc/self/statm")
+        .ok()
+        .and_then(|s| s.split_whitespace().nth(1)?.parse::<u64>().ok())
+        .unwrap_or(0);
+    // SAFETY: sysconf is a read-only query with a defined constant.
+    let page_bytes = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    resident.saturating_mul(page_bytes.max(0) as u64)
 }
 
 #[cfg(test)]

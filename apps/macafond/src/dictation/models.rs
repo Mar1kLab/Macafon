@@ -34,11 +34,27 @@ pub struct Manager {
     scanned: bool,
 }
 
+#[cfg(not(target_os = "linux"))]
 pub fn default_folder() -> PathBuf {
     std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(|| macafon_config::state_dir().unwrap_or_else(|_| PathBuf::from(".")))
         .join("Macafon/models/stt")
+}
+
+#[cfg(target_os = "linux")]
+pub fn data_folder() -> PathBuf {
+    std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("macafon")
+}
+
+#[cfg(target_os = "linux")]
+pub fn default_folder() -> PathBuf {
+    data_folder().join("models/stt")
 }
 
 pub fn spec(id: &str) -> Result<&'static ModelSpec> {
@@ -593,7 +609,25 @@ fn free_bytes(path: &Path) -> Option<u64> {
         }
         Some(available)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let mut ancestor = path;
+        while !ancestor.exists() {
+            ancestor = ancestor.parent()?;
+        }
+        let path = std::ffi::CString::new(ancestor.as_os_str().as_bytes()).ok()?;
+        let mut info = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+        // SAFETY: path is NUL terminated and output is initialized only after a successful call.
+        unsafe {
+            if libc::statvfs(path.as_ptr(), info.as_mut_ptr()) != 0 {
+                return None;
+            }
+            let info = info.assume_init();
+            Some(info.f_bavail.saturating_mul(info.f_frsize))
+        }
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = path;
         None
@@ -650,7 +684,34 @@ fn rotational(path: &Path) -> bool {
             result.is_ok() && descriptor.IncursSeekPenalty
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let mut ancestor = path;
+        while !ancestor.exists() {
+            let Some(parent) = ancestor.parent() else {
+                return false;
+            };
+            ancestor = parent;
+        }
+        let Ok(info) = fs::metadata(ancestor) else {
+            return false;
+        };
+        let dev = info.dev();
+        let sys = PathBuf::from(format!(
+            "/sys/dev/block/{}:{}",
+            libc::major(dev),
+            libc::minor(dev)
+        ));
+        let Ok(sys) = fs::canonicalize(sys) else {
+            return false;
+        };
+        sys.ancestors().any(|parent| {
+            fs::read_to_string(parent.join("queue/rotational"))
+                .is_ok_and(|value| value.trim() == "1")
+        })
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = path;
         false
@@ -740,7 +801,7 @@ fn check_space(path: &Path, bytes: u64) -> Result<()> {
     );
     Ok(())
 }
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 fn check_space(_: &Path, _: u64) -> Result<()> {
     bail!("dictation is available on Windows only")
 }
@@ -770,12 +831,18 @@ fn validate_drive(path: &Path) -> Result<()> {
     let _ = text;
     Ok(())
 }
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 fn validate_drive(_: &Path) -> Result<()> {
     bail!("dictation is available on Windows only")
 }
 
 fn background_priority() {
+    #[cfg(target_os = "linux")]
+    // SAFETY: Linux priority 0 identifies only the calling model I/O thread.
+    unsafe {
+        let _ = libc::setpriority(libc::PRIO_PROCESS, 0, 10);
+    }
+
     #[cfg(windows)]
     // SAFETY: applies background scheduling only to this model I/O thread.
     unsafe {
@@ -789,6 +856,59 @@ fn background_priority() {
 /// Both paths exist and resolve to the same file or folder.
 fn same_path(a: &Path, b: &Path) -> bool {
     matches!((fs::canonicalize(a), fs::canonicalize(b)), (Ok(a), Ok(b)) if a == b)
+}
+
+#[cfg(target_os = "linux")]
+fn check_space(path: &Path, bytes: u64) -> Result<()> {
+    let available = free_bytes(path).context("cannot query model storage free space")?;
+    ensure!(
+        available >= bytes.saturating_add(bytes / 10),
+        "not enough free space (10 percent reserve required)"
+    );
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn validate_drive(path: &Path) -> Result<()> {
+    use std::os::unix::{ffi::OsStrExt, fs::MetadataExt};
+    ensure!(path.is_absolute(), "models folder must be absolute");
+    let mut ancestor = path;
+    while !ancestor.exists() {
+        ancestor = ancestor.parent().context("drive not found")?;
+    }
+    let name = std::ffi::CString::new(ancestor.as_os_str().as_bytes())?;
+    let mut info = std::mem::MaybeUninit::<libc::statfs>::uninit();
+    // SAFETY: NUL-terminated path and writable statfs buffer; read only on success.
+    let kind = unsafe {
+        ensure!(
+            libc::statfs(name.as_ptr(), info.as_mut_ptr()) == 0,
+            "cannot query models filesystem"
+        );
+        info.assume_init().f_type
+    };
+    // NFS, SMB/CIFS, 9p, AFS, Ceph and FUSE (which cannot reliably distinguish local/remote).
+    ensure!(
+        ![
+            0x6969, 0x517b, 0xff534d42, 0xfe534d42, 0x01021997, 0x5346414f, 0x00c36400, 0x65735546
+        ]
+        .contains(&kind),
+        "only local model filesystems are supported"
+    );
+    let dev = fs::metadata(ancestor)?.dev();
+    let sys = PathBuf::from(format!(
+        "/sys/dev/block/{}:{}",
+        libc::major(dev),
+        libc::minor(dev)
+    ));
+    if let Ok(sys) = fs::canonicalize(sys) {
+        for parent in sys.ancestors() {
+            ensure!(
+                !fs::read_to_string(parent.join("removable")).is_ok_and(|v| v.trim() == "1"),
+                "removable model drives are not supported"
+            );
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -932,5 +1052,21 @@ mod tests {
         assert!(resume_offset(206, Some("bytes 0-9/10"), 3, 10).is_err());
         fs::remove_file(path).expect("cleanup");
         fs::remove_dir(folder).expect("cleanup");
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_tests {
+    use super::*;
+    #[test]
+    fn dictation_linux_storage_queries_missing_children_and_rejects_insufficient_space() {
+        let path =
+            std::env::temp_dir().join(format!("macafon-missing-models-{}", std::process::id()));
+        assert!(free_bytes(&path).is_some());
+        assert!(check_space(&path, 0).is_ok());
+        assert!(check_space(&path, u64::MAX).is_err());
+        assert!(validate_drive(&path).is_ok());
+        assert!(validate_drive(Path::new("relative-models")).is_err());
+        assert!(default_folder().ends_with("macafon/models/stt"));
     }
 }

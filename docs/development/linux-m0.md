@@ -155,3 +155,34 @@ Remaining before M0 is complete:
 The eight-module chain and the M1 presets are described in [microphone-chain.md](microphone-chain.md);
 the latency measurements above were made with `--preset raw`. UI, IPC, config, calibration/A-B, tray,
 autostart and packaging belong to M1 and are not done yet.
+
+
+## Experimental Linux dictation
+
+Dictation now uses the shared STT worker on Linux (PRD §8.4.9, ADR-0005). Build both binaries
+with `cargo build --release -p macafond -p macafon-stt-worker` and keep `macafon-stt` beside
+`macafond`. Native worker builds need CMake, a C/C++ toolchain and libclang; the sherpa-onnx
+build fetches its upstream Linux runtime archive. Ship its shared libraries beside the worker,
+including ONNX Runtime; the Linux worker searches its own directory through `$ORIGIN`
+without changing the user's loader environment. Linux defaults
+to CPU inference without a Vulkan SDK; the Windows feature set is unchanged.
+
+In the Dictation screen, download a model explicitly, enable dictation, and assign Hold and/or
+Hands-free in Hotkeys. Use a key-bearing shortcut such as `Ctrl+Super+F9`; pure modifier chords
+are Windows-specific. Portal press/release signals and X11 grabs share the daemon's hold logic.
+Wayland requires `wtype` (if supported by the compositor) and `wl-clipboard`; X11 uses `xdotool`
+and `xclip` or `xsel`. Optional `ydotool` can inject Ctrl+V through an existing accessible socket;
+Macafon does not set up ydotoold or request root. Missing/blocked injection falls back to copying;
+without a clipboard utility, it reports an insertion error. Fixed and Auto are the supported
+language policies. No game detection is available, so select copy-only dictation for games.
+
+Storage follows XDG data paths. Paste restores plain text after approximately 300 ms if the
+clipboard still contains the dictated text; rich formats/history exclusion and identical-text
+change detection are unavailable. Wayland inserts into the focus at completion; X11 checks the
+window captured at key press. Lightweight replaceable desktop notifications show dictation
+states without recognized text. Custom popup positioning and looks are Windows-only.
+
+Browser development remains `pnpm -C apps/macafon-ui dev`; open
+`?screen=dictation&dictation=ready` for the Linux fixture and add `platform=windows` to compare.
+Desktop utilities are optional build dependencies; command selection, focus fallback and
+clipboard restore decisions are unit tested without a desktop session.

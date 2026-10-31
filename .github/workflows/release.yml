@@ -1,0 +1,97 @@
+name: Release packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version matching this source (for example 0.12.0, without v)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Validate all assets without publishing a release'
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate version and publishing ref
+        env:
+          VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          python3 - <<'PY'
+          import os, re, tomllib
+          version = os.environ['VERSION']
+          assert re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version), 'Expected X.Y.Z'
+          assert version == tomllib.load(open('Cargo.toml', 'rb'))['workspace']['package']['version']
+          assert os.environ['DRY_RUN'] == 'true' or os.environ['GITHUB_REF'] == 'refs/tags/v' + version, 'Publish only from the matching release tag'
+          PY
+  windows:
+    needs: validate
+    uses: ./.github/workflows/windows-build.yml
+  linux:
+    needs: validate
+    uses: ./.github/workflows/linux-build.yml
+  publish:
+    needs: [windows, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@7bf1506d0221a62a3915eae5e44e22928b35ce1c # v6.0.0
+        with:
+          pattern: Macafon-*
+          path: downloads
+      - name: Verify and collect assets
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          for directory in downloads/*; do (cd "$directory" && sha256sum -c SHA256SUMS.txt); done
+          mkdir assets
+          find downloads -type f \( -name '*.exe' -o -name '*.deb' -o -name '*.flatpak' \) -exec cp '{}' assets/ \;
+          test -f "assets/Macafon_${VERSION}_x64-setup.exe"
+          test -f "assets/Macafon-${VERSION}-x86_64.flatpak"
+          test "$(find assets -name '*.deb' | wc -l)" -eq 1
+          cd assets
+          sha256sum *.exe *.deb *.flatpak > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+      - name: Publish release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          cat > notes.md <<'NOTES'
+          ## Changes
+          - Package Macafon for Windows 11 x64 and experimental Linux x86_64 (deb and Flatpak).
+
+          Download the package for your platform and verify it with SHA256SUMS.txt.
+          VB-CABLE is installed separately and is not bundled. Linux desktop integration depends on the compositor and portal support; see docs/development/linux-m0.md.
+          NOTES
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release upload "v$VERSION" assets/* --clobber
+          else
+            gh release create "v$VERSION" assets/* --verify-tag --title "Macafon $VERSION" --notes-file notes.md
+          fi
+      - name: Save verified release assets
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-assets
+          path: assets/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

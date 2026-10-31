@@ -22,8 +22,9 @@ features without a direct request, but keep things extensible where the PRD expl
 ## 2. Process
 
 - **GitHub Actions scope.** The owner authorized a manual Windows 11 x64 installer build on
-  2026-10-17 (`.github/workflows/windows-build.yml`). Keep other checks local; additional cloud CI,
-  Linux workflows and automated release publishing need explicit owner authorization.
+  2026-10-17 (`.github/workflows/windows-build.yml`). On 2026-10-31 the owner also authorized manual Linux deb/Flatpak builds and publishing
+  these alongside the Windows installer on GitHub releases. Keep other checks local; additional
+  cloud CI needs explicit owner authorization.
 - **No bureaucracy.** No issue/PR templates, CHANGELOG ceremonies, extra READMEs in every folder or
   documents "for the future". Write an ADR only for real architecture decisions (choosing an approach
   that is hard to roll back) — short, following `docs/adr/0001-*.md`.
@@ -129,7 +130,8 @@ Short:
 
 ## 8. Forbidden without the owner's explicit permission
 
-- Cloud CI beyond the authorized manual Windows installer workflow.
+- Cloud CI beyond the authorized manual Windows installer, Linux deb/Flatpak build and
+  release publishing workflows (owner authorization, 2026-10-31).
 - Telemetry, analytics, network requests (except the opt-in update check from the PRD and
   user-initiated dictation model downloads from pinned Hugging Face URLs, PRD §8.4.6 — owner
   authorization, 2026-10-19).

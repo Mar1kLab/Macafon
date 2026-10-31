@@ -12,6 +12,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  linux-validation:
+    uses: ./.github/workflows/linux-build.yml
   installer:
     name: Windows 11 x64 installer
     runs-on: windows-2025

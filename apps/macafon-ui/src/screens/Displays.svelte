@@ -146,7 +146,7 @@
             </ul>
           {:else}
             <EmptyState compact label={t('displays.emptyLabel')} title={t('displays.emptyTitle')}>
-              <p>{t('displays.emptyBody')}</p>
+              <p>{t(daemon.windows ? 'displays.emptyBody' : 'displays.emptyBodyLinux')}</p>
               {#snippet actions()}
                 <button class="btn invert" onclick={() => (saving = true)}>{t('displays.save')}</button>
               {/snippet}
@@ -158,7 +158,7 @@
       <section class="current" aria-labelledby="displays-current">
         <div class="section-head">
           <h2 id="displays-current" class="hud-label">{t('displays.current')}</h2>
-          <span class="hint">{t('displays.currentHint')}</span>
+          <span class="hint">{t(daemon.windows ? 'displays.currentHint' : 'displays.currentHintLinux')}</span>
           <span class="spacer"></span>
           <button class="btn invert" onclick={() => (saving = true)}>{t('displays.save')}</button>
         </div>

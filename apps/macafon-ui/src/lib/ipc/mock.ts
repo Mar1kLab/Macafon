@@ -107,6 +107,8 @@ export class MockTransport implements Transport {
   private query = new URLSearchParams(location.search);
   private down = this.query.get('daemon') === 'down';
   private windows = this.query.get('platform') === 'windows';
+  // Linux detects a display backend at runtime; `?displays=unavailable` acts like a desktop without one.
+  private displaysAvailable = this.windows || this.query.get('displays') !== 'unavailable';
   private cableMissing = this.windows && this.query.get('cable') === 'missing';
 
   private settings: ChainSettings = clone(BUILTIN_PRESETS[1]!.settings);
@@ -349,7 +351,7 @@ export class MockTransport implements Transport {
       ...this.mixer.state.channels.flatMap((c) => [`channel_volume_up.${c.id}`, `channel_volume_down.${c.id}`, `channel_mute.${c.id}`]),
       ...SOUNDDECK_HOTKEYS, ...this.sounddeck.state.sounds.map((x) => `sounddeck_play.${x.id}`),
       ...DICTATION_HOTKEYS,
-      ...(this.windows ? [...DISPLAY_HOTKEYS, ...this.displays.ids.map((id) => `display_profile.${id}`)] : []),
+      ...(this.displaysAvailable ? [...DISPLAY_HOTKEYS, ...this.displays.ids.map((id) => `display_profile.${id}`)] : []),
     ];
     const portal = this.query.get('hotkeys') !== 'unavailable';
     return {
@@ -422,7 +424,7 @@ export class MockTransport implements Transport {
       return result;
     }
     if (method.startsWith('displays.')) {
-      if (!this.windows) throw new DaemonError('not_found', 'display profiles are not available on this platform');
+      if (!this.displaysAvailable) throw new DaemonError('not_found', 'display profiles are not available on this platform');
       const result = this.displays.call(method, p);
       // Profiles come and go with their hotkeys, as in the daemon.
       if (['displays.save', 'displays.create', 'displays.delete', 'displays.update'].includes(method)) {
@@ -483,7 +485,7 @@ export class MockTransport implements Transport {
             dictation_layout: this.windows,
             dictation_game_mode: this.windows,
             dictation_gpu: this.windows,
-            displays: this.windows,
+            displays: this.displaysAvailable,
             input_channel: !this.windows,
           },
         };

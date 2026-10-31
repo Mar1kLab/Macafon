@@ -63,6 +63,28 @@ impl Worker {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x08000000 | 0x00004000); // CREATE_NO_WINDOW | BELOW_NORMAL
         }
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::process::CommandExt;
+            // SAFETY: getpid has no preconditions. Capture before fork to close the parent-death race.
+            let parent = unsafe { libc::getpid() };
+            // SAFETY: the child hook only calls async-signal-safe libc functions, with no locks
+            // or allocations. SIGKILL also stops inference if it is blocked in native code.
+            unsafe {
+                command.pre_exec(move || {
+                    if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    if libc::getppid() != parent {
+                        return Err(std::io::Error::from_raw_os_error(libc::ESRCH));
+                    }
+                    if libc::setpriority(libc::PRIO_PROCESS, 0, 10) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+        }
         let mut child = command.spawn().context("cannot start dictation worker")?;
         #[cfg(windows)]
         let job = match Job::new(&child) {

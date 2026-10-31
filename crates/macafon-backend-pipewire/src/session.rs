@@ -17,6 +17,7 @@ pub(super) fn run_session<H: MicrophoneHost + 'static>(
     mainloop: &pw::main_loop::MainLoopRc,
     host: &Rc<RefCell<H>>,
     waiting: Rc<Cell<bool>>,
+    metadata_state: Rc<RefCell<mixer::MetadataState>>,
 ) -> Result<(), Error> {
     let connection = Connection::with_mainloop(mainloop.clone(), true)?;
     let processor = host.borrow_mut().start_session()?;
@@ -33,7 +34,17 @@ pub(super) fn run_session<H: MicrophoneHost + 'static>(
     let graph = Rc::new(RefCell::new(Graph::default()));
     let streams = mixer::SharedStreams::default();
     let stream_bindings = Rc::new(RefCell::new(mixer::StreamBindings::new()));
-    let metadata_state = Rc::new(RefCell::new(mixer::MetadataState::default()));
+    // Carry owned configured defaults across servers, but never stale node IDs.
+    {
+        let mut state = metadata_state.borrow_mut();
+        let configured_source = state.configured_source.take();
+        let configured_sink = state.configured_sink.take();
+        *state = mixer::MetadataState {
+            configured_source,
+            configured_sink,
+            ..Default::default()
+        };
+    }
     let bound_metadata = Rc::new(RefCell::new(None::<mixer::BoundMetadata>));
     let metadata_id = Rc::new(Cell::new(None));
     let metadata_add = metadata_id.clone();

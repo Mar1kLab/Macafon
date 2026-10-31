@@ -41,6 +41,7 @@ struct RtState {
 pub(crate) struct ControlState {
     pub(crate) filter: *mut pw::sys::pw_filter,
     pub(crate) stereo: bool,
+    pub(crate) fixed_volume: bool,
 }
 
 pub(crate) struct Filter {
@@ -151,6 +152,7 @@ impl Filter {
             control_state: Box::new(ControlState {
                 filter: pointer.as_ptr(),
                 stereo,
+                fixed_volume: true,
             }),
         };
         // SAFETY: callback state/events have stable addresses and outlive the filter;
@@ -282,9 +284,13 @@ impl Filter {
         let format_bytes = audio_format(sys::SPA_AUDIO_FORMAT_F32P, self.control_state.stereo)?;
         let format_pod = Pod::from_bytes(&format_bytes)
             .ok_or_else(|| Error::Message("Invalid microphone format pod".into()))?;
+        let props_bytes = node_props(self.control_state.stereo, true)?;
+        let props_pod = Pod::from_bytes(&props_bytes)
+            .ok_or_else(|| Error::Message("Invalid microphone properties pod".into()))?;
         let mut params = [
             pod.as_raw_ptr().cast_const(),
             format_pod.as_raw_ptr().cast_const(),
+            props_pod.as_raw_ptr().cast_const(),
         ];
         // SAFETY: all ports and callback storage are prepared before enabling RT processing.
         let result = unsafe {
@@ -712,36 +718,29 @@ pub(crate) unsafe extern "C" fn param_changed(
     id: u32,
     param: *const pw::spa::sys::spa_pod,
 ) {
-    if data.is_null() || !port.is_null() || id != pw::spa::sys::SPA_PARAM_Format {
+    if data.is_null() || !port.is_null() {
         return;
     }
-    use pw::spa::pod::{
-        Object, Pod, Property, PropertyFlags, Value, ValueArray, serialize::PodSerializer,
-    };
+    use pw::spa::{pod::Pod, sys};
     // SAFETY: the control listener holds this immutable state until filter destruction.
     let state = unsafe { &*data.cast::<ControlState>() };
-    // pw_filter has fixed DSP ports and no node PortConfig parameter. Record
-    // the negotiated Format and notify Props after it, allowing WirePlumber
-    // to finish its adapter activation using the ports already present.
-    let props = Value::Object(Object {
-        type_: pw::spa::sys::SPA_TYPE_OBJECT_Props,
-        id: pw::spa::sys::SPA_PARAM_Props,
-        properties: vec![Property {
-            key: pw::spa::sys::SPA_PROP_channelMap,
-            flags: PropertyFlags::empty(),
-            value: Value::ValueArray(ValueArray::Id(channel_positions(state.stereo))),
-        }],
-    });
-    let Ok((bytes, _)) = PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &props) else {
+    if id != sys::SPA_PARAM_Format && !(state.fixed_volume && id == sys::SPA_PARAM_Props) {
+        return;
+    }
+    let Ok(bytes) = node_props(state.stereo, state.fixed_volume) else {
         return;
     };
-    let bytes = bytes.into_inner();
     let Some(pod) = Pod::from_bytes(&bytes) else {
         return;
     };
-    let mut params = [param, pod.as_raw_ptr().cast_const()];
-    // SAFETY: the control state's filter pointer is live, and the pod remains
-    // valid during this synchronous control-loop call. No DSP state is accessed.
+    // Fixed DSP ports need Format echoed for WirePlumber adapter activation.
+    // Desktop volume is intentionally unity: Macafon's chain owns gain/mute.
+    // Re-publish Props on set attempts so clients cannot retain a fictitious gain.
+    let mut params = vec![pod.as_raw_ptr().cast_const()];
+    if id == sys::SPA_PARAM_Format {
+        params.insert(0, param);
+    }
+    // SAFETY: the filter and pods are live during this synchronous control-loop call.
     unsafe {
         pw::sys::pw_filter_update_params(
             state.filter,
@@ -750,6 +749,42 @@ pub(crate) unsafe extern "C" fn param_changed(
             params.len() as u32,
         );
     }
+}
+
+fn node_props(stereo: bool, fixed_volume: bool) -> Result<Vec<u8>, Error> {
+    use pw::spa::pod::{
+        Object, Property, PropertyFlags, Value, ValueArray, serialize::PodSerializer,
+    };
+    use pw::spa::sys;
+    let mut properties = vec![Property {
+        key: sys::SPA_PROP_channelMap,
+        flags: PropertyFlags::empty(),
+        value: Value::ValueArray(ValueArray::Id(channel_positions(stereo))),
+    }];
+    if fixed_volume {
+        for (key, value) in [
+            (sys::SPA_PROP_volume, Value::Float(1.0)),
+            (sys::SPA_PROP_mute, Value::Bool(false)),
+            (
+                sys::SPA_PROP_channelVolumes,
+                Value::ValueArray(ValueArray::Float(vec![1.0; if stereo { 2 } else { 1 }])),
+            ),
+        ] {
+            properties.push(Property {
+                key,
+                flags: PropertyFlags::empty(),
+                value,
+            });
+        }
+    }
+    let props = Value::Object(Object {
+        type_: sys::SPA_TYPE_OBJECT_Props,
+        id: sys::SPA_PARAM_Props,
+        properties,
+    });
+    PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &props)
+        .map(|(bytes, _)| bytes.into_inner())
+        .map_err(|error| Error::Message(format!("Cannot serialize node properties: {error:?}")))
 }
 
 #[cfg(test)]

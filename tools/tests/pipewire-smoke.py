@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -104,6 +105,28 @@ def main():
             return subprocess.check_output([str(arg) for arg in command], env=env, text=True,
                                            stderr=subprocess.PIPE, timeout=8)
 
+        def request(method, params):
+            with socket.socket(socket.AF_UNIX) as connection:
+                connection.settimeout(8)
+                connection.connect(str(runtime / "macafon" / "macafond.sock"))
+                stream = connection.makefile("rw")
+                for identifier, name, arguments in [(1, "hello", {"protocol": 1, "client": "smoke"}),
+                                                     (2, method, params)]:
+                    stream.write(json.dumps({"id": identifier, "method": name, "params": arguments}) + "\n")
+                    stream.flush()
+                    while True:
+                        reply = json.loads(stream.readline())
+                        if reply.get("id") == identifier:
+                            assert "result" in reply, reply
+                            break
+                return reply["result"]
+
+        def default_source():
+            metadata = next(item for item in objects()
+                            if item.get("props", {}).get("metadata.name") == "default")
+            return {entry["key"]: entry["value"] for entry in metadata["metadata"]
+                    if entry["subject"] == 0}
+
         def objects():
             return json.loads(run("pw-dump"))
 
@@ -190,7 +213,7 @@ def main():
                     artifacts = ROOT / ".artifacts/latency"
                     artifacts.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(capture, artifacts / f"{engine}.raw")
-                    result = latency.analyze(capture)
+                    result = latency.analyze(capture, reference_period_samples=24000)
                     expected = 128 if engine == "raw" else 1088
                     assert result["added_latency_samples"] == expected, result
                     processed = samples[1::2]
@@ -214,9 +237,16 @@ def main():
             print("routing: missing policy detected; failed move restores empty target metadata")
             stop(playback)
             # Rebuild the whole graph after server loss, preserving the selected chain.
+            for key in ("default.audio.source", "default.configured.audio.source"):
+                run("pw-metadata", "-n", "default", "0", key,
+                    '{"name":"original_mic"}', "Spa:String:JSON")
             daemon = spawn([args.daemon, "run", "--no-tray", "--input", "test_microphone", "--preset", "raw",
                             "--engine", "lite", "--intensity", "0"])
             wait_for(lambda: ports("macafon_mic", "out"), "virtual microphone before server exit")
+            request("mic.set_default_source", {"confirmed": True})
+            wait_for(lambda: 'macafon_mic' in str(default_source()), "selected default")
+            journal = directory / "state/macafon/default-source.json"
+            saved = journal.read_bytes()
             for _ in range(2):
                 stop(server)
                 time.sleep(0.7)
@@ -227,6 +257,8 @@ def main():
                 restored = [item for item in objects() if item["type"] == "PipeWire:Interface:Node"
                             and item["info"]["props"].get("node.name") == "macafon_mic"]
                 assert len(restored) == 1, "duplicate virtual microphone after reconnect"
+                wait_for(lambda: 'macafon_mic' in str(default_source()), "default after server restart")
+                assert journal.read_bytes() == saved, "reconnect replaced original default journal"
                 assert restored[0]["info"]["params"]["ProcessLatency"][0]["rate"] == 960, "processing settings lost"
             capture = directory / "recovery.raw"
             recorder = spawn(["pw-cat", "--record", "--raw", "--format", "f32", "--channels", "1",
@@ -246,6 +278,9 @@ def main():
             assert any(abs(value) > 0.2 for value in samples), "restored graph produced no audio"
             stop(daemon)
             assert daemon.returncode == 0, "restored daemon did not shut down cleanly"
+            assert all(value == {'name': 'original_mic'} for value in default_source().values()), default_source()
+            assert not journal.exists(), "Quit left the source recovery journal"
+            print("defaults: two full server restarts retain selection/journal; Quit restores original")
             wait_for(lambda: not ports("macafon_mic", "out"), "restored node cleanup")
             stop(server)
             daemon = spawn([args.daemon])
@@ -255,6 +290,8 @@ def main():
             daemon.wait(timeout=5)
             assert daemon.returncode == 0, "cannot interrupt reconnect wait"
             print("lifecycle: two server restarts preserve Lite settings and audio; startup wait remains interruptible")
+        except latency.CaptureDiscontinuity:
+            raise
         except Exception:
             if server is not None and server.poll() is None:
                 print(run("pw-link", "-l"), file=sys.stderr)
@@ -276,4 +313,14 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Retry only demonstrably discontinuous reference captures. A stable reference
+    # with changing DSP delay, or a wrong absolute delay, still fails immediately.
+    for attempt in range(3):
+        try:
+            main()
+            break
+        except latency.CaptureDiscontinuity as error:
+            if attempt == 2:
+                raise
+            print(f"Invalid latency capture ({error}); retrying private graph ({attempt + 1}/2)",
+                  file=sys.stderr)

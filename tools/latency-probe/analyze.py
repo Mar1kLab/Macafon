@@ -9,7 +9,12 @@ import sys
 from pathlib import Path
 
 
-def analyze(path: Path, max_delay_samples: int = 2048) -> dict:
+class CaptureDiscontinuity(ValueError):
+    """The known reference pulse train lost samples, invalidating relative timing."""
+
+
+def analyze(path: Path, max_delay_samples: int = 2048,
+            reference_period_samples: int | None = None) -> dict:
     samples = array.array("f")
     samples.frombytes(path.read_bytes())
     if sys.byteorder != "little":
@@ -34,6 +39,15 @@ def analyze(path: Path, max_delay_samples: int = 2048) -> dict:
     if not delays:
         raise ValueError("no processed pulse; disable suppression or use Lite intensity 0")
     if min(delays) != max(delays):
+        # A non-RT recorder can drop a graph cycle between the direct pulse and
+        # its delayed copy. Do not interpret this shortened recording as DSP jitter.
+        # Reconnecting the probe creates a longer gap; only shortened intervals
+        # in its known pulse train demonstrate missing reference samples.
+        if reference_period_samples is not None and any(
+                right - left < reference_period_samples
+                for left, right in zip(pulses, pulses[1:])):
+            raise CaptureDiscontinuity(
+                f"reference capture lost samples; measured delay {min(delays)}..{max(delays)}")
         raise ValueError(f"unstable delay {min(delays)}..{max(delays)} samples; check xruns and repeat")
     delay = delays[0]
     return {"sample_rate_hz": 48000, "added_latency_samples": delay,

@@ -160,12 +160,17 @@ autostart and packaging belong to M1 and are not done yet.
 ## Experimental Linux dictation
 
 Dictation now uses the shared STT worker on Linux (PRD §8.4.9, ADR-0005). Build both binaries
-with `cargo build --release -p macafond -p macafon-stt-worker` and keep `macafon-stt` beside
+with `WHISPER_DONT_GENERATE_BINDINGS=1 cargo build --release -p macafond -p macafon-stt-worker` and keep `macafon-stt` beside
 `macafond`. Native worker builds need CMake, a C/C++ toolchain and libclang; the sherpa-onnx
 build fetches its upstream Linux runtime archive. Ship its shared libraries beside the worker,
 including ONNX Runtime; the Linux worker searches its own directory through `$ORIGIN`
 without changing the user's loader environment. Linux defaults
 to CPU inference without a Vulkan SDK; the Windows feature set is unchanged.
+`tools/package-linux.py` sets `WHISPER_DONT_GENERATE_BINDINGS=1` for its build
+subprocesses, using whisper-rs-sys 0.14.1's bundled CPU bindings: its bindgen version
+misreads C struct layouts with libclang 23. Use the same prefix for direct Linux
+Cargo builds. Do not export this globally or set it in `.cargo/config.toml`:
+Windows Vulkan builds require generated bindings for their additional symbols.
 
 In the Dictation screen, download a model explicitly, enable dictation, and assign Hold and/or
 Hands-free in Hotkeys. Use a key-bearing shortcut such as `Ctrl+Super+F9`; pure modifier chords

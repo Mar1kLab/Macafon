@@ -106,8 +106,12 @@ def main():
             def ready():
                 result = icon(name)
                 data = result[2]
-                pixels = [data[i:i + 4] for i in range(0, len(data), 4) if data[i]]
-                return result if pixels and all(pixel[1:] == rgb for pixel in pixels) else None
+                # The logo has a dark keyline and a slight metal shade toward --ink; its fill
+                # is every opaque light pixel.
+                fill = [data[i + 1:i + 4] for i in range(0, len(data), 4)
+                        if data[i] == 255 and sum(data[i + 1:i + 4]) > 300]
+                return result if fill and all(
+                    abs(a - b) <= 16 for pixel in fill for a, b in zip(pixel, rgb)) else None
             return smoke.wait_for(ready, "settled tray animation")
 
         def click(name, label):
@@ -186,7 +190,11 @@ def main():
                 client = socket.socket(socket.AF_UNIX)
                 client.connect(str(runtime / "macafon" / "macafond.sock"))
                 client.sendall(b'{"id":1,"method":"hello","params":{"protocol":1,"client":"macafon-ui"}}\n')
-                client.makefile("r").readline()
+                reader = client.makefile("r")
+                reader.readline()
+                # The warm UI reports the closed window; a disconnect alone is not a close.
+                client.sendall(b'{"id":2,"method":"ui.window_closed"}\n')
+                reader.readline()
                 client.close()
 
             ui_session()

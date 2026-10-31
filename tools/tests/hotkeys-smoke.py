@@ -77,9 +77,9 @@ def main():
             smoke.wait_for(lambda: state("hotkeys")["backend"] == "portal", "portal backend")
 
             ctl("hotkeys", "set", "mic_mute_toggle", "alt+ctrl+m")
-            bound = smoke.wait_for(lambda: returned(test("Bound")), "shortcuts bound")
-            assert bound == [{"id": "mic_mute_toggle", "description": "Toggle microphone mute",
-                              "trigger": "CTRL+ALT+m"}], bound
+            # The default shortcuts (HK-008) are bound next to the one set here.
+            wanted = {"id": "mic_mute_toggle", "description": "Toggle microphone mute", "trigger": "CTRL+ALT+m"}
+            smoke.wait_for(lambda: wanted in returned(test("Bound")), "shortcuts bound")
             binding = next(b for b in state("hotkeys")["bindings"] if b["action"] == "mic_mute_toggle")
             assert binding["shortcut"] == "Ctrl+Alt+M" and binding["system_trigger"] == "CTRL+ALT+m", binding
             conflict = subprocess.run([str(args.ctl), "ctl", "hotkeys", "set", "bypass_toggle", "Ctrl+Alt+M"],
@@ -94,7 +94,8 @@ def main():
             smoke.wait_for(lambda: not state("status")["settings"]["muted"], "unmuted by hotkey")
 
             ctl("hotkeys", "set", "push_to_talk", "F9")
-            smoke.wait_for(lambda: len(returned(test("Bound"))) == 2, "push-to-talk bound")
+            smoke.wait_for(lambda: any(b["id"] == "push_to_talk" for b in returned(test("Bound"))),
+                           "push-to-talk bound")
             test("Press", "push_to_talk")
             smoke.wait_for(lambda: not state("status")["settings"]["muted"], "talking while held")
             test("Release", "push_to_talk")
@@ -103,7 +104,8 @@ def main():
 
             ctl("hotkeys", "set", "preset_next", "Ctrl+Alt+N")
             ctl("hotkeys", "set", "channel_volume_up.voice", "Ctrl+Alt+Up")
-            smoke.wait_for(lambda: len(returned(test("Bound"))) == 4, "four shortcuts bound")
+            smoke.wait_for(lambda: {"preset_next", "channel_volume_up.voice"} <= {
+                b["id"] for b in returned(test("Bound"))}, "preset and voice shortcuts bound")
             before = state("status")["preset"]
             test("Press", "preset_next")
             smoke.wait_for(lambda: state("status")["preset"] != before, "next preset")

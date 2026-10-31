@@ -213,7 +213,7 @@ def main():
                     artifacts = ROOT / ".artifacts/latency"
                     artifacts.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(capture, artifacts / f"{engine}.raw")
-                    result = latency.analyze(capture)
+                    result = latency.analyze(capture, reference_period_samples=24000)
                     expected = 128 if engine == "raw" else 1088
                     assert result["added_latency_samples"] == expected, result
                     processed = samples[1::2]
@@ -290,6 +290,8 @@ def main():
             daemon.wait(timeout=5)
             assert daemon.returncode == 0, "cannot interrupt reconnect wait"
             print("lifecycle: two server restarts preserve Lite settings and audio; startup wait remains interruptible")
+        except latency.CaptureDiscontinuity:
+            raise
         except Exception:
             if server is not None and server.poll() is None:
                 print(run("pw-link", "-l"), file=sys.stderr)
@@ -311,4 +313,14 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Retry only demonstrably discontinuous reference captures. A stable reference
+    # with changing DSP delay, or a wrong absolute delay, still fails immediately.
+    for attempt in range(3):
+        try:
+            main()
+            break
+        except latency.CaptureDiscontinuity as error:
+            if attempt == 2:
+                raise
+            print(f"Invalid latency capture ({error}); retrying private graph ({attempt + 1}/2)",
+                  file=sys.stderr)

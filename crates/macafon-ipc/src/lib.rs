@@ -19,6 +19,7 @@ mod state;
 pub mod transport;
 #[cfg(all(test, feature = "ts"))]
 mod typescript;
+mod updates;
 mod wire;
 
 pub use client::{Client, ClientError};
@@ -70,6 +71,7 @@ pub use state::{
     OverlayPlacement, OverlayPrefs, Platform, PlaybackDevice, PlaybackDeviceKind, Preferences,
     PresetInfo,
 };
+pub use updates::{ComponentUpdate, ToolSource, UpdateComponent, UpdateStage, UpdatesState};
 pub use wire::{ErrorBody, ErrorCode, Event, Outcome, RequestEnvelope, Response, ServerMessage};
 
 /// `$XDG_RUNTIME_DIR/macafon/macafond.sock` (PRD §10.4, §13).

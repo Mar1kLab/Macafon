@@ -223,13 +223,13 @@ osd: OsdPrefs | null, overlay?: OverlayPrefs | null,
 /**
  * The monitor the main window opens on; empty: where the system puts it.
  */
-main_monitor?: string | null, } } | { "method": "dictation.get" } | { "method": "dictation.set_prefs", "params": { patch: DictationPrefsPatch, } } | { "method": "dictation.download", "params": { model: string, } } | { "method": "dictation.cancel_download", "params": { model: string, } } | { "method": "dictation.delete_model", "params": { model: string, } } | { "method": "dictation.import_model", "params": { path: string, } } | { "method": "dictation.set_models_dir", "params": { folder: string | null, } } | { "method": "dictation.cancel_move" } | { "method": "dictation.test_start" } | { "method": "dictation.test_stop" } | { "method": "dictation.cancel" } | { "method": "dictation.history_clear" } | { "method": "dictation.reinsert", "params": { id: number, } } | { "method": "dictation.copy", "params": { id: number, } };
+main_monitor?: string | null, } } | { "method": "dictation.get" } | { "method": "dictation.set_prefs", "params": { patch: DictationPrefsPatch, } } | { "method": "dictation.download", "params": { model: string, } } | { "method": "dictation.cancel_download", "params": { model: string, } } | { "method": "dictation.delete_model", "params": { model: string, } } | { "method": "dictation.import_model", "params": { path: string, } } | { "method": "dictation.set_models_dir", "params": { folder: string | null, } } | { "method": "dictation.cancel_move" } | { "method": "dictation.test_start" } | { "method": "dictation.test_stop" } | { "method": "dictation.cancel" } | { "method": "dictation.history_clear" } | { "method": "dictation.reinsert", "params": { id: number, } } | { "method": "dictation.copy", "params": { id: number, } } | { "method": "updates.get" } | { "method": "updates.check" } | { "method": "updates.install", "params": { component: UpdateComponent, } } | { "method": "updates.cancel", "params": { component: UpdateComponent, } } | { "method": "updates.remove", "params": { component: UpdateComponent, } } | { "method": "updates.set_check_automatically", "params": { enabled: boolean, } } | { "method": "updates.open_release", "params": { component: UpdateComponent, } };
 
 export type ErrorCode = "bad_request" | "protocol_mismatch" | "invalid_params" | "not_found" | "already_exists" | "busy" | "internal";
 
 export type ErrorBody = { code: ErrorCode, message: string, };
 
-export type Event = { "event": "output_controls.changed", "data": Array<OutputControl> } | { "event": "mic.noise_fallback", "data": { engine: NoiseEngine, } } | { "event": "devices.meter", "data": { name: string, peak_dbfs: number, } } | { "event": "meters", "data": Meters } | { "event": "mic.changed", "data": MicState } | { "event": "calibration.changed", "data": CalibrationState } | { "event": "ab.changed", "data": AbState } | { "event": "presets.changed", "data": Array<PresetInfo> } | { "event": "mixer.changed", "data": MixerState } | { "event": "mixer.meters", "data": MixerMeters } | { "event": "hotkeys.changed", "data": HotkeysState } | { "event": "devices.changed", "data": Array<Device> } | { "event": "prefs.changed", "data": Preferences } | { "event": "sounddeck.changed", "data": SoundDeckState } | { "event": "sounddeck.downloads", "data": Array<SoundDeckDownload> } | { "event": "sounddeck.playback", "data": SoundDeckPlayback | null } | { "event": "ui.show", "data": { target: UiTarget, } } | { "event": "displays.changed", "data": DisplaysState } | { "event": "dictation.changed", "data": DictationState } | { "event": "dictation.level", "data": DictationLevel } | { "event": "dictation.result", "data": DictationResult };
+export type Event = { "event": "output_controls.changed", "data": Array<OutputControl> } | { "event": "mic.noise_fallback", "data": { engine: NoiseEngine, } } | { "event": "devices.meter", "data": { name: string, peak_dbfs: number, } } | { "event": "meters", "data": Meters } | { "event": "mic.changed", "data": MicState } | { "event": "calibration.changed", "data": CalibrationState } | { "event": "ab.changed", "data": AbState } | { "event": "presets.changed", "data": Array<PresetInfo> } | { "event": "mixer.changed", "data": MixerState } | { "event": "mixer.meters", "data": MixerMeters } | { "event": "hotkeys.changed", "data": HotkeysState } | { "event": "devices.changed", "data": Array<Device> } | { "event": "prefs.changed", "data": Preferences } | { "event": "sounddeck.changed", "data": SoundDeckState } | { "event": "sounddeck.downloads", "data": Array<SoundDeckDownload> } | { "event": "sounddeck.playback", "data": SoundDeckPlayback | null } | { "event": "ui.show", "data": { target: UiTarget, } } | { "event": "displays.changed", "data": DisplaysState } | { "event": "dictation.changed", "data": DictationState } | { "event": "dictation.level", "data": DictationLevel } | { "event": "dictation.result", "data": DictationResult } | { "event": "updates.changed", "data": UpdatesState };
 
 export type Hello = { protocol: number, daemon_version: string, platform: Platform,
 /**
@@ -857,3 +857,46 @@ default_threads: number, logical_cores: number, models: Array<DictationModel>, s
 history: Array<DictationResult>, };
 
 export type DictationLevel = { rms_dbfs: number, peak_dbfs: number, };
+
+export type UpdateComponent = "app" | "yt_dlp" | "ffmpeg";
+
+export type ToolSource = "missing" | "managed" | "custom" | "path" | "bundled";
+
+export type UpdateStage = "idle" | "checking" | "downloading" | "verifying" | "installing" | "ready" | "failed";
+
+export type ComponentUpdate = { component: UpdateComponent,
+/**
+ * Macafon can download and install this component here (Windows); otherwise the UI only
+ * shows versions and, for the app, opens the release page (UPD-004, UPD-005).
+ */
+installable: boolean, source: ToolSource,
+/**
+ * Path of the copy in use, if any.
+ */
+path: string | null,
+/**
+ * The running app version, `yt-dlp --version`, or the tag recorded for a managed ffmpeg.
+ */
+installed_version: string | null,
+/**
+ * From the last successful check; `None` before any check.
+ */
+latest_version: string | null, update_available: boolean, release_url: string | null, download_bytes: number | null, stage: UpdateStage, progress_pct: number | null,
+/**
+ * Short reason of the last failure; cleared by the next action.
+ */
+error: string | null, };
+
+export type UpdatesState = {
+/**
+ * Opt-in automatic check, at most once per 24 h (UPD-002); off by default.
+ */
+check_automatically: boolean,
+/**
+ * Unix seconds of the last finished check.
+ */
+last_checked_unix: number | null, app: ComponentUpdate,
+/**
+ * yt-dlp, then ffmpeg.
+ */
+tools: Array<ComponentUpdate>, };

@@ -127,6 +127,9 @@ pub enum Event {
     /// A finished transcription, also for TRY IT results that are not in the history.
     #[serde(rename = "dictation.result")]
     DictationResult(crate::DictationResult),
+    /// Any change of update checks, downloads or installed tools (§8.6).
+    #[serde(rename = "updates.changed")]
+    UpdatesChanged(crate::UpdatesState),
 }
 
 /// One line from the daemon.

@@ -425,4 +425,24 @@ pub enum Request {
         #[cfg_attr(feature = "ts", ts(type = "number"))]
         id: u64,
     },
+    /// Updates of the app and its tools (§8.6); changes arrive in `updates.changed`.
+    #[serde(rename = "updates.get")]
+    UpdatesGet,
+    /// Query GitHub Releases for every component now; never downloads (UPD-002).
+    #[serde(rename = "updates.check")]
+    UpdatesCheck,
+    /// Tools: download, verify and install or replace Macafon's copy. App: download and verify
+    /// the installer, or — once it is `ready` — run it; the daemon then quits (UPD-003).
+    #[serde(rename = "updates.install")]
+    UpdatesInstall { component: crate::UpdateComponent },
+    #[serde(rename = "updates.cancel")]
+    UpdatesCancel { component: crate::UpdateComponent },
+    /// Delete Macafon's copy of a tool; other copies are never touched.
+    #[serde(rename = "updates.remove")]
+    UpdatesRemove { component: crate::UpdateComponent },
+    #[serde(rename = "updates.set_check_automatically")]
+    UpdatesSetCheckAutomatically { enabled: bool },
+    /// Open the latest release page of a component in the browser.
+    #[serde(rename = "updates.open_release")]
+    UpdatesOpenRelease { component: crate::UpdateComponent },
 }

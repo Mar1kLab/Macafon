@@ -134,6 +134,11 @@ fn protocol() -> String {
         DictationResult::decl(&cfg),
         DictationState::decl(&cfg),
         DictationLevel::decl(&cfg),
+        UpdateComponent::decl(&cfg),
+        ToolSource::decl(&cfg),
+        UpdateStage::decl(&cfg),
+        ComponentUpdate::decl(&cfg),
+        UpdatesState::decl(&cfg),
     ];
     let mut out = String::from(HEADER);
     out.push_str("// Protocol types of macafon-ipc (PRD §11.5).\n\n");

@@ -9,6 +9,7 @@
     FolderOpen,
     Headphones,
     Keyboard,
+    Link,
     Mic,
     Pencil,
     Play,
@@ -29,6 +30,8 @@
   import LibraryFolder from '../lib/sounddeck/LibraryFolder.svelte';
   import SoundDialog from '../lib/sounddeck/SoundDialog.svelte';
   import Transport from '../lib/sounddeck/Transport.svelte';
+  import LinkDialog from '../lib/sounddeck/LinkDialog.svelte';
+  import Downloads from '../lib/sounddeck/Downloads.svelte';
   import {
     FAVORITES,
     UNCATEGORIZED,
@@ -70,6 +73,7 @@
   let dropTarget = $state<SoundScope | typeof SCREEN_TARGET>(null);
   let fileInput: HTMLInputElement | undefined = $state();
   let listElement: HTMLUListElement | undefined = $state();
+  let linkDialog = $state(false);
   let categoryDialog = $state<{ from: string | null; name: string } | null>(null);
   let deletingCategory = $state<string | null>(null);
   let deletingSound = $state<SoundInfo | null>(null);
@@ -253,6 +257,7 @@
         }}><Shuffle size={13} strokeWidth={1.5} /><span class="label">{t('sounddeck.random')}</span></button>
         <button class="btn tool" {@attach tip(sounddeck.folder)} aria-label={t('sounddeck.openFolder')} onclick={() => daemon.run(daemon.client.call('sounddeck.open_folder'))}><FolderOpen size={13} strokeWidth={1.5} /><span class="label">{t('sounddeck.openFolder')}</span></button>
         <LibraryFolder variant="button" />
+        <button class="btn tool" {@attach tip(t('sounddeck.link.hint'))} aria-label={t('sounddeck.link.add')} onclick={() => (linkDialog = true)}><Link size={13} strokeWidth={1.5} /><span class="label">{t('sounddeck.link.add')}</span></button>
         <button class="btn invert" onclick={() => fileInput?.click()}><Plus size={13} strokeWidth={1.5} />{t('sounddeck.addFiles')}</button>
         <input
           bind:this={fileInput}
@@ -379,6 +384,7 @@
               <p class="note">{t('sounddeck.emptyNote', { folder: sounddeck.folder })}</p>
               {#snippet actions()}
                 <button class="btn invert" onclick={() => fileInput?.click()}><Plus size={13} strokeWidth={1.5} />{t('sounddeck.addFiles')}</button>
+                <button class="btn" onclick={() => (linkDialog = true)}><Link size={13} strokeWidth={1.5} />{t('sounddeck.link.add')}</button>
                 <button class="btn" onclick={() => daemon.run(daemon.client.call('sounddeck.open_folder'))}><FolderOpen size={13} strokeWidth={1.5} />{t('sounddeck.openFolder')}</button>
                 <LibraryFolder variant="button" />
               {/snippet}
@@ -473,6 +479,7 @@
             <span class="bar"><span style:width="{progress * 100}%"></span></span>
           </p>
         {/each}
+        <Downloads />
       </section>
     </div>
 
@@ -511,6 +518,8 @@
     <button class="btn danger on" onclick={deleteProblems}>{t('sounddeck.deleteAllUnplayable')}</button>
   {/snippet}
 </Dialog>
+
+<LinkDialog open={linkDialog} category={uploadCategory} onclose={() => (linkDialog = false)} />
 
 <Dialog open={categoryDialog !== null} title={categoryDialog?.from ? t('sounddeck.renameCategory') : t('sounddeck.newCategory')} onclose={() => (categoryDialog = null)}>
   {#if categoryDialog}

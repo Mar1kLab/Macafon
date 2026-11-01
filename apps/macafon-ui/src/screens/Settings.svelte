@@ -29,6 +29,7 @@
   import PopupPicture from '../lib/settings/PopupPicture.svelte';
   import LookPicture from '../lib/settings/LookPicture.svelte';
   import LibraryFolder from '../lib/sounddeck/LibraryFolder.svelte';
+  import Downloader from '../lib/sounddeck/Downloader.svelte';
   import PopupLook from '../lib/dictation/PopupLook.svelte';
   import { t } from '../lib/i18n';
   import type {
@@ -526,6 +527,13 @@
               <p class="hint">{t('sounddeck.folderHint')}</p>
             </div>
             <LibraryFolder />
+          </div>
+          <div class="row column">
+            <div>
+              <p class="name">{t('sounddeck.link.downloader')}</p>
+              <p class="hint">{t('sounddeck.link.downloaderHint')}</p>
+            </div>
+            <Downloader />
           </div>
         </section>
       {/if}

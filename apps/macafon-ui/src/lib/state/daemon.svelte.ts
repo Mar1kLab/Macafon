@@ -27,6 +27,7 @@ import type {
   OutputControl,
   SoundDeckPlayback,
   SoundDeckPrefsPatch,
+  SoundDeckDownload,
   SoundDeckState,
 } from '../ipc/protocol';
 import { PROTOCOL_VERSION, SOUNDDECK_UPLOAD_CHUNK_BYTES } from '../ipc/protocol';
@@ -364,6 +365,9 @@ export class DaemonStore {
       case 'sounddeck.changed':
         this.applySoundDeck(event.data);
         break;
+      case 'sounddeck.downloads':
+        this.applyDownloads(event.data);
+        break;
       case 'sounddeck.playback':
         this.sounddeckPlayback = event.data;
         break;
@@ -570,6 +574,51 @@ export class DaemonStore {
     const prefs = this.sounddeckPrefs.keepEditing(state.prefs, this.sounddeck?.prefs);
     this.sounddeck = { ...state, prefs };
     this.sounddeckPlayback = state.playback;
+    this.noteFinishedDownloads(state.downloads);
+  }
+
+  private applyDownloads(downloads: SoundDeckDownload[]) {
+    if (this.sounddeck) this.sounddeck = { ...this.sounddeck, downloads };
+    this.noteFinishedDownloads(downloads);
+  }
+
+  /** Download states already seen, so a finished download is announced once (SND-009). */
+  private downloadStates = new Map<string, SoundDeckDownload['state']>();
+
+  /** A finished download becomes a sound in the list: announce it and drop its row. */
+  private noteFinishedDownloads(downloads: SoundDeckDownload[]) {
+    const seen = this.downloadStates;
+    this.downloadStates = new Map(downloads.map((download) => [download.id, download.state]));
+    for (const download of downloads) {
+      if (download.state !== 'done' || seen.get(download.id) === 'done') continue;
+      this.toast(t('sounddeck.link.added', { name: download.title ?? download.url }), { tone: 'info' });
+      // Every window sees it; the first dismissal wins and the others find nothing to dismiss.
+      this.client.call('sounddeck.download_dismiss', { download_id: download.id }).catch(() => {});
+    }
+  }
+
+  /** Download a sound from a page link with the user's yt-dlp (SND-009). */
+  async downloadSound(url: string, category: string | null): Promise<boolean> {
+    return (await this.run(this.client.call('sounddeck.download', { url, category }))) !== undefined;
+  }
+
+  cancelDownload(id: string) {
+    void this.run(this.client.call('sounddeck.download_cancel', { download_id: id }));
+  }
+
+  dismissDownload(id: string) {
+    void this.run(this.client.call('sounddeck.download_dismiss', { download_id: id }));
+  }
+
+  /** `null`: look for yt-dlp on PATH. */
+  async setDownloaderPath(path: string | null): Promise<void> {
+    await this.run(this.client.call('sounddeck.set_downloader_path', { path }));
+  }
+
+  /** Look for yt-dlp again (after installing it) and show the result. */
+  async checkDownloader(): Promise<void> {
+    const downloader = await this.run(this.client.call('sounddeck.check_downloader'));
+    if (downloader && this.sounddeck) this.sounddeck = { ...this.sounddeck, downloader };
   }
 
   async setSoundDeck(request: Promise<SoundDeckState | null>): Promise<boolean> {

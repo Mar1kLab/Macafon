@@ -1,7 +1,7 @@
 // SoundDeck state and requests of the mock daemon: a plausible library, playback progress and
-// uploads kept in memory.
+// uploads kept in memory, link downloads simulated (`?ytdlp=missing` shows yt-dlp not found).
 import { DaemonError } from '../client';
-import type { Event, SoundInfo, SoundDeckPlayback, SoundDeckState } from '../protocol';
+import type { DownloaderInfo, Event, SoundInfo, SoundDeckDownload, SoundDeckPlayback, SoundDeckState } from '../protocol';
 import { clone } from './helpers';
 
 const EXTENSIONS = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'];
@@ -57,10 +57,27 @@ export class MockSoundDeck {
   private offsetMs = 0;
   private looping = false;
   private uploads = new Map<string, number>();
+  private downloadTimers = new Map<string, number>();
+  private nextDownload = 1;
 
   constructor(private emit: (event: Event) => void, private windows: boolean) {
     const query = new URLSearchParams(globalThis.location?.search);
+    const ytdlp = query.get('ytdlp') !== 'missing';
     this.state = {
+      downloader: {
+        available: ytdlp,
+        version: ytdlp ? '2026.10.22' : null,
+        path: ytdlp ? (windows ? 'C:\\Users\\Alex\\AppData\\Local\\Microsoft\\WinGet\\Links\\yt-dlp.exe' : '/usr/bin/yt-dlp') : null,
+        configured_path: null,
+        ffmpeg: ytdlp,
+      },
+      downloads:
+        query.get('downloads') === '1'
+          ? [
+              { id: 'd-demo-1', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', title: 'Crowd cheering', category: 'Reactions', state: 'downloading', progress_pct: 42, error: null, sound_id: null },
+              { id: 'd-demo-2', url: 'https://soundcloud.com/someone/private-track', title: null, category: null, state: 'failed', progress_pct: null, error: 'This track is private', sound_id: null },
+            ]
+          : [],
       folder: defaultFolder(windows),
       default_folder: true,
       categories: ['Memes', 'Music', 'Reactions'],
@@ -191,6 +208,37 @@ export class MockSoundDeck {
         for (const x of s.sounds.filter((x) => x.category === name)) this.rekey(x, x.id.split('/').pop()!);
         return this.changed();
       }
+      case 'sounddeck.download':
+        return this.download(String(p.url), (p.category as string | null) ?? null);
+      case 'sounddeck.download_cancel': {
+        const download = this.download_(String(p.download_id));
+        if (download.state === 'queued' || download.state === 'downloading' || download.state === 'converting') {
+          clearInterval(this.downloadTimers.get(download.id));
+          download.state = 'cancelled';
+          download.progress_pct = null;
+          this.downloadsChanged();
+        }
+        return null;
+      }
+      case 'sounddeck.download_dismiss':
+        this.download_(String(p.download_id));
+        this.state.downloads = this.state.downloads.filter((x) => x.id !== p.download_id);
+        this.downloadsChanged();
+        return null;
+      case 'sounddeck.set_downloader_path': {
+        const path = (p.path as string | null) ?? null;
+        this.state.downloader = {
+          ...this.state.downloader,
+          configured_path: path,
+          available: true,
+          path: path ?? this.state.downloader.path ?? (this.windows ? 'C:\\Tools\\yt-dlp.exe' : '/usr/bin/yt-dlp'),
+          version: '2026.10.22',
+        };
+        this.changed();
+        return null;
+      }
+      case 'sounddeck.check_downloader':
+        return clone(this.state.downloader) as DownloaderInfo;
       case 'sounddeck.upload': {
         const fileName = String(p.file_name);
         const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
@@ -213,6 +261,67 @@ export class MockSoundDeck {
       default:
         throw new DaemonError('bad_request', `unknown method ${method}`);
     }
+  }
+
+  private download(url: string, category: string | null): { download_id: string } {
+    if (!/^https?:\/\/\S+$/i.test(url)) throw new DaemonError('invalid_params', 'Only http and https links are supported');
+    if (!this.state.downloader.available) throw new DaemonError('not_found', 'yt-dlp was not found');
+    const active = this.state.downloads.filter((x) => ['queued', 'downloading', 'converting'].includes(x.state));
+    if (active.length >= 3) throw new DaemonError('busy', 'Three downloads are already running');
+    const download: SoundDeckDownload = {
+      id: `d${this.nextDownload++}`,
+      url,
+      title: null,
+      category,
+      state: 'queued',
+      progress_pct: null,
+      error: null,
+      sound_id: null,
+    };
+    this.state.downloads.push(download);
+    this.downloadsChanged();
+    const title = (url.match(/[?&]v=([^&]+)/)?.[1] ?? url.split('/').filter(Boolean).pop() ?? 'Sound').replace(/[-_]+/g, ' ');
+    const timer = window.setInterval(() => {
+      if (download.state === 'queued') {
+        download.state = 'downloading';
+        download.title = title;
+        download.progress_pct = 0;
+      } else if (download.state === 'downloading') {
+        if (url.includes('fail') && (download.progress_pct ?? 0) >= 30) {
+          clearInterval(timer);
+          download.state = 'failed';
+          download.progress_pct = null;
+          download.error = 'Video unavailable';
+        } else if ((download.progress_pct ?? 0) >= 100) {
+          download.state = 'converting';
+          download.progress_pct = null;
+        } else {
+          download.progress_pct = Math.min(100, (download.progress_pct ?? 0) + 12.5);
+        }
+      } else if (download.state === 'converting') {
+        clearInterval(timer);
+        let id = `${category ? `${category}/` : ''}${title}.m4a`;
+        for (let n = 2; this.state.sounds.some((x) => x.id === id); n++) id = `${category ? `${category}/` : ''}${title} (${n}).m4a`;
+        this.state.sounds.push(sound(id, 4200, { added_unix_ms: Date.now() }));
+        this.sort();
+        download.state = 'done';
+        download.sound_id = id;
+        this.changed();
+      }
+      this.downloadsChanged();
+    }, 400);
+    this.downloadTimers.set(download.id, timer);
+    return { download_id: download.id };
+  }
+
+  private download_(id: string): SoundDeckDownload {
+    const found = this.state.downloads.find((x) => x.id === id);
+    if (!found) throw new DaemonError('not_found', `unknown download ${id}`);
+    return found;
+  }
+
+  private downloadsChanged() {
+    this.emit({ event: 'sounddeck.downloads', data: clone(this.state.downloads) });
   }
 
   private sound(id: string): SoundInfo {

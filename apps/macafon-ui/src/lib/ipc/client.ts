@@ -22,6 +22,8 @@ import type {
   Request,
   OutputControl,
   SoundDeckState,
+  SoundDeckDownloadStarted,
+  DownloaderInfo,
 } from './protocol';
 
 export type Method = Request['method'];
@@ -107,6 +109,11 @@ interface Results {
   'prefs.set': Preferences;
   'sounddeck.get': SoundDeckState;
   'sounddeck.rescan': SoundDeckState;
+  'sounddeck.download': SoundDeckDownloadStarted;
+  'sounddeck.download_cancel': null;
+  'sounddeck.download_dismiss': null;
+  'sounddeck.set_downloader_path': null;
+  'sounddeck.check_downloader': DownloaderInfo;
   'sounddeck.open_folder': null;
   'sounddeck.set_folder': SoundDeckState;
   'sounddeck.play': null;

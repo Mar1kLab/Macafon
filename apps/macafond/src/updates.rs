@@ -86,6 +86,8 @@ fn availability(value: &mut ComponentUpdate) {
 struct Asset {
     name: String,
     size: u64,
+    #[serde(default)]
+    updated_at: Option<String>,
     #[cfg(windows)]
     browser_download_url: String,
     #[cfg(windows)]
@@ -687,6 +689,22 @@ fn read_metadata(
     }
     Ok(bytes)
 }
+/// FFmpeg-Builds republishes its assets under the rolling `latest` tag, so the tag alone never
+/// changes: the archive's publish time (`2026-10-31 14:02`) stands in for its version.
+fn rolling_version(component: Component, release: &mut Release) {
+    if component != Component::Ffmpeg || release.tag_name != "latest" {
+        return;
+    }
+    let published = release
+        .download_asset(component)
+        .ok()
+        .and_then(|asset| asset.updated_at.as_deref())
+        .filter(|stamp| stamp.len() >= 16 && stamp.is_char_boundary(16))
+        .map(|stamp| stamp[..16].replace('T', " "));
+    if let Some(published) = published {
+        release.tag_name = published;
+    }
+}
 fn check_release(
     client: &reqwest::blocking::Client,
     component: Component,
@@ -700,8 +718,9 @@ fn check_release(
         ),
         cancel,
     )?;
-    let release: Release =
+    let mut release: Release =
         serde_json::from_slice(&bytes).context("invalid GitHub release metadata")?;
+    rolling_version(component, &mut release);
     ensure!(
         !release.draft && !release.prerelease,
         "no stable release is available"
@@ -951,6 +970,24 @@ mod tests {
         let _ = fs::remove_dir_all(directory);
         result
     }
+    #[test]
+    fn rolling_ffmpeg_release_is_versioned_by_its_archive_time() {
+        let mut release: Release = serde_json::from_value(serde_json::json!({
+            "tag_name": "latest", "html_url": "https://github.com/yt-dlp/FFmpeg-Builds/releases/tag/latest",
+            "draft": false, "prerelease": false,
+            "assets": [{"name": "ffmpeg-master-latest-win64-gpl.zip", "size": 1,
+                "browser_download_url": "https://github.com/a", "updated_at": "2026-10-31T14:02:11Z"}]
+        }))
+        .expect("release");
+        rolling_version(Component::Ffmpeg, &mut release);
+        assert_eq!(release.tag_name, "2026-10-31 14:02");
+        assert!(newer(
+            Component::Ffmpeg,
+            Some("2026-10-30 09:00"),
+            &release.tag_name
+        ));
+    }
+
     #[test]
     fn update_versions_tags_checksums_and_host_policy() {
         let release: Release = serde_json::from_value(serde_json::json!({

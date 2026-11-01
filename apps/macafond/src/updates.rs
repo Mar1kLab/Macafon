@@ -133,6 +133,20 @@ struct Ready {
     sha256: String,
     tag: String,
 }
+
+fn describe_release(value: &mut ComponentUpdate, release: &Release) {
+    value.latest_version = Some(if value.component == Component::App {
+        release.tag_name.trim_start_matches('v').to_owned()
+    } else {
+        release.tag_name.clone()
+    });
+    value.release_url = Some(release.html_url.clone());
+    value.download_bytes = release
+        .download_asset(value.component)
+        .ok()
+        .map(|asset| asset.size);
+    availability(value);
+}
 pub enum Action {
     Startup,
     Refresh,
@@ -261,11 +275,8 @@ impl Manager {
             bail!("Macafon itself cannot be removed here");
         }
         if let Action::Install(component) = action {
-            ensure!(
-                self.releases[index(component)].is_some(),
-                "check for updates first"
-            );
             if component == Component::App {
+                ensure!(self.releases[0].is_some(), "check for updates first");
                 ensure!(
                     self.state.app.update_available,
                     "Macafon is already up to date"
@@ -440,13 +451,7 @@ impl Session {
                     let value = item(&mut self.state, component);
                     match result {
                         Ok(release) => {
-                            value.latest_version = Some(release.tag_name.clone());
-                            value.release_url = Some(release.html_url.clone());
-                            value.download_bytes = release
-                                .download_asset(component)
-                                .ok()
-                                .map(|asset| asset.size);
-                            availability(value);
+                            describe_release(value, &release);
                             value.stage = if component == Component::App
                                 && self
                                     .ready
@@ -484,11 +489,18 @@ impl Session {
             Action::Install(component) => {
                 #[cfg(windows)]
                 {
-                    let release = self.releases[index(component)]
-                        .as_ref()
-                        .context("check for updates first")?
-                        .clone();
                     let cancel = &flags[index(component)];
+                    let release = if let Some(release) = &self.releases[index(component)] {
+                        release.clone()
+                    } else {
+                        // Install is already an explicit user action. Resolve a missing tool's
+                        // release here so it does not require a separate Check now first.
+                        let release = check_release(&client()?, component, cancel)?;
+                        describe_release(item(&mut self.state, component), &release);
+                        self.releases[index(component)] = Some(release.clone());
+                        self.publish(sender);
+                        release
+                    };
                     if component == Component::App
                         && let Some(ready) = self
                             .ready
@@ -941,6 +953,13 @@ mod tests {
     }
     #[test]
     fn update_versions_tags_checksums_and_host_policy() {
+        let release: Release = serde_json::from_value(serde_json::json!({
+            "tag_name": "v1.2.3", "html_url": "https://github.com/Mar1kLab/Macafon/releases/tag/v1.2.3",
+            "draft": false, "prerelease": false, "assets": []
+        })).expect("release fixture");
+        let mut manager = Manager::new(&macafon_config::UpdatesConfig::default());
+        describe_release(&mut manager.state.app, &release);
+        assert_eq!(manager.state.app.latest_version.as_deref(), Some("1.2.3"));
         assert!(newer(Component::App, Some("0.9.9"), "v0.10.0"));
         assert!(!newer(Component::App, Some("1.2.3"), "v1.2.3"));
         assert!(!newer(Component::App, Some("1.2.3"), "v1.2.4-rc1"));

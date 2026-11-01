@@ -24,6 +24,7 @@ import type {
   SoundDeckState,
   SoundDeckDownloadStarted,
   DownloaderInfo,
+  UpdatesState,
 } from './protocol';
 
 export type Method = Request['method'];
@@ -134,6 +135,13 @@ interface Results {
   'sounddeck.delete_category': SoundDeckState;
   /** The state once `done`, `null` for intermediate chunks. */
   'sounddeck.upload': SoundDeckState | null;
+  'updates.get': UpdatesState;
+  'updates.check': null;
+  'updates.install': null;
+  'updates.cancel': null;
+  'updates.remove': null;
+  'updates.set_check_automatically': null;
+  'updates.open_release': null;
   'dictation.get': DictationState;
   'dictation.set_prefs': DictationState;
   'dictation.download': DictationState;

@@ -30,6 +30,7 @@
   import LookPicture from '../lib/settings/LookPicture.svelte';
   import LibraryFolder from '../lib/sounddeck/LibraryFolder.svelte';
   import Downloader from '../lib/sounddeck/Downloader.svelte';
+  import Updates from '../lib/settings/Updates.svelte';
   import PopupLook from '../lib/dictation/PopupLook.svelte';
   import { t } from '../lib/i18n';
   import type {
@@ -204,6 +205,7 @@
         ['popup', t('settings.osd.title'), !!prefs && !!daemon.hello?.capabilities.hotkey_popup],
         ['overlay', t('settings.overlay.title'), !!prefs],
         ['dictation', t('settings.dictationPopup.title'), !!daemon.dictation && !!daemon.hello?.capabilities.hotkey_popup],
+        ['updates', t('updates.title'), !!daemon.updates],
         ['doctor', t('settings.doctor'), true],
         ['about', t('settings.about'), true],
       ] as [SectionId, string, boolean][]
@@ -316,6 +318,9 @@
           <li>
             <button class:active={active === section.id} aria-current={active === section.id ? 'true' : undefined} onclick={() => jump(section.id)}>
               <span class="n">{String(index + 1).padStart(2, '0')}</span>{section.label}
+              {#if section.id === 'updates' && daemon.updates?.app.update_available}
+                <span class="marker" role="img" aria-label={t('updates.newVersion')} {@attach tip(t('updates.newVersion'))}></span>
+              {/if}
             </button>
           </li>
         {/each}
@@ -718,6 +723,14 @@
         </section>
       {/if}
 
+      {#if daemon.updates}
+        <section id="settings-updates">
+          <span class="ticks"><Ticks /></span>
+          <h2 class="hud-label" tabindex="-1">{t('updates.title')}</h2>
+          <Updates />
+        </section>
+      {/if}
+
       <section id="settings-doctor">
 
         <span class="ticks"><Ticks /></span>
@@ -850,6 +863,14 @@
     font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     color: var(--faint);
+  }
+
+  .sections .marker {
+    width: 6px;
+    height: 6px;
+    align-self: center;
+    margin-left: auto;
+    background: var(--accent);
   }
 
   .sections .active .n {

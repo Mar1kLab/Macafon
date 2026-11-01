@@ -11,6 +11,7 @@ export type SettingsSection =
   | 'popup'
   | 'overlay'
   | 'dictation'
+  | 'updates'
   | 'doctor'
   | 'about';
 

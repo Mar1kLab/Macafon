@@ -1,7 +1,7 @@
 <script lang="ts">
   // Add a sound from a page link (SND-009): the daemon downloads it with the user's yt-dlp.
   // Without yt-dlp the dialog shows how to install it instead of the form.
-  import { Copy, RefreshCw } from '@lucide/svelte';
+  import { Copy, Download, RefreshCw } from '@lucide/svelte';
   import Dialog from '../components/Dialog.svelte';
   import Dropdown from '../components/Dropdown.svelte';
   import Field from '../components/Field.svelte';
@@ -35,6 +35,10 @@
     ...(sounddeck?.categories ?? []).map((name) => ({ value: name as string | null, label: name })),
   ]);
   const command = $derived(installCommand(daemon.windows));
+  // Macafon can install its own copies on Windows (UPD-005); the command stays as an alternative.
+  const ytdlpTool = $derived(daemon.updates?.tools.find((tool) => tool.component === 'yt_dlp' && tool.installable));
+  const ffmpegTool = $derived(daemon.updates?.tools.find((tool) => tool.component === 'ffmpeg' && tool.installable));
+  const toolBusy = (stage: string | undefined) => stage === 'downloading' || stage === 'verifying' || stage === 'installing';
 
   async function submit() {
     touched = true;
@@ -65,7 +69,13 @@
   {#if downloader && !downloader.available}
     <div class="missing" role="status">
       <p class="name">{t('sounddeck.link.missingTitle')}</p>
-      <p class="hint">{t('sounddeck.link.missingHint')}</p>
+      <p class="hint">{ytdlpTool ? t('sounddeck.link.missingHintInstall') : t('sounddeck.link.missingHint')}</p>
+      {#if ytdlpTool && toolBusy(ytdlpTool.stage)}
+        <p class="note">{t('sounddeck.link.installing', { percent: Math.round(ytdlpTool.progress_pct ?? 0) })}</p>
+      {:else if ytdlpTool?.error}
+        <p class="note error">{ytdlpTool.error}</p>
+      {/if}
+      {#if ytdlpTool}<p class="hint">{t('sounddeck.link.orCommand')}</p>{/if}
       <div class="command">
         <code>{command}</code>
         <button class="btn icon ghost small" aria-label={t('sounddeck.link.copy')} onclick={copy}><Copy size={13} strokeWidth={1.5} /></button>
@@ -94,13 +104,23 @@
         <Dropdown label={t('sounddeck.link.category')} options={categories} value={target} onchange={(value) => (target = value)} />
       </Field>
       {#if downloader && !downloader.ffmpeg}
-        <p class="note">{t('sounddeck.link.noFfmpeg')}</p>
+        <p class="note">
+          {t('sounddeck.link.noFfmpeg')}
+          {#if ffmpegTool && !toolBusy(ffmpegTool.stage)}
+            <button type="button" class="btn small" onclick={() => daemon.installUpdate('ffmpeg')}><Download size={12} strokeWidth={1.5} />{t('sounddeck.link.installFfmpeg')}</button>
+          {:else if ffmpegTool}
+            <span class="value">{t('sounddeck.link.installing', { percent: Math.round(ffmpegTool.progress_pct ?? 0) })}</span>
+          {/if}
+        </p>
       {/if}
     </form>
   {/if}
   {#snippet actions()}
     <button class="btn" onclick={onclose}>{t('common.cancel')}</button>
-    {#if downloader && !downloader.available}
+    {#if downloader && !downloader.available && ytdlpTool}
+      <button class="btn" disabled={checking} onclick={check}><RefreshCw size={13} strokeWidth={1.5} />{t('sounddeck.link.checkAgain')}</button>
+      <button class="btn invert" disabled={toolBusy(ytdlpTool.stage)} onclick={() => daemon.installUpdate('yt_dlp')}><Download size={13} strokeWidth={1.5} />{t('sounddeck.link.installYtdlp')}</button>
+    {:else if downloader && !downloader.available}
       <button class="btn invert" disabled={checking} onclick={check}><RefreshCw size={13} strokeWidth={1.5} />{t('sounddeck.link.checkAgain')}</button>
     {:else}
       <button class="btn invert" disabled={busy || (touched && !valid)} onclick={submit}>{t('sounddeck.link.download')}</button>
@@ -132,8 +152,16 @@
 
   .hint,
   .note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
     font-size: var(--text-sm);
     color: var(--muted);
+  }
+
+  .note.error {
+    color: var(--danger);
   }
 
   .command {

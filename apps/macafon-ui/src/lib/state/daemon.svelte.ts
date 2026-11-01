@@ -15,6 +15,8 @@ import type {
   DictationResult,
   DictationState,
   DisplaysState,
+  UpdateComponent,
+  UpdatesState,
   Event,
   Hello,
   HotkeysState,
@@ -95,6 +97,8 @@ export class DaemonStore {
   dictation = $state.raw<DictationState | null>(null);
   /** Saved monitor layouts (§8.5); `null` where the platform has none. */
   displays = $state.raw<DisplaysState | null>(null);
+  /** App and tool updates (§8.6); `null` for a daemon without them. */
+  updates = $state.raw<UpdatesState | null>(null);
   /** The latest TRY IT result, shown in the panel and not kept in the history. */
   dictationTest = $state.raw<DictationResult | null>(null);
   /** Files being added to the library: name → 0…1. */
@@ -256,6 +260,9 @@ export class DaemonStore {
       if (fresh('dictation.changed')) this.dictation = dictation;
       const displays = hello.capabilities.displays ? await this.client.call('displays.get') : null;
       if (fresh('displays.changed')) this.displays = displays;
+      // An older daemon has no updates: the section stays hidden.
+      const updates = await this.client.call('updates.get').catch(() => null);
+      if (fresh('updates.changed')) this.updates = updates;
       this.syncMeters();
     } catch (error) {
       this.fail(error);
@@ -373,6 +380,9 @@ export class DaemonStore {
         break;
       case 'dictation.changed':
         this.applyDictation(event.data);
+        break;
+      case 'updates.changed':
+        this.updates = event.data;
         break;
       case 'displays.changed':
         this.displays = event.data;
@@ -613,6 +623,33 @@ export class DaemonStore {
   /** `null`: look for yt-dlp on PATH. */
   async setDownloaderPath(path: string | null): Promise<void> {
     await this.run(this.client.call('sounddeck.set_downloader_path', { path }));
+  }
+
+  /** Ask GitHub for the latest versions now (UPD-002); results arrive as `updates.changed`. */
+  checkUpdates() {
+    void this.run(this.client.call('updates.check'));
+  }
+
+  /** Download and install a tool, or download / run the app installer (UPD-003, UPD-005). */
+  installUpdate(component: UpdateComponent) {
+    void this.run(this.client.call('updates.install', { component }));
+  }
+
+  cancelUpdate(component: UpdateComponent) {
+    void this.run(this.client.call('updates.cancel', { component }));
+  }
+
+  removeTool(component: UpdateComponent) {
+    void this.run(this.client.call('updates.remove', { component }));
+  }
+
+  openRelease(component: UpdateComponent) {
+    void this.run(this.client.call('updates.open_release', { component }));
+  }
+
+  setCheckUpdatesAutomatically(enabled: boolean) {
+    if (this.updates) this.updates = { ...this.updates, check_automatically: enabled };
+    void this.run(this.client.call('updates.set_check_automatically', { enabled }));
   }
 
   /** Look for yt-dlp again (after installing it) and show the result. */

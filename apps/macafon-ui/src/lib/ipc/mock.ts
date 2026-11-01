@@ -7,7 +7,8 @@
 // channel effects); add `&cable=missing` for a system without VB-CABLE. `?look=classic` picks the
 // classic look of the popup and overlay (Sketch is the default); `?sounds=list` and `?controls=bottom|hidden` lay out the
 // overlay's sounddeck. `?dictation=ready|downloading|error` sets up dictation (mock/dictation.ts),
-// `?displays=empty|pending` the display profiles (mock/displays.ts).
+// `?displays=empty|pending` the display profiles (mock/displays.ts), `?updates=available|error`
+// app and tool updates (mock/updates.ts).
 
 import { DaemonError, type DaemonStatus, type Transport } from './client';
 import { BUILTIN_PRESETS } from './dsp';
@@ -36,6 +37,7 @@ import { MockMixer } from './mock/mixer';
 import { MockSoundDeck } from './mock/sounddeck';
 import { MockDictation } from './mock/dictation';
 import { MockDisplays } from './mock/displays';
+import { MockUpdates } from './mock/updates';
 import { SILENT, random, voiceLevel } from './mock/signals';
 
 const VERSION = '0.1.0-mock';
@@ -180,6 +182,13 @@ export class MockTransport implements Transport {
   private sounddeck = new MockSoundDeck((event) => this.emit(event), this.windows);
   private dictation = new MockDictation((event) => this.emit(event), this.query.get('dictation'), this.windows);
   private displays = new MockDisplays((event) => this.emit(event), this.query.get('displays'));
+  private updates = new MockUpdates(
+    (event) => this.emit(event),
+    this.windows,
+    VERSION,
+    this.sounddeck.state.downloader.available,
+    (seen) => this.sounddeck.setTools(seen),
+  );
   private outputControls: OutputControl[] = [];
   private hardwareVolume = 83;
   private hardwareBalance = 0;
@@ -438,6 +447,9 @@ export class MockTransport implements Transport {
     }
     if (method.startsWith('dictation.')) {
       return this.dictation.call(method, p);
+    }
+    if (method.startsWith('updates.')) {
+      return this.updates.call(method, p);
     }
     switch (method) {
       case 'output_controls.list': return clone(this.outputControls);

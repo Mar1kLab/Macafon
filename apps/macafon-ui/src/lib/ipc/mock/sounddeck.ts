@@ -3,6 +3,7 @@
 import { DaemonError } from '../client';
 import type { DownloaderInfo, Event, SoundInfo, SoundDeckDownload, SoundDeckPlayback, SoundDeckState } from '../protocol';
 import { clone } from './helpers';
+import type { ToolsSeen } from './updates';
 
 const EXTENSIONS = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac'];
 
@@ -388,6 +389,19 @@ export class MockSoundDeck {
     }
     playback.position_ms = Math.round(position);
     this.emit({ event: 'sounddeck.playback', data: clone(playback) as SoundDeckPlayback });
+  }
+
+  /** Macafon installed or removed its own yt-dlp or ffmpeg (UPD-006). */
+  setTools(seen: ToolsSeen) {
+    const ytdlp = seen.ytdlp;
+    this.state.downloader = {
+      ...this.state.downloader,
+      available: !!ytdlp || !!this.state.downloader.configured_path,
+      version: ytdlp?.version ?? null,
+      path: this.state.downloader.configured_path ?? ytdlp?.path ?? null,
+      ffmpeg: seen.ffmpeg,
+    };
+    this.changed();
   }
 
   private changed(): SoundDeckState {

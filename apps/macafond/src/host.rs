@@ -690,6 +690,10 @@ impl MicrophoneHost for DaemonHost {
             self.ab_changed();
             return;
         };
+        if matches!(request, Request::SoundDeckCheckDownloader) {
+            self.dispatch_downloader_check(reply);
+            return;
+        }
         #[cfg(windows)]
         if matches!(
             request,

@@ -10,6 +10,8 @@ use macafon_sounddeck::cache::SoundLoader;
 use macafon_sounddeck::library::{self, SoundEntry};
 use macafon_sounddeck::rt::{Output, SoundDeckControl, SoundDeckTap};
 use std::collections::{HashMap, HashSet};
+#[path = "sounddeck_download.rs"]
+mod download_worker;
 #[path = "sounddeck_library.rs"]
 mod library_worker;
 use std::path::{Path, PathBuf};
@@ -78,6 +80,7 @@ pub struct SoundDeck {
     uploads: HashMap<String, Upload>,
     last_active: Option<Instant>,
     last_playback: Option<SoundDeckPlayback>,
+    downloads: download_worker::Downloads,
 }
 
 impl SoundDeck {
@@ -107,8 +110,19 @@ impl SoundDeck {
             uploads: HashMap::new(),
             last_active: None,
             last_playback: None,
+            downloads: download_worker::Downloads::default(),
         };
         sounddeck.apply(config);
+        sounddeck.downloads.info.configured_path = config
+            .downloader_path
+            .as_ref()
+            .map(|path| path.display().to_string());
+        if let Err(error) = sounddeck
+            .downloads
+            .check(config.downloader_path.clone(), None)
+        {
+            tracing::warn!(%error, "Cannot detect SoundDeck downloader");
+        }
         sounddeck
     }
 
@@ -119,6 +133,7 @@ impl SoundDeck {
     /// Switch to another library folder: what plays stops, and everything known about the old
     /// folder (sounds, decodes, unfinished uploads) goes.
     pub fn set_folder(&mut self, folder: PathBuf) {
+        self.downloads.cancel_all();
         self.stop();
         self.loader.clear();
         self.uploads.clear();
@@ -588,6 +603,14 @@ impl SoundDeck {
         }
         // Rescan first: a file removed meanwhile must not accept its finished decode.
         let mut outcome = TickOutcome::default();
+        outcome.library_changed |= self.downloads.poll_detection();
+        for (id, staged, category) in self.downloads.poll(now) {
+            let result = self
+                .finalize_upload(&staged.path, category.as_deref())
+                .map(|entry| entry.id);
+            outcome.library_changed |= result.is_ok();
+            self.downloads.finished(&id, result);
+        }
         if !self.scan_busy
             && self
                 .scanned_at
@@ -749,9 +772,18 @@ impl SoundDeck {
         let Some(upload) = self.uploads.remove(upload_id) else {
             return Ok(None);
         };
-        let result = library::commit_upload(&self.folder, &upload.path, category);
+        let result = self.finalize_upload(&upload.path, category);
         drop(upload);
-        let entry = result.map_err(library_error)?;
+        result.map(Some)
+    }
+
+    /// Shared finalization for uploaded files and worker-validated URL downloads.
+    fn finalize_upload(
+        &mut self,
+        path: &Path,
+        category: Option<&str>,
+    ) -> Result<SoundEntry, ErrorBody> {
+        let entry = library::commit_upload(&self.folder, path, category).map_err(library_error)?;
         self.entry_index
             .insert(entry.id.clone(), self.entries.len());
         self.entries.push(entry.clone());
@@ -764,7 +796,39 @@ impl SoundDeck {
         }
         self.added.insert(entry.id.clone(), entry.added_unix_ms);
         self.rescan();
-        Ok(Some(entry))
+        Ok(entry)
+    }
+
+    pub fn downloader(&self) -> &macafon_ipc::DownloaderInfo {
+        &self.downloads.info
+    }
+
+    pub fn downloads(&self) -> Vec<macafon_ipc::SoundDeckDownload> {
+        self.downloads.snapshot()
+    }
+
+    pub fn download_events(&mut self) -> Vec<Vec<macafon_ipc::SoundDeckDownload>> {
+        self.downloads.take_events()
+    }
+
+    pub fn check_downloader(
+        &mut self,
+        path: Option<PathBuf>,
+        reply: Option<std::sync::mpsc::Sender<macafon_ipc::Outcome>>,
+    ) -> Result<(), ErrorBody> {
+        self.downloads.check(path, reply)
+    }
+
+    pub fn download(&mut self, url: String, category: Option<String>) -> Result<String, ErrorBody> {
+        self.downloads.start(&self.folder, url, category)
+    }
+
+    pub fn download_cancel(&mut self, id: &str) -> Result<(), ErrorBody> {
+        self.downloads.cancel(id)
+    }
+
+    pub fn download_dismiss(&mut self, id: &str) -> Result<(), ErrorBody> {
+        self.downloads.dismiss(id)
     }
 }
 

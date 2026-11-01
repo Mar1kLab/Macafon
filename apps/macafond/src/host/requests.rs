@@ -190,6 +190,11 @@ impl DaemonHost {
             | Request::AppsForget { .. }
             | Request::AppsSetVolume { .. }) => return self.respond_mixer(request),
             request @ (Request::SoundDeckGet
+            | Request::SoundDeckDownload { .. }
+            | Request::SoundDeckDownloadCancel { .. }
+            | Request::SoundDeckDownloadDismiss { .. }
+            | Request::SoundDeckSetDownloaderPath { .. }
+            | Request::SoundDeckCheckDownloader
             | Request::SoundDeckRescan
             | Request::SoundDeckOpenFolder
             | Request::SoundDeckSetFolder { .. }

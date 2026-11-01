@@ -36,6 +36,8 @@ impl DaemonHost {
         let sounddeck = self.sounddeck.as_ref()?;
         let config = &self.config.sounddeck;
         Some(SoundDeckState {
+            downloader: sounddeck.downloader().clone(),
+            downloads: sounddeck.downloads(),
             folder: sounddeck.folder().display().to_string(),
             default_folder: config.folder.is_none(),
             categories: sounddeck.categories().to_vec(),
@@ -116,6 +118,7 @@ impl DaemonHost {
         };
         let outcome = sounddeck.tick(&self.config.sounddeck, now);
         let playback = sounddeck.playback_changed();
+        self.publish_download_events();
         if let Some(id) = &outcome.played {
             self.count_play(id);
         }
@@ -197,6 +200,43 @@ impl DaemonHost {
         let folder = sounddeck.folder().to_owned();
         let null = Ok(serde_json::Value::Null);
         match request {
+            Request::SoundDeckDownload { url, category } => {
+                let download_id = sounddeck.download(url, category)?;
+                self.publish_download_events();
+                return reply(macafon_ipc::SoundDeckDownloadStarted { download_id });
+            }
+            Request::SoundDeckDownloadCancel { download_id } => {
+                sounddeck.download_cancel(&download_id)?;
+                self.publish_download_events();
+                return null;
+            }
+            Request::SoundDeckDownloadDismiss { download_id } => {
+                sounddeck.download_dismiss(&download_id)?;
+                self.publish_download_events();
+                return null;
+            }
+            Request::SoundDeckSetDownloaderPath { path } => {
+                if path
+                    .as_ref()
+                    .is_some_and(|path| path.trim().is_empty() || path.contains('\0'))
+                {
+                    return Err(ErrorBody::new(
+                        ErrorCode::InvalidParams,
+                        "downloader path must not be empty",
+                    ));
+                }
+                let path = path.map(PathBuf::from);
+                sounddeck.check_downloader(path.clone(), None)?;
+                self.config.sounddeck.downloader_path = path;
+                self.changed_at = Some(Instant::now());
+                return null;
+            }
+            Request::SoundDeckCheckDownloader => {
+                return Err(ErrorBody::new(
+                    ErrorCode::Internal,
+                    "downloader checks require asynchronous dispatch",
+                ));
+            }
             Request::SoundDeckGet => {}
             Request::SoundDeckRescan => {
                 sounddeck.rescan();
@@ -225,6 +265,7 @@ impl DaemonHost {
                 if folder_path(&path) != folder_path(sounddeck.folder()) {
                     sounddeck.set_folder(path);
                 }
+                self.publish_download_events();
                 self.config.sounddeck.folder = chosen;
                 self.changed_at = Some(Instant::now());
                 self.sounddeck_changed();
@@ -448,6 +489,33 @@ impl DaemonHost {
             .and_then(SoundDeck::playback_changed)
         {
             self.hub.broadcast(&Event::SoundDeckPlayback(playback));
+        }
+    }
+
+    fn publish_download_events(&mut self) {
+        if let Some(sounddeck) = &mut self.sounddeck {
+            for downloads in sounddeck.download_events() {
+                self.hub.broadcast(&Event::SoundDeckDownloads(downloads));
+            }
+        }
+    }
+
+    pub(super) fn dispatch_downloader_check(
+        &mut self,
+        reply: std::sync::mpsc::Sender<macafon_ipc::Outcome>,
+    ) {
+        let result = self
+            .sounddeck
+            .as_mut()
+            .ok_or_else(sounddeck_unavailable)
+            .and_then(|sounddeck| {
+                sounddeck.check_downloader(
+                    self.config.sounddeck.downloader_path.clone(),
+                    Some(reply.clone()),
+                )
+            });
+        if let Err(error) = result {
+            let _ = reply.send(macafon_ipc::Outcome::Error(error));
         }
     }
 }

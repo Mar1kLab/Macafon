@@ -596,6 +596,8 @@ mod tests {
         let (out, incoming) = mpsc::sync_channel(1);
         hub.clients().registered.insert(1, (out, None));
         let state = SoundDeckState {
+            downloader: Default::default(),
+            downloads: Vec::new(),
             folder: "sounds".into(),
             default_folder: false,
             categories: vec!["Empty".into()],

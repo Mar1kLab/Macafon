@@ -309,6 +309,7 @@ show_in_overlay = false
         chain.expander.params.ratio = f32::INFINITY;
         let config = Config {
             schema_version: SCHEMA_VERSION,
+            updates: crate::UpdatesConfig::default(),
             dictation: crate::dictation::DictationConfig::default(),
             displays: crate::DisplaysConfig {
                 profiles: vec![macafon_ipc::DisplayProfile {

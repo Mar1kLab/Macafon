@@ -533,7 +533,10 @@ mod tests {
         config.updates.check_automatically = true;
         config.updates.last_checked_unix = Some(1_800_000_000);
         let encoded = toml::to_string(&config).expect("encode config");
-        assert_eq!(toml::from_str::<Config>(&encoded).expect("decode config"), config);
+        assert_eq!(
+            toml::from_str::<Config>(&encoded).expect("decode config"),
+            config
+        );
     }
 
     #[test]

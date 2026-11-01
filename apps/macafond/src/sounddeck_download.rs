@@ -61,6 +61,14 @@ fn arguments(url: &str, output: &Path, ffmpeg: bool) -> Vec<std::ffi::OsString> 
         "3",
         "--encoding",
         "utf-8",
+        // YouTube needs a JS runtime for its challenges; yt-dlp enables only Deno by default,
+        // while Node or Bun is often what the user has (on PATH, found by yt-dlp itself).
+        "--js-runtimes",
+        "deno",
+        "--js-runtimes",
+        "node",
+        "--js-runtimes",
+        "bun",
         "--progress",
         "--progress-delta",
         "0.25",
@@ -129,6 +137,12 @@ fn parse_line(line: &str) -> Option<Line> {
             .map(|value| Line::File(value.into()));
     }
     (line == "MACAFON_CONVERTING").then_some(Line::Converting)
+}
+
+/// `--max-downloads 1` makes yt-dlp exit with 101 after the one download it allows, so 101
+/// with a finished file is a success.
+fn finished(code: Option<i32>, file: bool) -> bool {
+    code == Some(0) || (code == Some(101) && file)
 }
 
 fn short_error(line: &str, ffmpeg: bool) -> String {
@@ -615,7 +629,11 @@ impl Task {
                         let _ = self.send.send(Update::Converting);
                     }
                     Some(_) => {}
-                    None if !line.trim().is_empty() => error = short_error(&line, self.ffmpeg),
+                    // Only yt-dlp's own errors explain a failure; warnings and info lines
+                    // (missing JS runtime, "Deleting original file") do not.
+                    None if line.trim_start().starts_with("ERROR:") => {
+                        error = short_error(&line, self.ffmpeg)
+                    }
                     None => {}
                 },
                 Err(mpsc::RecvTimeoutError::Disconnected) => disconnected = true,
@@ -643,7 +661,7 @@ impl Task {
         if self.cancel.load(Ordering::Relaxed) {
             return Err("Download cancelled".into());
         }
-        if !status.is_some_and(|status| status.success()) {
+        if !status.is_some_and(|status| finished(status.code(), file.is_some())) {
             return Err(short_error(&error, self.ffmpeg));
         }
         let file = file.ok_or_else(|| {

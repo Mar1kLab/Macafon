@@ -33,6 +33,7 @@ fn main() {
         let _ = child.wait();
         return;
     }
+    eprintln!("WARNING: [youtube] No supported JavaScript runtime could be found.");
     println!("MACAFON_TITLE:\"A: bell / sound.\"");
     for pct in [12.5, 60.0, 100.0] {
         println!("MACAFON_PROGRESS: {pct}%");
@@ -57,4 +58,7 @@ fn main() {
     fs::write(&output, wav).unwrap();
     // JSON-quote the Windows path without needing serde in this standalone fixture.
     println!("MACAFON_FILE:\"{}\"", output.to_str().unwrap().replace('\\', "\\\\").replace('"', "\\\""));
+    // Like the real yt-dlp under `--max-downloads 1`: the limit is reached after a success.
+    eprintln!("[info] Maximum number of downloads reached, stopping due to --max-downloads");
+    std::process::exit(101);
 }

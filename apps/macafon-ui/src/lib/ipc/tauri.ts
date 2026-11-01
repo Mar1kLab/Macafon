@@ -53,9 +53,20 @@ export class TauriTransport implements Transport {
   }
 
   onStatus(handler: (status: DaemonStatus) => void): () => void {
-    const unlisten = listen<DaemonStatus>('daemon://status', (message) => handler(message.payload));
-    // The bridge may have connected before the listener existed.
-    void invoke<DaemonStatus>('daemon_status').then(handler);
+    // The bridge may connect before the listener exists (the prewarmed quick panel loads while
+    // it connects), so ask for the current status, but only once the listener is in place:
+    // asked earlier, a `connected` emitted in between is lost and the page waits forever.
+    // A status event that arrives first is at least as new as the reply, so it wins.
+    let seenEvent = false;
+    const unlisten = listen<DaemonStatus>('daemon://status', (message) => {
+      seenEvent = true;
+      handler(message.payload);
+    });
+    void unlisten
+      .then(() => invoke<DaemonStatus>('daemon_status'))
+      .then((status) => {
+        if (!seenEvent) handler(status);
+      });
     return () => void unlisten.then((stop) => stop());
   }
 

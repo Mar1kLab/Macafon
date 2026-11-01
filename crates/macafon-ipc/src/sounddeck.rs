@@ -6,6 +6,47 @@ use serde::{Deserialize, Serialize};
 /// Largest decoded chunk of `sounddeck.upload`; its base64 stays under `MAX_LINE_BYTES`.
 pub const SOUNDDECK_UPLOAD_CHUNK_BYTES: usize = 512 * 1024;
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct DownloaderInfo {
+    pub available: bool,
+    pub version: Option<String>,
+    pub path: Option<String>,
+    pub configured_path: Option<String>,
+    pub ffmpeg: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum SoundDeckDownloadState {
+    Queued,
+    Downloading,
+    Converting,
+    Done,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SoundDeckDownload {
+    pub id: String,
+    pub url: String,
+    pub title: Option<String>,
+    pub category: Option<String>,
+    pub state: SoundDeckDownloadState,
+    pub progress_pct: Option<f32>,
+    pub error: Option<String>,
+    pub sound_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SoundDeckDownloadStarted {
+    pub download_id: String,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
@@ -88,6 +129,10 @@ pub struct SoundDeckPrefs {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SoundDeckState {
+    #[serde(default)]
+    pub downloader: DownloaderInfo,
+    #[serde(default)]
+    pub downloads: Vec<SoundDeckDownload>,
     /// Absolute path of the library folder.
     pub folder: String,
     /// The folder is the default one (`Music\Macafon Sounds`), not picked by the user.
@@ -138,6 +183,57 @@ pub struct SoundPatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn download_requests_and_event_use_the_public_wire_names() {
+        use crate::{Event, Request, RequestEnvelope};
+        for (method, params) in [
+            (
+                "sounddeck.download",
+                serde_json::json!({"url":"https://example.test/a", "category":null}),
+            ),
+            (
+                "sounddeck.download_cancel",
+                serde_json::json!({"download_id":"job-1"}),
+            ),
+            (
+                "sounddeck.download_dismiss",
+                serde_json::json!({"download_id":"job-1"}),
+            ),
+            (
+                "sounddeck.set_downloader_path",
+                serde_json::json!({"path":null}),
+            ),
+            ("sounddeck.check_downloader", serde_json::json!(null)),
+        ] {
+            let request = serde_json::json!({"id":1,"method":method,"params":params});
+            let parsed: RequestEnvelope =
+                serde_json::from_value(request).expect("download request");
+            let encoded = serde_json::to_value(&parsed).expect("encode request");
+            assert_eq!(encoded["method"], method);
+            if matches!(parsed.request, Request::SoundDeckDownload { .. }) {
+                assert_eq!(encoded["params"]["category"], serde_json::Value::Null);
+            }
+        }
+        let job = SoundDeckDownload {
+            id: "job-1".into(),
+            url: "https://example.test/a".into(),
+            title: None,
+            category: None,
+            state: SoundDeckDownloadState::Done,
+            progress_pct: Some(100.0),
+            error: None,
+            sound_id: Some("a.wav".into()),
+        };
+        let event = Event::SoundDeckDownloads(vec![job]);
+        let encoded = serde_json::to_value(&event).expect("download event");
+        assert_eq!(encoded["event"], "sounddeck.downloads");
+        assert_eq!(encoded["data"][0]["state"], "done");
+        assert_eq!(
+            serde_json::from_value::<Event>(encoded).expect("event round trip"),
+            event
+        );
+    }
 
     #[test]
     fn old_sounddeck_preferences_default_to_grid_with_top_controls() {

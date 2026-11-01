@@ -234,6 +234,19 @@ pub enum Request {
     /// The library, its sounds and the SoundDeck preferences (§7.6).
     #[serde(rename = "sounddeck.get")]
     SoundDeckGet,
+    #[serde(rename = "sounddeck.download")]
+    SoundDeckDownload {
+        url: String,
+        category: Option<String>,
+    },
+    #[serde(rename = "sounddeck.download_cancel")]
+    SoundDeckDownloadCancel { download_id: String },
+    #[serde(rename = "sounddeck.download_dismiss")]
+    SoundDeckDownloadDismiss { download_id: String },
+    #[serde(rename = "sounddeck.set_downloader_path")]
+    SoundDeckSetDownloaderPath { path: Option<String> },
+    #[serde(rename = "sounddeck.check_downloader")]
+    SoundDeckCheckDownloader,
     /// Look at the folder again now; it is also rescanned every few seconds.
     #[serde(rename = "sounddeck.rescan")]
     SoundDeckRescan,

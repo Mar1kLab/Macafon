@@ -106,6 +106,8 @@ pub enum Event {
     /// Any change of the library or the SoundDeck preferences.
     #[serde(rename = "sounddeck.changed")]
     SoundDeckChanged(crate::SoundDeckState),
+    #[serde(rename = "sounddeck.downloads")]
+    SoundDeckDownloads(Vec<crate::SoundDeckDownload>),
     /// Playback progress, about 10 Hz while a sound plays; `null` when it ends.
     #[serde(rename = "sounddeck.playback")]
     SoundDeckPlayback(Option<crate::SoundDeckPlayback>),

@@ -59,8 +59,9 @@ pub const MAX_METER_HZ: u32 = 60;
 
 pub use request::Request;
 pub use sounddeck::{
-    SOUNDDECK_UPLOAD_CHUNK_BYTES, SoundDeckOverlayControls, SoundDeckOverlayView,
-    SoundDeckPlayback, SoundDeckPrefs, SoundDeckPrefsPatch, SoundDeckState, SoundInfo, SoundPatch,
+    DownloaderInfo, SOUNDDECK_UPLOAD_CHUNK_BYTES, SoundDeckDownload, SoundDeckDownloadStarted,
+    SoundDeckDownloadState, SoundDeckOverlayControls, SoundDeckOverlayView, SoundDeckPlayback,
+    SoundDeckPrefs, SoundDeckPrefsPatch, SoundDeckState, SoundInfo, SoundPatch,
 };
 pub use state::{
     AbRecording, AbSide, AbState, AbWaveform, AutostartMethod, AutostartState, CalibrationFailure,

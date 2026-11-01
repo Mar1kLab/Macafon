@@ -30,6 +30,9 @@ pub struct SoundDeckConfig {
     /// Library folder; unset uses [`default_folder`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folder: Option<PathBuf>,
+    /// User's yt-dlp executable; unset searches PATH. The tool is never bundled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub downloader_path: Option<PathBuf>,
     pub to_microphone: bool,
     pub to_headphones: bool,
     pub microphone_volume_pct: f32,
@@ -56,6 +59,7 @@ impl Default for SoundDeckConfig {
     fn default() -> Self {
         Self {
             folder: None,
+            downloader_path: None,
             to_microphone: true,
             to_headphones: true,
             microphone_volume_pct: 100.0,
@@ -266,6 +270,10 @@ microphone_volume_pct = 40.0
 ",
         )
         .expect("old sounddeck section");
+        assert!(
+            old.downloader_path.is_none(),
+            "old configs discover yt-dlp on PATH"
+        );
         assert!(old.normalize_levels());
         assert_eq!(old.headphones_volume_pct, 70.0);
         assert_eq!(old.microphone_volume_pct, 100.0);
@@ -273,5 +281,21 @@ microphone_volume_pct = 40.0
         assert!(!old.normalize_levels());
         assert_eq!(old.headphones_volume_pct, 5.0);
         assert!(!SoundDeckConfig::default().normalize_levels());
+    }
+
+    #[test]
+    fn custom_downloader_path_round_trips_without_a_config_migration() {
+        let config = SoundDeckConfig {
+            downloader_path: Some(PathBuf::from("Tools with spaces/yt-dlp.exe")),
+            ..Default::default()
+        };
+        let encoded = toml::to_string(&config).expect("serialize downloader setting");
+        let decoded: SoundDeckConfig = toml::from_str(&encoded).expect("read downloader setting");
+        assert_eq!(decoded.downloader_path, config.downloader_path);
+        assert!(
+            !toml::to_string(&SoundDeckConfig::default())
+                .expect("default config")
+                .contains("downloader_path")
+        );
     }
 }

@@ -21,7 +21,7 @@
 5. [Release scope](#5-release-scope)
 6. [Functional requirements — microphone](#6-functional-requirements--microphone)
 7. [Functional requirements — output channels](#7-functional-requirements--output-channels)
-8. [Background operation, tray, autostart, hotkeys, dictation, displays](#8-background-operation-tray-autostart-hotkeys-dictation-displays)
+8. [Background operation, tray, autostart, hotkeys, dictation, displays, updates](#8-background-operation-tray-autostart-hotkeys-dictation-displays-updates)
 9. [UX and screens](#9-ux-and-screens)
 10. [Non-functional requirements](#10-non-functional-requirements)
 11. [Architecture](#11-architecture)
@@ -476,7 +476,7 @@ library folder -> decoder (48 kHz stereo, loudness/peak cache) -> SoundDeckContr
 | SND-006 | The hotkey overlay (HK-007) has a SoundDeck bar with stop and a button that expands the sounds; every opening starts collapsed (owner request, 2026-10-18). Expanded: search (Enter plays the first match), a category filter and pads; the category, search and scroll position are remembered. Settings → Hotkey popup turns the SoundDeck bar on or off (on by default) | P1 |
 | SND-007 | "Mute my voice while playing": while a sound plays into the microphone the voice fades out. The loudness reference observes processed voice before this duck, retaining its last value during silence/mute (owner request, 2026-10-18) | P1 |
 | SND-008 | RT rules (AGENTS section 4.1): taps are allocation- and lock-free; decoded sounds are only freed on the control loop. Loudness/peak measurement and normalization coefficients are computed once at decode time; reference tracking, smoothed gains and zero-lookahead limiting allocate nothing (owner request, 2026-10-18) | P0 |
-| SND-009 | User-initiated URL downloads into the SoundDeck library from YouTube, SoundCloud and other sites supported by the user's external open-source yt-dlp (owner request and network authorization, 2026-11-01). yt-dlp is not bundled: discover it on PATH or at `sounddeck.downloader_path`; detect its version on a worker at startup and on explicit re-check. ffmpeg on PATH is optional: with it extract to MP3; without it select only supported audio formats and explain when ffmpeg is needed. Accept only HTTP/HTTPS URLs, one sound per job, at most 200 MB and 10 minutes, at most three concurrent jobs. Show queued/downloading/converting/done/failed/cancelled jobs, progress and short errors; allow cancellation and dismissal of finished entries. Cancel kills yt-dlp and child ffmpeg, removes partial files, and also happens at daemon shutdown or library-folder switch. Downloads stage in `.macafon-uploads` on the library volume and finalize into the chosen category or root with a Windows-safe media-title name and collision-safe naming, then publish the library update. No network access except the user-initiated yt-dlp run; no automatic tool installation or updates | P1 |
+| SND-009 | User-initiated URL downloads into the SoundDeck library from YouTube, SoundCloud and other sites supported by the user's external open-source yt-dlp (owner request and network authorization, 2026-11-01). yt-dlp is not bundled in the installer: discover it at `sounddeck.downloader_path`, as Macafon's own copy installed from Settings → Updates (UPD-005, Windows) or on PATH; detect its version on a worker at startup and on explicit re-check. ffmpeg (Macafon's copy or PATH, UPD-006) is optional: with it extract to MP3; without it select only supported audio formats and explain when ffmpeg is needed. Accept only HTTP/HTTPS URLs, one sound per job, at most 200 MB and 10 minutes, at most three concurrent jobs. Show queued/downloading/converting/done/failed/cancelled jobs, progress and short errors; allow cancellation and dismissal of finished entries. Cancel kills yt-dlp and child ffmpeg, removes partial files, and also happens at daemon shutdown or library-folder switch. Downloads stage in `.macafon-uploads` on the library volume and finalize into the chosen category or root with a Windows-safe media-title name and collision-safe naming, then publish the library update. No network access except the user-initiated yt-dlp run; tools are installed and updated only from an explicit user action in Settings → Updates (§8.6), never automatically | P1 |
 
 SoundDeck loudness policy (owner request, 2026-10-18): decode measures stereo RMS in 400 ms
 blocks gated below -60 dBFS and sample peak, caching normalization coefficients with the PCM.
@@ -506,7 +506,7 @@ is excluded from categories and normal sounds, and exposed separately as `proble
 in-memory error. Individual deletion uses `sounddeck.delete`; `sounddeck.delete_problem_sounds` deletes
 all problem files. Category creation/renaming cannot use the reserved name (SND-001).
 
-## 8. Background operation, tray, autostart, hotkeys, dictation, displays
+## 8. Background operation, tray, autostart, hotkeys, dictation, displays, updates
 
 ### 8.1 Background and tray
 
@@ -805,6 +805,23 @@ See [Linux development notes](development/linux-m0.md#display-profiles).
 
 ---
 
+### 8.6 Updates (app and dependencies)
+
+Owner request and network authorization, 2026-11-01: Macafon checks GitHub Releases for itself and
+its two optional SoundDeck tools, and installs updates only from an explicit user action, the
+same way as dictation models (§8.4.6).
+
+| ID | Requirement | Priority |
+|---|---|---|
+| UPD-001 | Settings → **Updates** has two groups: **Macafon** (installed and latest version, release notes link, last check time, Check now, Download / Install and restart, progress, cancel, errors) and **Dependencies** (yt-dlp and ffmpeg: source — Macafon copy / custom path / PATH / missing, installed and latest version, Install / Update / Remove, progress, cancel, errors) | P1 |
+| UPD-002 | Checks query only `https://api.github.com/repos/<owner>/<repo>/releases/latest` for `Mar1kLab/Macafon`, `yt-dlp/yt-dlp` and `yt-dlp/FFmpeg-Builds`. They run on **Check now**, or — when the opt-in "Check for updates automatically" is on (default off) — at most once per 24 h while the daemon runs. Drafts and pre-releases are ignored; Macafon versions compare as `X.Y.Z`, tools by release tag. A check never downloads or installs anything | P1 |
+| UPD-003 | Windows app update: download `Macafon_<version>_x64-setup.exe` from the latest release into `%LOCALAPPDATA%\Macafon\updates\` (`*.part`, then rename) after verifying its SHA-256 against the release's `SHA256SUMS.txt`; **Install and restart** starts it as `/P /UPDATE /R` (passive; the installer hooks stop and restart the daemon) and the UI closes. Staged installers older than the running version are deleted at daemon start | P1 |
+| UPD-004 | Linux app update: show the latest version and open the release page; installing goes through the package manager or Flatpak, never by Macafon | P1 |
+| UPD-005 | Windows dependencies: on user action Macafon installs or updates `yt-dlp.exe` (latest `yt-dlp/yt-dlp` release, verified against `SHA2-256SUMS`) and ffmpeg (`ffmpeg-master-latest-win64-gpl.zip` from the latest `yt-dlp/FFmpeg-Builds` release, verified against its published checksum or the GitHub asset digest; only `ffmpeg.exe` and `ffprobe.exe` are kept) into `%LOCALAPPDATA%\Macafon\tools\`, recording each release tag in `tools\tools.json`. A replace is download → verify → rename; it is refused while a SoundDeck download runs. **Remove** deletes only Macafon's copy. The tools are never bundled in the installer. Linux shows detected versions and the install command only | P1 |
+| UPD-006 | Tool resolution: yt-dlp — custom path (`sounddeck.downloader_path`) → Macafon copy → PATH; ffmpeg — Macafon copy → PATH, passed to yt-dlp with `--ffmpeg-location`. Installing, updating or removing a Macafon copy re-detects tools at once (SND-009) without restarting the daemon | P1 |
+| UPD-007 | Safety: HTTPS only (rustls), redirects only to GitHub hosts, size caps (installer 200 MB, yt-dlp 50 MB, ffmpeg archive 300 MB), a free-space check, mandatory checksums — a missing or mismatched checksum deletes the file and shows an error. Network and file work run on worker threads, never on the control loop or the RT path; every download can be cancelled and is cancelled at daemon shutdown. Errors are short; logs carry no URLs with query strings | P0 |
+| UPD-008 | When an automatic check finds a newer Macafon, the Updates entry of the Settings section list shows a marker; nothing is installed automatically | P2 |
+
 ## 9. UX and screens
 
 The visual language is the [design system](design/design-system.md). The window is 1180×760 by default,
@@ -909,13 +926,14 @@ Every step can be skipped; onboarding is available again from Settings.
 
 | Section | Contents |
 |---|---|
-| General | Start with system, Close button behaviour (tray / quit), Check for updates (GitHub releases, opt-in), Re-run onboarding |
+| General | Start with system, Close button behaviour (tray / quit), Re-run onboarding |
 | Audio | Preferred quantum (64 / 128 / 256 / 512 frames; 128 = 2.7 ms by default), Output device priority list, Mic fallback device, Mono/Stereo virtual mic |
-| SoundDeck | Library folder (SND-001) |
+| SoundDeck | Library folder (SND-001), yt-dlp path (SND-009) |
 | Dictation | A link to the Dictation screen (§9.9), where all its settings live |
 | Hotkeys | A list of actions, shortcut assignment, backend status (Portal / X11 / Unavailable → CLI commands) |
 | Hotkey popup | Look, style, position, offset and monitor (HK-006), each shown as a picture of the screen with the popup where it appears |
 | Quick controls overlay | What the overlay shows (§9.9.2 configurator), where side panels open and how the overlay is placed, as pictures; SoundDeck pads/list and its player bar (SND-006) |
+| Updates | Macafon and Dependencies (yt-dlp, ffmpeg) groups, Check now, opt-in automatic check (§8.6) |
 | Doctor | Diagnostics (§9.6) |
 | About | Version, third-party licenses (RNNoise, DeepFilterNet, whisper.cpp, sherpa-onnx, ONNX Runtime, the CC-BY-4.0 Parakeet attribution, fonts), GitHub links |
 
@@ -1295,9 +1313,11 @@ Measurement method — §14.3.
 
 ### 10.4 Privacy and security
 
-- No telemetry and no network requests, except the opt-in update check (GitHub Releases API) and
-  user-initiated dictation model downloads from pinned Hugging Face URLs (§8.4.6, owner authorization
-  2026-10-19).
+- No telemetry and no network requests, except: update checks (GitHub Releases API) and
+  user-initiated downloads of Macafon installers, yt-dlp and ffmpeg from GitHub releases (§8.6, owner
+  authorization 2026-11-01); user-initiated dictation model downloads from pinned Hugging Face URLs
+  (§8.4.6, owner authorization 2026-10-19); user-initiated SoundDeck URL downloads through yt-dlp
+  (SND-009, owner authorization 2026-11-01).
 - A/B recordings are kept in memory only and deleted when the UI closes.
 - The daemon's IPC socket is accessible only to the current user (`$XDG_RUNTIME_DIR/macafon/macafond.sock`, permissions 0600).
 - Noise suppression models ship in the package; dictation models are downloaded on request. Both are
@@ -1720,7 +1740,7 @@ Steam + a Proton game, a native game (SDL), mpv, OBS (as a consumer of the virtu
 | AUR (`macafon`, `macafon-bin`) | P0 | |
 | Flatpak (Flathub) | P2 | The daemon needs access to PipeWire and the registry of all nodes — the sandbox needs research |
 | Windows: a per-user installer (no administrator rights) | P0 (M3) | Authenticode signing through SignPath Foundation (free for OSS); the user installs VB-CABLE themselves |
-| Auto-update | P1 | Only a new-version notification (opt-in); updating through the package manager / installer |
+| Updates | P1 | §8.6: Windows downloads and runs the verified installer on user action; Linux only shows the new version — updating through the package manager / Flatpak |
 
 Linux packages include `macafon-ui`, `macafond`, `macafon` and the on-demand `macafon-stt`
 worker. The worker sits beside the daemon; sherpa-onnx/ONNX Runtime shared libraries live in the private

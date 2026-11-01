@@ -11,6 +11,13 @@ use std::time::{Duration, Instant};
 impl DaemonHost {
     pub(super) fn respond(&mut self, request: Request) -> Result<serde_json::Value, ErrorBody> {
         let state = match request {
+            request @ (Request::UpdatesGet
+            | Request::UpdatesCheck
+            | Request::UpdatesInstall { .. }
+            | Request::UpdatesCancel { .. }
+            | Request::UpdatesRemove { .. }
+            | Request::UpdatesSetCheckAutomatically { .. }
+            | Request::UpdatesOpenRelease { .. }) => return self.respond_updates(request),
             Request::OutputControlsList => return Ok(serde_json::json!([])),
             request @ (Request::DictationGet
             | Request::DictationSetPrefs { .. }

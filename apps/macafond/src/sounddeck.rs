@@ -11,7 +11,7 @@ use macafon_sounddeck::library::{self, SoundEntry};
 use macafon_sounddeck::rt::{Output, SoundDeckControl, SoundDeckTap};
 use std::collections::{HashMap, HashSet};
 #[path = "sounddeck_download.rs"]
-mod download_worker;
+pub(crate) mod download_worker;
 #[path = "sounddeck_library.rs"]
 mod library_worker;
 use std::path::{Path, PathBuf};
@@ -805,6 +805,10 @@ impl SoundDeck {
 
     pub fn downloads(&self) -> Vec<macafon_ipc::SoundDeckDownload> {
         self.downloads.snapshot()
+    }
+
+    pub fn downloads_active(&self) -> bool {
+        self.downloads.active()
     }
 
     pub fn download_events(&mut self) -> Vec<Vec<macafon_ipc::SoundDeckDownload>> {

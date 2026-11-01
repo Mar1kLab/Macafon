@@ -225,7 +225,7 @@ impl Drop for Job {
 
 struct Detection {
     cancel: Arc<AtomicBool>,
-    result: mpsc::Receiver<DownloaderInfo>,
+    result: mpsc::Receiver<(DownloaderInfo, Option<PathBuf>)>,
     thread: Option<JoinHandle<()>>,
     reply: Option<mpsc::Sender<Outcome>>,
 }
@@ -241,6 +241,7 @@ impl Drop for Detection {
 #[derive(Default)]
 pub(super) struct Downloads {
     pub info: DownloaderInfo,
+    ffmpeg_directory: Option<PathBuf>,
     detection: Option<Detection>,
     jobs: Vec<Job>,
     retiring: Vec<Job>,
@@ -249,6 +250,15 @@ pub(super) struct Downloads {
 }
 
 impl Downloads {
+    pub fn active(&self) -> bool {
+        self.jobs.iter().chain(&self.retiring).any(|job| {
+            job.active()
+                || job
+                    .thread
+                    .as_ref()
+                    .is_some_and(|thread| !thread.is_finished())
+        })
+    }
     pub fn snapshot(&self) -> Vec<SoundDeckDownload> {
         self.jobs.iter().map(|job| job.status.clone()).collect()
     }
@@ -276,7 +286,9 @@ impl Downloads {
         let thread = std::thread::Builder::new()
             .name("sounddeck-detect".into())
             .spawn(move || {
-                let _ = send.send(detect(path, &flag));
+                let info = detect(path, &flag);
+                let directory = crate::updates::tools::managed_ffmpeg_directory();
+                let _ = send.send((info, directory));
             })
             .map_err(|error| ErrorBody::new(ErrorCode::Internal, error.to_string()))?;
         self.detection = Some(Detection {
@@ -293,7 +305,7 @@ impl Downloads {
             .detection
             .as_ref()
             .and_then(|detection| detection.result.try_recv().ok());
-        let Some(info) = result else {
+        let Some((info, directory)) = result else {
             return false;
         };
         if let Some(mut detection) = self.detection.take()
@@ -302,6 +314,7 @@ impl Downloads {
             let _ = reply.send(Outcome::Result(serde_json::json!(&info)));
         }
         self.info = info;
+        self.ffmpeg_directory = directory;
         true
     }
 
@@ -312,6 +325,12 @@ impl Downloads {
         category: Option<String>,
     ) -> Result<String, ErrorBody> {
         validate_url(&url)?;
+        if self.detection.is_some() {
+            return Err(ErrorBody::new(
+                ErrorCode::Busy,
+                "wait for downloader detection to finish",
+            ));
+        }
         if let Some(category) = &category {
             library::validate_name(category).map_err(super::library_error)?;
         }
@@ -365,6 +384,7 @@ impl Downloads {
             url: url.clone(),
             executable: executable.into(),
             ffmpeg: self.info.ffmpeg,
+            ffmpeg_directory: self.ffmpeg_directory.clone(),
             cancel: cancel.clone(),
             progress: progress.clone(),
             send,
@@ -534,6 +554,7 @@ struct Task {
     url: String,
     executable: PathBuf,
     ffmpeg: bool,
+    ffmpeg_directory: Option<PathBuf>,
     cancel: Arc<AtomicBool>,
     progress: Arc<AtomicU32>,
     send: mpsc::SyncSender<Update>,
@@ -551,6 +572,9 @@ impl Task {
         };
         let output = staged.directory.join("media.%(ext)s");
         let mut command = Command::new(&self.executable);
+        if let Some(directory) = &self.ffmpeg_directory {
+            command.arg("--ffmpeg-location").arg(directory);
+        }
         command.args(arguments(&self.url, &output, self.ffmpeg));
         let mut process = Process::spawn(command).map_err(|error| error.to_string())?;
         let _ = self.send.send(Update::Downloading);
@@ -701,8 +725,8 @@ fn read_lines(
         .ok()
 }
 
-fn on_path(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
+pub(crate) fn on_path(name: &str) -> Option<PathBuf> {
+    let path = crate::updates::tools::search_path()?;
     std::env::split_paths(&path)
         .filter(|directory| directory.is_absolute())
         .find_map(|directory| {
@@ -715,26 +739,35 @@ fn on_path(name: &str) -> Option<PathBuf> {
         })
 }
 
-fn detect(configured: Option<PathBuf>, cancel: &AtomicBool) -> DownloaderInfo {
+pub(crate) fn detect(configured: Option<PathBuf>, cancel: &AtomicBool) -> DownloaderInfo {
     let mut info = DownloaderInfo {
         configured_path: configured.as_ref().map(|path| path.display().to_string()),
-        ffmpeg: on_path("ffmpeg").is_some(),
+        ffmpeg: crate::updates::tools::resolve_ffmpeg().is_some(),
         ..Default::default()
     };
-    let Some(path) = configured.or_else(|| on_path("yt-dlp")) else {
+    let Some((path, _)) = crate::updates::tools::resolve_downloader(configured.as_deref()) else {
         return info;
     };
-    let mut command = Command::new(&path);
-    command.args(["--ignore-config", "--no-plugin-dirs", "--version"]);
+    if let Some(version) = probe_version(
+        &path,
+        &["--ignore-config", "--no-plugin-dirs", "--version"],
+        cancel,
+    ) {
+        info.available = true;
+        info.path = Some(path.canonicalize().unwrap_or(path).display().to_string());
+        info.version = Some(version);
+    }
+    info
+}
+
+pub(crate) fn probe_version(path: &Path, args: &[&str], cancel: &AtomicBool) -> Option<String> {
+    let mut command = Command::new(path);
+    command.args(args);
     let Ok(mut process) = Process::spawn(command) else {
-        return info;
+        return None;
     };
-    let Some(stdout) = process.child.stdout.take() else {
-        return info;
-    };
-    let Some(stderr) = process.child.stderr.take() else {
-        return info;
-    };
+    let stdout = process.child.stdout.take()?;
+    let stderr = process.child.stderr.take()?;
     let (send, lines) = mpsc::sync_channel(32);
     let readers = [read_lines(stdout, send.clone()), read_lines(stderr, send)];
     let started = Instant::now();
@@ -744,7 +777,7 @@ fn detect(configured: Option<PathBuf>, cancel: &AtomicBool) -> DownloaderInfo {
     while !cancel.load(Ordering::Relaxed) && started.elapsed() < DETECT_TIMEOUT {
         match lines.recv_timeout(POLL) {
             Ok(line) => {
-                if version.is_none() && line.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
+                if version.is_none() && version_line(&line) {
                     version = Some(
                         line.chars()
                             .filter(|ch| !ch.is_control())
@@ -769,7 +802,7 @@ fn detect(configured: Option<PathBuf>, cancel: &AtomicBool) -> DownloaderInfo {
     drop(process);
     // Drain after process exit too: a short-lived tool may exit before its reader runs.
     for line in lines.try_iter() {
-        if version.is_none() && line.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
+        if version.is_none() && version_line(&line) {
             version = Some(
                 line.chars()
                     .filter(|ch| !ch.is_control())
@@ -782,12 +815,11 @@ fn detect(configured: Option<PathBuf>, cancel: &AtomicBool) -> DownloaderInfo {
     for reader in readers.into_iter().flatten() {
         let _ = reader.join();
     }
-    info.available = status.is_some_and(|status| status.success()) && version.is_some();
-    if info.available {
-        info.path = Some(path.canonicalize().unwrap_or(path).display().to_string());
-        info.version = version;
-    }
-    info
+    version.filter(|_| status.is_some_and(|status| status.success()))
+}
+
+fn version_line(line: &str) -> bool {
+    line.chars().next().is_some_and(|ch| ch.is_ascii_digit()) || line.starts_with("ffmpeg version ")
 }
 
 /// Owns a dedicated process tree. Windows starts suspended so even a fast launcher cannot

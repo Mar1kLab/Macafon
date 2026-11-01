@@ -23,6 +23,7 @@ mod server;
 mod sounddeck;
 mod tray;
 mod ui;
+mod updates;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};

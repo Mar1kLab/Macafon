@@ -196,6 +196,12 @@ impl DaemonHost {
         &mut self,
         request: Request,
     ) -> Result<serde_json::Value, ErrorBody> {
+        if matches!(request, Request::SoundDeckDownload { .. }) && self.updates.busy_tools() {
+            return Err(ErrorBody::new(
+                ErrorCode::Busy,
+                "SoundDeck tools are being changed",
+            ));
+        }
         let sounddeck = self.sounddeck.as_mut().ok_or_else(sounddeck_unavailable)?;
         let folder = sounddeck.folder().to_owned();
         let null = Ok(serde_json::Value::Null);
@@ -228,6 +234,7 @@ impl DaemonHost {
                 let path = path.map(PathBuf::from);
                 sounddeck.check_downloader(path.clone(), None)?;
                 self.config.sounddeck.downloader_path = path;
+                self.updates.refresh();
                 self.changed_at = Some(Instant::now());
                 return null;
             }
@@ -504,6 +511,7 @@ impl DaemonHost {
         &mut self,
         reply: std::sync::mpsc::Sender<macafon_ipc::Outcome>,
     ) {
+        self.updates.refresh();
         let result = self
             .sounddeck
             .as_mut()

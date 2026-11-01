@@ -10,6 +10,7 @@ mod mixer;
 mod presets;
 mod requests;
 mod sounddeck;
+mod updates;
 
 use crate::ab::Ab;
 use crate::calibration::Recording;
@@ -117,6 +118,9 @@ pub struct DaemonHost {
     sounddeck: Option<crate::sounddeck::SoundDeck>,
     sounddeck_dirty: bool,
     sounddeck_broadcast_at: Option<Instant>,
+    updates: crate::updates::Manager,
+    updates_downloader: Option<macafon_ipc::DownloaderInfo>,
+    updates_redetect: bool,
     quit: bool,
     server: Option<(Endpoint, ControlSender<ControlMessage>)>,
     _socket: Option<SocketGuard>,
@@ -142,6 +146,9 @@ impl DaemonHost {
             #[cfg(any(windows, target_os = "linux"))]
             displays: displays::Runtime::default(),
             dictation: crate::dictation::Dictation::new(&config.dictation),
+            updates: crate::updates::Manager::new(&config.updates),
+            updates_downloader: None,
+            updates_redetect: false,
             selected_device,
             selected_stable_id: None,
             active_device: None,
@@ -198,6 +205,7 @@ impl DaemonHost {
 
     /// Persist pending changes now (shutdown).
     pub fn flush(&mut self) {
+        self.updates.shutdown();
         #[cfg(any(windows, target_os = "linux"))]
         self.stop_displays();
         if self.changed_at.is_some() && self.save() {
@@ -459,6 +467,7 @@ impl MicrophoneHost for DaemonHost {
                 self.changed();
             }
             self.start_sounddeck();
+            self.start_updates();
             // Spawned after signals are blocked, like the tray (HK-003).
             self.hotkeys = Some(crate::hotkeys::Hotkeys::spawn(control.clone()));
             if self
@@ -694,6 +703,13 @@ impl MicrophoneHost for DaemonHost {
             self.dispatch_downloader_check(reply);
             return;
         }
+        if matches!(
+            request,
+            Request::UpdatesCheck | Request::UpdatesOpenRelease { .. }
+        ) {
+            self.dispatch_update(request, reply);
+            return;
+        }
         #[cfg(windows)]
         if matches!(
             request,
@@ -741,6 +757,7 @@ impl MicrophoneHost for DaemonHost {
         self.tick_displays();
         self.tick_dictation();
         self.tick_sounddeck(Instant::now());
+        self.tick_updates();
         self.refresh_input();
         self.mixer.collect_garbage();
         self.mixer.poll_default_sink(&self.config.mixer);

@@ -37,6 +37,15 @@ pub struct Config {
     pub sounddeck: SoundDeckConfig,
     pub dictation: dictation::DictationConfig,
     pub displays: DisplaysConfig,
+    pub updates: UpdatesConfig,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdatesConfig {
+    pub check_automatically: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_checked_unix: Option<u64>,
 }
 
 /// UI facts the daemon remembers.
@@ -439,6 +448,7 @@ impl Default for Config {
             sounddeck: SoundDeckConfig::default(),
             dictation: dictation::DictationConfig::default(),
             displays: DisplaysConfig::default(),
+            updates: UpdatesConfig::default(),
         }
     }
 }
@@ -515,6 +525,16 @@ impl MicProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn updates_preferences_default_off_and_round_trip() {
+        let mut config: Config = toml::from_str("").expect("old config");
+        assert_eq!(config.updates, UpdatesConfig::default());
+        config.updates.check_automatically = true;
+        config.updates.last_checked_unix = Some(1_800_000_000);
+        let encoded = toml::to_string(&config).expect("encode config");
+        assert_eq!(toml::from_str::<Config>(&encoded).expect("decode config"), config);
+    }
 
     #[test]
     fn display_defaults_are_offered_once_without_overwriting_bindings() {

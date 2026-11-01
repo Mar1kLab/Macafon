@@ -122,6 +122,48 @@ and `mixer.meters` (channel and Master peaks together with `meters` while the mi
 
 TS types for the UI are generated from `macafon-ipc` (see [ui.md](ui.md)).
 
+### SoundDeck URL downloads
+
+SND-009 uses the user's external yt-dlp; nothing is bundled or installed automatically.
+`[sounddeck] downloader_path` is an optional executable path; omission searches PATH for
+`yt-dlp` (`yt-dlp.exe` on Windows). Startup detection runs `--version` on a worker and caches
+the result; it never downloads a sound. ffmpeg is optional and detected on PATH.
+
+| Method | Parameters | Reply |
+|---|---|---|
+| `sounddeck.get` | — | `SoundDeckState` (or `null` if unavailable), including `downloader` and `downloads` |
+| `sounddeck.download` | `url: string`, `category: string \| null` | `SoundDeckDownloadStarted { download_id: string }` |
+| `sounddeck.download_cancel` | `download_id: string` | `null`; kill the process tree and remove partial files |
+| `sounddeck.download_dismiss` | `download_id: string` | `null`; remove a done, failed or cancelled entry; active jobs return `busy` |
+| `sounddeck.set_downloader_path` | `path: string \| null` (`null` searches PATH) | `null`; persist and start detection asynchronously |
+| `sounddeck.check_downloader` | — | New `DownloaderInfo` after worker detection; response is deferred without blocking the control loop |
+
+`DownloaderInfo` contains `available: boolean`, `version: string | null`, `path: string | null`
+(resolved executable), `configured_path: string | null` and `ffmpeg: boolean`.
+Detection already in progress returns `busy`; completed detection publishes `sounddeck.changed`.
+`SoundDeckDownload` contains `id`, `url`, `title: string | null`, `category: string | null`,
+`state: SoundDeckDownloadState` (`queued`, `downloading`, `converting`, `done`, `failed`, `cancelled`),
+`progress_pct: number | null`, `error: string | null` and `sound_id: string | null`.
+The Rust and generated TypeScript names match. `sounddeck.downloads` carries the complete
+`SoundDeckDownload[]` on every state change; progress-only snapshots are limited to four per second
+across all jobs.
+Completion also publishes the normal `sounddeck.changed` library snapshot.
+
+Only HTTP/HTTPS URLs are accepted (`invalid_params` otherwise). Missing yt-dlp returns `not_found`;
+more than three active or still-stopping workers returns `busy`. Jobs are transient and are not
+resumed after daemon restart. Folder switches cancel jobs before the new folder can accept results.
+Dismissed cancelled jobs finish cleanup on their workers without blocking the control loop.
+
+The worker spawns yt-dlp directly, without a shell, with configuration and exec hooks disabled,
+one-item, 200 MiB and 600-second limits, bounded output capture, and machine-readable
+[progress and metadata templates](https://github.com/yt-dlp/yt-dlp#embedding-yt-dlp).
+The URL is the final argument after `--`. With ffmpeg the worker extracts MP3; otherwise its
+format selector uses only the library's supported extensions. Files are validated and staged
+in the ignored `.macafon-uploads` directory on the library volume, then use the upload finalizer
+for a collision-safe rename into the selected category. Windows uses a Job Object (assigned
+before the suspended process resumes); Linux uses a dedicated process group, so cancelling
+or shutting down also kills child ffmpeg processes. Tests use a compiled fake tool and no network.
+
 ## Config (`macafon-config`)
 
 `$XDG_CONFIG_HOME/macafon/config.toml` (`%APPDATA%\Macafon\config.toml` on Windows), `schema_version = 2`.

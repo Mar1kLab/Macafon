@@ -138,7 +138,8 @@ Short:
 - Workflows that do not serve a current need, or that are left failing (§2).
 - Telemetry, analytics, network requests (except the opt-in update check from the PRD and
   user-initiated dictation model downloads from pinned Hugging Face URLs, PRD §8.4.6 — owner
-  authorization, 2026-10-19).
+  authorization, 2026-10-19; and user-initiated SoundDeck URL downloads through the user's yt-dlp
+  (PRD SND-009, owner authorization, 2026-11-01)).
 - Root/administrator actions at runtime beyond what the PRD describes (none on Windows, except the
   WIN-MIC-010 option).
 - Changing the user's system audio settings without restoring the original state.

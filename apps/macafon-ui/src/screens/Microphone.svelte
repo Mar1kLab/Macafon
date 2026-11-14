@@ -20,6 +20,7 @@
   import SettingsLink from '../lib/components/SettingsLink.svelte';
   import CalibrationDialog from '../lib/mic/CalibrationDialog.svelte';
   import GettingStarted from '../lib/mic/GettingStarted.svelte';
+  import LoudnessReadout from '../lib/mic/LoudnessReadout.svelte';
   import { daemon } from '../lib/state';
   import { SAMPLE_RATE_HZ } from '../lib/ipc/dsp';
   import { samplesToMs } from '../lib/dsp/format';
@@ -101,10 +102,13 @@
 
     <div class="meters">
       <LevelMeter label={t('mic.input')} hint={t('mic.inputHint')} peakKey="input_peak_dbfs" rmsKey="input_rms_dbfs" clipKey="raw_peak_dbfs" onclip={(c) => (inputClipped = c)} />
-      <span class="latency" {@attach tip(t('mic.latencyHint'))}>
-        <span class="hud-label">{t('mic.latency')}</span>
-        <span class="value">{samplesToMs(mic.latency_samples, SAMPLE_RATE_HZ).toFixed(1)} ms</span>
-      </span>
+      <div class="readouts">
+        <span class="latency" {@attach tip(t('mic.latencyHint'))}>
+          <span class="hud-label">{t('mic.latency')}</span>
+          <span class="value">{samplesToMs(mic.latency_samples, SAMPLE_RATE_HZ).toFixed(1)} ms</span>
+        </span>
+        <LoudnessReadout />
+      </div>
       <LevelMeter label={t('mic.output')} hint={t('mic.outputHint')} peakKey="output_peak_dbfs" rmsKey="output_rms_dbfs" color="teal" />
     </div>
     {#if daemon.cableMissing}
@@ -169,6 +173,12 @@
     align-items: center;
     padding: var(--space-3) var(--space-6);
     border-bottom: 1px solid var(--line);
+  }
+
+  .readouts {
+    display: grid;
+    gap: var(--space-1);
+    justify-items: center;
   }
 
   .latency {

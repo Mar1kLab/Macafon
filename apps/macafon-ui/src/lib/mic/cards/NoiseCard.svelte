@@ -43,7 +43,7 @@
     label={t('params.intensity')}
     color={info.color}
     value={ns.intensity_pct}
-    hint={t(info.hint)}
+    hint={t('hints.intensity')}
     onchange={(v) => daemon.edit((s) => (s.noise_suppression.intensity_pct = v))}
   />
   <ReductionMeter meterKey="noise_activity" color={info.color} activity active={ns.enabled} />

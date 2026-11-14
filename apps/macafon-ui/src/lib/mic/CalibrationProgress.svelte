@@ -59,6 +59,9 @@
   <div class="step">
     <span class="hud-label">{cal.step === 'silence' ? '01 / 02' : '02 / 02'}</span>
     <h3>{cal.step === 'silence' ? t('calibration.silence') : t('calibration.speech')}</h3>
+    {#if cal.level_lowered}
+      <p class="note lowered" role="status">{t('calibration.levelLowered')}</p>
+    {/if}
     {#if cal.step === 'silence'}
       <p class="note">{t('calibration.silenceHint')}</p>
     {:else}
@@ -69,6 +72,10 @@
 <canvas bind:this={canvas} class="trace" aria-hidden="true"></canvas>
 
 <style>
+  .note.lowered {
+    color: var(--app-amber-ink);
+  }
+
   .note {
     margin-top: 12px;
     font-size: var(--text-md);

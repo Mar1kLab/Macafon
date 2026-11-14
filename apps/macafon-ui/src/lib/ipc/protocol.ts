@@ -56,7 +56,7 @@ export type LimiterParams = { ceiling_db: number, release_ms: number, lookahead_
 
 export type ChainSettings = { muted: boolean,
 /**
- * Global bypass (MIC-014): the chain passes the input at 0 dB.
+ * Global bypass (MIC-014): the chain passes the input with Gain only (level-matched).
  */
 bypass: boolean, gain: Module<GainParams>, high_pass: Module<HighPassParams>, noise_suppression: Module<NoiseSuppressionParams>, expander: Module<ExpanderParams>, eq: Module<EqParams>, compressor: Module<CompressorParams>, de_esser: Module<DeEsserParams>, limiter: Module<LimiterParams>, output_gain_db: number, };
 
@@ -98,7 +98,8 @@ export type CalibrationReport = {
  */
 noise_floor_dbfs: number, speech_rms_dbfs: number, speech_peak_dbfs: number, snr_db: number,
 /**
- * Same recording through the calibrated chain.
+ * Same recording through Gain, High-pass and Noise suppression (the expander would only
+ * close in pauses and overstate it).
  */
 snr_after_db: number, noise_level: NoiseLevel,
 /**
@@ -108,7 +109,15 @@ low_frequency_noise: boolean,
 /**
  * SNR below 20 dB: Studio noise suppression would help.
  */
-suggest_studio: boolean, gain_db: number, high_pass_freq_hz: number, noise_intensity_pct: number, expander_threshold_db: number, };
+suggest_studio: boolean, gain_db: number, high_pass_freq_hz: number, noise_intensity_pct: number, expander_threshold_db: number,
+/**
+ * Noise floor after Noise suppression, before Gain: the expander's reference.
+ */
+expander_floor_dbfs: number,
+/**
+ * CAL-005: how far calibration lowered the system capture level (<= 0; 0 = untouched).
+ */
+input_level_change_db: number, };
 
 export type DisplayIdentity = {
 /**
@@ -287,7 +296,7 @@ dictation_gpu: boolean,
  */
 displays: boolean,
 /**
- * The physical input channel can be chosen (MIC-004); the Windows capture is mono.
+ * The physical input channel can be chosen (MIC-004).
  */
 input_channel: boolean, };
 
@@ -358,13 +367,17 @@ export type AbWaveform = { a: Array<number>, b: Array<number>, };
 
 export type CalibrationStep = "silence" | "speech";
 
-export type CalibrationFailure = "clipped" | "no_speech" | "disconnected" | "stalled" | "internal";
+export type CalibrationFailure = "clipped" | "clipped_in_device" | "no_speech" | "disconnected" | "stalled" | "internal";
 
 export type CalibrationState = { "state": "idle" } | { "state": "measuring", step: CalibrationStep,
 /**
  * 0…1 within the step.
  */
-progress: number, step_duration_ms: number, } | { "state": "done", report: CalibrationReport, } | { "state": "failed", reason: CalibrationFailure, message: string, };
+progress: number, step_duration_ms: number,
+/**
+ * CAL-005: the system level was just lowered for clipping; read the phrase again.
+ */
+level_lowered?: boolean, } | { "state": "done", report: CalibrationReport, } | { "state": "failed", reason: CalibrationFailure, message: string, };
 
 export type PresetInfo = {
 /**

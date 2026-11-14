@@ -818,6 +818,8 @@ export class MockTransport implements Transport {
       ...zero,
       output_peak_dbfs: muted ? SILENT : peak,
       output_rms_dbfs: muted ? SILENT : level,
+      // Short-term loudness moves slowly: follow the speech level, not each frame.
+      ...(muted ? {} : { output_lufs_short_term: Math.max(level, -40) - 0.7 }),
       expander_reduction_db: expander,
       compressor_reduction_db: compressor,
       de_esser_reduction_db: deEsser,
@@ -835,7 +837,15 @@ export class MockTransport implements Transport {
       if (elapsed < 4000) {
         return { state: 'measuring', step: 'silence', progress: elapsed / 4000, step_duration_ms: 4000 };
       }
-      return { state: 'measuring', step: 'speech', progress: Math.min((elapsed - 4000) / 6000, 1), step_duration_ms: 6000 };
+      // `?calibrationClip`: the input clipped and the system level was lowered (CAL-005).
+      const lowered = this.query.has('calibrationClip') && elapsed >= 5000;
+      return {
+        state: 'measuring',
+        step: 'speech',
+        progress: Math.min((elapsed - 4000) / 6000, 1),
+        step_duration_ms: 6000,
+        ...(lowered ? { level_lowered: true } : {}),
+      };
     };
     this.calibration = step(0);
     this.calibrationTimer = window.setInterval(() => {
@@ -864,13 +874,15 @@ export class MockTransport implements Transport {
       high_pass_freq_hz: 120,
       noise_intensity_pct: 51,
       expander_threshold_db: -47.7,
+      expander_floor_dbfs: -66.2,
+      input_level_change_db: this.query.has('calibrationClip') ? -6 : 0,
     };
     const s = this.settings;
     s.gain = { ...s.gain, enabled: true, gain_db: report.gain_db };
     s.high_pass = { ...s.high_pass, enabled: true, freq_hz: report.high_pass_freq_hz };
     s.noise_suppression = { ...s.noise_suppression, enabled: true, intensity_pct: report.noise_intensity_pct };
     s.expander = { ...s.expander, enabled: true, threshold_db: report.expander_threshold_db };
-    this.noiseFloor = report.noise_floor_dbfs;
+    this.noiseFloor = report.expander_floor_dbfs;
     this.calibration = { state: 'done', report };
     this.emit({ event: 'calibration.changed', data: clone(this.calibration) });
     this.micChanged();

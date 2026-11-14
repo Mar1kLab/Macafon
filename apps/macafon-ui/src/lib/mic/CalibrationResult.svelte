@@ -4,6 +4,7 @@
   import { MODULES } from './modules';
   import { daemon } from '../state';
   import { t } from '../i18n';
+  import { tip } from '../components/tooltip.svelte';
   import type { CalibrationReport } from '../ipc/protocol';
 
   let { report }: { report: CalibrationReport } = $props();
@@ -15,9 +16,9 @@
     <span class="hud-label">{t('calibration.snrBefore')}</span>
     <span class="big">{report.snr_db.toFixed(1)}<small>dB</small></span>
   </div>
-  <div>
+  <div {@attach tip(t('calibration.snrAfterHint'))}>
     <span class="hud-label">{t('calibration.snrAfter')}</span>
-    <span class="big accent">{report.snr_after_db.toFixed(1)}<small>dB</small></span>
+    <span class="big accent">{Number.isFinite(report.snr_after_db) ? report.snr_after_db.toFixed(1) : '—'}<small>dB</small></span>
   </div>
   <div>
     <span class="hud-label">{t('calibration.noiseLevel')}</span>
@@ -26,6 +27,9 @@
 </div>
 <span class="hud-label">{t('calibration.changed')}</span>
 <ul class="changes">
+  {#if report.input_level_change_db < 0}
+    <li style:--c="var(--app-amber-ink)"><span class="dot"></span>{t('calibration.systemLevel')}<span class="value">{formatDb(report.input_level_change_db)}</span></li>
+  {/if}
   <li style:--c="var(--app-{MODULES.gain.color}-ink)"><span class="dot"></span>{t(MODULES.gain.title)}<span class="value">{formatDb(report.gain_db)}</span></li>
   <li style:--c="var(--app-{MODULES.high_pass.color}-ink)"><span class="dot"></span>{t(MODULES.high_pass.title)}<span class="value">{formatHz(report.high_pass_freq_hz)}</span></li>
   <li style:--c="var(--app-{MODULES.noise_suppression.color}-ink)"><span class="dot"></span>{t(MODULES.noise_suppression.title)}<span class="value">{formatValue(report.noise_intensity_pct, 'percent')}</span></li>

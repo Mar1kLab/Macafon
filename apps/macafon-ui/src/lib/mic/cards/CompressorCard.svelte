@@ -4,6 +4,7 @@
   import Param from '../../components/Param.svelte';
   import Segmented from '../../components/Segmented.svelte';
   import Toggle from '../../components/Toggle.svelte';
+  import { tip } from '../../components/tooltip.svelte';
   import { MODULES } from '../modules';
   import { daemon } from '../../state';
   import { t } from '../../i18n';
@@ -43,6 +44,15 @@
     <Param spec="compressor_ratio" label={t('params.ratio')} hint={t('hints.ratio')} color={info.color} value={c.ratio} onchange={(v) => daemon.edit((s) => (s.compressor.ratio = v))} />
     <Param spec="compressor_attack_ms" label={t('params.attack')} hint={t('hints.attack')} color={info.color} value={c.attack_ms} onchange={(v) => daemon.edit((s) => (s.compressor.attack_ms = v))} />
     <Param spec="compressor_release_ms" label={t('params.release')} hint={t('hints.release')} color={info.color} value={c.release_ms} onchange={(v) => daemon.edit((s) => (s.compressor.release_ms = v))} />
+    <div class="switch-row" {@attach tip(t('hints.autoRelease'))}>
+      <span class="hud-label">{t('params.autoRelease')}</span>
+      <Toggle
+        checked={c.auto_release ?? false}
+        label={t('params.autoRelease')}
+        color={info.color}
+        onchange={(on) => daemon.edit((s) => (s.compressor.auto_release = on))}
+      />
+    </div>
     <Param spec="compressor_knee_db" label={t('params.knee')} hint={t('hints.knee')} color={info.color} value={c.knee_db} onchange={(v) => daemon.edit((s) => (s.compressor.knee_db = v))} />
     <div class="makeup">
       <Param
@@ -77,6 +87,13 @@
 </ModuleCard>
 
 <style>
+  .switch-row {
+    display: grid;
+    grid-template-columns: 104px auto;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
   .makeup {
     display: flex;
     flex-wrap: wrap;

@@ -36,11 +36,11 @@
   <Param
     spec="expander_sensitivity_pct"
     layout="stacked"
-    label={t('params.sensitivity')}
+    label={t('params.strength')}
     color={info.color}
     value={sensitivity ?? nearestExpanderSensitivity(ex)}
     disabled={sensitivity === null}
-    hint={t(info.hint)}
+    hint={t('hints.strength')}
     onchange={(v) => daemon.edit((s) => applySensitivity(s, v))}
   />
   {#snippet advanced()}

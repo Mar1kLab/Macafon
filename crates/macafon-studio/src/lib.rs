@@ -131,7 +131,9 @@ impl StudioNoiseSuppression {
                         f32::from_bits(worker_shared.intensity_pct.load(Ordering::Relaxed));
                     // Upstream's exact zero attenuation bypass removes the model latency.
                     // Keep its state running and use our aligned dry path at zero intensity.
-                    model.set_atten_lim(intensity_pct.max(0.01));
+                    model.set_atten_lim(
+                        macafon_dsp::intensity_attenuation_db(intensity_pct).max(0.01),
+                    );
                     for (sample, delayed) in frame.samples.iter().zip(&mut delayed_dry) {
                         *delayed = dry_delay[dry_position];
                         dry_delay[dry_position] = *sample;
@@ -228,8 +230,10 @@ impl macafon_dsp::StudioProcessor for StudioNoiseSuppression {
 
     fn process(&mut self, io: &mut [f32]) {
         for sample in io {
-            self.frame[self.position] = sanitize(*sample).clamp(-1.0, 1.0);
-            *sample = sanitize(self.output[self.position]);
+            // Headroom: calibrated peaks above full scale reach the model unclipped.
+            self.frame[self.position] =
+                (sanitize(*sample) * macafon_dsp::MODEL_HEADROOM).clamp(-1.0, 1.0);
+            *sample = sanitize(self.output[self.position] / macafon_dsp::MODEL_HEADROOM);
             self.position += 1;
             if self.position != FRAME_SAMPLES {
                 continue;

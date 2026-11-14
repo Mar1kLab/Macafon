@@ -24,7 +24,10 @@ pub use chain::{
 };
 pub use channel::{ChannelMeters, ChannelProcessor, ChannelSettings, ChannelTelemetry};
 pub use compressor::static_curve_db;
-pub use noise::{FRAME_SAMPLES, LITE_LATENCY_SAMPLES};
+pub use noise::{
+    FRAME_SAMPLES, LITE_LATENCY_SAMPLES, MAX_ATTENUATION_DB, MODEL_HEADROOM,
+    intensity_attenuation_db, intensity_mix,
+};
 pub use noise::{STUDIO_LATENCY_SAMPLES, StudioProcessor};
 pub use params::{INTENSITY, ParameterError, ParameterSpec, VOICE_THRESHOLD};
 pub use presets::Preset;

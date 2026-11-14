@@ -1,5 +1,6 @@
 //! Peak limiter (PRD §6.3.8): fast attack plus a soft clipper over the last 0.5 dB, so the
-//! default needs no look-ahead. Optional 1/2/5 ms look-ahead delays the signal instead.
+//! default needs no look-ahead. Optional 1/2/5 ms look-ahead delays the signal and holds the
+//! lowest gain any sample in the window needs, so the envelope is down before a peak leaves.
 
 use crate::SAMPLE_RATE_HZ;
 use crate::settings::LimiterParams;
@@ -19,6 +20,11 @@ pub struct Limiter {
     delay_right: [f32; MAX_LOOKAHEAD_SAMPLES],
     delay_len: usize,
     position: usize,
+    /// Monotonic deque of (sample index, required gain) over the look-ahead window.
+    window: [(u32, f32); MAX_LOOKAHEAD_SAMPLES + 1],
+    window_head: usize,
+    window_len: usize,
+    index: u32,
     block_reduction_db: f32,
 }
 
@@ -28,7 +34,8 @@ impl Limiter {
         let attack_ms = if delay_len == 0 {
             ZERO_LOOKAHEAD_ATTACK_MS
         } else {
-            // Within the look-ahead window the envelope covers >99% of the step.
+            // The held target is known a full window early: the envelope covers >99% of
+            // the step before the peak leaves the delay line.
             params.lookahead_ms as f32 / 5.0
         };
         let mut limiter = Self {
@@ -41,6 +48,10 @@ impl Limiter {
             delay_right: [0.0; MAX_LOOKAHEAD_SAMPLES],
             delay_len: delay_len.min(MAX_LOOKAHEAD_SAMPLES),
             position: 0,
+            window: [(0, 1.0); MAX_LOOKAHEAD_SAMPLES + 1],
+            window_head: 0,
+            window_len: 0,
+            index: 0,
             block_reduction_db: 0.0,
         };
         limiter.set(params);
@@ -58,6 +69,7 @@ impl Limiter {
         self.gain = 1.0;
         self.delay.fill(0.0);
         self.delay_right.fill(0.0);
+        self.window_len = 0;
     }
 
     pub fn latency_samples(&self) -> u32 {
@@ -97,10 +109,15 @@ impl Limiter {
 
     #[inline]
     fn gain_for(&mut self, peak: f32) -> f32 {
-        let target = if peak > self.knee {
+        let required = if peak > self.knee {
             self.knee / peak
         } else {
             1.0
+        };
+        let target = if self.delay_len == 0 {
+            required
+        } else {
+            self.hold(required)
         };
         let coefficient = if target < self.gain {
             self.attack
@@ -109,6 +126,30 @@ impl Limiter {
         };
         self.gain += coefficient * (target - self.gain);
         self.gain
+    }
+
+    /// Sliding minimum of the required gain over the last `delay_len + 1` samples, O(1)
+    /// amortised, in fixed storage.
+    #[inline]
+    fn hold(&mut self, required: f32) -> f32 {
+        let capacity = self.window.len();
+        let index = self.index;
+        self.index = self.index.wrapping_add(1);
+        while self.window_len > 0 {
+            let last = (self.window_head + self.window_len - 1) % capacity;
+            if self.window[last].1 < required {
+                break;
+            }
+            self.window_len -= 1;
+        }
+        let tail = (self.window_head + self.window_len) % capacity;
+        self.window[tail] = (index, required);
+        self.window_len += 1;
+        while index.wrapping_sub(self.window[self.window_head].0) > self.delay_len as u32 {
+            self.window_head = (self.window_head + 1) % capacity;
+            self.window_len -= 1;
+        }
+        self.window[self.window_head].1
     }
 
     #[inline]
@@ -176,6 +217,22 @@ mod tests {
         assert!(left.iter().chain(&right).all(|y| y.abs() <= ceiling));
         // The quiet right channel follows the left's gain reduction.
         assert!(right[4799] < 0.1 * 0.9);
+        // Look-ahead must help short peaks, not hurt them: a 0.25 ms burst 6 dB over full
+        // scale is attenuated more with 5 ms look-ahead than without.
+        let burst = |lookahead_ms| {
+            let mut limiter = Limiter::new(&LimiterParams {
+                ceiling_db: -1.0,
+                lookahead_ms,
+                ..LimiterParams::default()
+            });
+            let mut block = vec![0.0f32; 960];
+            block[480..492].fill(2.0);
+            limiter.process(&mut block);
+            limiter.reduction_db()
+        };
+        let (instant, ahead) = (burst(0), burst(5));
+        assert!(ahead < instant - 1.0, "{instant} vs {ahead}");
+        assert!(ahead < -6.5, "{ahead}");
         let mut limiter = Limiter::new(&LimiterParams::default());
         let quiet: Vec<f32> = (0..4800).map(|n| (n as f32 * 0.05).sin() * 0.5).collect();
         let mut block = quiet.clone();

@@ -47,8 +47,9 @@ impl<T> Module<T> {
 /// Macro curves (DSP-002): `(slider 0…1, value)` points, linearly interpolated. Exported to
 /// the UI, which inverts them to place the main slider.
 pub mod macros {
-    /// Expander threshold above the noise floor: floor + 30 dB (0%), + 6 dB (50%), floor (100%).
-    pub const EXPANDER_THRESHOLD_OFFSET_DB: [(f32, f32); 3] = [(0.0, 30.0), (0.5, 6.0), (1.0, 0.0)];
+    /// Expander strength: threshold above the noise floor grows with ratio and range, so every
+    /// end of the slider is gentler or stronger in all three: floor (0%), + 6 dB (50%), + 12 dB.
+    pub const EXPANDER_THRESHOLD_OFFSET_DB: [(f32, f32); 3] = [(0.0, 0.0), (0.5, 6.0), (1.0, 12.0)];
     pub const EXPANDER_RATIO: [(f32, f32); 3] = [(0.0, 1.5), (0.5, 3.0), (1.0, 6.0)];
     pub const EXPANDER_RANGE_DB: [(f32, f32); 3] = [(0.0, -15.0), (0.5, -30.0), (1.0, -50.0)];
     pub const COMPRESSOR_THRESHOLD_DBFS: [(f32, f32); 2] = [(0.0, -10.0), (1.0, -35.0)];
@@ -65,7 +66,7 @@ pub mod macros {
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct ChainSettings {
     pub muted: bool,
-    /// Global bypass (MIC-014): the chain passes the input at 0 dB.
+    /// Global bypass (MIC-014): the chain passes the input with Gain only (level-matched).
     pub bypass: bool,
     pub gain: Module<GainParams>,
     pub high_pass: Module<HighPassParams>,

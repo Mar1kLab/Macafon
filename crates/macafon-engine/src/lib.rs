@@ -464,19 +464,23 @@ impl MicRt {
                     let _ = self.current.retune(&settings);
                 }
                 Ok(Command::Replace(processor)) => {
-                    self.fade_samples = if matches!((self.current.noise_engine(), processor.noise_engine()), (Some(old), Some(new)) if old != new)
+                    // A model switch or a latency change crossfades two differently delayed
+                    // signals: a longer fade keeps the comb filtering inaudible.
+                    let engine_changed = matches!(
+                        (self.current.noise_engine(), processor.noise_engine()),
+                        (Some(old), Some(new)) if old != new
+                    );
+                    self.fade_samples = if engine_changed
+                        || processor.latency_samples() != self.current.latency_samples()
                     {
                         macafon_dsp::SAMPLE_RATE_HZ / 20
                     } else {
                         SWAP_FADE_SAMPLES
                     };
-                    // Fill the incoming model's delay before fading; otherwise its startup
-                    // silence would mute the old path and the first wet sample could click.
-                    self.warmup_remaining = if self.fade_samples > SWAP_FADE_SAMPLES {
-                        processor.latency_samples()
-                    } else {
-                        0
-                    };
+                    // Fill the incoming chain's delay (NS frames, look-ahead) and settle its
+                    // filters before fading, on every swap (DSP-003): otherwise its startup
+                    // silence would dip the output and the first wet sample could click.
+                    self.warmup_remaining = processor.latency_samples();
                     self.outgoing = Some(std::mem::replace(&mut self.current, processor));
                     self.fade_position = 0;
                 }
@@ -604,6 +608,23 @@ mod tests {
                 .any(|(a, b)| (a - b).abs() > 1e-4),
             "Studio attenuation must use the neural model"
         );
+    }
+
+    #[test]
+    fn every_swap_warms_the_incoming_chain_before_fading() {
+        // Leaving Bypass brings NS back: its 20 ms delay fills before the crossfade starts,
+        // with a longer fade because the two paths are delayed differently (DSP-003).
+        let mut bypassed = Preset::Natural.settings();
+        bypassed.bypass = true;
+        let (mut control, mut rt) = microphone(&bypassed, Arc::default()).expect("valid");
+        control
+            .apply(&Preset::Natural.settings())
+            .expect("rebuild queued");
+        run(&mut rt, 1, 0.1);
+        let latency = macafon_dsp::LITE_LATENCY_SAMPLES;
+        assert_eq!(rt.warmup_remaining, latency - 128);
+        assert_eq!(rt.fade_samples, macafon_dsp::SAMPLE_RATE_HZ / 20);
+        assert_eq!(rt.fade_position, 0);
     }
 
     #[test]

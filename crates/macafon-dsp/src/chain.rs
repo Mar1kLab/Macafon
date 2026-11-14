@@ -249,7 +249,11 @@ impl MicrophoneProcessor {
         };
         Ok(Self {
             settings: *settings,
-            gain: build(s.gain.enabled).then(|| SmoothedGain::new(s.gain.params.gain_db)),
+            // Bypass keeps the calibrated Gain, so A/B in a call compares processing, not level.
+            gain: s
+                .gain
+                .enabled
+                .then(|| SmoothedGain::new(s.gain.params.gain_db)),
             high_pass: build(s.high_pass.enabled).then(|| HighPass::new(&s.high_pass.params)),
             noise,
             expander: build(s.expander.enabled).then(|| Expander::new(&s.expander.params)),

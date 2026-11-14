@@ -33,6 +33,7 @@ const RETRY_INTERVAL: Duration = Duration::from_millis(500);
 const DEFAULT_PERIOD_HNS: i64 = 100_000;
 /// Largest capture packet handled in one piece; WASAPI packets are one period (≤ 1 s).
 const MAX_PACKET_FRAMES: usize = macafon_dsp::SAMPLE_RATE_HZ as usize;
+const CAPTURE_CHANNELS: usize = 2;
 /// Chain timings queued for the control loop: several seconds of 10 ms packets.
 const BUDGET_QUEUE: usize = 1024;
 
@@ -132,6 +133,10 @@ struct Shared {
     measure_budget: AtomicBool,
     /// Measurements were lost to a full queue; the next read reports a gap.
     budget_gap: AtomicBool,
+    /// MIC-004: 0 auto, 1 left, 2 right, 3 mix (as on PipeWire).
+    input_channel: AtomicU32,
+    /// The channel auto-detection last chose (1 left, 2 right); 0 before any signal.
+    detected_channel: AtomicU32,
 }
 
 /// Snapshot for the spike report and, later, Doctor (WIN-MIC-008).
@@ -260,6 +265,26 @@ impl MicrophonePipeline {
     /// Switch the physical microphone (MIC-001/MIC-006); `None` sends silence.
     pub fn set_input(&self, device_id: Option<String>) {
         self.shared.input.set(device_id);
+    }
+
+    /// MIC-004: which channel of a stereo interface carries the microphone.
+    pub fn set_input_channel(&self, channel: macafon_dsp::InputChannel) {
+        let value = match channel {
+            macafon_dsp::InputChannel::Auto => 0,
+            macafon_dsp::InputChannel::Left => 1,
+            macafon_dsp::InputChannel::Right => 2,
+            macafon_dsp::InputChannel::Mix => 3,
+        };
+        self.shared.input_channel.store(value, Ordering::Relaxed);
+    }
+
+    /// The channel Auto picked, once a signal arrived.
+    pub fn detected_channel(&self) -> Option<macafon_dsp::InputChannel> {
+        match self.shared.detected_channel.load(Ordering::Relaxed) {
+            1 => Some(macafon_dsp::InputChannel::Left),
+            2 => Some(macafon_dsp::InputChannel::Right),
+            _ => None,
+        }
     }
 
     /// Switch the render target; `None` keeps processing without output.
@@ -412,6 +437,37 @@ fn supervise(
     }
 }
 
+/// MIC-004: one mono block from interleaved stereo. Auto takes the channel with the signal
+/// (the right one only when clearly louder), as on PipeWire. RT-safe.
+fn select_channel(interleaved: &[f32], mono: &mut [f32], channel: u32, detected: &AtomicU32) {
+    let mut selected = channel;
+    if selected == 0 {
+        let (mut left, mut right) = (0.0f32, 0.0f32);
+        for frame in interleaved.chunks_exact(CAPTURE_CHANNELS) {
+            left += frame[0] * frame[0];
+            right += frame[1] * frame[1];
+        }
+        selected = if right > left * 4.0 && right > 1e-8 {
+            2
+        } else {
+            1
+        };
+        if left.max(right) > 1e-8 {
+            detected.store(selected, Ordering::Relaxed);
+        }
+    }
+    for (out, frame) in mono
+        .iter_mut()
+        .zip(interleaved.chunks_exact(CAPTURE_CHANNELS))
+    {
+        *out = match selected {
+            2 => frame[1],
+            3 => 0.5 * (frame[0] + frame[1]),
+            _ => frame[0],
+        };
+    }
+}
+
 fn wait_for_retry(shared: &Shared, selection: &Selection, generation: u64) {
     let deadline = Instant::now() + RETRY_INTERVAL;
     while Instant::now() < deadline
@@ -432,13 +488,16 @@ fn capture_thread(
     let _com = ComGuard::new()?;
     let _mmcss = ProAudioThread::register();
     let mut scratch = vec![0.0f32; MAX_PACKET_FRAMES].into_boxed_slice();
+    let mut interleaved = vec![0.0f32; MAX_PACKET_FRAMES * CAPTURE_CHANNELS].into_boxed_slice();
     supervise(
         shared,
         &shared.input,
         &shared.capture,
         "capture",
         |id, generation| {
-            let stream = Stream::open(id, 1, buffer_hns)?;
+            // Stereo, so a two-input interface keeps its channels apart (MIC-004); the
+            // shared-mode converter duplicates a mono microphone into both.
+            let stream = Stream::open(id, CAPTURE_CHANNELS as u16, buffer_hns)?;
             // SAFETY: the client was initialised by Stream::open.
             let client: IAudioCaptureClient = unsafe { stream.client.GetService() }?;
             shared.capture.publish(Some(&stream));
@@ -455,7 +514,7 @@ fn capture_thread(
                 }
                 let output = shared.render.connected.load(Ordering::Acquire);
                 // SAFETY: GetBuffer/ReleaseBuffer pairs on our capture client; the packet holds
-                // `frames` mono float32 samples as negotiated in Stream::open.
+                // `frames` stereo float32 frames as negotiated in Stream::open.
                 unsafe {
                     while client.GetNextPacketSize()? > 0 {
                         let mut data = std::ptr::null_mut();
@@ -466,10 +525,17 @@ fn capture_thread(
                         if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 || data.is_null() {
                             block.fill(0.0);
                         } else {
-                            block.copy_from_slice(std::slice::from_raw_parts(
+                            let frames_in = &mut interleaved[..count * CAPTURE_CHANNELS];
+                            frames_in.copy_from_slice(std::slice::from_raw_parts(
                                 data.cast::<f32>(),
-                                count,
+                                count * CAPTURE_CHANNELS,
                             ));
+                            select_channel(
+                                frames_in,
+                                block,
+                                shared.input_channel.load(Ordering::Relaxed),
+                                &shared.detected_channel,
+                            );
                         }
                         client.ReleaseBuffer(frames)?;
                         let counters = &shared.counters;
@@ -666,5 +732,27 @@ mod tests {
                 .all(|s| s.budget_ns > 0 && s.budget_ns <= 1_000_000_000)
         );
         assert!(packets.iter().all(|s| s.elapsed_ns < s.budget_ns));
+    }
+}
+
+#[cfg(test)]
+mod channel_tests {
+    use super::*;
+
+    #[test]
+    fn auto_picks_the_live_input_and_manual_choices_hold() {
+        let detected = AtomicU32::new(0);
+        // Microphone on the right input of a two-input interface, the left one silent.
+        let interleaved: Vec<f32> = (0..64)
+            .flat_map(|n| [0.0, (n as f32 * 0.3).sin()])
+            .collect();
+        let mut mono = [0.0f32; 64];
+        assert_no_alloc::assert_no_alloc(|| select_channel(&interleaved, &mut mono, 0, &detected));
+        assert_eq!(detected.load(Ordering::Relaxed), 2);
+        assert_eq!(mono[5], (5.0f32 * 0.3).sin());
+        select_channel(&interleaved, &mut mono, 1, &detected);
+        assert!(mono.iter().all(|x| *x == 0.0));
+        select_channel(&interleaved, &mut mono, 3, &detected);
+        assert_eq!(mono[5], 0.5 * (5.0f32 * 0.3).sin());
     }
 }

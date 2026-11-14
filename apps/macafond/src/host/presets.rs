@@ -8,10 +8,18 @@ use std::time::Instant;
 
 impl DaemonHost {
     /// Settings of a built-in or user preset.
+    /// The preset as it plays on this microphone: its character over the calibration.
     pub(super) fn preset_settings(&self, id: &str) -> Option<ChainSettings> {
-        Preset::from_id(id)
-            .map(Preset::settings)
-            .or_else(|| self.presets.get(id).map(|preset| preset.settings))
+        let (settings, builtin) = match Preset::from_id(id) {
+            Some(preset) => (preset.settings(), true),
+            None => (self.presets.get(id)?.settings, false),
+        };
+        Some(macafon_config::presets::with_calibration(
+            &settings,
+            builtin,
+            &self.config.mic.chain,
+            self.config.mic.noise_floor_dbfs,
+        ))
     }
 
     pub(super) fn preset_list(&self) -> Vec<PresetInfo> {

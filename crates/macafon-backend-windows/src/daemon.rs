@@ -245,6 +245,10 @@ impl LoopState {
                 self.input = wanted;
             }
             host.input_connected(self.input.is_some() && pipeline.input_connected());
+            pipeline.set_input_channel(host.input_channel());
+            if let Some(channel) = pipeline.detected_channel() {
+                host.input_channel_detected(channel);
+            }
             if self
                 .clock_reported_at
                 .is_none_or(|at| at.elapsed() >= SCAN_INTERVAL)

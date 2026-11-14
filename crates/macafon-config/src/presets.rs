@@ -59,6 +59,38 @@ fn sound_only(settings: &ChainSettings) -> ChainSettings {
     }
 }
 
+/// A preset is a character; Gain and the expander's place relative to the noise floor belong to
+/// the calibrated microphone. Loading a preset on a calibrated microphone keeps the current Gain
+/// and moves the expander threshold with it: built-in presets assume the default floor and no
+/// Gain, user presets the Gain they were saved with.
+pub fn with_calibration(
+    preset: &ChainSettings,
+    builtin: bool,
+    current: &ChainSettings,
+    noise_floor_dbfs: Option<f32>,
+) -> ChainSettings {
+    let Some(floor_dbfs) = noise_floor_dbfs else {
+        return *preset;
+    };
+    let gain_db = |settings: &ChainSettings| {
+        if settings.gain.enabled {
+            settings.gain.params.gain_db
+        } else {
+            0.0
+        }
+    };
+    let mut shift_db = gain_db(current) - gain_db(preset);
+    if builtin {
+        shift_db += floor_dbfs - macafon_dsp::settings::DEFAULT_NOISE_FLOOR_DBFS;
+    }
+    let threshold = macafon_dsp::params::EXPANDER_THRESHOLD_DBFS;
+    let mut settings = *preset;
+    settings.gain = current.gain;
+    settings.expander.params.threshold_db =
+        (preset.expander.params.threshold_db + shift_db).clamp(threshold.min, threshold.max);
+    settings
+}
+
 /// True when `settings` sound the same as `preset` (ignoring mute and bypass).
 pub fn same_sound(settings: &ChainSettings, preset: &ChainSettings) -> bool {
     sound_only(settings) == sound_only(preset)
@@ -425,5 +457,40 @@ mod tests {
         ));
         assert_eq!(slug("Ünïcode only ✨"), "n-code-only");
         assert_eq!(slug("✨"), "preset");
+    }
+
+    #[test]
+    fn presets_keep_the_calibrated_gain_and_expander_place() {
+        use macafon_dsp::Preset;
+        let mut calibrated = Preset::Natural.settings();
+        calibrated.gain.params.gain_db = 14.0;
+        let broadcast = Preset::Broadcast.settings();
+        // Uncalibrated: the preset as shipped.
+        assert_eq!(
+            with_calibration(&broadcast, true, &calibrated, None),
+            broadcast
+        );
+        // Calibrated at a −70 dBFS floor: Gain stays, the threshold moves by floor and Gain
+        // (−14 dB floor, +14 dB Gain: back where the preset put it).
+        let loaded = with_calibration(&broadcast, true, &calibrated, Some(-70.0));
+        assert_eq!(loaded.gain.params.gain_db, 14.0);
+        assert_eq!(
+            loaded.expander.params.threshold_db,
+            broadcast.expander.params.threshold_db
+        );
+        let quiet_room = with_calibration(&broadcast, true, &calibrated, Some(-80.0));
+        assert!(
+            (quiet_room.expander.params.threshold_db
+                - (broadcast.expander.params.threshold_db - 10.0))
+                .abs()
+                < 1e-4
+        );
+        assert_eq!(loaded.compressor, broadcast.compressor);
+        // A user preset saved at +8 dB moves only by the Gain difference.
+        let mut user = broadcast;
+        user.gain.params.gain_db = 8.0;
+        user.expander.params.threshold_db = -40.0;
+        let loaded = with_calibration(&user, false, &calibrated, Some(-70.0));
+        assert_eq!(loaded.expander.params.threshold_db, -34.0);
     }
 }

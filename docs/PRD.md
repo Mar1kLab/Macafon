@@ -155,7 +155,7 @@ Priorities: **P0** — required for the release, **P1** — desirable, may move 
 | MIC-001 | A list of all physical input devices with a human-readable name (`node.description`) and a type icon (USB/built-in/headset/Bluetooth) | P0 |
 | MIC-002 | Every device in the list has a live mini level meter so the user sees which microphone hears them. Meters are polled only while the list is open. The list updates on device connect/disconnect through a daemon event, without polling from the UI | P0 |
 | MIC-003 | Macafon's own virtual devices and monitors (`*.monitor`) are excluded from the list | P0 |
-| MIC-004 | Input channel selection for multichannel interfaces: `Left`, `Right`, `Mix (L+R)`. By default the channel with signal is auto-detected during calibration | P1 |
+| MIC-004 | Input channel selection for multichannel interfaces: `Left`, `Right`, `Mix (L+R)`. By default the channel with signal is auto-detected during calibration. Windows captures stereo and selects the channel itself (2026-11-14) | P1 |
 | MIC-005 | Hot-plug: when the selected microphone is disconnected, the virtual microphone keeps existing and outputs silence; a "Microphone disconnected" toast; on reconnect — an automatic return with no user action | P0 |
 | MIC-006 | Fallback microphone: an optional second-priority one (for example, the built-in one) to switch to when the primary disconnects | P1 |
 | MIC-007 | A settings profile is bound to the physical microphone (by a stable ID: `device.bus-path`/serial + name). Changing the microphone loads its profile | P1 |
@@ -168,7 +168,7 @@ Priorities: **P0** — required for the release, **P1** — desirable, may move 
 | MIC-011 | Format: 48 kHz, float32, mono (a "stereo" option duplicates mono into 2 channels for applications that handle mono poorly) | P0 |
 | MIC-012 | A "Set as system default" button (with confirmation) makes `Macafon Microphone` the default microphone; the original default is remembered and restored when Macafon is turned off / uninstalled. The daemon reports whether `Macafon Microphone` is the current default — the UI shows the state (a toggle), not two buttons | P0 |
 | MIC-013 | Microphone mute (UI, tray, hotkey): digital silence is output, the physical microphone is not touched. A mute indicator in the tray | P0 |
-| MIC-014 | Global Bypass: the whole chain is turned off (the signal passes with Gain = 0 dB), for instant comparison in a real call | P0 |
+| MIC-014 | Global Bypass: the whole chain is turned off except Gain (the calibrated level stays, so the comparison in a real call is about processing, not loudness; owner request 2026-11-14) | P0 |
 | MIC-015 | A hint in onboarding and on the microphone screen: "Turn off noise suppression / echo cancellation / auto gain in Discord, Zoom…" with a link to instructions, because double processing makes the sound worse | P1 |
 
 ### 6.3 Processing chain
@@ -191,7 +191,7 @@ sibilants; the limiter last as clipping protection.
 |---|---|---|
 | DSP-001 | Every module has an on/off toggle, **one main slider** (intensity/sensitivity, 0–100%) and an expandable **Advanced** block with all parameters | P0 |
 | DSP-002 | The main slider is a "macro": it maps deterministically to a set of Advanced parameters (tables below). Changing any Advanced parameter by hand switches the module to `CUSTOM` mode (a badge); the main slider is locked with a "Reset to simple" button | P0 |
-| DSP-003 | All parameter changes apply without clicks or artifacts: parameter smoothing (≥ 10 ms, linear/exponential), filter coefficients recomputed without discontinuities | P0 |
+| DSP-003 | All parameter changes apply without clicks or artifacts: parameter smoothing (≥ 10 ms, linear/exponential), filter coefficients recomputed without discontinuities. A rebuilt chain (module on/off, Bypass, preset, look-ahead) is warmed for its latency before the crossfade; a latency change fades over 50 ms | P0 |
 | DSP-004 | Dynamics modules (Expander, Compressor, De-esser, Limiter) show gain reduction in real time | P0 |
 | DSP-005 | A disabled module is fully excluded from processing (0 CPU) and adds no latency | P0 |
 | DSP-006 | The internal sample rate is 48 kHz. If a device runs at 44.1/96 kHz, PipeWire resamples (adapter), not our code | P0 |
@@ -229,12 +229,14 @@ Implementation: a cascade of Butterworth biquads (TPT/SVF form for stable modula
 | Parameter | Range | Default | Note |
 |---|---|---|---|
 | Engine | `Lite` (RNNoise) / `Studio` (DeepFilterNet 3) | Lite | Switching without a restart, with a 50 ms crossfade |
-| Intensity (main) | 0 … 100% | 70% | Lite: wet/dry mix + VAD threshold; Studio: `attenuation limit` 0 … 100 dB |
-| Voice activity threshold (Lite, Advanced) | 0 … 100% | 50% | Extra attenuation when the voice probability is below the threshold |
+| Intensity (main) | 0 … 100% | 70% | An attenuation limit linear in dB: 0 … 50 dB (100% = no limit). Lite: the dry residual sits at the limit + VAD threshold; Studio: `attenuation limit` |
+| Voice activity threshold (Lite, Advanced) | 0 … 100% | 50% | Extra attenuation when the voice probability is below the threshold; it rises at once and holds 150 ms before falling, so word endings survive |
 | Post-filter (Studio, Advanced) | on/off | on | The DeepFilterNet post-filter for better suppression in pauses |
 
 Requirements:
 - NS-001 (P0) Lite = [`nnnoiseless`](https://github.com/jneem/nnnoiseless) (a Rust port of RNNoise), 10 ms frame @ 48 kHz.
+  Both engines see the signal 6 dB lower, so calibrated peaks up to +6 dBFS are not clipped; the
+  dry path is never clipped (the chain is float, the limiter is last).
 - NS-002 (P0) Studio = DeepFilterNet 3 (the Rust crate `deep_filter` with `tract`), the model is embedded in the binary/resources, no network. If the CPU cannot keep up (the overload detector, §10.3) — an automatic fallback to Lite with a toast.
 - NS-003 (P0) The UI honestly shows the added latency (`+10 ms` / `+~40 ms`) and load (`LOW CPU` / `MED CPU`) next to the engine choice.
 - NS-004 (P1) Keyboard/mouse click suppression (like Impact NR in Sonar) — check the quality of RNNoise/DFN on clicks; if insufficient, a separate transient suppressor (P2).
@@ -243,7 +245,7 @@ Requirements:
 
 | Parameter | Range | Default |
 |---|---|---|
-| Sensitivity (main) | 0 … 100% | 50% (→ threshold = noise floor + 6 dB after calibration) |
+| Strength (main; stored as `sensitivity`) | 0 … 100% | 50% (→ threshold = noise floor + 6 dB after calibration) |
 | Threshold | −80 … −10 dBFS | −50 dBFS |
 | Ratio | 1:1.5 … 1:10, ∞ (= gate) | 1:3 |
 | Range (max attenuation) | −80 … 0 dB | −30 dB |
@@ -252,8 +254,9 @@ Requirements:
 | Release | 10 … 1000 ms | 150 ms |
 | Hysteresis | 0 … 12 dB | 4 dB |
 
-Macro: Sensitivity 0% → a high threshold (gently lets only loud speech through), 100% → the threshold at
-the noise floor itself. Range and Ratio grow with "strictness". The detector is a 5 ms RMS envelope with a
+Macro: Strength 0% → the threshold at the noise floor with a gentle ratio and range, 100% → floor + 12 dB
+with 1:6 and −50 dB: every parameter grows in the same direction (2026-11-14; the earlier Sensitivity
+macro moved the threshold against ratio and range). The detector is a 5 ms RMS envelope with a
 100 Hz sidechain HPF (so hum does not open the gate). The graph shows a horizontal threshold line over the
 input meter that can be dragged with the mouse.
 
@@ -311,7 +314,9 @@ Split-band is a dynamic high-shelf/bell at the frequency (no look-ahead); the de
 | Look-ahead | 0 / 1 / 2 / 5 ms | **0 ms** |
 
 By default the limiter has no look-ahead (a fast attack + a soft clipper on the last 0.5 dB) so as not to
-add latency. Look-ahead > 0 is an option for maximum quality (with the added latency shown explicitly).
+add latency. Look-ahead > 0 is an option for maximum quality (with the added latency shown explicitly):
+the gain needed by any sample in the window is held for the whole window, so the envelope is down
+before the peak leaves the delay line.
 
 #### 6.3.9 Output Gain
 
@@ -353,9 +358,9 @@ The main tuning tool in 1.0 (live monitoring is on the roadmap).
 |---|---|---|
 | CAL-001 | Step 1: "Stay silent" — 4 s, measuring the noise floor (RMS, noise spectrum) | P0 |
 | CAL-002 | Step 2: "Read this sentence" — a phrase on screen (~6 s), measuring the speech level and peaks | P0 |
-| CAL-003 | From the results: Gain → speech at ≈ −18 dBFS RMS; Expander threshold = noise floor + 6 dB (not above speech − 12 dB); NS intensity by SNR (SNR > 40 dB → 40%, < 20 dB → 90% and a Studio suggestion); HPF by the presence of noise energy < 100 Hz | P0 |
-| CAL-004 | A result screen: SNR before/after, "noise level: low/medium/high", exactly what was set (a list with module icons) and a "Listen A/B" button | P0 |
-| CAL-005 | Only if the raw input actually clips (at least 3 samples at full scale, so a single click does not count), automatically lower the selected capture endpoint in ~6 dB steps, check fresh capture and remeasure speech; loud but unclipped speech never changes the system level (owner request 2026-11-14). Windows: the endpoint volume; restore on uninstall, `macafon restore-default` and `macafond cleanup`. Linux: the PipeWire source volume through WirePlumber (`wpctl`); restore on `macafon restore-default` (owner request 2026-10-31). Journal the original level before changing it and retain the calibrated level on Quit. Never raise the level during calibration. Unavailable/failed level control: warn and ask the user to lower the system/interface level and retry. Digital Gain still targets ≈ −18 dBFS speech RMS (owner request 2026-10-17) | P0 |
+| CAL-003 | From the results: Gain → speech at ≈ −18 dBFS RMS (speech windows: floor + 10 dB and a relative gate 10 dB under their mean), but never raising the measured speech peak above 0 dBFS; Expander threshold = the noise floor left after Noise suppression + 6 dB (not above speech − 12 dB); NS intensity by SNR (SNR > 40 dB → 40%, < 20 dB → 90% and a Studio suggestion); HPF by the presence of noise energy < 100 Hz | P0 |
+| CAL-004 | A result screen: SNR before/after (after = Gain, HPF and NS; the expander is left out because it only closes in pauses), "noise level: low/medium/high", exactly what was set (a list with module icons, including a lowered system level) and a "Listen A/B" button. Loading a preset on a calibrated microphone keeps Gain and moves the expander threshold with the calibrated floor | P0 |
+| CAL-005 | Only if the raw input actually clips (at least 3 samples at full scale, so a single click does not count; or repeated flat tops below full scale) in either step, automatically lower the selected capture endpoint in ~6 dB steps, check fresh capture and remeasure speech; loud but unclipped speech never changes the system level (owner request 2026-11-14). Flat tops well below full scale mean the converter clips before a digital system level: do not lower it (restore it if already lowered) and ask to lower the microphone's own gain. After a change the UI asks to read the sentence again. Windows: the endpoint volume; restore on uninstall, `macafon restore-default` and `macafond cleanup`. Linux: the PipeWire source volume through WirePlumber (`wpctl`); restore on `macafon restore-default` (owner request 2026-10-31). Journal the original level before changing it and retain the calibrated level on Quit. Never raise the level during calibration. Unavailable/failed level control: warn and ask the user to lower the system/interface level and retry. Digital Gain still targets ≈ −18 dBFS speech RMS (owner request 2026-10-17) | P0 |
 | CAL-006 | Calibration can be run again from the microphone screen | P0 |
 
 ### 6.6 Meters

@@ -23,7 +23,7 @@ The visual part of the UI did not change in this round.
 
 | What | Decision |
 |---|---|
-| Expander, Sensitivity macro | Threshold = noise floor + 30 dB (0%) → +6 dB (50%) → floor (100%). Ratio 1:1.5 → 1:3 → 1:6, Range −15 → −30 → −50 dB. Without calibration the noise floor is −56 dBFS, so 50% gives the −50 dBFS threshold from the table |
+| Expander, Strength macro | Threshold = noise floor (0%) → +6 dB (50%) → +12 dB (100%). Ratio 1:1.5 → 1:3 → 1:6, Range −15 → −30 → −50 dB: everything grows with the slider. The floor is the one left after Noise suppression (CAL-003). Without calibration the noise floor is −56 dBFS, so 50% gives the −50 dBFS threshold from the table |
 | Expander, hysteresis/hold | Opens at the threshold, closes below `threshold − hysteresis` after hold |
 | Compressor, Amount macro | Threshold −10 → −35 dBFS linearly; Ratio piecewise linear 2:1 → 3:1 (40%) → 6:1, so that 40% matches the table defaults |
 | Compressor, auto makeup | Compensates the static attenuation at a −18 dBFS speech level (calibration target CAL-003) |
@@ -31,6 +31,10 @@ The visual part of the UI did not change in this round.
 | De-esser, Intensity | Threshold −10 dBFS (0%) → −50 dBFS (100%), ratio 4:1, attack 0.5 ms, release 40 ms |
 | De-esser, split-band | A dynamic bell on the same band as the detector (band-pass, Q 1): at the center frequency the attenuation equals the gain reduction exactly, far away it is 1 |
 | Limiter without look-ahead | Attack 0.2 ms, attenuation down to `ceiling − 0.5 dB`, then a soft tanh clipper: the output never exceeds the ceiling |
+| Limiter look-ahead | A sliding minimum (monotonic deque in fixed storage) of the gain each sample needs over the window, then attack τ = look-ahead / 5 |
+| NS intensity | An attenuation limit of `intensity × 50 dB`; Lite mixes the dry signal in at that level, Studio passes it as DeepFilterNet's `atten_lim`. Both models see the input 6 dB lower (no clipping of hot calibrated peaks) |
+| NS Lite VAD | Extra attenuation follows the VAD probability, rises at once and holds 150 ms before falling |
+| Presets on a calibrated mic | `with_calibration`: Gain stays, the expander threshold moves by the floor offset (built-in presets assume −56 dBFS and 0 dB Gain) and the Gain difference |
 | EQ characters (dB at Amount 100%) | Bands LS 120 / 250 / 1k / 4k / HS 10k: Clarity −2/−3/0/+3/+2, Warmth +3/+1.5/0/−1/−2, Broadcast +2/−2/0/+2/+3, Presence 0/−1/+1/+4/+1, Thin mic fix +4/+2/0/−1/0 |
 | Studio NS | Embedded DeepFilterNet3 model, a separate worker with fixed SPSC frames. On overload — switch to Lite and an IPC event; the model is never loaded from the network |
 
@@ -39,9 +43,6 @@ uses 0–1 fractions — the conversion will live in `macafon-config`.
 
 ## Notes on the PRD
 
-- §6.3.4: "Range and Ratio grow with strictness", but per the text 100% Sensitivity is a threshold at
-  the noise floor (the softest mode), while the Noisy Room preset sets 70%. Currently the threshold
-  goes down while ratio/range go up with the slider. The slider direction needs a clear definition.
 - §11.4: the chain is described as `Vec<Box<dyn Processor>>`. The order is fixed in 1.0, so modules
   are stored as `Option` fields: no virtual calls and no allocations when disabled. Reordering modules
   (DSP-009, P2) will require a rework.

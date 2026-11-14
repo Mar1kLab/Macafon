@@ -12,29 +12,32 @@ pub const SILENCE_SAMPLES: usize = 4 * SAMPLE_RATE_HZ as usize;
 /// CAL-002: "Read this sentence" phase.
 pub const SPEECH_SAMPLES: usize = 6 * SAMPLE_RATE_HZ as usize;
 
-/// Raw speech must leave room for coughs, laughter and other transients before digital Gain.
-pub const RAW_SPEECH_PEAK_DBFS: f32 = -15.0;
+/// One downward endpoint-volume step, on the device's dB grid, while the raw input clips.
+pub const INPUT_LEVEL_STEP_DB: f32 = 6.0;
+
+/// Samples at or above this magnitude count as clipped (−0.1 dBFS).
+pub const CLIP_LEVEL: f32 = 0.989;
+/// A single overshoot (a click) is not clipping; this many clipped samples are.
+pub const CLIPPED_SAMPLES: usize = 3;
+
+/// CAL-005: the raw input reached full scale, so only a lower capture level can fix it.
+pub fn is_clipped(samples: &[f32]) -> bool {
+    samples.iter().filter(|x| x.abs() >= CLIP_LEVEL).count() >= CLIPPED_SAMPLES
+}
 
 /// One downward endpoint-volume adjustment, on the device's dB grid. Never raises a level.
-/// Limit each adjustment to roughly 6 dB so the caller can check fresh capture between steps.
-pub fn input_level_target_db(
-    current_db: f32,
-    minimum_db: f32,
-    increment_db: f32,
-    raw_peak_dbfs: f32,
-) -> Option<f32> {
-    if ![current_db, minimum_db, increment_db, raw_peak_dbfs]
+/// Callers use it only for a clipped input and check fresh capture between steps.
+pub fn input_level_target_db(current_db: f32, minimum_db: f32, increment_db: f32) -> Option<f32> {
+    if ![current_db, minimum_db, increment_db]
         .iter()
         .all(|value| value.is_finite())
         || increment_db <= 0.0
         || current_db <= minimum_db
-        || raw_peak_dbfs <= RAW_SPEECH_PEAK_DBFS
     {
         return None;
     }
-    let reduction_db = (raw_peak_dbfs - RAW_SPEECH_PEAK_DBFS).min(6.0);
     let target_db = minimum_db
-        + ((current_db - reduction_db - minimum_db) / increment_db).floor() * increment_db;
+        + ((current_db - INPUT_LEVEL_STEP_DB - minimum_db) / increment_db).floor() * increment_db;
     Some(target_db.max(minimum_db))
 }
 
@@ -46,9 +49,6 @@ const FLOOR_QUANTILE: f32 = 0.8;
 const SPEECH_MARGIN_DB: f32 = 10.0;
 /// At least this much detected speech is needed for a meaningful level.
 const MIN_SPEECH_WINDOWS: usize = 30;
-/// Samples at or above this magnitude count as clipped (−0.1 dBFS).
-const CLIP_LEVEL: f32 = 0.989;
-const CLIPPED_SAMPLES: usize = 3;
 /// HPF moves up when most of the noise power sits below this frequency (CAL-003).
 const LOW_FREQUENCY_HZ: f32 = 100.0;
 const LOW_FREQUENCY_SHARE: f32 = 0.5;
@@ -120,7 +120,7 @@ pub fn calibrate(
     let recording = &recording[..SILENCE_SAMPLES + SPEECH_SAMPLES];
     let (silence, speech) = recording.split_at(SILENCE_SAMPLES);
     let peak = recording.iter().fold(0.0f32, |peak, x| peak.max(x.abs()));
-    if recording.iter().filter(|x| x.abs() >= CLIP_LEVEL).count() >= CLIPPED_SAMPLES {
+    if is_clipped(recording) {
         return Err(CalibrationError::Clipped {
             peak_dbfs: amplitude_to_db(peak),
         });
@@ -273,32 +273,32 @@ mod tests {
     use crate::util::db_to_lin;
 
     #[test]
-    fn endpoint_steps_leave_fifteen_db_raw_headroom_without_raising_the_level() {
-        let mut endpoint_db = -3.0;
-        let mut raw_peak_dbfs = -1.0;
+    fn endpoint_steps_down_only_for_real_clipping() {
+        // Loud but clean speech (peaks at −3 dBFS) leaves the user's level alone.
+        let mut speech = vec![0.0f32; SAMPLE_RATE_HZ as usize];
+        speech[100] = 0.7;
+        assert!(!is_clipped(&speech));
+        // A single full-scale click is not clipping either.
+        speech[200] = 1.0;
+        assert!(!is_clipped(&speech));
+        speech[300] = -1.0;
+        speech[301] = 0.995;
+        assert!(is_clipped(&speech));
+
         assert_no_alloc::assert_no_alloc(|| {
-            for expected_db in [-9.0, -15.0, -18.0] {
-                let next_db = input_level_target_db(endpoint_db, -60.0, 1.5, raw_peak_dbfs)
-                    .expect("hot speech needs attenuation");
+            let mut endpoint_db = 0.0;
+            for expected_db in [-6.0, -12.0, -18.0] {
+                let next_db = input_level_target_db(endpoint_db, -60.0, 1.5)
+                    .expect("a clipped input can be lowered");
                 assert_eq!(next_db, expected_db);
-                raw_peak_dbfs += next_db - endpoint_db;
                 endpoint_db = next_db;
             }
-            assert!(raw_peak_dbfs <= -15.0);
-            assert_eq!(
-                input_level_target_db(endpoint_db, -60.0, 1.5, raw_peak_dbfs),
-                None
-            );
-            assert_eq!(input_level_target_db(-60.0, -60.0, 1.5, -3.0), None);
-            assert_eq!(input_level_target_db(-3.0, -60.0, 0.0, -3.0), None);
-            assert_eq!(input_level_target_db(-3.0, -60.0, 1.5, f32::NAN), None);
-            // Make-up remains digital: a 15 dB reduction at the endpoint requires 15 dB
-            // more Gain to keep the existing speech RMS target.
-            let original_speech_rms_dbfs = -12.0;
-            let adjusted_speech_rms_dbfs = original_speech_rms_dbfs + endpoint_db + 3.0;
-            let gain_db = SPEECH_REFERENCE_DBFS - adjusted_speech_rms_dbfs;
-            assert_eq!(gain_db, 9.0);
-            assert_eq!(adjusted_speech_rms_dbfs + gain_db, -18.0);
+            // The grid floors the step, the minimum bounds it, and nothing ever rises.
+            assert_eq!(input_level_target_db(-1.0, -60.0, 1.5), Some(-7.5));
+            assert_eq!(input_level_target_db(-58.0, -60.0, 1.5), Some(-60.0));
+            assert_eq!(input_level_target_db(-60.0, -60.0, 1.5), None);
+            assert_eq!(input_level_target_db(-3.0, -60.0, 0.0), None);
+            assert_eq!(input_level_target_db(f32::NAN, -60.0, 1.5), None);
         });
     }
 

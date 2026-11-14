@@ -208,9 +208,10 @@ sibilants; the limiter last as clipping protection.
 
 Requirements: MIC-G1 (P0) — an input meter before and after Gain, an input clip indicator (clipping
 **before** our processing cannot be fixed → the hint "Lower your mic level in system settings").
-Windows automatic calibration lowers only the selected capture endpoint as needed to leave at
-least 15 dB of raw speech-peak headroom; make-up gain stays digital and targets the same
-−18 dBFS speech RMS. It never raises the user's endpoint level. The original endpoint level is
+Automatic calibration lowers the selected capture endpoint only when the raw input actually
+clips (full scale is reached); loud but clean speech keeps the user's level and digital Gain
+alone targets −18 dBFS speech RMS (owner request 2026-11-14, replacing the earlier 15 dB
+peak-headroom rule). It never raises the user's endpoint level. The original endpoint level is
 journaled for uninstall / explicit recovery; ordinary Quit preserves calibration
 (owner request 2026-10-17).
 
@@ -354,7 +355,7 @@ The main tuning tool in 1.0 (live monitoring is on the roadmap).
 | CAL-002 | Step 2: "Read this sentence" — a phrase on screen (~6 s), measuring the speech level and peaks | P0 |
 | CAL-003 | From the results: Gain → speech at ≈ −18 dBFS RMS; Expander threshold = noise floor + 6 dB (not above speech − 12 dB); NS intensity by SNR (SNR > 40 dB → 40%, < 20 dB → 90% and a Studio suggestion); HPF by the presence of noise energy < 100 Hz | P0 |
 | CAL-004 | A result screen: SNR before/after, "noise level: low/medium/high", exactly what was set (a list with module icons) and a "Listen A/B" button | P0 |
-| CAL-005 | If raw speech peaks exceed −15 dBFS, automatically lower the selected capture endpoint in steps and check fresh capture; remeasure clipped speech. Windows: the endpoint volume; restore on uninstall, `macafon restore-default` and `macafond cleanup`. Linux: the PipeWire source volume through WirePlumber (`wpctl`); restore on `macafon restore-default` (owner request 2026-10-31). Journal the original level before changing it and retain the calibrated level on Quit. Never raise the level during calibration. Unavailable/failed level control: warn and ask the user to lower the system/interface level and retry. Digital Gain still targets ≈ −18 dBFS speech RMS (owner request 2026-10-17) | P0 |
+| CAL-005 | Only if the raw input actually clips (at least 3 samples at full scale, so a single click does not count), automatically lower the selected capture endpoint in ~6 dB steps, check fresh capture and remeasure speech; loud but unclipped speech never changes the system level (owner request 2026-11-14). Windows: the endpoint volume; restore on uninstall, `macafon restore-default` and `macafond cleanup`. Linux: the PipeWire source volume through WirePlumber (`wpctl`); restore on `macafon restore-default` (owner request 2026-10-31). Journal the original level before changing it and retain the calibrated level on Quit. Never raise the level during calibration. Unavailable/failed level control: warn and ask the user to lower the system/interface level and retry. Digital Gain still targets ≈ −18 dBFS speech RMS (owner request 2026-10-17) | P0 |
 | CAL-006 | Calibration can be run again from the microphone screen | P0 |
 
 ### 6.6 Meters

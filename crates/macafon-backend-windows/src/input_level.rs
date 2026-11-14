@@ -1,4 +1,4 @@
-//! Downward capture-level calibration. Persist the original before touching the endpoint;
+//! Downward capture-level calibration for a clipping input. Persist the original before touching the endpoint;
 //! calibration survives Quit, and explicit recovery/uninstall restores the user's level.
 
 use crate::{Error, devices::device_by_id};
@@ -55,23 +55,19 @@ fn io(path: &Path, error: std::io::Error) -> Error {
 /// change for rescaling the already captured, unclipped calibration samples. Fresh capture
 /// must be checked after the endpoint settles; a dB readback can be the requested value
 /// rather than the hardware's actual step (IAudioEndpointVolume::GetVolumeRange).
-pub fn lower(state_dir: &Path, device_id: &str, raw_peak_dbfs: f32) -> Result<f32, Error> {
+pub fn lower(state_dir: &Path, device_id: &str) -> Result<f32, Error> {
     let volume = endpoint(device_id)?;
     // SAFETY: valid COM interface on the control thread; all out pointers are local floats.
     let (current_db, target_db) = unsafe {
         let current_db = volume.GetMasterVolumeLevel()?;
         let (mut minimum_db, mut maximum_db, mut increment_db) = (0.0, 0.0, 0.0);
         volume.GetVolumeRange(&mut minimum_db, &mut maximum_db, &mut increment_db)?;
-        let target_db = macafon_dsp::calibration::input_level_target_db(
-            current_db,
-            minimum_db,
-            increment_db,
-            raw_peak_dbfs,
-        )
-        .filter(|target| *target < current_db)
-        .ok_or_else(|| {
-            Error::InputLevel("microphone input level cannot be lowered further".into())
-        })?;
+        let target_db =
+            macafon_dsp::calibration::input_level_target_db(current_db, minimum_db, increment_db)
+                .filter(|target| *target < current_db)
+                .ok_or_else(|| {
+                    Error::InputLevel("microphone input level cannot be lowered further".into())
+                })?;
         (current_db, target_db)
     };
     let path = state_dir.join(JOURNAL);

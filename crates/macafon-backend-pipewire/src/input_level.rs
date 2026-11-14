@@ -178,22 +178,20 @@ fn db_volume(db: f32) -> f32 {
 /// Lower only the selected microphone by one step. Returns the dB change for rescaling the
 /// already captured, unclipped calibration samples; fresh capture must be checked after the
 /// device settles.
-pub fn lower(node_name: &str, raw_peak_dbfs: f32) -> Result<f32, Error> {
-    lower_with(&capture_level_journal()?, node_name, raw_peak_dbfs)
+pub fn lower(node_name: &str) -> Result<f32, Error> {
+    lower_with(&capture_level_journal()?, node_name)
 }
 
-fn lower_with(journal: &Path, node_name: &str, raw_peak_dbfs: f32) -> Result<f32, Error> {
+fn lower_with(journal: &Path, node_name: &str) -> Result<f32, Error> {
     let id = node_id(node_name)?;
     let current = get_volume(id)?;
     let current_db = volume_db(current);
-    let target_db = macafon_dsp::calibration::input_level_target_db(
-        current_db,
-        MINIMUM_DB,
-        INCREMENT_DB,
-        raw_peak_dbfs,
-    )
-    .filter(|target| *target < current_db)
-    .ok_or_else(|| Error::Message("microphone input level cannot be lowered further".into()))?;
+    let target_db =
+        macafon_dsp::calibration::input_level_target_db(current_db, MINIMUM_DB, INCREMENT_DB)
+            .filter(|target| *target < current_db)
+            .ok_or_else(|| {
+                Error::Message("microphone input level cannot be lowered further".into())
+            })?;
     let target = wpctl_step_down(current, db_volume(target_db));
     if target < db_volume(MINIMUM_DB) {
         return Err(Error::Message(

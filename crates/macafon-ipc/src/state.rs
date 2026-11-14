@@ -226,7 +226,7 @@ pub struct Capabilities {
     /// Saved monitor layouts (§8.5).
     #[serde(default)]
     pub displays: bool,
-    /// The physical input channel can be chosen (MIC-004); the Windows capture is mono.
+    /// The physical input channel can be chosen (MIC-004).
     #[serde(default)]
     pub input_channel: bool,
 }
@@ -258,7 +258,7 @@ impl Capabilities {
         dictation_game_mode: true,
         dictation_gpu: true,
         displays: true,
-        input_channel: false,
+        input_channel: true,
     };
 }
 
@@ -401,6 +401,9 @@ pub enum CalibrationStep {
 pub enum CalibrationFailure {
     /// CAL-005: the input clipped; lower the system or interface level and retry.
     Clipped,
+    /// CAL-005: the converter clips before the system level (flat tops below full scale);
+    /// only the microphone's own gain can fix it. The system level was restored.
+    ClippedInDevice,
     NoSpeech,
     /// The microphone disconnected or PipeWire restarted.
     Disconnected,
@@ -419,6 +422,9 @@ pub enum CalibrationState {
         /// 0…1 within the step.
         progress: f32,
         step_duration_ms: u32,
+        /// CAL-005: the system level was just lowered for clipping; read the phrase again.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        level_lowered: bool,
     },
     /// The calibrated settings are already applied (see `mic.changed`).
     Done {

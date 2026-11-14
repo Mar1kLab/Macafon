@@ -232,6 +232,16 @@ fn lower_with(journal: &Path, node_name: &str) -> Result<f32, Error> {
 /// Explicit recovery only (`macafon restore-default`): preserve later user choices, retain
 /// unplugged/failed entries, and try every device even if one fails. Quit must not call this.
 pub fn restore_capture_levels(journal: &Path) -> Result<(), Error> {
+    restore_where(journal, |_| true)
+}
+
+/// CAL-005: give one source its original level back after calibration found that lowering it
+/// cannot stop the clipping (the converter clips before this level).
+pub fn restore_capture_level(node_name: &str) -> Result<(), Error> {
+    restore_where(&capture_level_journal()?, |device| device == node_name)
+}
+
+fn restore_where(journal: &Path, selected: impl Fn(&str) -> bool) -> Result<(), Error> {
     let entries = read(journal)?;
     if entries.is_empty() {
         return Ok(());
@@ -239,6 +249,10 @@ pub fn restore_capture_levels(journal: &Path) -> Result<(), Error> {
     let mut retained = Vec::new();
     let mut failed = None;
     for entry in entries {
+        if !selected(&entry.device) {
+            retained.push(entry);
+            continue;
+        }
         let result = (|| -> Result<(), Error> {
             let id = node_id(&entry.device)?;
             let current = get_volume(id)?;

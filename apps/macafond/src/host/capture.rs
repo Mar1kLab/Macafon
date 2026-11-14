@@ -112,16 +112,19 @@ impl DaemonHost {
         match recording.poll(control) {
             Poll::Measuring(state) => self.set_calibration(state),
             Poll::Failed(reason, message) => self.fail_calibration(reason, message),
-            Poll::Complete(samples) => {
+            Poll::Complete {
+                samples,
+                input_level_change_db,
+            } => {
                 self.recording = None;
-                self.finish_calibration(&samples);
+                self.finish_calibration(&samples, input_level_change_db);
             }
         }
     }
 
     /// CAL-003: analyse, then apply the calibrated chain like any other change.
-    pub(super) fn finish_calibration(&mut self, samples: &[f32]) {
-        let (settings, report) =
+    pub(super) fn finish_calibration(&mut self, samples: &[f32], input_level_change_db: f32) {
+        let (settings, mut report) =
             match macafon_dsp::calibration::calibrate(samples, &self.config.mic.chain) {
                 Ok(result) => result,
                 Err(error) => {
@@ -133,11 +136,13 @@ impl DaemonHost {
                     return self.fail_calibration(reason, error.to_string());
                 }
             };
+        report.input_level_change_db = input_level_change_db;
         let measured_device = self.active_device.clone();
         let detected_channel = self.detected_channel;
         let applied = self.update(|config| {
             config.mic.chain = settings;
-            config.mic.noise_floor_dbfs = Some(report.noise_floor_dbfs);
+            // The expander's reference: the floor left after Noise suppression.
+            config.mic.noise_floor_dbfs = Some(report.expander_floor_dbfs);
             config.mic.noise_floor_device = measured_device;
             if config.mic.input_channel == macafon_dsp::InputChannel::Auto {
                 config.mic.input_channel = detected_channel;
@@ -151,6 +156,7 @@ impl DaemonHost {
                     snr_db = report.snr_db,
                     snr_after_db = report.snr_after_db,
                     gain_db = report.gain_db,
+                    input_level_change_db,
                     "Calibration applied"
                 );
                 self.set_calibration(CalibrationState::Done { report });

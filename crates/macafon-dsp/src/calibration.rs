@@ -20,9 +20,51 @@ pub const CLIP_LEVEL: f32 = 0.989;
 /// A single overshoot (a click) is not clipping; this many clipped samples are.
 pub const CLIPPED_SAMPLES: usize = 3;
 
-/// CAL-005: the raw input reached full scale, so only a lower capture level can fix it.
+/// Flat tops shorter than this are ordinary low-frequency peaks or quantisation.
+const FLAT_TOP_SAMPLES: usize = 10;
+/// Several flat tops, not one odd pop, make clipping.
+const FLAT_TOPS: usize = 3;
+/// Samples this close to the recording's peak count as the same clipped value.
+const FLAT_TOP_TOLERANCE: f32 = 2e-5;
+/// Flat tops quieter than this (-20 dBFS) are not a clipping problem worth a level change.
+const FLAT_TOP_MIN_PEAK: f32 = 0.1;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Clipping {
+    /// Samples reach full scale: a lower capture level helps.
+    FullScale,
+    /// Repeated flat tops below full scale: the converter clipped before a digital level
+    /// stage (often the system volume of a USB microphone), so lowering that stage only
+    /// moves the flat tops down. Only the analog gain (a knob, a vendor app) can fix it.
+    FlatTop { level: f32 },
+}
+
+/// CAL-005: whether the raw input clipped, and where.
+pub fn clipping(samples: &[f32]) -> Option<Clipping> {
+    if samples.iter().filter(|x| x.abs() >= CLIP_LEVEL).count() >= CLIPPED_SAMPLES {
+        return Some(Clipping::FullScale);
+    }
+    let peak = samples.iter().fold(0.0f32, |peak, x| peak.max(x.abs()));
+    if peak < FLAT_TOP_MIN_PEAK {
+        return None;
+    }
+    let near = peak * (1.0 - FLAT_TOP_TOLERANCE);
+    let (mut run, mut tops) = (0usize, 0usize);
+    for x in samples {
+        if x.abs() >= near {
+            run += 1;
+            if run == FLAT_TOP_SAMPLES {
+                tops += 1;
+            }
+        } else {
+            run = 0;
+        }
+    }
+    (tops >= FLAT_TOPS).then_some(Clipping::FlatTop { level: peak })
+}
+
 pub fn is_clipped(samples: &[f32]) -> bool {
-    samples.iter().filter(|x| x.abs() >= CLIP_LEVEL).count() >= CLIPPED_SAMPLES
+    clipping(samples).is_some()
 }
 
 /// One downward endpoint-volume adjustment, on the device's dB grid. Never raises a level.
@@ -47,6 +89,12 @@ const WINDOW_SAMPLES: usize = SAMPLE_RATE_HZ as usize / 50;
 const FLOOR_QUANTILE: f32 = 0.8;
 /// Windows this far above the floor count as speech.
 const SPEECH_MARGIN_DB: f32 = 10.0;
+/// Relative gate (as BS.1770): windows this far under the gated mean are pauses and word
+/// tails. Without it a quiet room counts more tails than a noisy one and Gain drifts.
+const RELATIVE_GATE_DB: f32 = 10.0;
+/// Calibrated speech peaks stay at or below full scale; the noise models keep another 6 dB
+/// of headroom and the limiter catches the rest.
+const SPEECH_PEAK_CEILING_DBFS: f32 = 0.0;
 /// At least this much detected speech is needed for a meaningful level.
 const MIN_SPEECH_WINDOWS: usize = 30;
 /// HPF moves up when most of the noise power sits below this frequency (CAL-003).
@@ -84,7 +132,8 @@ pub struct CalibrationReport {
     pub speech_rms_dbfs: f32,
     pub speech_peak_dbfs: f32,
     pub snr_db: f32,
-    /// Same recording through the calibrated chain.
+    /// Same recording through Gain, High-pass and Noise suppression (the expander would only
+    /// close in pauses and overstate it).
     pub snr_after_db: f32,
     pub noise_level: NoiseLevel,
     /// Most of the noise is below 100 Hz (hum, rumble), so the high-pass moved up.
@@ -95,6 +144,12 @@ pub struct CalibrationReport {
     pub high_pass_freq_hz: f32,
     pub noise_intensity_pct: f32,
     pub expander_threshold_db: f32,
+    /// Noise floor after Noise suppression, before Gain: the expander's reference.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub expander_floor_dbfs: f32,
+    /// CAL-005: how far calibration lowered the system capture level (<= 0; 0 = untouched).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub input_level_change_db: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, thiserror::Error)]
@@ -135,8 +190,15 @@ pub fn calibrate(
     let speech_peak_dbfs = amplitude_to_db(speech.iter().fold(0.0f32, |p, x| p.max(x.abs())));
     let snr_db = speech_rms_dbfs - noise_floor_dbfs;
 
-    let gain_db = ((SPEECH_REFERENCE_DBFS - speech_rms_dbfs) / GAIN_DB.step).round() * GAIN_DB.step;
-    let gain_db = gain_db.clamp(GAIN_DB.min, GAIN_DB.max);
+    // Speech RMS to the reference, but never push the measured peaks over full scale:
+    // voices with a high crest factor get the rest from the compressor's makeup.
+    let level_gain_db =
+        ((SPEECH_REFERENCE_DBFS - speech_rms_dbfs) / GAIN_DB.step).round() * GAIN_DB.step;
+    let peak_gain_db =
+        ((SPEECH_PEAK_CEILING_DBFS - speech_peak_dbfs) / GAIN_DB.step).floor() * GAIN_DB.step;
+    let gain_db = level_gain_db
+        .min(peak_gain_db)
+        .clamp(GAIN_DB.min, GAIN_DB.max);
     let low_frequency_noise = noise_floor_dbfs > AUDIBLE_FLOOR_DBFS
         && low_frequency_share(silence) >= LOW_FREQUENCY_SHARE;
     let high_pass_freq_hz = if low_frequency_noise {
@@ -147,10 +209,6 @@ pub fn calibrate(
     let noise_intensity_pct = interpolate(snr_db, &[(NOISY_SNR_DB, 90.0), (CLEAN_SNR_DB, 40.0)])
         .clamp(INTENSITY.min, INTENSITY.max)
         .round();
-    let expander_threshold_db = (noise_floor_dbfs + gain_db + EXPANDER_FLOOR_MARGIN_DB)
-        .min(speech_rms_dbfs + gain_db - EXPANDER_SPEECH_MARGIN_DB)
-        .clamp(EXPANDER_THRESHOLD_DBFS.min, EXPANDER_THRESHOLD_DBFS.max)
-        .round();
 
     let mut settings = *current;
     settings.gain.enabled = true;
@@ -159,10 +217,23 @@ pub fn calibrate(
     settings.high_pass.params.freq_hz = high_pass_freq_hz;
     settings.noise_suppression.enabled = true;
     settings.noise_suppression.params.intensity_pct = noise_intensity_pct;
+
+    // The expander follows Noise suppression: its floor is what is left after NS.
+    let (expander_floor_dbfs, snr_after_db) = match clean_signal(recording, &settings) {
+        Some(output) => {
+            let (silence, speech) = output.split_at(SILENCE_SAMPLES);
+            let floor = floor_dbfs(&silence[SETTLE_SAMPLES..]) - gain_db;
+            (floor, level_dbfs(speech, &speech_windows) - gain_db - floor)
+        }
+        None => (noise_floor_dbfs, snr_db),
+    };
+    let expander_threshold_db = (expander_floor_dbfs + gain_db + EXPANDER_FLOOR_MARGIN_DB)
+        .min(speech_rms_dbfs + gain_db - EXPANDER_SPEECH_MARGIN_DB)
+        .clamp(EXPANDER_THRESHOLD_DBFS.min, EXPANDER_THRESHOLD_DBFS.max)
+        .round();
     settings.expander.enabled = true;
     settings.expander.params.threshold_db = expander_threshold_db;
 
-    let snr_after_db = processed_snr_db(recording, &settings, &speech_windows);
     let noise_level = if snr_db >= CLEAN_SNR_DB {
         NoiseLevel::Low
     } else if snr_db >= NOISY_SNR_DB {
@@ -185,6 +256,8 @@ pub fn calibrate(
             high_pass_freq_hz,
             noise_intensity_pct,
             expander_threshold_db,
+            expander_floor_dbfs,
+            input_level_change_db: 0.0,
         },
     ))
 }
@@ -207,12 +280,21 @@ fn floor_dbfs(silence: &[f32]) -> f32 {
     power_to_db(kept.iter().sum::<f32>() / kept.len() as f32)
 }
 
-/// Indices of windows louder than `threshold_dbfs`.
+/// Indices of speech windows: louder than `threshold_dbfs` and within the relative gate of
+/// their mean.
 fn speech_windows(speech: &[f32], threshold_dbfs: f32) -> Vec<usize> {
-    window_powers(speech)
-        .enumerate()
-        .filter(|(_, power)| power_to_db(*power) > threshold_dbfs)
-        .map(|(index, _)| index)
+    let powers: Vec<f32> = window_powers(speech).collect();
+    let gated: Vec<usize> = (0..powers.len())
+        .filter(|&index| power_to_db(powers[index]) > threshold_dbfs)
+        .collect();
+    if gated.is_empty() {
+        return gated;
+    }
+    let mean = gated.iter().map(|&index| powers[index]).sum::<f32>() / gated.len() as f32;
+    let relative_dbfs = power_to_db(mean) - RELATIVE_GATE_DB;
+    gated
+        .into_iter()
+        .filter(|&index| power_to_db(powers[index]) > relative_dbfs)
         .collect()
 }
 
@@ -245,25 +327,27 @@ fn low_frequency_share(silence: &[f32]) -> f32 {
     }
 }
 
-/// SNR of the recording after the calibrated chain, on the same speech windows.
-fn processed_snr_db(recording: &[f32], settings: &ChainSettings, speech_windows: &[usize]) -> f32 {
-    let settings = ChainSettings {
+/// The recording through Gain, High-pass and Noise suppression only, latency removed.
+/// Studio runs on a worker the analysis cannot build, so Lite stands in for it.
+fn clean_signal(recording: &[f32], settings: &ChainSettings) -> Option<Vec<f32>> {
+    let mut settings = ChainSettings {
         muted: false,
         bypass: false,
-        ..*settings
+        gain: settings.gain,
+        high_pass: settings.high_pass,
+        noise_suppression: settings.noise_suppression,
+        ..ChainSettings::raw()
     };
-    let Ok(mut processor) = MicrophoneProcessor::new(&settings) else {
-        return f32::NAN;
-    };
+    settings.noise_suppression.params.engine = crate::settings::NoiseEngine::Lite;
+    let mut processor = MicrophoneProcessor::new(&settings).ok()?;
     let latency = processor.latency_samples() as usize;
     let mut output = recording.to_vec();
     output.extend(std::iter::repeat_n(0.0, latency));
     output
         .chunks_mut(crate::FRAME_SAMPLES)
         .for_each(|block| processor.process(block));
-    let output = &output[latency..];
-    let (silence, speech) = output.split_at(SILENCE_SAMPLES);
-    level_dbfs(speech, speech_windows) - floor_dbfs(&silence[SETTLE_SAMPLES..])
+    output.drain(..latency);
+    Some(output)
 }
 
 #[cfg(test)]
@@ -271,6 +355,21 @@ mod tests {
     use super::*;
     use crate::Preset;
     use crate::util::db_to_lin;
+
+    #[test]
+    fn flat_tops_below_full_scale_count_as_clipping() {
+        // A converter clip after a digital −7 dB level: identical runs at 0.45.
+        let mut clipped: Vec<f32> = (0..SAMPLE_RATE_HZ as usize)
+            .map(|n| 0.9 * (n as f32 * 200.0 * std::f32::consts::TAU / SAMPLE_RATE_HZ as f32).sin())
+            .map(|x| x.clamp(-0.45, 0.45))
+            .collect();
+        assert_eq!(clipping(&clipped), Some(Clipping::FlatTop { level: 0.45 }));
+        // A clean low tone at the same level has no flat tops.
+        for (n, x) in clipped.iter_mut().enumerate() {
+            *x = 0.45 * (n as f32 * 30.0 * std::f32::consts::TAU / SAMPLE_RATE_HZ as f32).sin();
+        }
+        assert_eq!(clipping(&clipped), None);
+    }
 
     #[test]
     fn endpoint_steps_down_only_for_real_clipping() {
@@ -347,16 +446,24 @@ mod tests {
         // Speech to −18 dBFS: +12 dB in 0.5 dB steps (partial windows at phrase edges).
         assert!((report.gain_db - 12.0).abs() <= 0.5, "{report:?}");
         assert_eq!(report.gain_db % 0.5, 0.0);
-        // Floor + gain + 6 ≈ −47 dBFS, under speech − 12 = −30.
+        // The expander sees the floor left after NS: post-NS floor + gain + 6, under
+        // speech − 12 = −30.
         assert!(
-            (report.expander_threshold_db + 47.0).abs() <= 1.0,
+            report.expander_floor_dbfs <= report.noise_floor_dbfs,
+            "{report:?}"
+        );
+        assert_eq!(
+            report.expander_threshold_db,
+            (report.expander_floor_dbfs + report.gain_db + 6.0).round(),
             "{report:?}"
         );
         // SNR 35 dB → between 40% (40 dB) and 90% (20 dB).
         assert!((report.noise_intensity_pct - 52.0).abs() <= 2.0);
         assert!(!report.low_frequency_noise && !report.suggest_studio);
         assert_eq!(report.high_pass_freq_hz, 80.0);
-        assert!(report.snr_after_db > report.snr_db + 6.0, "{report:?}");
+        // NS alone never makes it worse (the synthetic tones are not speech to RNNoise).
+        assert!(report.snr_after_db.is_finite() && report.snr_after_db > report.snr_db - 1.0);
+        assert_eq!(report.input_level_change_db, 0.0);
         // Calibration enables what it tuned and keeps the rest of the chain.
         assert!(settings.expander.enabled && settings.noise_suppression.enabled);
         assert_eq!(settings.gain.params.gain_db, report.gain_db);
@@ -378,8 +485,39 @@ mod tests {
         assert_eq!(report.noise_intensity_pct, 90.0);
         assert!(report.suggest_studio);
         assert_eq!(report.noise_level, NoiseLevel::High);
-        // The floor rule would put the threshold above the speech; capped at speech − 12.
-        assert_eq!(report.expander_threshold_db, -30.0);
+        // Before NS the floor rule would put the threshold above the speech (−45 + 10 + 6);
+        // after strong NS it sits far under the speech and no longer eats word endings.
+        assert!(
+            report.expander_floor_dbfs < report.noise_floor_dbfs - 10.0,
+            "{report:?}"
+        );
+        assert!(report.expander_threshold_db < -30.0 - 6.0, "{report:?}");
+    }
+
+    #[test]
+    fn gain_keeps_peaky_speech_under_full_scale_and_ignores_room_tails() {
+        // A short burst 20 dB over the phrase sets the peak: Gain stops at full scale.
+        let mut peaky = recording(-65.0, -30.0, None);
+        let burst = SILENCE_SAMPLES + SAMPLE_RATE_HZ as usize;
+        for (offset, sample) in peaky[burst..burst + 96].iter_mut().enumerate() {
+            *sample = 0.5 * (offset as f32 * 0.3).sin();
+        }
+        let (_, report) = calibrate(&peaky, &ChainSettings::raw()).expect("calibrates");
+        assert!(
+            report.speech_peak_dbfs + report.gain_db <= 0.0,
+            "{report:?}"
+        );
+        assert!(report.gain_db < 12.0, "{report:?}");
+        // Quiet tails 15 dB under the phrase do not drag the measured speech level down.
+        let mut tails = recording(-80.0, -30.0, None);
+        for (index, sample) in tails[SILENCE_SAMPLES..].iter_mut().enumerate() {
+            let t = index as f32 / SAMPLE_RATE_HZ as f32;
+            if (t * 3.0).fract() >= 0.5 && (t * 3.0).fract() < 0.8 {
+                *sample += 0.03 * (t * 300.0 * std::f32::consts::TAU).sin();
+            }
+        }
+        let (_, report) = calibrate(&tails, &ChainSettings::raw()).expect("calibrates");
+        assert!((report.speech_rms_dbfs + 30.0).abs() < 1.5, "{report:?}");
     }
 
     #[test]

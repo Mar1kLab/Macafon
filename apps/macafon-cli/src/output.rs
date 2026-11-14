@@ -53,6 +53,12 @@ pub(super) fn print_report(report: &CalibrationReport) {
         "expander:     {:.0} dBFS threshold",
         report.expander_threshold_db
     );
+    if report.input_level_change_db < 0.0 {
+        println!(
+            "system level: lowered {:.1} dB (the input clipped)",
+            -report.input_level_change_db
+        );
+    }
     if report.suggest_studio {
         println!("tip:          the room is noisy; try Studio noise suppression");
     }

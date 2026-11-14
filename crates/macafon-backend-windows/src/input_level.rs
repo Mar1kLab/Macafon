@@ -108,6 +108,16 @@ pub fn lower(state_dir: &Path, device_id: &str) -> Result<f32, Error> {
 /// Explicit recovery only: preserve later user choices, retain unplugged/failed entries,
 /// and try every device even if one fails. Ordinary daemon Quit must not call this.
 pub fn restore(state_dir: &Path) -> Result<(), Error> {
+    restore_where(state_dir, |_| true)
+}
+
+/// CAL-005: give one endpoint its original level back after calibration found that lowering
+/// it cannot stop the clipping (the converter clips before this digital level).
+pub fn restore_device(state_dir: &Path, device_id: &str) -> Result<(), Error> {
+    restore_where(state_dir, |device| device == device_id)
+}
+
+fn restore_where(state_dir: &Path, selected: impl Fn(&str) -> bool) -> Result<(), Error> {
     let path = state_dir.join(JOURNAL);
     let entries = read(&path)?;
     if entries.is_empty() {
@@ -116,6 +126,10 @@ pub fn restore(state_dir: &Path) -> Result<(), Error> {
     let mut retained = Vec::new();
     let mut failed = None;
     for entry in entries {
+        if !selected(&entry.device) {
+            retained.push(entry);
+            continue;
+        }
         let result = (|| -> Result<(), Error> {
             let volume = endpoint(&entry.device)?;
             // SAFETY: a live endpoint on the COM-initialised recovery thread.

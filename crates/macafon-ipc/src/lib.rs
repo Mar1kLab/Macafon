@@ -179,6 +179,7 @@ mod tests {
                 step: CalibrationStep::Speech,
                 progress: 0.5,
                 step_duration_ms: 6000,
+                level_lowered: true,
             })),
         ];
         for message in messages {
